@@ -52,15 +52,13 @@ public:
     // an application text ping; xt closes a socket that sends none for 30 s, public included
     [[nodiscard]] static std::string_view ping_frame() noexcept;
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions);
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    method_frame(std::string_view method, std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> method_frame(std::string_view method,
+                                                                  std::span<const Subscription> subscriptions);
 
     std::array<char, 4096> frame_{};
     std::uint64_t next_id_{1};
@@ -80,11 +78,9 @@ inline constexpr std::int64_t k_listen_key_invalid = 2;
 class PrivateProtocol {
 public:
     // order and trade only; GatewaySink has no channel for position, balance or notify
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    futures_subscribe(std::string_view listen_key);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> futures_subscribe(std::string_view listen_key);
 
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    spot_subscribe(std::string_view access_token);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> spot_subscribe(std::string_view access_token);
 
     // an application text ping; xt closes a socket that sends none for 30 s
     [[nodiscard]] static std::string_view ping_frame() noexcept;

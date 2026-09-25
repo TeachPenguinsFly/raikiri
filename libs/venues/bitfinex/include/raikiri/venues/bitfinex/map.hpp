@@ -35,10 +35,8 @@ inline constexpr std::uint32_t k_funding_interval_s = 28800;
                                          UnixNanos ts_event,
                                          UnixNanos ts_init);
 
-[[nodiscard]] std::optional<TradeTick> map_trade(const WireTrade& wire,
-                                                 std::string_view symbol,
-                                                 const exec::InstrumentTable& table,
-                                                 UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick>
+map_trade(const WireTrade& wire, std::string_view symbol, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // volume is in the base asset; the quote column stays zero as the venue states none
 [[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
@@ -69,8 +67,8 @@ struct OrderContext {
                                                         const ExchangeClientOrderId& client_id,
                                                         UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                                    const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<OrderEvent> map_execution(const WireExecution& wire,
                                                       const exec::InstrumentTable& table,

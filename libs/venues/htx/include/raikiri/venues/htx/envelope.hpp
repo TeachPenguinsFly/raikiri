@@ -13,11 +13,11 @@ enum class EventKind : std::uint8_t {
     Bbo,             // market.{code}.bbo
     Trade,           // market.{code}.trade.detail
     Depth,           // market.{code}.depth.step0
-    Detail, // market.{code}.detail, 24-hour window
+    Detail,          // market.{code}.detail, 24-hour window
     Funding,         // op:notify carrying public.{code}.funding_rate
     MarketPing,      // {"ping":<ms>}
     NotifyPing,      // {"op":"ping","ts":"<ms>"}
-    SpotPing, // {"action":"ping","data":{"ts":<ms>}}, spot v2
+    SpotPing,        // {"action":"ping","data":{"ts":<ms>}}, spot v2
     AuthReply,       // the answer to a signed handshake on either private socket
     PrivateOrder,    // orders_cross.{code} / orders#{symbol}
     PrivateMatch,    // trade.clearing#{symbol}#0; the swap folds fills into orders
@@ -66,12 +66,10 @@ struct RestEnvelope {
 [[nodiscard]] std::string_view unquote(std::string_view raw) noexcept;
 
 // swap writes numbers and spot strings; the raw token reads both
-[[nodiscard]] std::expected<std::string_view, WireError> num_of(wire::ondemand::object& obj,
-                                                                std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> num_of(wire::ondemand::object& obj, std::string_view key);
 
 // epoch ms as a digit string; parse_decimal_e9 would overflow int64
-[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms_str(wire::ondemand::object& obj,
-                                                                 std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms_str(wire::ondemand::object& obj, std::string_view key);
 
 // "market.BTC-USDT.bbo" -> "BTC-USDT"; codes contain hyphens, never dots
 [[nodiscard]] std::string_view code_of(std::string_view topic);

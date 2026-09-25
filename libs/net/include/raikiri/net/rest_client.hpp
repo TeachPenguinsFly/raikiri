@@ -26,9 +26,7 @@ struct RestConfig {
     bool verify_tls{true};
 
     // the longest a send() that returned true can take to reach its callback; a caller's deadline must exceed it
-    [[nodiscard]] constexpr std::uint64_t max_wait_ms() const noexcept {
-        return std::uint64_t{timeout_ms} * 2;
-    }
+    [[nodiscard]] constexpr std::uint64_t max_wait_ms() const noexcept { return std::uint64_t{timeout_ms} * 2; }
 };
 
 struct HttpHeader {
@@ -38,8 +36,8 @@ struct HttpHeader {
 
 struct RestRequest {
     HttpMethod method{HttpMethod::Post};
-    std::string_view target{};       // "/v5/order/create?a=b"
-    std::string_view body{};         // JSON, usually from JsonWriter
+    std::string_view target{}; // "/v5/order/create?a=b"
+    std::string_view body{};   // JSON, usually from JsonWriter
     // braced so leaving it out of a designated initialiser is not a gcc warning
     std::vector<HttpHeader> headers{}; // signature, api key, timestamps
     std::string_view content_type{"application/json"};

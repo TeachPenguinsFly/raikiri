@@ -38,8 +38,7 @@ struct OwnedSubscription {
 
 // single threaded; only the gateway loop calls in
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
-        : sink{&sink_ref}, clock{&clock_ref} {}
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref) : sink{&sink_ref}, clock{&clock_ref} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;

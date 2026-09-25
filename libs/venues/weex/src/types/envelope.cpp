@@ -61,8 +61,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             if (!ok.has_value()) {
                 return std::unexpected(ok.error());
             }
-            return EventInfo{.kind = *ok ? EventKind::SubscribeAck : EventKind::Error,
-                             .symbol = {}};
+            return EventInfo{.kind = *ok ? EventKind::SubscribeAck : EventKind::Error, .symbol = {}};
         }
 
         obj.reset();

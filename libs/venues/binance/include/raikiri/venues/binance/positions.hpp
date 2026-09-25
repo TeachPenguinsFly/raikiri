@@ -25,8 +25,8 @@ struct PositionBuffer {
     std::array<WirePosition, k_max_positions> positions{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_account_update(std::string_view data, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_account_update(std::string_view data,
+                                                                                           PositionBuffer& storage);
 
 // one row of /fapi/v2/positionRisk, read by reconciliation
 struct WirePositionRisk {

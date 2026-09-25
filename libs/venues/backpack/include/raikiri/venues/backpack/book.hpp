@@ -29,8 +29,7 @@ struct WireBookTicker {
 [[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data);
 
 // floored to whole lots: some spot books rest sizes finer than the current step
-[[nodiscard]] std::optional<std::int64_t> tradable_steps(std::string_view text,
-                                                         FixedE9 step) noexcept;
+[[nodiscard]] std::optional<std::int64_t> tradable_steps(std::string_view text, FixedE9 step) noexcept;
 
 struct WireLevel {
     std::string_view price;
@@ -53,8 +52,7 @@ struct WireDepthUpdate {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
-                                                                           LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data, LevelBuffer& storage);
 
 struct WireDepthSnapshot {
     std::uint64_t last_update_id{0};
@@ -63,8 +61,8 @@ struct WireDepthSnapshot {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepthSnapshot, WireError>
-parse_depth_snapshot(std::string_view body, LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_view body,
+                                                                               LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,

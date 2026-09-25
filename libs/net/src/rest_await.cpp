@@ -19,11 +19,8 @@ struct Landing {
 
 } // namespace
 
-std::optional<RestResponse> await_response(IoContext& io,
-                                           const Clock& clock,
-                                           RestClient& rest,
-                                           const RestRequest& request,
-                                           std::uint64_t timeout_ms) {
+std::optional<RestResponse> await_response(
+    IoContext& io, const Clock& clock, RestClient& rest, const RestRequest& request, std::uint64_t timeout_ms) {
     // refused inside a handler: pumping a running reactor re-enters other handlers
     if (io.pumping() || AbandonScope::abandoned()) {
         return std::nullopt;
@@ -32,9 +29,7 @@ std::optional<RestResponse> await_response(IoContext& io,
     // the callback captures the cell by value and keeps it alive while the pool holds it
     const auto deadline = clock.mono().ns + timeout_ms * 1'000'000ULL;
     // a refused send waits for room rather than failing
-    while (!rest.send(request, [landing](RestResponse&& response) {
-        landing->response = std::move(response);
-    })) {
+    while (!rest.send(request, [landing](RestResponse&& response) { landing->response = std::move(response); })) {
         if (clock.mono().ns >= deadline || AbandonScope::abandoned()) {
             return std::nullopt;
         }
@@ -42,8 +37,7 @@ std::optional<RestResponse> await_response(IoContext& io,
             std::this_thread::sleep_for(std::chrono::milliseconds{5});
         }
     }
-    while (!landing->response.has_value() && clock.mono().ns < deadline &&
-           !AbandonScope::abandoned()) {
+    while (!landing->response.has_value() && clock.mono().ns < deadline && !AbandonScope::abandoned()) {
         if (io.poll() == 0) {
             io.run_for(5);
         }

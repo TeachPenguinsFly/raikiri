@@ -104,9 +104,8 @@ TEST(DydxCatalogue, PepesTickIsRefusedNotRounded) {
 
 TEST(DydxCatalogue, SettledMarketsAreNotLoaded) {
     EXPECT_EQ(map_instrument(row("MATIC-USD")).error(), Refusal::Inactive);
-    EXPECT_EQ(
-        map_instrument(row("CIG,RAYDIUM,EXRQAUXS967FDKYMNXO4EQZEQIHEUBSTBCXPXXWPUMP-USD")).error(),
-        Refusal::Inactive);
+    EXPECT_EQ(map_instrument(row("CIG,RAYDIUM,EXRQAUXS967FDKYMNXO4EQZEQIHEUBSTBCXPXXWPUMP-USD")).error(),
+              Refusal::Inactive);
 }
 
 TEST(DydxFunding, ATwentyDecimalRateAndAnOffGridOracleBothArrive) {
@@ -284,8 +283,7 @@ TEST(DydxStream, ALimitRefusalNamesItsChannelOnlyInItsText) {
 TEST(DydxStream, ControlFramesAreRecognised) {
     auto storage = buffer();
     EXPECT_EQ(parse_frame(fixture("ws_connected.json"), *storage)->type, FrameType::Connected);
-    EXPECT_EQ(parse_frame(fixture("ws_unsubscribed.json"), *storage)->type,
-              FrameType::Unsubscribed);
+    EXPECT_EQ(parse_frame(fixture("ws_unsubscribed.json"), *storage)->type, FrameType::Unsubscribed);
 }
 
 TEST(DydxStream, BooksAreBatchedAndTradesAreNot) {

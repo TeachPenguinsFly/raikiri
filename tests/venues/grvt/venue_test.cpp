@@ -50,9 +50,7 @@ public:
 
     void on_order_event(const OrderEvent& event) noexcept override { events.push_back(event); }
 
-    void on_order_error(ClientOrderId, const exec::VenueError& error) noexcept override {
-        errors.push_back(error);
-    }
+    void on_order_error(ClientOrderId, const exec::VenueError& error) noexcept override { errors.push_back(error); }
 
     void on_connectivity(const exec::ConnEvent&) noexcept override {}
 
@@ -209,9 +207,7 @@ TEST(GrvtBook, ASnapshotWithNoAckAheadOfItIsNotTrusted) {
 
 TEST(GrvtBook, ALevelOffTheGridDropsTheWholeBook) {
     const auto tick = *parse_decimal_e9("0.1");
-    DepthBook book{InstrumentId::make(VenueId::Grvt, MarketType::Perp, SymbolId{1}),
-                   tick,
-                   *parse_decimal_e9("0.001")};
+    DepthBook book{InstrumentId::make(VenueId::Grvt, MarketType::Perp, SymbolId{1}), tick, *parse_decimal_e9("0.001")};
     book.sequence.acknowledged(1);
     ASSERT_EQ(book.sequence.offer(0, 0), Step::Snapshot);
     MessageBuffer storage;
@@ -314,8 +310,7 @@ TEST(GrvtFeed, AFrameStatingNoRateIsNotFundingAtZero) {
     const auto table = load_table();
     WireTicker ticker{};
     ticker.mark_price = "1.0";
-    EXPECT_FALSE(
-        map_funding(ticker, listed(table, "BTC_USDT_Perp"), k_ingest, k_ingest).has_value());
+    EXPECT_FALSE(map_funding(ticker, listed(table, "BTC_USDT_Perp"), k_ingest, k_ingest).has_value());
     EXPECT_TRUE(percent_to_ratio("").is_undef());
     EXPECT_EQ(percent_to_ratio("-0.0003"), *parse_decimal_e9("-0.000003"));
 }
@@ -332,8 +327,7 @@ TEST(GrvtVenue, EveryOrderPathRefusesWithTheReason) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Grvt, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Grvt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Grvt);
     ASSERT_TRUE(adapter->execution->start().has_value());
@@ -362,8 +356,7 @@ TEST(GrvtVenue, SpotIsRefusedBeforeAnythingConnects) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto spot =
-        exec::make_venue({.venue = VenueId::Grvt, .market = MarketType::Spot}, sink, clock);
+    const auto spot = exec::make_venue({.venue = VenueId::Grvt, .market = MarketType::Spot}, sink, clock);
     ASSERT_FALSE(spot.has_value());
     EXPECT_EQ(spot.error(), exec::MakeError::UnsupportedMarket);
     const auto& caps = exec::caps_of(VenueId::Grvt);

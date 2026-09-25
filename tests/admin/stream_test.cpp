@@ -38,8 +38,7 @@ Bbo two_sided(const InstrumentBase& base) {
 }
 
 TEST(AdminStream, ASubscribeIsAChannelAHandleAndItsInstruments) {
-    const auto message = parse_client_message(
-        R"({"op":"subscribe","id":"q1","quotes":["123","4611686018427387905"]})");
+    const auto message = parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["123","4611686018427387905"]})");
     ASSERT_TRUE(message.has_value());
     EXPECT_EQ(message->op, Op::Subscribe);
     EXPECT_EQ(message->id, "q1");
@@ -55,11 +54,10 @@ TEST(AdminStream, ASubscribeIsAChannelAHandleAndItsInstruments) {
 }
 
 TEST(AdminStream, AnInstrumentIdThatIsNotDigitsIsRefusedRatherThanTruncated) {
-    for (const auto* text :
-         {R"({"op":"subscribe","id":"q1","quotes":["79418.30"]})",
-          R"({"op":"subscribe","id":"q1","quotes":["abc"]})",
-          R"({"op":"subscribe","id":"q1","quotes":["-1"]})",
-          R"({"op":"subscribe","id":"q1","quotes":["99999999999999999999999"]})"}) {
+    for (const auto* text : {R"({"op":"subscribe","id":"q1","quotes":["79418.30"]})",
+                             R"({"op":"subscribe","id":"q1","quotes":["abc"]})",
+                             R"({"op":"subscribe","id":"q1","quotes":["-1"]})",
+                             R"({"op":"subscribe","id":"q1","quotes":["99999999999999999999999"]})"}) {
         const auto message = parse_client_message(text);
         ASSERT_FALSE(message.has_value()) << text;
         EXPECT_EQ(message.error().status, 400);
@@ -81,15 +79,13 @@ TEST(AdminStream, ASubscribeNamesExactlyOneChannel) {
     ASSERT_FALSE(none.has_value());
     EXPECT_EQ(none.error().title, "subscribe named no channel");
 
-    const auto both =
-        parse_client_message(R"({"op":"subscribe","id":"x","quotes":["1"],"book":"1"})");
+    const auto both = parse_client_message(R"({"op":"subscribe","id":"x","quotes":["1"],"book":"1"})");
     ASSERT_FALSE(both.has_value());
     EXPECT_EQ(both.error().title, "one channel per subscription");
 }
 
 TEST(AdminStream, AFieldThisServerDoesNotKnowIsAClientOneVersionAhead) {
-    const auto message =
-        parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"depth":25})");
+    const auto message = parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"depth":25})");
     ASSERT_TRUE(message.has_value());
     EXPECT_EQ(message->quotes.size(), 1U);
 
@@ -144,24 +140,20 @@ TEST(AdminStream, CadenceIsNegotiatedRatherThanObeyed) {
 }
 
 TEST(AdminStream, TheAskedForCadenceNeverPassesThroughADouble) {
-    const auto half =
-        parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":0.5})");
+    const auto half = parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":0.5})");
     ASSERT_TRUE(half.has_value());
     EXPECT_EQ(half->millihertz, 500);
 
-    const auto plain =
-        parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":30})");
+    const auto plain = parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":30})");
     ASSERT_TRUE(plain.has_value());
     EXPECT_EQ(plain->millihertz, 30'000);
 
-    const auto exponent =
-        parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":1e2})");
+    const auto exponent = parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":1e2})");
     ASSERT_TRUE(exponent.has_value());
     EXPECT_EQ(exponent->millihertz, 100'000);
     EXPECT_EQ(negotiate_millihertz(Feed::Quotes, 1, exponent->millihertz), k_max_millihertz);
 
-    EXPECT_FALSE(parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":"fast"})")
-                     .has_value());
+    EXPECT_FALSE(parse_client_message(R"({"op":"subscribe","id":"q1","quotes":["1"],"hz":"fast"})").has_value());
 }
 
 TEST(AdminStream, TheAckStatesWhatTheServerWillActuallyDo) {
@@ -242,11 +234,8 @@ TEST(AdminStream, TheBookIsBestFirstAndOnlyAsDeepAsItWasFilled) {
     EXPECT_EQ(book.asks[0].size, "2");
 
     const auto frame = book_frame("b1", k_ts, book);
-    EXPECT_TRUE(
-        frame.starts_with(R"({"type":"book","id":"b1","ts":"1787840965107000000","book":{)"))
-        << frame;
-    EXPECT_NE(frame.find(R"("bids":[{"price":"79418.3","size":"1.5"})"), std::string::npos)
-        << frame;
+    EXPECT_TRUE(frame.starts_with(R"({"type":"book","id":"b1","ts":"1787840965107000000","book":{)")) << frame;
+    EXPECT_NE(frame.find(R"("bids":[{"price":"79418.3","size":"1.5"})"), std::string::npos) << frame;
 }
 
 TEST(AdminStream, ADepthVisualiserGetsTheLevelsItDrawsAndNotTheHundredHeld) {
@@ -366,10 +355,8 @@ OrderEvent filled_event(const InstrumentBase& base) {
 TEST(AdminStream, AnEventCarriesItsSequenceAsDigitsAndIsNeverCoalesced) {
     const auto base = linear_base();
     const auto frame = order_event_frame("a1", 1042, filled_event(base), base);
-    EXPECT_TRUE(frame.starts_with(R"({"type":"event","id":"a1","seq":"1042","order_event":{)"))
-        << frame;
-    EXPECT_NE(frame.find(R"("client_order_id":")" + digits(ClientOrderId::make(7, 42).raw) + '"'),
-              std::string::npos)
+    EXPECT_TRUE(frame.starts_with(R"({"type":"event","id":"a1","seq":"1042","order_event":{)")) << frame;
+    EXPECT_NE(frame.find(R"("client_order_id":")" + digits(ClientOrderId::make(7, 42).raw) + '"'), std::string::npos)
         << frame;
     EXPECT_NE(frame.find(R"("event_type":"filled")"), std::string::npos) << frame;
     EXPECT_NE(frame.find(R"("price":"79418.3")"), std::string::npos) << frame;
@@ -392,9 +379,8 @@ TEST(AdminStream, AnOverrunIsSaidOutLoudRatherThanSwallowed) {
 }
 
 TEST(AdminStream, AProblemIsRfc9457AndCarriesTheHandleWhenThereIsOne) {
-    const Problem problem{.title = "no live channel for reconciliation breaks",
-                          .status = 501,
-                          .detail = "read /v1/recon-breaks"};
+    const Problem problem{
+        .title = "no live channel for reconciliation breaks", .status = 501, .detail = "read /v1/recon-breaks"};
     EXPECT_EQ(problem_frame("a1", problem),
               R"({"type":"problem","id":"a1","problem":{"title":)"
               R"("no live channel for reconciliation breaks","status":501,)"

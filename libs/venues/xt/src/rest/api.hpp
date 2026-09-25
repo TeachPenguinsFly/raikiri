@@ -35,10 +35,8 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
 
 // build refusals are terminal, except missing credentials
 exec::VenueError build_failure(BuildError err) noexcept {
-    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                               : exec::ErrorClass::Terminal,
-                                  0,
-                                  to_string(err));
+    return exec::VenueError::make(
+        err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure : exec::ErrorClass::Terminal, 0, to_string(err));
 }
 
 // the trees use disjoint envelopes and codes, and spot refuses at http 200
@@ -48,15 +46,13 @@ exec::VenueError rest_failure(std::string_view body, MarketType market) {
         if (!envelope.has_value()) {
             return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable refusal body");
         }
-        return exec::VenueError::make(
-            classify_spot(envelope->mc), numeric_code(envelope->mc), envelope->mc);
+        return exec::VenueError::make(classify_spot(envelope->mc), numeric_code(envelope->mc), envelope->mc);
     }
     const auto envelope = parse_rest_envelope(body);
     if (!envelope.has_value()) {
         return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable refusal body");
     }
-    return exec::VenueError::make(
-        classify(envelope->code), numeric_code(envelope->code), envelope->msg);
+    return exec::VenueError::make(classify(envelope->code), numeric_code(envelope->code), envelope->msg);
 }
 
 // spot refuses at http 200, so rc decides; futures fails on non-2xx or returnCode 1
@@ -72,12 +68,9 @@ bool envelope_ok(std::string_view body, MarketType market) {
 class RestApi {
 public:
     RestApi(VenueState& state, MarketType market)
-        : state_{&state},
-          rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          spot_rest_{state.io,
-                     net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
-          builder_{state.signer}, spot_{market == MarketType::Spot},
-          perp_{market == MarketType::Perp} {}
+        : state_{&state}, rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+          spot_rest_{state.io, net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
+          builder_{state.signer}, spot_{market == MarketType::Spot}, perp_{market == MarketType::Perp} {}
 
     // each tree's clock offset is measured against its own host
     void start() {
@@ -104,17 +97,15 @@ public:
 
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
-    [[nodiscard]] bool
-    send(const net::RestRequest& request, MarketType market, net::RestCallback on_done) {
+    [[nodiscard]] bool send(const net::RestRequest& request, MarketType market, net::RestCallback on_done) {
         return rest_for(market).send(request, std::move(on_done));
     }
 
-    [[nodiscard]] std::expected<std::string, exec::VenueError>
-    fetch(const net::RestRequest& request, MarketType market) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& request,
+                                                                     MarketType market) {
         const auto response = await_response(*state_, rest_for(market), request);
         if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
         if (response->status < 200 || response->status >= 300) {
             return std::unexpected{rest_failure(response->body, market)};
@@ -125,8 +116,7 @@ public:
         return response->body;
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType market) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -144,13 +134,12 @@ public:
             auto& storage = *storage_owner;
             const auto orders = parse_spot_orders(*body, storage);
             if (!orders.has_value()) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
             }
             reports.reserve(orders->size());
             for (const auto& wire : *orders) {
-                if (auto report = map_spot_open_order(wire, state_->instruments);
-                    report.has_value()) {
+                if (auto report = map_spot_open_order(wire, state_->instruments); report.has_value()) {
                     seed(wire.order_id, *report);
                     reports.push_back(*report);
                 }
@@ -161,13 +150,11 @@ public:
         auto& storage = *storage_owner;
         const auto orders = parse_futures_orders(*body, storage);
         if (!orders.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
         }
         reports.reserve(orders->size());
         for (const auto& wire : *orders) {
-            if (auto report = map_futures_open_order(wire, state_->instruments);
-                report.has_value()) {
+            if (auto report = map_futures_open_order(wire, state_->instruments); report.has_value()) {
                 seed(wire.order_id, *report);
                 reports.push_back(*report);
             }
@@ -175,8 +162,8 @@ public:
         return reports;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -194,19 +181,16 @@ public:
         }
         const auto wire = parse_spot_order(*body);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         auto report = map_spot_open_order(*wire, state_->instruments);
         if (!report.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
         }
         return *report;
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
-                                                                                UnixNanos since) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -236,8 +220,8 @@ public:
             auto& storage = *storage_owner;
             const auto trades = parse_spot_trades(*body, storage);
             if (!trades.has_value()) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(trades.error()))};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(trades.error()))};
             }
             reports.reserve(trades->size());
             for (const auto& wire : *trades) {
@@ -253,8 +237,7 @@ public:
         auto& storage = *storage_owner;
         const auto deals = parse_futures_deals(*body, storage);
         if (!deals.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(deals.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(deals.error()))};
         }
         reports.reserve(deals->size());
         for (const auto& wire : *deals) {
@@ -287,8 +270,7 @@ public:
         auto& storage = *storage_owner;
         const auto balances = parse_futures_balances(*body, storage);
         if (!balances.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(balances.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(balances.error()))};
         }
         std::vector<BalanceReport> reports;
         reports.reserve(balances->size());
@@ -300,8 +282,7 @@ public:
         return reports;
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
-                                                                              UnixNanos since) {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -322,23 +303,20 @@ public:
         const auto bills = parse_bills(*body, storage);
         if (!bills.has_value()) {
             // an unreadable ledger is not an empty one
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bills.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bills.error()))};
         }
         const auto received = state_->clock->wall();
         std::vector<LedgerEntry> charges;
         charges.reserve(bills->size());
         for (const auto& wire : *bills) {
-            if (const auto charge = map_bill(wire, state_->instruments, received);
-                charge.has_value()) {
+            if (const auto charge = map_bill(wire, state_->instruments, received); charge.has_value()) {
                 charges.push_back(*charge);
             }
         }
         return charges;
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -358,8 +336,7 @@ public:
         auto& storage = *storage_owner;
         const auto positions = parse_futures_positions(*body, storage);
         if (!positions.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());
@@ -387,8 +364,7 @@ private:
                 return report;
             }
         }
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
     }
 
     void seed(std::string_view order_id, const exec::OrderStatusReport& report) {

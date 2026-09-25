@@ -36,8 +36,7 @@ protected:
 
 TEST_F(BybitVenue, RegistersAndBuildsWithoutCredentials) {
     // market data runs without keys
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bybit);
     EXPECT_TRUE(adapter->caps.markets.perp);
@@ -58,8 +57,7 @@ TEST_F(BybitVenue, CapsRowCarriesOurOrderIds) {
 }
 
 TEST_F(BybitVenue, SubscribingAnUnknownInstrumentIsRefused) {
-    auto adapter_holder =
-        exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
+    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter_holder.has_value());
     auto& adapter = *adapter_holder;
     const auto unknown = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7});
@@ -70,8 +68,7 @@ TEST_F(BybitVenue, SubscribingAnUnknownInstrumentIsRefused) {
 
 TEST_F(BybitVenue, OrderWithoutCredentialsFailsLoudlyAsAnEvent) {
     // an unbuildable command still produces a terminal event
-    auto adapter_holder =
-        exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
+    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter_holder.has_value());
     auto& adapter = *adapter_holder;
 
@@ -95,8 +92,7 @@ TEST_F(BybitVenue, OrderWithoutCredentialsFailsLoudlyAsAnEvent) {
 }
 
 TEST_F(BybitVenue, StopIsIdempotent) {
-    auto adapter_holder =
-        exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
+    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter_holder.has_value());
     auto& adapter = *adapter_holder;
     adapter.data->stop();

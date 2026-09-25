@@ -29,7 +29,6 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
 map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // nullopt for anything not trading, not the requested market, or with unparsed filters
-[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
-                                                       MarketType market);
+[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 } // namespace raikiri::venues::aster

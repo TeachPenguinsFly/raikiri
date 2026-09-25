@@ -42,8 +42,7 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
 
 } // namespace
 
-std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame,
-                                                         LevelBuffer& storage) {
+std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderBook, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {

@@ -56,12 +56,12 @@ struct OrderUpdateBuffer {
 parse_order_updates(std::string_view frame, OrderUpdateBuffer& storage);
 
 // data is the array, for orderInfo too
-[[nodiscard]] std::expected<std::span<const WireOrderUpdate>, WireError>
-parse_spot_orders(std::string_view body, OrderUpdateBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrderUpdate>, WireError> parse_spot_orders(std::string_view body,
+                                                                                           OrderUpdateBuffer& storage);
 
 // the array is under data.entrustedList
-[[nodiscard]] std::expected<std::span<const WireOrderUpdate>, WireError>
-parse_mix_orders(std::string_view body, OrderUpdateBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrderUpdate>, WireError> parse_mix_orders(std::string_view body,
+                                                                                          OrderUpdateBuffer& storage);
 
 struct WireFill {
     std::string_view symbol;
@@ -80,12 +80,12 @@ struct FillBuffer {
 };
 
 // data is the array; feeDetail is an object
-[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
-parse_spot_fills(std::string_view body, FillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_spot_fills(std::string_view body,
+                                                                                   FillBuffer& storage);
 
 // data.fillList; feeDetail is an array
-[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
-parse_mix_fills(std::string_view body, FillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_mix_fills(std::string_view body,
+                                                                                  FillBuffer& storage);
 
 // order_id may be empty when a reduce-only order displaces others; clientOid is then the handle
 struct WireOrderAck {

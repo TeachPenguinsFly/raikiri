@@ -15,8 +15,7 @@ struct Text {
     std::string_view* into;
 };
 
-std::expected<void, WireError> read_text(wire::ondemand::object& obj,
-                                         std::initializer_list<Text> wanted) {
+std::expected<void, WireError> read_text(wire::ondemand::object& obj, std::initializer_list<Text> wanted) {
     for (const auto& want : wanted) {
         const auto value = wire::opt_str(obj, want.key);
         if (!value.has_value()) {
@@ -96,8 +95,7 @@ std::expected<WireProduct, WireError> read_product(wire::ondemand::object& obj) 
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    out.has_fees =
-        wire::has_field(obj, "defaultTakerFeeEr") && wire::has_field(obj, "defaultMakerFeeEr");
+    out.has_fees = wire::has_field(obj, "defaultTakerFeeEr") && wire::has_field(obj, "defaultMakerFeeEr");
     const auto tick = wire::opt_raw(obj, "tickSize");
     const auto contract = wire::opt_raw(obj, "contractSize");
     if (!tick.has_value() || !contract.has_value()) {
@@ -122,8 +120,7 @@ std::expected<WirePerp, WireError> read_perp(wire::ondemand::object& obj) {
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    if (const auto ok = read_u32(obj, {{"fundingInterval", &out.funding_interval_s}});
-        !ok.has_value()) {
+    if (const auto ok = read_u32(obj, {{"fundingInterval", &out.funding_interval_s}}); !ok.has_value()) {
         return std::unexpected(ok.error());
     }
     return out;
@@ -131,11 +128,8 @@ std::expected<WirePerp, WireError> read_perp(wire::ondemand::object& obj) {
 
 // an unreadable row is skipped and counted; most rows are delisted
 template <typename Row, typename Read>
-std::expected<std::size_t, WireError> read_rows(wire::ondemand::object& data,
-                                                std::string_view key,
-                                                std::span<Row> into,
-                                                std::size_t& malformed,
-                                                Read read) {
+std::expected<std::size_t, WireError>
+read_rows(wire::ondemand::object& data, std::string_view key, std::span<Row> into, std::size_t& malformed, Read read) {
     auto rows = wire::req_array(data, key);
     if (!rows.has_value()) {
         return std::unexpected(rows.error());
@@ -162,8 +156,7 @@ std::expected<std::size_t, WireError> read_rows(wire::ondemand::object& data,
 
 } // namespace
 
-std::expected<WireCatalogue, WireError> parse_products(std::string_view body,
-                                                       CatalogueBuffer& storage) {
+std::expected<WireCatalogue, WireError> parse_products(std::string_view body, CatalogueBuffer& storage) {
     return guarded([&]() -> std::expected<WireCatalogue, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -188,8 +181,8 @@ std::expected<WireCatalogue, WireError> parse_products(std::string_view body,
         if (!products.has_value()) {
             return std::unexpected(products.error());
         }
-        const auto perps =
-            read_rows(*data, "perpProductsV2", std::span<WirePerp>{storage.perps}, out.malformed, read_perp);
+        const auto perps = read_rows(
+            *data, "perpProductsV2", std::span<WirePerp>{storage.perps}, out.malformed, read_perp);
         if (!perps.has_value()) {
             return std::unexpected(perps.error());
         }

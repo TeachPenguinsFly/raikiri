@@ -32,8 +32,8 @@ struct ContractBuffer {
 };
 
 // reads perpetualContract then stockContract
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_symbols(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_symbols(std::string_view body,
+                                                                                    ContractBuffer& storage);
 
 enum class TopicKind : std::uint8_t {
     Orderbook,  // orderBook25.H.{symbol}
@@ -66,8 +66,7 @@ struct AckBuffer {
     std::array<std::string_view, k_max_ack_args> args{};
 };
 
-[[nodiscard]] std::expected<WireAck, WireError> parse_ack(std::string_view frame,
-                                                          AckBuffer& storage);
+[[nodiscard]] std::expected<WireAck, WireError> parse_ack(std::string_view frame, AckBuffer& storage);
 
 [[nodiscard]] std::expected<std::string_view, WireError> parse_ping(std::string_view frame);
 
@@ -92,8 +91,7 @@ struct OrderbookBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-[[nodiscard]] std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
-                                                                      OrderbookBuffer& storage);
+[[nodiscard]] std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame, OrderbookBuffer& storage);
 
 struct WireTrade {
     std::string_view symbol;
@@ -114,8 +112,7 @@ struct WireTrades {
     std::span<const WireTrade> trades;
 };
 
-[[nodiscard]] std::expected<WireTrades, WireError> parse_trades(std::string_view frame,
-                                                                TradeBuffer& storage);
+[[nodiscard]] std::expected<WireTrades, WireError> parse_trades(std::string_view frame, TradeBuffer& storage);
 
 // deltas carry only changed fields; empty means unchanged
 struct WireTicker {

@@ -28,8 +28,8 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 // `funding` is an hourly rate; there is no timestamp, so ts_event falls back to ingest
 struct WireAssetCtx {
@@ -54,7 +54,7 @@ struct AssetCtxBuffer {
 };
 
 // rows carry no coin and are positional against meta.universe, so `coin` stays empty
-[[nodiscard]] std::expected<std::span<const WireAssetCtx>, WireError>
-parse_asset_ctxs(std::string_view body, AssetCtxBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireAssetCtx>, WireError> parse_asset_ctxs(std::string_view body,
+                                                                                       AssetCtxBuffer& storage);
 
 } // namespace raikiri::venues::hyperliquid

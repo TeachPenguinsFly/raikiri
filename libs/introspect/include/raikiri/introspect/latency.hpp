@@ -69,10 +69,12 @@ public:
             current_ = init_minus_event_ns;
         }
     }
+
     void rotate() noexcept {
         previous_ = current_;
         current_ = k_none;
     }
+
     [[nodiscard]] ClockEstimate estimate(std::uint64_t now_ns) const noexcept;
 
 private:
@@ -96,15 +98,7 @@ inline constexpr std::array<std::uint64_t, 36> k_bucket_bounds_ns = [] {
     return out;
 }();
 
-enum class Stage : std::uint8_t {
-    Feed,
-    Internal,
-    KernelQueue,
-    Rest,
-    WsPing,
-    OrderAck,
-    OrderFill
-};
+enum class Stage : std::uint8_t { Feed, Internal, KernelQueue, Rest, WsPing, OrderAck, OrderFill };
 
 [[nodiscard]] std::string_view to_string(Stage stage) noexcept;
 
@@ -135,9 +129,7 @@ struct ClockStats {
     std::uint64_t samples{0};
 };
 
-[[nodiscard]] ClockStats clock_stats(std::string venue,
-                                     std::string endpoint,
-                                     const ClockEstimate& estimate);
+[[nodiscard]] ClockStats clock_stats(std::string venue, std::string endpoint, const ClockEstimate& estimate);
 
 // quantiles cover the last one to two rotations; count, sum and buckets since start
 // fixed memory; negatives are clamped to zero and counted
@@ -153,11 +145,13 @@ public:
         ++total_;
         sum_ += value;
     }
+
     void rotate() noexcept {
         all_.merge(current_);
         previous_ = current_;
         current_ = observ::Histogram{};
     }
+
     [[nodiscard]] LatencyStats stats(std::string channel, Stage stage) const;
 
 private:

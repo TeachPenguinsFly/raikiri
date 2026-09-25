@@ -10,8 +10,7 @@ namespace ondemand = wire::ondemand;
 
 } // namespace
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto& session = wire::session();
         auto root = session.open_object(frame);
@@ -46,8 +45,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             trade.size = wire::opt_str(trade_obj, "v").value_or(std::string_view{});
             trade_obj.reset();
             // "S" is the taker's side
-            trade.buyer_aggressor =
-                wire::opt_str(trade_obj, "S").value_or(std::string_view{}) == "Buy";
+            trade.buyer_aggressor = wire::opt_str(trade_obj, "S").value_or(std::string_view{}) == "Buy";
             trade_obj.reset();
             trade.ts_ms = wire::opt_u64(trade_obj, "T").value_or(0);
             trade_obj.reset();

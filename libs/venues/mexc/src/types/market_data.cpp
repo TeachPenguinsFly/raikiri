@@ -35,8 +35,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         const auto index = req_scalar(*data, "indexPrice");
         const auto bid = req_scalar(*data, "bid1");
         const auto ask = req_scalar(*data, "ask1");
-        if (!last.has_value() || !fair.has_value() || !index.has_value() || !bid.has_value() ||
-            !ask.has_value()) {
+        if (!last.has_value() || !fair.has_value() || !index.has_value() || !bid.has_value() || !ask.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.last_price = *last;
@@ -58,8 +57,8 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
     });
 }
 
-std::expected<std::span<const WireSpotTicker>, WireError>
-parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
+std::expected<std::span<const WireSpotTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                             SpotTickerBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotTicker>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {
@@ -89,8 +88,7 @@ parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -141,8 +139,8 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
     });
 }
 
-std::expected<std::span<const WireFundingRate>, WireError>
-parse_funding_rates(std::string_view body, FundingRateBuffer& storage) {
+std::expected<std::span<const WireFundingRate>, WireError> parse_funding_rates(std::string_view body,
+                                                                               FundingRateBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFundingRate>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -216,8 +214,8 @@ std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view bo
     });
 }
 
-std::expected<std::span<const StreamTrade>, WireError>
-parse_stream_trades(std::string_view payload, StreamTradeBuffer& storage) {
+std::expected<std::span<const StreamTrade>, WireError> parse_stream_trades(std::string_view payload,
+                                                                           StreamTradeBuffer& storage) {
     std::size_t count = 0;
     pb::Reader reader{payload};
     while (const auto entry = reader.next()) {

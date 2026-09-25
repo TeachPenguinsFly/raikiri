@@ -86,10 +86,8 @@ std::string_view header_of(const net::RestRequest& request, std::string_view nam
     return {};
 }
 
-OrderCmd limit_order(const exec::InstrumentTable& table,
-                     std::string_view symbol,
-                     std::string_view price,
-                     std::string_view qty) {
+OrderCmd
+limit_order(const exec::InstrumentTable& table, std::string_view symbol, std::string_view price, std::string_view qty) {
     const auto* instrument = table.find(symbol);
     EXPECT_NE(instrument, nullptr) << symbol;
     if (instrument == nullptr) {
@@ -103,8 +101,8 @@ OrderCmd limit_order(const exec::InstrumentTable& table,
     cmd.tif = TimeInForce::Gtc;
     cmd.instrument = base.id;
     cmd.client_order_id = ClientOrderId::make(1, 7);
-    cmd.exchange_client_order_id =
-        ExchangeClientOrderId::from("01J8ZQK9V7M3XPB2R6TDNAWC5E").value_or(ExchangeClientOrderId{});
+    cmd.exchange_client_order_id = ExchangeClientOrderId::from("01J8ZQK9V7M3XPB2R6TDNAWC5E")
+                                       .value_or(ExchangeClientOrderId{});
     cmd.price = PriceTicks::from_raw(parse_number_e9(price)->raw / base.tick_size.raw);
     cmd.qty = QtyLots::from_raw(parse_number_e9(qty)->raw / base.lot_size.raw);
     return cmd;
@@ -132,8 +130,7 @@ TEST(KucoinVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Kucoin);
     EXPECT_NE(adapter->data, nullptr);
@@ -145,8 +142,7 @@ TEST(KucoinVenue, AnOrderThatCannotBeSignedIsRefusedRatherThanLeftOpen) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -172,8 +168,7 @@ TEST(KucoinVenue, StartingWithoutTheFullCredentialSetIsRefused) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto started = adapter->execution->start();
     ASSERT_FALSE(started.has_value());
@@ -184,8 +179,7 @@ TEST(KucoinVenue, MarketsTheAdapterDoesNotServeAreNamedRefusals) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     // an empty list would read as an answer
     EXPECT_FALSE(adapter->instruments->fetch_all(MarketType::Option).has_value());
@@ -277,9 +271,8 @@ TEST(KucoinWire, Level2PacksOneLevelIntoACommaJoinedString) {
 TEST(KucoinWire, MalformedFramesFailInsteadOfFillingPartially) {
     EXPECT_FALSE(parse_event("not json at all").has_value());
     EXPECT_FALSE(parse_event(R"({"type":"message","subject":"tickerV2"})").has_value());
-    EXPECT_FALSE(parse_book_change(
-                     R"({"topic":"/contractMarket/level2:X","type":"message","subject":"level2",)"
-                     R"("data":{"sequence":1,"change":"62234.6,buy","timestamp":1}})")
+    EXPECT_FALSE(parse_book_change(R"({"topic":"/contractMarket/level2:X","type":"message","subject":"level2",)"
+                                   R"("data":{"sequence":1,"change":"62234.6,buy","timestamp":1}})")
                      .has_value());
     EXPECT_FALSE(parse_bbo(R"({"topic":"/contractMarket/tickerV2","type":"message",)"
                            R"("subject":"tickerV2","data":{}})",
@@ -409,10 +402,8 @@ TEST(KucoinRest, RequestBuildersNameTheDocumentedPaths) {
     EXPECT_TRUE(bullet.body.empty());
     EXPECT_EQ(builder.contracts_active().target, "/api/v1/contracts/active");
     EXPECT_EQ(builder.server_time().target, "/api/v1/timestamp");
-    EXPECT_EQ(builder.funding_rate_current("XBTUSDTM").target,
-              "/api/v1/funding-rate/XBTUSDTM/current");
-    EXPECT_EQ(builder.level2_snapshot("XBTUSDTM").target,
-              "/api/v1/level2/snapshot?symbol=XBTUSDTM");
+    EXPECT_EQ(builder.funding_rate_current("XBTUSDTM").target, "/api/v1/funding-rate/XBTUSDTM/current");
+    EXPECT_EQ(builder.level2_snapshot("XBTUSDTM").target, "/api/v1/level2/snapshot?symbol=XBTUSDTM");
 }
 
 TEST(KucoinMap, NumberParserHandlesJavaExponentsWithoutRounding) {
@@ -878,8 +869,8 @@ TEST(KucoinBook, ALevelOffTheStepInvalidatesTheWholeBook) {
 
 TEST(KucoinBook, SnapshotWithoutASequenceIsNotASeed) {
     auto storage = std::make_unique<LevelBuffer>();
-    const std::string body =
-        R"({"code":"200000","data":{"symbol":"XBTUSDTM","bids":[[1.0,1]],"asks":[[2.0,1]],"ts":1}})";
+    const std::string
+        body = R"({"code":"200000","data":{"symbol":"XBTUSDTM","bids":[[1.0,1]],"asks":[[2.0,1]],"ts":1}})";
     EXPECT_FALSE(parse_level2_snapshot(body, *storage).has_value());
 }
 
@@ -895,10 +886,9 @@ TEST(KucoinWs, TopicsCoverTheKindsKucoinStreams) {
 
 TEST(KucoinWs, SubscribeBatchesOneTopicPerFrame) {
     Protocol protocol;
-    const std::array<Subscription, 3> subs{
-        Subscription{.topic = "/contractMarket/tickerV2", .symbol = "XBTUSDTM"},
-        Subscription{.topic = "/contractMarket/tickerV2", .symbol = "ETHUSDTM"},
-        Subscription{.topic = "/contractMarket/execution", .symbol = "XBTUSDTM"}};
+    const std::array<Subscription, 3> subs{Subscription{.topic = "/contractMarket/tickerV2", .symbol = "XBTUSDTM"},
+                                           Subscription{.topic = "/contractMarket/tickerV2", .symbol = "ETHUSDTM"},
+                                           Subscription{.topic = "/contractMarket/execution", .symbol = "XBTUSDTM"}};
     const auto first = protocol.subscribe_frame(subs);
     ASSERT_TRUE(first.has_value());
     EXPECT_EQ(first->consumed, 2U); // the run sharing a topic, not the whole span
@@ -970,16 +960,14 @@ TEST(KucoinSign, TheSignedStringIsTheRequestLineThatGoesOut) {
     OrderRequestBuilder builder{credentials};
     const auto table = loaded_spot_table();
 
-    const auto request = builder.create_order(
-        limit_order(table, "BTC-USDT", "50000", "0.00001"), table, k_signed_at);
+    const auto request = builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table, k_signed_at);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->target, "/api/v1/hf/orders");
     EXPECT_EQ(request->body,
               R"({"clientOid":"01J8ZQK9V7M3XPB2R6TDNAWC5E","symbol":"BTC-USDT","side":"buy",)"
               R"("type":"limit","size":"0.00001","price":"50000","timeInForce":"GTC"})");
     EXPECT_EQ(builder.last_sign_message(),
-              std::string{"1730211033335"} + "POST" + "/api/v1/hf/orders" +
-                  std::string{request->body});
+              std::string{"1730211033335"} + "POST" + "/api/v1/hf/orders" + std::string{request->body});
     EXPECT_EQ(header_of(*request, "KC-API-TIMESTAMP"), "1730211033335");
     EXPECT_EQ(header_of(*request, "KC-API-KEY"), k_test_key);
     EXPECT_EQ(header_of(*request, "KC-API-SIGN"), "+AWhvqpmFDu/7vY0xCCjfBIh4UC+cORP7LBx6rOlQTU=");
@@ -993,8 +981,7 @@ TEST(KucoinSign, KeyVersionTwoSendsTheHashedPassphraseNeverTheSecretItself) {
     const auto request = builder.positions(MarketType::Perp, k_signed_at);
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(header_of(*request, "KC-API-KEY-VERSION"), "2");
-    EXPECT_EQ(header_of(*request, "KC-API-PASSPHRASE"),
-              "WX/MCPps2NpCAWajYjOod/NfgMDWvFoHPQ15hoWy+fE=");
+    EXPECT_EQ(header_of(*request, "KC-API-PASSPHRASE"), "WX/MCPps2NpCAWajYjOod/NfgMDWvFoHPQ15hoWy+fE=");
     EXPECT_NE(header_of(*request, "KC-API-PASSPHRASE"), k_test_passphrase);
 }
 
@@ -1016,10 +1003,8 @@ TEST(KucoinSign, WithoutCredentialsNothingIsBuiltAtAll) {
     Credentials credentials;
     OrderRequestBuilder builder{credentials};
     const auto table = loaded_spot_table();
-    EXPECT_EQ(
-        builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table, k_signed_at)
-            .error(),
-        BuildError::NotSigned);
+    EXPECT_EQ(builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table, k_signed_at).error(),
+              BuildError::NotSigned);
     EXPECT_EQ(builder.positions(MarketType::Perp, k_signed_at).error(), BuildError::NotSigned);
 
     credentials.signer().set_api_key(k_test_key);
@@ -1040,8 +1025,7 @@ TEST(KucoinRest, SpotAndFuturesAreDifferentHostsAndDifferentPayloads) {
     OrderRequestBuilder builder{credentials};
     const auto futures = loaded_table();
 
-    const auto request = builder.create_order(
-        limit_order(futures, "XBTUSDTM", "64125.6", "3"), futures, k_signed_at);
+    const auto request = builder.create_order(limit_order(futures, "XBTUSDTM", "64125.6", "3"), futures, k_signed_at);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->target, "/api/v1/orders");
     // size is a json number of contracts on futures; no leverage
@@ -1110,8 +1094,7 @@ TEST(KucoinRest, CancelNamesTheSymbolOnEveryPathThatDemandsIt) {
     auto request = builder.cancel_order(cmd, spot, k_signed_at);
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(request->method, net::HttpMethod::Delete);
-    EXPECT_EQ(request->target,
-              "/api/v1/hf/orders/client-order/01J8ZQK9V7M3XPB2R6TDNAWC5E?symbol=BTC-USDT");
+    EXPECT_EQ(request->target, "/api/v1/hf/orders/client-order/01J8ZQK9V7M3XPB2R6TDNAWC5E?symbol=BTC-USDT");
 
     cmd.target_exchange_order_id = ExchangeOrderId::from("67120bbef094e200070976f6").value();
     request = builder.cancel_order(cmd, spot, k_signed_at);
@@ -1122,8 +1105,7 @@ TEST(KucoinRest, CancelNamesTheSymbolOnEveryPathThatDemandsIt) {
     perp.kind = CmdKind::Cancel;
     request = builder.cancel_order(perp, futures, k_signed_at);
     ASSERT_TRUE(request.has_value());
-    EXPECT_EQ(request->target,
-              "/api/v1/orders/client-order/01J8ZQK9V7M3XPB2R6TDNAWC5E?symbol=XBTUSDTM");
+    EXPECT_EQ(request->target, "/api/v1/orders/client-order/01J8ZQK9V7M3XPB2R6TDNAWC5E?symbol=XBTUSDTM");
     // futures cancel-by-id with a symbol answers 400100
     perp.target_exchange_order_id = ExchangeOrderId::from("230181737576050688").value();
     request = builder.cancel_order(perp, futures, k_signed_at);
@@ -1152,8 +1134,7 @@ TEST(KucoinRest, AmendExistsOnSpotAndNowhereElse) {
 
     auto perp = limit_order(futures, "XBTUSDTM", "64125.6", "3");
     perp.kind = CmdKind::Amend;
-    EXPECT_EQ(builder.amend_order(perp, futures, k_signed_at).error(),
-              BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.amend_order(perp, futures, k_signed_at).error(), BuildError::UnsupportedRequest);
 }
 
 TEST(KucoinRest, TheSweepIsAccountWideOnFuturesAndPerSymbolOnSpot) {
@@ -1163,21 +1144,15 @@ TEST(KucoinRest, TheSweepIsAccountWideOnFuturesAndPerSymbolOnSpot) {
 
     EXPECT_EQ(builder.open_orders(MarketType::Spot, "BTC-USDT", k_signed_at)->target,
               "/api/v1/hf/orders/active?symbol=BTC-USDT");
-    EXPECT_EQ(builder.open_orders(MarketType::Spot, {}, k_signed_at).error(),
-              BuildError::UnsupportedRequest);
-    EXPECT_EQ(builder.active_symbols(MarketType::Spot, k_signed_at)->target,
-              "/api/v1/hf/orders/active/symbols");
-    EXPECT_EQ(builder.active_symbols(MarketType::Perp, k_signed_at).error(),
-              BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.open_orders(MarketType::Spot, {}, k_signed_at).error(), BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.active_symbols(MarketType::Spot, k_signed_at)->target, "/api/v1/hf/orders/active/symbols");
+    EXPECT_EQ(builder.active_symbols(MarketType::Perp, k_signed_at).error(), BuildError::UnsupportedRequest);
 
-    EXPECT_EQ(builder.fills(MarketType::Spot, UnixNanos{0}, k_signed_at)->target,
-              "/api/v1/hf/fills");
-    EXPECT_EQ(builder.fills(MarketType::Perp, UnixNanos{1'727'692'804'808'000'000ULL}, k_signed_at)
-                  ->target,
+    EXPECT_EQ(builder.fills(MarketType::Spot, UnixNanos{0}, k_signed_at)->target, "/api/v1/hf/fills");
+    EXPECT_EQ(builder.fills(MarketType::Perp, UnixNanos{1'727'692'804'808'000'000ULL}, k_signed_at)->target,
               "/api/v1/fills?startAt=1727692804808");
     EXPECT_EQ(builder.positions(MarketType::Perp, k_signed_at)->target, "/api/v1/positions");
-    EXPECT_EQ(builder.positions(MarketType::Spot, k_signed_at).error(),
-              BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.positions(MarketType::Spot, k_signed_at).error(), BuildError::UnsupportedRequest);
     const auto bullet = builder.bullet_private(MarketType::Spot, k_signed_at);
     ASSERT_TRUE(bullet.has_value());
     EXPECT_EQ(bullet->method, net::HttpMethod::Post);
@@ -1198,18 +1173,12 @@ TEST(KucoinRest, EveryBuilderRefusesOptionsByName) {
     EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(), BuildError::UnsupportedMarket);
     EXPECT_EQ(builder.cancel_order(cmd, table, k_signed_at).error(), BuildError::UnsupportedMarket);
     EXPECT_EQ(builder.amend_order(cmd, table, k_signed_at).error(), BuildError::UnsupportedMarket);
-    EXPECT_EQ(builder.open_orders(MarketType::Option, "X", k_signed_at).error(),
-              BuildError::UnsupportedMarket);
-    EXPECT_EQ(builder.active_symbols(MarketType::Option, k_signed_at).error(),
-              BuildError::UnsupportedMarket);
-    EXPECT_EQ(builder.fills(MarketType::Option, UnixNanos{0}, k_signed_at).error(),
-              BuildError::UnsupportedMarket);
-    EXPECT_EQ(builder.positions(MarketType::Option, k_signed_at).error(),
-              BuildError::UnsupportedMarket);
-    EXPECT_EQ(builder.account_overview(MarketType::Option, k_signed_at).error(),
-              BuildError::UnsupportedMarket);
-    EXPECT_EQ(builder.bullet_private(MarketType::Option, k_signed_at).error(),
-              BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.open_orders(MarketType::Option, "X", k_signed_at).error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.active_symbols(MarketType::Option, k_signed_at).error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.fills(MarketType::Option, UnixNanos{0}, k_signed_at).error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.positions(MarketType::Option, k_signed_at).error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.account_overview(MarketType::Option, k_signed_at).error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.bullet_private(MarketType::Option, k_signed_at).error(), BuildError::UnsupportedMarket);
     EXPECT_TRUE(private_order_topic(MarketType::Option).empty());
 }
 
@@ -1511,10 +1480,8 @@ TEST(KucoinRest, TheWalletIsAskedForOneNamedCurrency) {
     // omitting currency reads the XBT wallet
     EXPECT_EQ(request->target, "/api/v1/account-overview?currency=USDT");
     EXPECT_TRUE(request->body.empty());
-    EXPECT_EQ(builder.last_sign_message(),
-              "1730211033335GET/api/v1/account-overview?currency=USDT");
-    EXPECT_EQ(builder.account_overview(MarketType::Spot, k_signed_at).error(),
-              BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.last_sign_message(), "1730211033335GET/api/v1/account-overview?currency=USDT");
+    EXPECT_EQ(builder.account_overview(MarketType::Spot, k_signed_at).error(), BuildError::UnsupportedRequest);
 }
 
 TEST(KucoinMapRest, TheWalletIsMarginBalanceAndNeverTheEquityBesideIt) {
@@ -1583,9 +1550,8 @@ TEST(KucoinMapRest, TheSpotCatalogueAdmitsOnlyTradablePairsItCanScale) {
 
 TEST(KucoinErrors, A429HoldsForTheWindowKucoinStates) {
     // a real 429 from api-futures.kucoin.com
-    const std::array<net::RateHeader, 3> refused{{{"gw-ratelimit-remaining", "0"},
-                                                  {"gw-ratelimit-limit", "2000"},
-                                                  {"gw-ratelimit-reset", "17019"}}};
+    const std::array<net::RateHeader, 3> refused{
+        {{"gw-ratelimit-remaining", "0"}, {"gw-ratelimit-limit", "2000"}, {"gw-ratelimit-reset", "17019"}}};
     EXPECT_EQ(refusal_hold_ms(refused), 17019U);
     const std::array<net::RateHeader, 1> upper{{{"Gw-RateLimit-Reset", "250"}}};
     EXPECT_EQ(refusal_hold_ms(upper), 250U);
@@ -1608,8 +1574,7 @@ TEST(KucoinErrors, ACancelThatLostItsRaceIsNotACancelReject) {
     EXPECT_TRUE(is_benign_cancel_failure(futures->code, futures->msg));
 
     // 400100 is the catch-all parameter error
-    EXPECT_FALSE(
-        is_benign_cancel_failure(k_parameter_error, "pageSize should not greater than 500"));
+    EXPECT_FALSE(is_benign_cancel_failure(k_parameter_error, "pageSize should not greater than 500"));
     EXPECT_FALSE(is_benign_cancel_failure(k_spot_balance_insufficient, "Balance insufficient"));
     EXPECT_TRUE(parse_rest_envelope(fixture("rest_order_ack.json"))->code == k_ok);
 }
@@ -1702,12 +1667,10 @@ TEST(KucoinUtaBook, BothSidesAreRequired) {
     EXPECT_EQ(wire->bids.size(), 3U);
 
     // an untouched side arrives as [], so a missing key is a truncated frame
-    EXPECT_FALSE(
-        parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[["1","1"]]}})", *storage)
-            .has_value())
+    EXPECT_FALSE(parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[["1","1"]]}})", *storage).has_value())
         << "no bids key at all";
-    const auto empty_side = parse_uta_book(
-        R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[],"b":[["1","1"]]}})", *storage);
+    const auto empty_side = parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[],"b":[["1","1"]]}})",
+                                           *storage);
     ASSERT_TRUE(empty_side.has_value()) << "an empty side is a side";
     EXPECT_TRUE(empty_side->asks.empty());
     EXPECT_EQ(empty_side->bids.size(), 1U);
@@ -1715,10 +1678,8 @@ TEST(KucoinUtaBook, BothSidesAreRequired) {
 
 TEST(KucoinUtaBook, AFrameWithoutItsSpanIsRefused) {
     auto storage = std::make_unique<LevelBuffer>();
-    EXPECT_FALSE(
-        parse_uta_book(R"({"t":"delta","d":{"s":"X","C":2,"a":[],"b":[]}})", *storage).has_value());
-    EXPECT_FALSE(
-        parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"a":[],"b":[]}})", *storage).has_value());
+    EXPECT_FALSE(parse_uta_book(R"({"t":"delta","d":{"s":"X","C":2,"a":[],"b":[]}})", *storage).has_value());
+    EXPECT_FALSE(parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"a":[],"b":[]}})", *storage).has_value());
 }
 
 TEST(KucoinUtaBook, AFrameThatIsNeitherSnapshotNorDeltaIsRefused) {
@@ -1794,8 +1755,7 @@ TEST(KucoinUtaChain, AReplayIsIgnoredAndAGapDropsTheBook) {
     EXPECT_EQ(book.apply(uta("X", false, 502, 504, {}, {})), BookResult::Gap);
     EXPECT_FALSE(book.live());
     EXPECT_EQ(book.gaps(), 1U);
-    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value())
-        << "a dropped book publishes nothing at all";
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value()) << "a dropped book publishes nothing at all";
 
     // the venue resends a snapshot on the same subscription
     ASSERT_EQ(book.apply(uta("X", true, 900, 900, bid, ask)), BookResult::Applied);
@@ -1835,9 +1795,8 @@ TEST(KucoinUtaChain, ASizeOfZeroRemovesALevel) {
 
 TEST(KucoinUtaWs, ASubscribeAsksForOneSymbolAtATime) {
     Protocol protocol;
-    const std::array<Subscription, 2> subs{
-        Subscription{.topic = k_uta_book_channel, .symbol = "XBTUSDTM"},
-        Subscription{.topic = k_uta_book_channel, .symbol = "ETHUSDTM"}};
+    const std::array<Subscription, 2> subs{Subscription{.topic = k_uta_book_channel, .symbol = "XBTUSDTM"},
+                                           Subscription{.topic = k_uta_book_channel, .symbol = "ETHUSDTM"}};
     const auto first = protocol.uta_subscribe_frame(subs);
     ASSERT_TRUE(first.has_value());
     // obu refuses a symbols array
@@ -1860,8 +1819,7 @@ TEST(KucoinUtaWs, ASubscribeAsksForOneSymbolAtATime) {
 TEST(KucoinUtaWs, TradesSubscribeOnTheTradeChannelWithoutADepth) {
     EXPECT_EQ(uta_topic_for(exec::SubKind::Trades), k_uta_trade_channel);
     Protocol protocol;
-    const std::array<Subscription, 1> subs{
-        Subscription{.topic = k_uta_trade_channel, .symbol = "XBTUSDTM"}};
+    const std::array<Subscription, 1> subs{Subscription{.topic = k_uta_trade_channel, .symbol = "XBTUSDTM"}};
     const auto frame = protocol.uta_subscribe_frame(subs);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->text,
@@ -1886,13 +1844,10 @@ TEST(KucoinUtaTrade, APrintParsesAndABookFrameDoesNot) {
 
 TEST(KucoinUtaWs, ARequestForAnotherChannelIsRefused) {
     Protocol protocol;
-    const std::array<Subscription, 1> classic{
-        Subscription{.topic = "/contractMarket/level2", .symbol = "XBTUSDTM"}};
-    EXPECT_FALSE(protocol.uta_subscribe_frame(classic).has_value())
-        << "the two feeds do not share a frame shape";
+    const std::array<Subscription, 1> classic{Subscription{.topic = "/contractMarket/level2", .symbol = "XBTUSDTM"}};
+    EXPECT_FALSE(protocol.uta_subscribe_frame(classic).has_value()) << "the two feeds do not share a frame shape";
     EXPECT_FALSE(protocol.uta_subscribe_frame({}).has_value());
-    const std::array<Subscription, 1> nameless{
-        Subscription{.topic = k_uta_book_channel, .symbol = ""}};
+    const std::array<Subscription, 1> nameless{Subscription{.topic = k_uta_book_channel, .symbol = ""}};
     EXPECT_FALSE(protocol.uta_subscribe_frame(nameless).has_value());
 }
 
@@ -1932,14 +1887,12 @@ TEST(KucoinUtaBook, ReadsTheDataObjectInAnyOrder) {
     EXPECT_TRUE(wire->asks.empty());
     ASSERT_EQ(wire->bids.size(), 1U);
     EXPECT_EQ(wire->bids[0].qty, "2");
-    EXPECT_FALSE(
-        parse_uta_book(R"({"t":"delta","d":{"a":[],"b":[],"C":2,"s":"X"}})", *storage).has_value())
-        << "no O";
+    EXPECT_FALSE(parse_uta_book(R"({"t":"delta","d":{"a":[],"b":[],"C":2,"s":"X"}})", *storage).has_value()) << "no O";
 
-    const std::string ticker =
-        R"({"data":{"ts":5,"bestAskSize":2,"bestBidPrice":"1.5","sequence":7,"bestAskPrice":"2",)"
-        R"("bestBidSize":3,"symbol":"ETHUSDTM"},"subject":"tickerV2",)"
-        R"("topic":"/contractMarket/tickerV2:ETHUSDTM","type":"message"})";
+    const std::string
+        ticker = R"({"data":{"ts":5,"bestAskSize":2,"bestBidPrice":"1.5","sequence":7,"bestAskPrice":"2",)"
+                 R"("bestBidSize":3,"symbol":"ETHUSDTM"},"subject":"tickerV2",)"
+                 R"("topic":"/contractMarket/tickerV2:ETHUSDTM","type":"message"})";
     const auto event = parse_event(ticker);
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->kind, EventKind::Bbo);
@@ -1958,7 +1911,6 @@ TEST(KucoinUtaBook, ReadsTheDataObjectInAnyOrder) {
     EXPECT_EQ(change->sequence, 9);
     EXPECT_EQ(change->ts_ms, 0U) << "no timestamp reads as zero, as before";
 }
-
 
 InstrumentBase classified_contract(std::string_view base_currency, std::string_view asset_class) {
     const std::string symbol = std::string{base_currency} + "USDTM";

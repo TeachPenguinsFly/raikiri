@@ -27,9 +27,7 @@ enum class RateClass : std::uint8_t {
 class RateLimiter {
 public:
     // `reserve` is the floor a Poll may not spend below
-    RateLimiter(std::uint32_t capacity,
-                std::uint64_t refill_window_ns,
-                std::uint32_t reserve = 0) noexcept
+    RateLimiter(std::uint32_t capacity, std::uint64_t refill_window_ns, std::uint32_t reserve = 0) noexcept
         : capacity_{capacity}, window_ns_{refill_window_ns}, reserve_{reserve}, tokens_{capacity} {}
 
     [[nodiscard]] std::expected<void, RateDenied>

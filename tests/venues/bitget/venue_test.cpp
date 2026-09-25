@@ -712,8 +712,7 @@ TEST(BitgetRest, TheBillReadNarrowsAtTheVenueAndCarriesTheCursorItWasGiven) {
               "&productType=USDT-FUTURES&startTime=1695715200654");
 
     // a zero cursor sends no window; bitget refuses one wider than 30 days
-    const auto from_zero =
-        builder.settle_bills(MarketType::Perp, product_type(false), UnixNanos{0}, now);
+    const auto from_zero = builder.settle_bills(MarketType::Perp, product_type(false), UnixNanos{0}, now);
     ASSERT_TRUE(from_zero.has_value());
     EXPECT_EQ(from_zero->target,
               "/api/v2/mix/account/bill?businessType=contract_settle_fee&limit=100"
@@ -721,8 +720,7 @@ TEST(BitgetRest, TheBillReadNarrowsAtTheVenueAndCarriesTheCursorItWasGiven) {
 
     // spot bills are another row shape
     for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
-        EXPECT_EQ(builder.settle_bills(market, product_type(false), since, now).error(),
-                  BuildError::UnsupportedMarket);
+        EXPECT_EQ(builder.settle_bills(market, product_type(false), since, now).error(), BuildError::UnsupportedMarket);
     }
 }
 
@@ -731,11 +729,8 @@ TEST(BitgetErrors, ClockSkewIsRetryableAndUnknownCodesAreTerminal) {
     EXPECT_EQ(classify(k_timestamp_expired), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_system_error), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_too_many_requests), exec::ErrorClass::RateLimited);
-    for (const auto& code : {k_access_key_empty,
-                             k_secret_key_empty,
-                             k_signature_empty,
-                             k_invalid_access_key,
-                             k_signature_error}) {
+    for (const auto& code :
+         {k_access_key_empty, k_secret_key_empty, k_signature_empty, k_invalid_access_key, k_signature_error}) {
         EXPECT_EQ(classify(code), exec::ErrorClass::AuthFailure) << code;
     }
     // unknown codes default to terminal
@@ -765,9 +760,8 @@ TEST(BitgetWs, SubscribeFrameCarriesInstType) {
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 1U);
     // matches the frame the live socket acknowledged
-    EXPECT_EQ(
-        frame->text,
-        R"({"op":"subscribe","args":[{"instType":"USDT-FUTURES","channel":"ticker","instId":"BTCUSDT"}]})");
+    EXPECT_EQ(frame->text,
+              R"({"op":"subscribe","args":[{"instType":"USDT-FUTURES","channel":"ticker","instId":"BTCUSDT"}]})");
 
     const std::array<Subscription, 2> two{
         Subscription{.inst_type = "USDT-FUTURES", .channel = "ticker", .inst_id = "BTCUSDT"},
@@ -780,8 +774,7 @@ TEST(BitgetWs, SubscribeFrameCarriesInstType) {
 TEST(BitgetWs, IncompleteSubscriptionsAreRefusedRatherThanSent) {
     Protocol protocol;
     // instType is required; BTCUSDT exists under both live and demo products
-    const std::array<Subscription, 1> no_type{
-        Subscription{.inst_type = {}, .channel = "ticker", .inst_id = "BTCUSDT"}};
+    const std::array<Subscription, 1> no_type{Subscription{.inst_type = {}, .channel = "ticker", .inst_id = "BTCUSDT"}};
     EXPECT_FALSE(protocol.subscribe_frame(no_type).has_value());
     // an empty channel would earn a 30016 param error
     const std::array<Subscription, 1> no_channel{
@@ -814,8 +807,7 @@ TEST(BitgetWs, OneChannelServesThreeSubscriptionKinds) {
 TEST(BitgetRest, EveryMixTargetCarriesProductType) {
     // a missing productType answers 400172 rather than defaulting
     RequestBuilder builder;
-    EXPECT_EQ(builder.contracts(product_type(false)).target,
-              "/api/v2/mix/market/contracts?productType=USDT-FUTURES");
+    EXPECT_EQ(builder.contracts(product_type(false)).target, "/api/v2/mix/market/contracts?productType=USDT-FUTURES");
     EXPECT_EQ(builder.ticker("BTCUSDT", product_type(false)).target,
               "/api/v2/mix/market/ticker?symbol=BTCUSDT&productType=USDT-FUTURES");
     EXPECT_EQ(builder.current_fund_rate("BTCUSDT", product_type(false)).target,
@@ -846,8 +838,7 @@ TEST(BitgetVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bitget);
     EXPECT_NE(adapter->data, nullptr);
@@ -858,8 +849,7 @@ TEST(BitgetVenue, OrderEntryWithoutCredentialsRefusesLocally) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -886,8 +876,7 @@ TEST(BitgetVenue, OptionsAndDeliveryFuturesRefuseByNameOnEveryPull) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     auto& execution = *adapter->execution;
 

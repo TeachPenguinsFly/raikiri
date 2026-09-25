@@ -156,11 +156,8 @@ std::string_view RequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod method,
-                                                                 std::string_view path,
-                                                                 std::string_view query,
-                                                                 std::string_view body,
-                                                                 UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::sign(
+    net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now) {
     if (signer_ == nullptr || !signer_->has_credentials() || passphrase_.empty()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -209,8 +206,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (!serves(cmd.instrument.market())) {
         return std::unexpected{BuildError::UnsupportedMarket};
     }
@@ -237,8 +234,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
         .str("type", is_limit ? "LIMIT" : "MARKET")
         .decimal("quantity", base.lots_to_qty(cmd.qty));
     if (is_limit) {
-        json.str("timeInForce", tif_text(cmd.tif, cmd.flags))
-            .decimal("price", base.ticks_to_price(cmd.price));
+        json.str("timeInForce", tif_text(cmd.tif, cmd.flags)).decimal("price", base.ticks_to_price(cmd.price));
     }
     json.str("newClientOrderId", cmd.exchange_client_order_id.view());
     if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
@@ -252,8 +248,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     return sign(net::HttpMethod::Post, ep::k_order, {}, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(const OrderCmd& cmd,
-                                                                         UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(const OrderCmd& cmd, UnixNanos now) {
     // weex cancels by id alone
     Appender query{query_};
     if (!cmd.target_exchange_order_id.empty()) {
@@ -269,8 +264,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(const O
     return sign(net::HttpMethod::Delete, ep::k_order, query.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds,
+                                                                         UnixNanos now) {
     if (cmds.empty() || cmds.size() > k_max_cancel_batch) {
         return std::unexpected{BuildError::NoOrderTarget};
     }
@@ -299,8 +294,7 @@ RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds, UnixNanos now) {
     return sign(net::HttpMethod::Delete, ep::k_batch_orders, {}, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market,
-                                                                        UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market, UnixNanos now) {
     if (!serves(market)) {
         return std::unexpected{BuildError::UnsupportedMarket};
     }
@@ -312,8 +306,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketTy
     return sign(net::HttpMethod::Get, ep::k_open_orders, query.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
     if (!serves(market)) {
         return std::unexpected{BuildError::UnsupportedMarket};
     }
@@ -334,8 +327,7 @@ RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
     return sign(net::HttpMethod::Get, ep::k_user_trades, query.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
-                                                                      UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market, UnixNanos now) {
     if (!serves(market)) {
         return std::unexpected{BuildError::UnsupportedMarket};
     }

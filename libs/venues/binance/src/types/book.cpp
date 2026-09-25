@@ -99,8 +99,7 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data
     });
 }
 
-std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
-                                                             LevelBuffer& storage) {
+std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireDepthUpdate, WireError> {
         auto root = session().open_object(data);
         if (!root.has_value()) {
@@ -138,8 +137,7 @@ std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view da
     });
 }
 
-std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_view body,
-                                                                 LevelBuffer& storage) {
+std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_view body, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireDepthSnapshot, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -186,8 +184,7 @@ bool DepthBook::wants_seed() const noexcept {
 SeedAnswer classify_seed_answer(int status, std::string_view body) noexcept {
     const auto err = parse_rest_error(body);
     const bool coded = err.has_value() && err->code != k_ok;
-    if (status == 429 || status == 418 ||
-        (coded && classify(err->code) == exec::ErrorClass::RateLimited)) {
+    if (status == 429 || status == 418 || (coded && classify(err->code) == exec::ErrorClass::RateLimited)) {
         return SeedAnswer::RateLimited;
     }
     if (status >= 200 && status < 300 && !coded) {

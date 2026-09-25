@@ -13,8 +13,7 @@ namespace ondemand = simdjson::ondemand;
 using json::guarded;
 using json::session;
 
-std::expected<std::optional<std::string_view>, WireError> present_str(ondemand::object& obj,
-                                                                      std::string_view key) {
+std::expected<std::optional<std::string_view>, WireError> present_str(ondemand::object& obj, std::string_view key) {
     ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -30,8 +29,7 @@ std::expected<std::optional<std::string_view>, WireError> present_str(ondemand::
     return std::optional<std::string_view>{*text};
 }
 
-std::expected<std::string_view, WireError>
-string_of(simdjson::simdjson_result<ondemand::value> entry) {
+std::expected<std::string_view, WireError> string_of(simdjson::simdjson_result<ondemand::value> entry) {
     ondemand::value value;
     if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(json::map_error(ec));
@@ -47,8 +45,8 @@ std::expected<std::uint64_t, WireError> digits(ondemand::object& obj, std::strin
     return json::digits_to_u64(*text);
 }
 
-std::expected<std::span<const WireLevel>, WireError> parse_levels(
-    ondemand::object& feed, std::string_view key, std::array<WireLevel, k_max_levels>& out) {
+std::expected<std::span<const WireLevel>, WireError>
+parse_levels(ondemand::object& feed, std::string_view key, std::array<WireLevel, k_max_levels>& out) {
     auto levels = json::req_array(feed, key);
     if (!levels.has_value()) {
         return std::unexpected(levels.error());
@@ -207,8 +205,7 @@ parse_feed(ondemand::object& root, std::string_view stream, MessageBuffer& stora
     return out;
 }
 
-std::expected<WireMessage, WireError> parse_control(ondemand::object& root,
-                                                    MessageBuffer& storage) {
+std::expected<WireMessage, WireError> parse_control(ondemand::object& root, MessageBuffer& storage) {
     WireMessage out{};
     if (json::has_field(root, "error")) {
         auto error = json::req_object(root, "error");
@@ -266,17 +263,16 @@ std::expected<WireMessage, WireError> parse_control(ondemand::object& root,
         return std::unexpected(WireError::ShortArray);
     }
     out.kind = MessageKind::Ack;
-    out.ack =
-        WireAck{.stream = *stream,
-                .subs = std::span<const std::string_view>{storage.ack.subs.data(), sub_count},
-                .latest = std::span<const std::uint64_t>{storage.ack.latest.data(), latest_count}};
+    out.ack = WireAck{.stream = *stream,
+                      .subs = std::span<const std::string_view>{storage.ack.subs.data(), sub_count},
+                      .latest = std::span<const std::uint64_t>{storage.ack.latest.data(), latest_count}};
     return out;
 }
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                            InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -349,8 +345,7 @@ std::optional<WireRestError> parse_rest_error(std::string_view body) {
     return parsed.has_value() ? std::optional{*parsed} : std::nullopt;
 }
 
-std::expected<WireMessage, WireError> parse_message(std::string_view frame,
-                                                    MessageBuffer& storage) {
+std::expected<WireMessage, WireError> parse_message(std::string_view frame, MessageBuffer& storage) {
     return guarded([&]() -> std::expected<WireMessage, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {

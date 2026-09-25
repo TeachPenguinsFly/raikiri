@@ -2,27 +2,19 @@
 
 namespace raikiri::portfolio {
 
-Rebalance delta_to_target(QtyLots target,
-                          QtyLots position,
-                          QtyLots working_buy,
-                          QtyLots working_sell) noexcept {
-    const auto projected =
-        detail::checked_add(position.raw, detail::checked_sub(working_buy.raw, working_sell.raw));
+Rebalance delta_to_target(QtyLots target, QtyLots position, QtyLots working_buy, QtyLots working_sell) noexcept {
+    const auto projected = detail::checked_add(position.raw, detail::checked_sub(working_buy.raw, working_sell.raw));
     const auto missing = detail::checked_sub(target.raw, projected);
     if (missing == 0) {
         return {};
     }
-    return {missing > 0 ? Side::Buy : Side::Sell,
-            QtyLots::from_raw(missing > 0 ? missing : -missing)};
+    return {missing > 0 ? Side::Buy : Side::Sell, QtyLots::from_raw(missing > 0 ? missing : -missing)};
 }
 
-std::optional<QtyLots> size_for_risk(const InstrumentBase& base,
-                                     FixedE9 equity,
-                                     FixedE9 risk_fraction,
-                                     PriceTicks entry,
-                                     PriceTicks stop) noexcept {
-    if (equity.is_undef() || equity.raw <= 0 || risk_fraction.is_undef() ||
-        risk_fraction.raw <= 0 || entry.is_undef() || stop.is_undef()) {
+std::optional<QtyLots> size_for_risk(
+    const InstrumentBase& base, FixedE9 equity, FixedE9 risk_fraction, PriceTicks entry, PriceTicks stop) noexcept {
+    if (equity.is_undef() || equity.raw <= 0 || risk_fraction.is_undef() || risk_fraction.raw <= 0 ||
+        entry.is_undef() || stop.is_undef()) {
         return std::nullopt;
     }
     if (entry.raw == stop.raw) {
@@ -36,8 +28,7 @@ std::optional<QtyLots> size_for_risk(const InstrumentBase& base,
     if (at_entry.is_undef() || at_stop.is_undef()) {
         return std::nullopt;
     }
-    const auto per_lot =
-        at_entry.raw > at_stop.raw ? at_entry.raw - at_stop.raw : at_stop.raw - at_entry.raw;
+    const auto per_lot = at_entry.raw > at_stop.raw ? at_entry.raw - at_stop.raw : at_stop.raw - at_entry.raw;
     if (per_lot <= 0) {
         return std::nullopt; // the stop is inside a tick: no measurable risk
     }

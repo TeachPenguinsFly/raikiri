@@ -26,7 +26,7 @@ struct PositionBuffer {
 };
 
 // GET /api/v1/positions: data is the array itself
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view body, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
+                                                                                      PositionBuffer& storage);
 
 } // namespace raikiri::venues::kucoin

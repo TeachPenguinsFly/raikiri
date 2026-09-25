@@ -2,8 +2,6 @@
 
 // per-message latency series for the gateway thread
 
-#include "stats_collector.hpp"
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/introspect/latency.hpp>
@@ -11,6 +9,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+
+#include "stats_collector.hpp"
 
 namespace raikiri::gatewayd {
 
@@ -45,10 +45,8 @@ public:
     }
 
     void order_sent(std::uint64_t client_order_id) noexcept {
-        sent_[client_order_id % k_orders] = Sent{.id = client_order_id,
-                                                 .wall_ns = clock_->wall().ns,
-                                                 .acked = false,
-                                                 .filled = false};
+        sent_[client_order_id % k_orders] = Sent{
+            .id = client_order_id, .wall_ns = clock_->wall().ns, .acked = false, .filled = false};
     }
 
     void order_event(const OrderEvent& event) noexcept {
@@ -56,8 +54,7 @@ public:
         if (slot.id != event.client_order_id.raw || slot.wall_ns == 0) {
             return;
         }
-        const auto elapsed =
-            static_cast<std::int64_t>(clock_->wall().ns) - static_cast<std::int64_t>(slot.wall_ns);
+        const auto elapsed = static_cast<std::int64_t>(clock_->wall().ns) - static_cast<std::int64_t>(slot.wall_ns);
         if (!slot.acked && event.type == OrderEventType::Accepted) {
             slot.acked = true;
             ack_->record(elapsed);

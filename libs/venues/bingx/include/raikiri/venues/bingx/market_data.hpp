@@ -27,8 +27,8 @@ struct TradeBuffer {
 };
 
 // swap sends an array and spot a single object; both are accepted
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 struct WireMarkPrice {
     std::string_view symbol;

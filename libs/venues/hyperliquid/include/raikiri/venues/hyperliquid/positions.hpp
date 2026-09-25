@@ -27,7 +27,7 @@ struct PositionBuffer {
     std::uint64_t ts_ms{0};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view body, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
+                                                                                      PositionBuffer& storage);
 
 } // namespace raikiri::venues::hyperliquid

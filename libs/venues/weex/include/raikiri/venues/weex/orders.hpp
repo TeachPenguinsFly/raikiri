@@ -48,8 +48,8 @@ struct OrderBuffer {
 };
 
 // bare array, no envelope
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
+                                                                                OrderBuffer& storage);
 
 // a refused order still returns 200 with success false and a string errorCode
 struct WireOrderAck {
@@ -69,8 +69,8 @@ struct OrderAckBuffer {
     std::array<WireOrderAck, k_max_acks> acks{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireOrderAck>, WireError>
-parse_order_acks(std::string_view body, OrderAckBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrderAck>, WireError> parse_order_acks(std::string_view body,
+                                                                                       OrderAckBuffer& storage);
 
 // the string errorCode weex returns for an order it no longer has
 [[nodiscard]] bool is_benign_cancel_error(std::string_view error_code) noexcept;

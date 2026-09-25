@@ -28,8 +28,7 @@ public:
 
     void put(std::int64_t value) noexcept {
         std::array<char, 24> num{};
-        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value);
-            ec == std::errc{}) {
+        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value); ec == std::errc{}) {
             put(std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
         }
     }
@@ -70,9 +69,7 @@ std::string_view stream_path() noexcept {
     return ep::k_ws;
 }
 
-std::string_view user_changes_channel(std::string_view kind,
-                                      std::string_view currency,
-                                      std::span<char> into) noexcept {
+std::string_view user_changes_channel(std::string_view kind, std::string_view currency, std::span<char> into) noexcept {
     if (kind.empty() || currency.empty()) {
         return {};
     }
@@ -85,8 +82,7 @@ std::string_view user_changes_channel(std::string_view kind,
     return writer.overflow() ? std::string_view{} : writer.view();
 }
 
-std::string_view
-channel_for(exec::SubKind kind, std::string_view instrument, std::span<char> into) noexcept {
+std::string_view channel_for(exec::SubKind kind, std::string_view instrument, std::span<char> into) noexcept {
     if (instrument.empty()) {
         return {};
     }
@@ -123,8 +119,8 @@ channel_for(exec::SubKind kind, std::string_view instrument, std::span<char> int
     return writer.overflow() ? std::string_view{} : writer.view();
 }
 
-std::expected<Protocol::Frame, WsBuildError> Protocol::channel_frame(
-    std::string_view scope, std::string_view method, std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::channel_frame(std::string_view scope, std::string_view method, std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -159,13 +155,11 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::channel_frame(
     return Frame{.text = writer.view(), .consumed = batch, .id = id};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
     return channel_frame("public", "subscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return channel_frame("public", "unsubscribe", subscriptions);
 }
 
@@ -174,8 +168,7 @@ Protocol::private_subscribe_frame(std::span<const Subscription> subscriptions) {
     return channel_frame("private", "subscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError> Protocol::auth_frame(const net::Signer& signer,
-                                                                  UnixNanos now) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::auth_frame(const net::Signer& signer, UnixNanos now) {
     if (!signer.has_credentials()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -195,8 +188,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::auth_frame(const net::Sig
     TextWriter writer{frame_};
     writer.put(R"({"jsonrpc":"2.0","id":)");
     writer.put(id);
-    writer.put(
-        R"(,"method":"public/auth","params":{"grant_type":"client_signature","client_id":")");
+    writer.put(R"(,"method":"public/auth","params":{"grant_type":"client_signature","client_id":")");
     writer.put(signer.api_key());
     writer.put(R"(","timestamp":)");
     writer.put(static_cast<std::int64_t>(timestamp));

@@ -12,10 +12,8 @@ using wire::guarded;
 using wire::session;
 
 // [price, size] as json numbers, read as raw tokens to keep spellings like 1.00000000E-10
-std::expected<void, WireError> read_pair(wire::ondemand::value entry,
-                                         std::string_view& price,
-                                         std::string_view& qty,
-                                         const wire::Session& s) {
+std::expected<void, WireError>
+read_pair(wire::ondemand::value entry, std::string_view& price, std::string_view& qty, const wire::Session& s) {
     wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -41,8 +39,7 @@ std::expected<void, WireError> read_pair(wire::ondemand::value entry,
     return {};
 }
 
-std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
-                                                  std::span<WireLevel> into) {
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side, std::span<WireLevel> into) {
     wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -57,8 +54,7 @@ std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));
         }
-        if (const auto ok = read_pair(value, into[count].price, into[count].qty, s);
-            !ok.has_value()) {
+        if (const auto ok = read_pair(value, into[count].price, into[count].qty, s); !ok.has_value()) {
             return std::unexpected(ok.error());
         }
         ++count;
@@ -89,9 +85,7 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
         std::expected<std::uint64_t, WireError> ts{0};
         std::expected<std::uint64_t, WireError> version{0};
         const auto walked = wire::for_each_field(
-            *tick,
-            [&](std::string_view key,
-                wire::ondemand::value& value) -> std::expected<void, WireError> {
+            *tick, [&](std::string_view key, wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "bid" || key == "ask") {
                     const bool is_bid = key == "bid";
                     (is_bid ? bid : ask) = true;
@@ -142,9 +136,7 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         std::optional<std::size_t> bids;
         std::optional<std::size_t> asks;
         const auto walked = wire::for_each_field(
-            *tick,
-            [&](std::string_view key,
-                wire::ondemand::value& value) -> std::expected<void, WireError> {
+            *tick, [&](std::string_view key, wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "bids" || key == "asks") {
                     const bool bid = key == "bids";
                     const auto count = read_levels(value, bid ? storage.bids : storage.asks);

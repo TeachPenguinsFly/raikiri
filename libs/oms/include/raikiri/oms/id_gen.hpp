@@ -19,9 +19,7 @@ public:
     IdGen(std::uint16_t strategy_id, std::uint64_t ulid_seed) noexcept
         : ulid_gen_{ulid_seed}, strategy_id_{strategy_id} {}
 
-    [[nodiscard]] ClientOrderId next_client_id() noexcept {
-        return ClientOrderId::make(strategy_id_, ++seq_);
-    }
+    [[nodiscard]] ClientOrderId next_client_id() noexcept { return ClientOrderId::make(strategy_id_, ++seq_); }
 
     [[nodiscard]] ExchangeClientOrderId next_exchange_client_id(UnixNanos wall) noexcept {
         return ulid_gen_.next(wall);

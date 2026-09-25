@@ -46,8 +46,7 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
-std::optional<Bbo>
-map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -72,8 +71,7 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -110,8 +108,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = to_e9(wire.funding_rate);
-    if (const auto mark = parse_decimal_e9(wire.mark_price);
-        mark.has_value() && base.tick_size.raw > 0) {
+    if (const auto mark = parse_decimal_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});

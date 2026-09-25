@@ -37,9 +37,7 @@ public:
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
 
-    operator const std::string&() const noexcept {
-        return path_;
-    } // NOLINT(google-explicit-constructor)
+    operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
 
 private:
     void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }
@@ -274,7 +272,8 @@ TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
 }
 
 TEST(Journal, ASegmentCreatedButNeverHeaderedIsAdoptedRatherThanRefused) {
-    // a crash between creating a segment and writing its header leaves a zero-filled file; the writer initialises it in place
+    // a crash between creating a segment and writing its header leaves a zero-filled file; the writer initialises it in
+    // place
     const FreshDir dir{"blank-rotate"};
 
     constexpr std::size_t k_small = 1 << 16;
@@ -346,9 +345,7 @@ struct VenueProbe {
 
     template <typename E, typename Tag> void on_enum_value(E, Tag) noexcept {}
 
-    template <typename E> void on_enum_value(E, ::sbepp::unknown_enum_value_tag) noexcept {
-        known = false;
-    }
+    template <typename E> void on_enum_value(E, ::sbepp::unknown_enum_value_tag) noexcept { known = false; }
 };
 
 // sbepp knows which VenueId values the schema declares
@@ -390,9 +387,10 @@ std::size_t segments_in(const std::string& dir) {
     std::size_t n = 0;
     for (std::uint64_t seq = 0; seq < 1000; ++seq) {
         char path[512];
-        std::snprintf(
-            path, sizeof path, "%s/j.%06llu.rj", dir.c_str(), static_cast<unsigned long long>(seq));
-        struct ::stat st{};
+        std::snprintf(path, sizeof path, "%s/j.%06llu.rj", dir.c_str(), static_cast<unsigned long long>(seq));
+
+        struct ::stat st {};
+
         if (::stat(path, &st) == 0) {
             ++n;
         }
@@ -412,8 +410,7 @@ TEST(JournalWriter, SealedSegmentsBeyondTheRetentionAreDeleted) {
     }
 
     EXPECT_GT(writer->pruned(), 0U) << "rotated many times and deleted nothing";
-    EXPECT_LE(segments_in(dir), k_retain + 1)
-        << "sealed segments are accumulating past the retention";
+    EXPECT_LE(segments_in(dir), k_retain + 1) << "sealed segments are accumulating past the retention";
 }
 
 TEST(JournalWriter, RetentionZeroKeepsEverything) {

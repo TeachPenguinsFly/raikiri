@@ -84,8 +84,7 @@ std::expected<WireMarket, WireError> read_market(json::ondemand::object& row) {
 
 } // namespace
 
-std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body,
-                                                                    MarketBuffer& storage) {
+std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body, MarketBuffer& storage) {
     return json::guarded([&]() -> std::expected<std::span<const WireMarket>, WireError> {
         auto root = json::session().open_object(body);
         if (!root.has_value()) {

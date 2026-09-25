@@ -40,8 +40,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             const auto price_precision = req_i64(obj, "pricePrecision");
             const auto quantity_precision = req_i64(obj, "quantityPrecision");
             const auto status = wire::opt_i64(obj, "status");
-            if (!price_precision.has_value() || !quantity_precision.has_value() ||
-                !status.has_value()) {
+            if (!price_precision.has_value() || !quantity_precision.has_value() || !status.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.price_precision = *price_precision;
@@ -49,8 +48,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.status = *status;
             // absent reads as open; the values are strings "true"/"false"
             for (const auto& [key, field] :
-                 {std::pair{"apiStateOpen", &out.api_open},
-                  std::pair{"apiStateClose", &out.api_close}}) {
+                 {std::pair{"apiStateOpen", &out.api_open}, std::pair{"apiStateClose", &out.api_close}}) {
                 obj.reset();
                 const auto text = wire::opt_str(obj, key).value_or(std::string_view{});
                 *field = text != "false";
@@ -72,8 +70,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
     });
 }
 
-std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
+std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                             SpotSymbolBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotSymbol>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

@@ -75,12 +75,11 @@ parse_ws_user_trades(std::string_view frame, UserTradeBuffer& storage, MarketTyp
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
 parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market);
 
-[[nodiscard]] std::expected<WireOrder, WireError> parse_rest_order(std::string_view body,
-                                                                   MarketType market);
+[[nodiscard]] std::expected<WireOrder, WireError> parse_rest_order(std::string_view body, MarketType market);
 
 // one row per currency pair, each with its own orders array
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_spot_open_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_spot_open_orders(std::string_view body,
+                                                                                          OrderBuffer& storage);
 
 [[nodiscard]] std::expected<std::span<const WireUserTrade>, WireError>
 parse_rest_user_trades(std::string_view body, UserTradeBuffer& storage, MarketType market);

@@ -20,8 +20,7 @@ std::expected<WireLevel, WireError> read_level(ondemand::value& entry) {
             return std::unexpected(wire::map_error(ec));
         }
         if (field < 2) {
-            if (const auto read = text_into(value, field == 0 ? level.price : level.qty);
-                !read.has_value()) {
+            if (const auto read = text_into(value, field == 0 ? level.price : level.qty); !read.has_value()) {
                 return std::unexpected(read.error());
             }
         }
@@ -63,8 +62,7 @@ struct Sides {
     bool seen{false};
 };
 
-FieldResult
-read_sides(std::string_view key, ondemand::value& value, LevelBuffer& storage, Sides& sides) {
+FieldResult read_sides(std::string_view key, ondemand::value& value, LevelBuffer& storage, Sides& sides) {
     if (key == "asks") {
         sides.seen = true;
         return read_levels(value, storage.asks, sides.asks);
@@ -83,8 +81,7 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
 
 } // namespace
 
-std::expected<WireBook, WireError>
-parse_book(std::string_view data, bool snapshot, LevelBuffer& storage) {
+std::expected<WireBook, WireError> parse_book(std::string_view data, bool snapshot, LevelBuffer& storage) {
     return wire::guarded([&]() -> std::expected<WireBook, WireError> {
         auto array = wire::session().open_array(data);
         if (!array.has_value()) {
@@ -98,31 +95,30 @@ parse_book(std::string_view data, bool snapshot, LevelBuffer& storage) {
             WireBook out{};
             out.snapshot = snapshot;
             Sides sides{};
-            const auto read =
-                each_field(row, [&](std::string_view key, ondemand::value& value) -> FieldResult {
-                    if (key == "t") {
-                        return u64_into(value, out.ts_ms);
-                    }
-                    if (key == "u") {
-                        return u64_into(value, out.seq);
-                    }
-                    if (key == "pu") {
-                        return u64_into(value, out.prev_seq);
-                    }
-                    if (snapshot) {
-                        return read_sides(key, value, storage, sides);
-                    }
-                    if (key != "update") {
-                        return {};
-                    }
-                    ondemand::object update;
-                    if (const auto ec = value.get_object().get(update); ec != simdjson::SUCCESS) {
-                        return std::unexpected(wire::map_error(ec));
-                    }
-                    return each_field(update, [&](std::string_view side, ondemand::value& levels) {
-                        return read_sides(side, levels, storage, sides);
-                    });
+            const auto read = each_field(row, [&](std::string_view key, ondemand::value& value) -> FieldResult {
+                if (key == "t") {
+                    return u64_into(value, out.ts_ms);
+                }
+                if (key == "u") {
+                    return u64_into(value, out.seq);
+                }
+                if (key == "pu") {
+                    return u64_into(value, out.prev_seq);
+                }
+                if (snapshot) {
+                    return read_sides(key, value, storage, sides);
+                }
+                if (key != "update") {
+                    return {};
+                }
+                ondemand::object update;
+                if (const auto ec = value.get_object().get(update); ec != simdjson::SUCCESS) {
+                    return std::unexpected(wire::map_error(ec));
+                }
+                return each_field(update, [&](std::string_view side, ondemand::value& levels) {
+                    return read_sides(side, levels, storage, sides);
                 });
+            });
             if (!read.has_value()) {
                 return std::unexpected(read.error());
             }
@@ -165,8 +161,7 @@ bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
 BookResult Book::apply(const WireBook& update) {
     if (update.snapshot) {
         ladders_.clear();
-        if (!apply_side(update.bids, ladders_.bids()) ||
-            !apply_side(update.asks, ladders_.asks())) {
+        if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
             invalidate();
             return BookResult::BadLevel;
         }

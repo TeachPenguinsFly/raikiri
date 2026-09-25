@@ -38,8 +38,7 @@ public:
     [[nodiscard]] Health health(MonoNanos now, UnixNanos wall) const;
 
     // the catalogue of one gateway, or of all when `account` is empty
-    [[nodiscard]] std::vector<Instrument> instruments(std::string_view account,
-                                                      std::optional<MarketType> market) const;
+    [[nodiscard]] std::vector<Instrument> instruments(std::string_view account, std::optional<MarketType> market) const;
 
     // grouped by canonical symbol, filtered by case-insensitive substring, ordered by venue count then name
     [[nodiscard]] std::vector<Market> markets(std::string_view query, std::size_t limit) const;
@@ -55,8 +54,7 @@ public:
     [[nodiscard]] std::optional<CatalogueRow> catalogue_row(InstrumentId id) const noexcept;
 
     // a gateway that cannot report balances has empty assets and no `reported_at`
-    [[nodiscard]] std::vector<AccountBalances> balances(std::string_view account,
-                                                        UnixNanos now) const;
+    [[nodiscard]] std::vector<AccountBalances> balances(std::string_view account, UnixNanos now) const;
 
     [[nodiscard]] const Gateway* find(std::string_view account) const noexcept;
 

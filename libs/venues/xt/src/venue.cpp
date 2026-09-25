@@ -27,11 +27,11 @@
 
 namespace raikiri::venues::xt {
 
-using internal::VenueState;
 using internal::await_response;
 using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
+using internal::VenueState;
 
 void internal::sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
     const auto sent = state.clock->wall();
@@ -46,8 +46,7 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest, RequestBuild
     // half the round trip estimates one-way delay
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.clock_offset_ns =
-        static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
+    state.clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
 }
 
 void internal::sync_spot_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
@@ -62,14 +61,13 @@ void internal::sync_spot_clock(VenueState& state, net::RestClient& rest, Request
     }
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.spot_clock_offset_ns =
-        static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
+    state.spot_clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) -
+                                 static_cast<std::int64_t>(midpoint);
 }
 
 namespace {
 
-exec::VenueAdapter
-make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 

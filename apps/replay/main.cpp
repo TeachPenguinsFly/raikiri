@@ -18,10 +18,7 @@ using raikiri::journal::FrameView;
 
 std::string instrument_str(std::uint64_t packed) {
     const raikiri::InstrumentId id{packed};
-    return fmt::format("{}:{}:{}",
-                       raikiri::to_string(id.venue()),
-                       raikiri::to_string(id.market()),
-                       id.symbol().raw);
+    return fmt::format("{}:{}:{}", raikiri::to_string(id.venue()), raikiri::to_string(id.market()), id.symbol().raw);
 }
 
 void print_frame(const FrameView& frame) {
@@ -101,8 +98,7 @@ void print_frame(const FrameView& frame) {
                    m.p999Ns().value(),
                    m.count().value());
     } else {
-        fmt::print(
-            "{}?     schema_id={} ({} bytes)\n", head, frame.schema_id, frame.payload.size());
+        fmt::print("{}?     schema_id={} ({} bytes)\n", head, frame.schema_id, frame.payload.size());
     }
 }
 

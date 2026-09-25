@@ -67,8 +67,7 @@ std::expected<WireWsOrder, WireError> read_ws_order(wire::ondemand::object& obj)
     const auto order_id = wire::req_str(obj, "order_id");
     const auto cli_ord_id = wire::opt_str(obj, "cli_ord_id");
     const auto type = wire::opt_str(obj, "type");
-    if (!instrument.has_value() || !order_id.has_value() || !cli_ord_id.has_value() ||
-        !type.has_value()) {
+    if (!instrument.has_value() || !order_id.has_value() || !cli_ord_id.has_value() || !type.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.instrument = *instrument;
@@ -79,8 +78,7 @@ std::expected<WireWsOrder, WireError> read_ws_order(wire::ondemand::object& obj)
     const auto filled = opt_num(obj, "filled");
     const auto limit_price = opt_num(obj, "limit_price");
     const auto stop_price = opt_num(obj, "stop_price");
-    if (!qty.has_value() || !filled.has_value() || !limit_price.has_value() ||
-        !stop_price.has_value()) {
+    if (!qty.has_value() || !filled.has_value() || !limit_price.has_value() || !stop_price.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
     out.remaining_qty = *qty;
@@ -114,8 +112,8 @@ std::expected<WireWsFill, WireError> read_ws_fill(wire::ondemand::object& obj) {
     const auto cli_ord_id = wire::opt_str(obj, "cli_ord_id");
     const auto fill_type = wire::opt_str(obj, "fill_type");
     const auto fee_currency = wire::opt_str(obj, "fee_currency");
-    if (!instrument.has_value() || !order_id.has_value() || !fill_id.has_value() ||
-        !cli_ord_id.has_value() || !fill_type.has_value() || !fee_currency.has_value()) {
+    if (!instrument.has_value() || !order_id.has_value() || !fill_id.has_value() || !cli_ord_id.has_value() ||
+        !fill_type.has_value() || !fee_currency.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.instrument = *instrument;
@@ -147,8 +145,7 @@ std::expected<WireWsFill, WireError> read_ws_fill(wire::ondemand::object& obj) {
 
 } // namespace
 
-std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view body,
-                                                             StatusKind kind) {
+std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view body, StatusKind kind) {
     return guarded([&]() -> std::expected<WireOrderStatus, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -162,8 +159,8 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
     });
 }
 
-std::expected<std::span<const WireOrderStatus>, WireError>
-parse_batch_status(std::string_view body, BatchStatusBuffer& storage) {
+std::expected<std::span<const WireOrderStatus>, WireError> parse_batch_status(std::string_view body,
+                                                                              BatchStatusBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrderStatus>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -193,8 +190,8 @@ parse_batch_status(std::string_view body, BatchStatusBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireOpenOrder>, WireError>
-parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
+std::expected<std::span<const WireOpenOrder>, WireError> parse_open_orders(std::string_view body,
+                                                                           OpenOrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOpenOrder>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -220,8 +217,8 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
             const auto status = wire::opt_str(obj, "status");
             const auto order_type = wire::opt_str(obj, "orderType");
             const auto side = wire::req_str(obj, "side");
-            if (!order_id.has_value() || !cli_ord_id.has_value() || !symbol.has_value() ||
-                !status.has_value() || !order_type.has_value() || !side.has_value()) {
+            if (!order_id.has_value() || !cli_ord_id.has_value() || !symbol.has_value() || !status.has_value() ||
+                !order_type.has_value() || !side.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             out.order_id = *order_id;
@@ -253,8 +250,7 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
-                                                                FillBuffer& storage) {
+std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body, FillBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFill>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -281,9 +277,8 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
             const auto side = wire::req_str(obj, "side");
             const auto fill_type = wire::opt_str(obj, "fillType");
             const auto fill_time = wire::opt_str(obj, "fillTime");
-            if (!fill_id.has_value() || !order_id.has_value() || !cli_ord_id.has_value() ||
-                !symbol.has_value() || !side.has_value() || !fill_type.has_value() ||
-                !fill_time.has_value()) {
+            if (!fill_id.has_value() || !order_id.has_value() || !cli_ord_id.has_value() || !symbol.has_value() ||
+                !side.has_value() || !fill_type.has_value() || !fill_time.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             out.fill_id = *fill_id;
@@ -345,8 +340,8 @@ std::expected<WireOrderDelta, WireError> parse_order_delta(std::string_view fram
     });
 }
 
-std::expected<std::span<const WireWsOrder>, WireError>
-parse_order_snapshot(std::string_view frame, OrderSnapshotBuffer& storage) {
+std::expected<std::span<const WireWsOrder>, WireError> parse_order_snapshot(std::string_view frame,
+                                                                            OrderSnapshotBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireWsOrder>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -376,8 +371,7 @@ parse_order_snapshot(std::string_view frame, OrderSnapshotBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireWsFill>, WireError> parse_ws_fills(std::string_view frame,
-                                                                     WsFillBuffer& storage) {
+std::expected<std::span<const WireWsFill>, WireError> parse_ws_fills(std::string_view frame, WsFillBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireWsFill>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {

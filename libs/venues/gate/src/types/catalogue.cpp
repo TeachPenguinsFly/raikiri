@@ -9,8 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-std::expected<void, WireError> read_currency_pair(wire::ondemand::object& obj,
-                                                  WireCurrencyPair& out) {
+std::expected<void, WireError> read_currency_pair(wire::ondemand::object& obj, WireCurrencyPair& out) {
     const auto id = wire::req_str(obj, "id");
     if (!id.has_value()) {
         return std::unexpected{id.error()};
@@ -57,9 +56,9 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             const auto interval = num_u64(obj, "funding_interval");
             const auto next_apply = num_u64(obj, "funding_next_apply");
             const auto delisting = wire::opt_bool(obj, "in_delisting");
-            if (!status.has_value() || !tick.has_value() || !size_min.has_value() ||
-                !quanto.has_value() || !mark.has_value() || !rate.has_value() ||
-                !interval.has_value() || !next_apply.has_value() || !delisting.has_value()) {
+            if (!status.has_value() || !tick.has_value() || !size_min.has_value() || !quanto.has_value() ||
+                !mark.has_value() || !rate.has_value() || !interval.has_value() || !next_apply.has_value() ||
+                !delisting.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.status = *status;
@@ -69,10 +68,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.mark_price = *mark;
             out.funding_rate = *rate;
             out.funding_interval_s = static_cast<std::uint32_t>(*interval);
-            out.funding_rate_limit =
-                wire::opt_str(obj, "funding_rate_limit").value_or(std::string_view{});
-            out.contract_type =
-                wire::opt_str(obj, "contract_type").value_or(std::string_view{});
+            out.funding_rate_limit = wire::opt_str(obj, "funding_rate_limit").value_or(std::string_view{});
+            out.contract_type = wire::opt_str(obj, "contract_type").value_or(std::string_view{});
             out.funding_next_apply_s = *next_apply;
             out.in_delisting = *delisting;
             storage.contracts[count] = out;
@@ -82,8 +79,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
     });
 }
 
-std::expected<std::span<const WireCurrencyPair>, WireError>
-parse_currency_pairs(std::string_view body, CurrencyPairBuffer& storage) {
+std::expected<std::span<const WireCurrencyPair>, WireError> parse_currency_pairs(std::string_view body,
+                                                                                 CurrencyPairBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCurrencyPair>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {

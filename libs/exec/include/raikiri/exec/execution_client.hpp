@@ -3,13 +3,13 @@
 // execution side of a venue adapter
 
 #include <raikiri/domain/balance.hpp>
+#include <raikiri/domain/fill_report.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
-#include <raikiri/domain/fill_report.hpp>
 #include <raikiri/domain/position_report.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/error.hpp>
@@ -70,30 +70,27 @@ public:
     [[nodiscard]] virtual std::expected<std::vector<OrderStatusReport>, VenueError>
     open_order_reports(MarketType market) = 0;
 
-    [[nodiscard]] virtual std::expected<OrderStatusReport, VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) = 0;
+    [[nodiscard]] virtual std::expected<OrderStatusReport, VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                                   MarketType market) = 0;
 
-    [[nodiscard]] virtual std::expected<std::vector<FillReport>, VenueError>
-    fill_reports(MarketType market, UnixNanos since) = 0;
+    [[nodiscard]] virtual std::expected<std::vector<FillReport>, VenueError> fill_reports(MarketType market,
+                                                                                          UnixNanos since) = 0;
 
     [[nodiscard]] virtual std::expected<std::vector<PositionReport>, VenueError>
     position_reports(MarketType market) = 0;
 
     // the venue's own funding ledger; gated by VenueCaps::funding_charge
-    [[nodiscard]] virtual std::expected<std::vector<LedgerEntry>, VenueError>
-    funding_charges(MarketType market, UnixNanos since) {
+    [[nodiscard]] virtual std::expected<std::vector<LedgerEntry>, VenueError> funding_charges(MarketType market,
+                                                                                              UnixNanos since) {
         (void)market;
         (void)since;
-        return std::unexpected{
-            VenueError::make(ErrorClass::Terminal, 0, "venue reports no funding charges")};
+        return std::unexpected{VenueError::make(ErrorClass::Terminal, 0, "venue reports no funding charges")};
     }
 
     // account balances; gated by caps.balance_pull for the market asked
-    [[nodiscard]] virtual std::expected<std::vector<BalanceReport>, VenueError>
-    balance_reports(MarketType market) {
+    [[nodiscard]] virtual std::expected<std::vector<BalanceReport>, VenueError> balance_reports(MarketType market) {
         (void)market;
-        return std::unexpected{
-            VenueError::make(ErrorClass::Terminal, 0, "balances not implemented for this venue")};
+        return std::unexpected{VenueError::make(ErrorClass::Terminal, 0, "balances not implemented for this venue")};
     }
 };
 

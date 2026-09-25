@@ -22,8 +22,7 @@ net::RestRequest RequestBuilder::tickers() const noexcept {
     return get(ep::k_tickers);
 }
 
-net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol,
-                                                std::uint32_t limit) noexcept {
+net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol, std::uint32_t limit) noexcept {
     std::size_t len = 0;
     bool overflow = false;
     const auto put = [&](std::string_view text) {

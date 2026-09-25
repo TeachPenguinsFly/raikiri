@@ -58,8 +58,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -120,8 +119,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             ++state.subscribe_refusals;
-            state.last_error =
-                exec::VenueError::make(classify_stream(err->message), 0, err->reason);
+            state.last_error = exec::VenueError::make(classify_stream(err->message), 0, err->reason);
         }
         break;
     }
@@ -200,12 +198,10 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto channel = channel_for(kind);
         if (channel.empty()) {
@@ -217,8 +213,8 @@ public:
         // the pool opens another socket when none has room
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "coinbase: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "coinbase: connection pool is full")};
         }
         return {};
     }
@@ -250,8 +246,7 @@ private:
                 continue;
             }
             // find, not book_for: a key with no book has nothing stale
-            if (const auto entry = state_->books.find(base_of(*instrument).id.packed);
-                entry != state_->books.end()) {
+            if (const auto entry = state_->books.find(base_of(*instrument).id.packed); entry != state_->books.end()) {
                 entry->second.invalidate();
             }
         }
@@ -268,15 +263,13 @@ private:
         }
         // ticker first; level2_batch answers with a megabyte of ladder
         const auto quote = channel_for(exec::SubKind::Bbo);
-        std::ranges::stable_partition(
-            views, [quote](const Subscription& one) { return one.channel == quote; });
+        std::ranges::stable_partition(views, [quote](const Subscription& one) { return one.channel == quote; });
 
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < views.size()) {
-            const auto frame =
-                state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
-                    built, std::min(net::frame_subscriptions(), views.size() - built)));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
+                built, std::min(net::frame_subscriptions(), views.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

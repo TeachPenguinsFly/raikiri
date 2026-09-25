@@ -28,10 +28,10 @@ struct PositionBuffer {
 };
 
 // rest rows are under `list`; the socket's are under `data`
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_position_list(std::string_view result, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_position_list(std::string_view result,
+                                                                                          PositionBuffer& storage);
 
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view frame, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view frame,
+                                                                                      PositionBuffer& storage);
 
 } // namespace raikiri::venues::bybit

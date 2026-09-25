@@ -54,16 +54,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::array<char, 64> buf{};
         const auto topic = topic_name(kind, symbol, buf);
@@ -80,8 +76,8 @@ public:
         const std::array<std::string, 1> one{std::move(key)};
         if (!pool_.subscribe(one)) {
             state_->topics.erase(one[0]);
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "apex: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "apex: connection pool is full")};
         }
         return {};
     }
@@ -104,9 +100,8 @@ private:
         explicit Handler(ApexData& owner) : owner_{&owner} {}
 
         void on_open() override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
         void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -114,9 +109,8 @@ private:
         }
 
         void on_close(net::WsCloseReason) override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
     private:
@@ -133,8 +127,7 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto book = state_->books.find(base_of(*instrument).id.packed);
-                book != state_->books.end()) {
+            if (const auto book = state_->books.find(base_of(*instrument).id.packed); book != state_->books.end()) {
                 book->second.invalidate();
             }
         }
@@ -210,9 +203,7 @@ private:
             return;
         }
         const auto& base = base_of(*instrument);
-        auto& book =
-            state_->books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-                .first->second;
+        auto& book = state_->books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
         const auto result = book.apply(*wire);
         if (result == SyncResult::GapDetected) {
             resubscribe_book(wire->symbol);
@@ -226,8 +217,7 @@ private:
             state_->sink->on_bbo(*bbo);
             state_->quoted.insert(base.id.packed);
         }
-        if (!state_->depth_wanted.contains(base.id.packed) ||
-            !state_->sink->wants_depth(base.id, received)) {
+        if (!state_->depth_wanted.contains(base.id.packed) || !state_->sink->wants_depth(base.id, received)) {
             return;
         }
         if (const auto depth = book.snapshot(ts_event, received); depth.has_value()) {

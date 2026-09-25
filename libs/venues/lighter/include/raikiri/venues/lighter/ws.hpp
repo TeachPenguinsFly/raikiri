@@ -31,29 +31,24 @@ inline constexpr std::string_view k_trade_channel = "trade";
 inline constexpr std::string_view k_perp_stats_all = "market_stats/all";
 inline constexpr std::string_view k_spot_stats_all = "spot_market_stats/all";
 
-
 // A reopen resends the whole set at that pace, so books go first, then the stats, then
 // trades; each channel once.
 [[nodiscard]] std::vector<std::string_view> ask_order(std::span<const std::string> channels);
 
 // Empty for a kind not read per market.
-[[nodiscard]] std::string_view
-channel_name(exec::SubKind kind, std::uint32_t market_id, std::span<char> out) noexcept;
+[[nodiscard]] std::string_view channel_name(exec::SubKind kind, std::uint32_t market_id, std::span<char> out) noexcept;
 
 // The channel a subscribe frame of ours asks for; empty for any other frame.
 [[nodiscard]] std::string_view subscribed_channel(std::string_view frame) noexcept;
 
 class Protocol {
 public:
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    subscribe_frame(std::string_view channel);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> subscribe_frame(std::string_view channel);
 
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    unsubscribe_frame(std::string_view channel);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> unsubscribe_frame(std::string_view channel);
 
 private:
-    [[nodiscard]] std::expected<std::string_view, WsBuildError> frame(std::string_view type,
-                                                                      std::string_view channel);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> frame(std::string_view type, std::string_view channel);
 
     std::array<char, 128> frame_{};
 };

@@ -47,17 +47,14 @@ TEST(Catalogue, FindMatchesTheWholePackedId) {
     ASSERT_NE(table->find(id), nullptr);
     EXPECT_EQ(base_of(*table->find(id)).exchange_symbol.view(), "BTCUSDT");
 
-    EXPECT_EQ(table->find(InstrumentId::make(VenueId::Bybit, MarketType::Spot, SymbolId{0})),
-              nullptr);
-    EXPECT_EQ(table->find(InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{0})),
-              nullptr);
+    EXPECT_EQ(table->find(InstrumentId::make(VenueId::Bybit, MarketType::Spot, SymbolId{0})), nullptr);
+    EXPECT_EQ(table->find(InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{0})), nullptr);
 }
 
 TEST(Catalogue, UnpublishedSlotDoesNotResolve) {
     const auto table = make_table();
     ASSERT_TRUE(table->push(perp(VenueId::Sim, 0, "SIM1")).has_value());
-    EXPECT_EQ(table->find(InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1})),
-              nullptr);
+    EXPECT_EQ(table->find(InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1})), nullptr);
 }
 
 TEST(Catalogue, FillsToCapacityThenRefuses) {

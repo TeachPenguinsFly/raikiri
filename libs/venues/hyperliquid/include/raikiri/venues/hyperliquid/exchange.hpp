@@ -53,14 +53,10 @@ private:
 // requests view scratch owned here and die when the next one is built
 class ExchangeBuilder {
 public:
-    ExchangeBuilder(const Wallet& wallet, bool mainnet) noexcept
-        : wallet_{&wallet}, mainnet_{mainnet} {}
+    ExchangeBuilder(const Wallet& wallet, bool mainnet) noexcept : wallet_{&wallet}, mainnet_{mainnet} {}
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    create_order(const OrderCmd& cmd,
-                 const exec::InstrumentTable& table,
-                 std::int64_t asset,
-                 std::uint64_t nonce);
+    create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, std::int64_t asset, std::uint64_t nonce);
 
     // by oid when present, else cancelByCloid, a separate action with different keys
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
@@ -68,16 +64,13 @@ public:
 
     // native modify; carries the whole replacement order
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    modify_order(const OrderCmd& cmd,
-                 const exec::InstrumentTable& table,
-                 std::int64_t asset,
-                 std::uint64_t nonce);
+    modify_order(const OrderCmd& cmd, const exec::InstrumentTable& table, std::int64_t asset, std::uint64_t nonce);
 
 private:
     [[nodiscard]] static std::uint64_t digits_to_oid(std::string_view text) noexcept;
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_and_wrap(
-        std::span<const std::uint8_t> packed, std::string_view action_json, std::uint64_t nonce);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    sign_and_wrap(std::span<const std::uint8_t> packed, std::string_view action_json, std::uint64_t nonce);
 
     static constexpr std::size_t k_action_bytes = 1024;
 

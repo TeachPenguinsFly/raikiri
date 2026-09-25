@@ -46,8 +46,7 @@ struct VenueState {
     RequestBuilder builder{signer};
 
     // its own pool so seeds and orders do not queue behind each other; six connections for catalogue-wide seeding
-    net::RestClient depth_rest{
-        io, net::RestConfig{.host = std::string{rest_host(testnet)}, .pool_size = 6}};
+    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}, .pool_size = 6}};
     std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::vector<std::string> desired_streams;
@@ -77,8 +76,7 @@ struct VenueState {
 
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     void add_stream(std::string_view stream) {

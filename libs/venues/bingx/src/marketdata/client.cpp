@@ -49,8 +49,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto bbo = map_bbo(*wire, state.instruments, state.market, received);
-            bbo.has_value()) {
+        if (const auto bbo = map_bbo(*wire, state.instruments, state.market, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
         break;
@@ -62,8 +61,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, state.market, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, state.market, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -75,8 +73,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto book = map_book(*wire, state.instruments, state.market, received);
-            book.has_value()) {
+        if (const auto book = map_book(*wire, state.instruments, state.market, received); book.has_value()) {
             state.sink->on_depth(*book);
             if (state.market != MarketType::Spot) {
                 if (const auto touch = touch_of(*book); touch.has_value()) {
@@ -91,8 +88,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, state.market, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, state.market, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -188,25 +184,20 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
             // spot and perp share symbols; one socket serves one market
             return std::unexpected{exec::not_implemented("bingx: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
             // funding is polled over rest; the ticker stream is subscribed alongside
-            if (const auto placed = subscribe_channel(symbol, k_ticker_channel);
-                !placed.has_value()) {
+            if (const auto placed = subscribe_channel(symbol, k_ticker_channel); !placed.has_value()) {
                 return placed;
             }
             for (const auto& existing : state_->funding_symbols) {
@@ -242,8 +233,7 @@ public:
     }
 
 private:
-    std::expected<void, exec::VenueError> subscribe_channel(std::string_view symbol,
-                                                            std::string_view suffix) {
+    std::expected<void, exec::VenueError> subscribe_channel(std::string_view symbol, std::string_view suffix) {
         const auto before = state_->desired.size();
         state_->add_subscription(symbol, suffix);
         if (state_->desired.size() == before) {
@@ -252,8 +242,8 @@ private:
         // the pool places the key and refuses only at its own ceiling
         const std::array<std::string, 1> one{key_of(symbol, suffix)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "bingx: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bingx: connection pool is full")};
         }
         return {};
     }
@@ -272,13 +262,12 @@ private:
             if (cut == std::string::npos) {
                 continue;
             }
-            views.push_back({.symbol = std::string_view{key}.substr(0, cut),
-                             .suffix = std::string_view{key}.substr(cut + 1)});
+            views.push_back(
+                {.symbol = std::string_view{key}.substr(0, cut), .suffix = std::string_view{key}.substr(cut + 1)});
         }
         // quote first: with paced sends the tail of a large catalogue lags
         const auto quote = data_type_suffix(exec::SubKind::Bbo, state_->market);
-        std::ranges::stable_partition(views,
-                                      [quote](const View& one) { return one.suffix == quote; });
+        std::ranges::stable_partition(views, [quote](const View& one) { return one.suffix == quote; });
 
         // one frame per topic; copied because the protocol buffer is reused
         std::vector<std::string> frames;
@@ -294,8 +283,7 @@ private:
     }
 
     void poll_funding(UnixNanos now) noexcept {
-        if (state_->funding_symbols.empty() || now.ns < state_->next_funding_poll_ns ||
-            funding_in_flight_) {
+        if (state_->funding_symbols.empty() || now.ns < state_->next_funding_poll_ns || funding_in_flight_) {
             return;
         }
         state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
@@ -326,8 +314,7 @@ private:
             return;
         }
         const auto received = state_->clock->wall();
-        if (const auto funding = map_funding(*wire, state_->instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state_->instruments, received); funding.has_value()) {
             state_->sink->on_funding(*funding);
         }
     }

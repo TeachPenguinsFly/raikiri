@@ -13,11 +13,11 @@
 
 namespace raikiri::venues::weex {
 
-using internal::VenueState;
 using internal::await_response;
 using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
+using internal::VenueState;
 
 // offset to weex's clock, less half the round trip
 void internal::sync_clock(VenueState& state, net::RestClient& rest) {
@@ -35,16 +35,14 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest) {
         return;
     }
     const auto server_ns = static_cast<std::int64_t>(*server_ms) * 1'000'000;
-    const auto midpoint_ns =
-        static_cast<std::int64_t>(before.ns) +
-        (static_cast<std::int64_t>(after.ns) - static_cast<std::int64_t>(before.ns)) / 2;
+    const auto midpoint_ns = static_cast<std::int64_t>(before.ns) +
+                             (static_cast<std::int64_t>(after.ns) - static_cast<std::int64_t>(before.ns)) / 2;
     state.clock_offset_ns = server_ns - midpoint_ns;
 }
 
 namespace {
 
-exec::VenueAdapter
-make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
     state->budget = config.budget;
     state->market = config.market;

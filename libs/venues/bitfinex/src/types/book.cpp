@@ -45,8 +45,7 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
     return guarded([&]() -> std::expected<WireBook, WireError> {
         return with_payload(
             frame,
-            [&storage](wire::ondemand::value payload,
-                       std::string_view tag) -> std::expected<WireBook, WireError> {
+            [&storage](wire::ondemand::value payload, std::string_view tag) -> std::expected<WireBook, WireError> {
                 if (!tag.empty()) {
                     return std::unexpected(WireError::WrongType);
                 }

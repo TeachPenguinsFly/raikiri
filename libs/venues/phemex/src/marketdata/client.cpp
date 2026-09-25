@@ -98,21 +98,16 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto listing = state_->listings.find(instrument.packed);
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (listing == state_->listings.end() || symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::array<char, 64> buf{};
-        const auto key =
-            channel_key(kind, instrument.market(), listing->second.encoding, symbol, buf);
+        const auto key = channel_key(kind, instrument.market(), listing->second.encoding, symbol, buf);
         if (key.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -128,8 +123,8 @@ public:
         const std::array<std::string, 1> one{std::string{key}};
         if (!pool_.subscribe(one)) {
             state_->channels.erase(std::string{key});
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "phemex: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "phemex: connection pool is full")};
         }
         return {};
     }
@@ -157,9 +152,8 @@ private:
         explicit Handler(PhemexData& owner) : owner_{&owner} {}
 
         void on_open() override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
         void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -167,9 +161,8 @@ private:
         }
 
         void on_close(net::WsCloseReason) override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
     private:
@@ -185,8 +178,7 @@ private:
             if (!found.has_value()) {
                 continue;
             }
-            if (const auto book = state_->books.find(found->base->id.packed);
-                book != state_->books.end()) {
+            if (const auto book = state_->books.find(found->base->id.packed); book != state_->books.end()) {
                 book->second.invalidate();
             }
         }
@@ -199,32 +191,28 @@ private:
         }
         switch (*kind) {
         case EventKind::RealBook: {
-            static thread_local const auto storage =
-                std::make_unique<LevelBuffer<WireRealLevel>>();
+            static thread_local const auto storage = std::make_unique<LevelBuffer<WireRealLevel>>();
             if (const auto wire = parse_real_book(frame, *storage); wire.has_value()) {
                 on_book(*wire, received);
             }
             break;
         }
         case EventKind::ScaledBook: {
-            static thread_local const auto storage =
-                std::make_unique<LevelBuffer<WireScaledLevel>>();
+            static thread_local const auto storage = std::make_unique<LevelBuffer<WireScaledLevel>>();
             if (const auto wire = parse_scaled_book(frame, *storage); wire.has_value()) {
                 on_book(*wire, received);
             }
             break;
         }
         case EventKind::RealTrades: {
-            static thread_local const auto storage =
-                std::make_unique<PrintBuffer<WireRealPrint>>();
+            static thread_local const auto storage = std::make_unique<PrintBuffer<WireRealPrint>>();
             if (const auto wire = parse_real_trades(frame, *storage); wire.has_value()) {
                 on_trades(*wire, received);
             }
             break;
         }
         case EventKind::ScaledTrades: {
-            static thread_local const auto storage =
-                std::make_unique<PrintBuffer<WireScaledPrint>>();
+            static thread_local const auto storage = std::make_unique<PrintBuffer<WireScaledPrint>>();
             if (const auto wire = parse_scaled_trades(frame, *storage); wire.has_value()) {
                 on_trades(*wire, received);
             }
@@ -251,8 +239,7 @@ private:
         }
     }
 
-    template <typename Level>
-    void on_book(const WireBook<Level>& wire, UnixNanos received) noexcept {
+    template <typename Level> void on_book(const WireBook<Level>& wire, UnixNanos received) noexcept {
         const auto found = state_->find(wire.head.symbol);
         if (!found.has_value()) {
             return;
@@ -290,8 +277,7 @@ private:
             state_->sink->on_bbo(*top);
             state_->quoted.insert(base.id.packed);
         }
-        if (!state_->depth_wanted.contains(base.id.packed) ||
-            !state_->sink->wants_depth(base.id, received)) {
+        if (!state_->depth_wanted.contains(base.id.packed) || !state_->sink->wants_depth(base.id, received)) {
             return;
         }
         if (const auto depth = book.snapshot(ts_event, received); depth.has_value()) {
@@ -299,8 +285,7 @@ private:
         }
     }
 
-    template <typename Print>
-    void on_trades(const WireTrades<Print>& wire, UnixNanos received) noexcept {
+    template <typename Print> void on_trades(const WireTrades<Print>& wire, UnixNanos received) noexcept {
         // the subscribe reply replays 200 old prints
         if (wire.snapshot) {
             return;
@@ -346,8 +331,7 @@ private:
                 state_->sink->on_funding(*funding);
                 state_->funded.insert(base.id.packed);
             }
-            if (const auto stats = map_ticker_stats(row, base, pack->ts_ns, received);
-                stats.has_value()) {
+            if (const auto stats = map_ticker_stats(row, base, pack->ts_ns, received); stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -369,13 +353,11 @@ private:
         if (!state_->funding_wanted.contains(base.id.packed)) {
             return;
         }
-        if (const auto funding = map_funding(*wire, base, *found->listing, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, base, *found->listing, received); funding.has_value()) {
             state_->sink->on_funding(*funding);
             state_->funded.insert(base.id.packed);
         }
-        if (const auto stats = map_ticker_stats(*wire, base, *found->listing, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, base, *found->listing, received); stats.has_value()) {
             state_->sink->on_ticker_stats(*stats);
         }
     }
@@ -396,8 +378,7 @@ private:
         if (!state_->funding_wanted.contains(base.id.packed)) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, base, *found->listing, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, base, *found->listing, received); stats.has_value()) {
             state_->sink->on_ticker_stats(*stats);
             state_->funded.insert(base.id.packed);
         }
@@ -425,8 +406,7 @@ private:
             return;
         }
         catalogue_rest_.start();
-        const net::RestRequest request{
-            .method = net::HttpMethod::Get, .target = ep::k_products, .body = {}};
+        const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_products, .body = {}};
         reread_in_flight_ = catalogue_rest_.send(request, [this](net::RestResponse&& response) {
             reread_in_flight_ = false;
             on_catalogue(response);

@@ -28,8 +28,8 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 // current_funding can be 0, so absence means a missing field; funding_8h is read but not mapped
 struct WireTicker {

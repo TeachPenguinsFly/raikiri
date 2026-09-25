@@ -67,10 +67,8 @@ struct Fetched {
     std::string body;
 };
 
-[[nodiscard]] std::optional<Fetched> fetch(std::string_view host,
-                                           std::uint16_t port,
-                                           std::string_view target,
-                                           std::uint32_t timeout_ms) noexcept;
+[[nodiscard]] std::optional<Fetched>
+fetch(std::string_view host, std::uint16_t port, std::string_view target, std::uint32_t timeout_ms) noexcept;
 
 // rfc 9457 problem response shared by every api here; `detail` is escaped
 [[nodiscard]] Response problem(int status, std::string_view title, std::string_view detail = {});

@@ -62,8 +62,7 @@ constexpr UnixNanos k_t0{1'700'000'000'000'000'000ULL};
     return cmd;
 }
 
-[[nodiscard]] OrderCmd
-make_cancel(std::uint64_t seq, ExchangeOrderId target, ExchangeClientOrderId exch_client = {}) {
+[[nodiscard]] OrderCmd make_cancel(std::uint64_t seq, ExchangeOrderId target, ExchangeClientOrderId exch_client = {}) {
     OrderCmd cmd{};
     cmd.kind = CmdKind::Cancel;
     cmd.instrument = k_inst;
@@ -74,8 +73,7 @@ make_cancel(std::uint64_t seq, ExchangeOrderId target, ExchangeClientOrderId exc
     return cmd;
 }
 
-[[nodiscard]] OrderCmd
-make_amend(std::uint64_t seq, ExchangeOrderId target, PriceTicks price, QtyLots qty) {
+[[nodiscard]] OrderCmd make_amend(std::uint64_t seq, ExchangeOrderId target, PriceTicks price, QtyLots qty) {
     OrderCmd cmd{};
     cmd.kind = CmdKind::Amend;
     cmd.instrument = k_inst;
@@ -105,10 +103,8 @@ void serialize(const SimResult& r, std::string& buf) {
 TEST(Engine, ClientLimitCrossesBackgroundLiquidity) {
     Engine eng;
     SimResult scenery;
-    const std::uint64_t ask1 =
-        eng.place_background_limit(k_inst, Side::Sell, px(101), lots(5), k_t0, scenery);
-    const std::uint64_t ask2 =
-        eng.place_background_limit(k_inst, Side::Sell, px(102), lots(5), k_t0, scenery);
+    const std::uint64_t ask1 = eng.place_background_limit(k_inst, Side::Sell, px(101), lots(5), k_t0, scenery);
+    const std::uint64_t ask2 = eng.place_background_limit(k_inst, Side::Sell, px(102), lots(5), k_t0, scenery);
     EXPECT_NE(ask1, ask2);
     EXPECT_TRUE(scenery.events.empty()); // background liquidity is scenery
     EXPECT_TRUE(scenery.trades.empty());
@@ -204,9 +200,8 @@ TEST(Engine, PostOnlyCrossRejected) {
     SimResult scenery;
     eng.place_background_limit(k_inst, Side::Sell, px(101), lots(5), k_t0, scenery);
     const auto before = eng.bbo(k_inst);
-    const auto r = eng.handle(
-        make_limit(1, Side::Buy, px(101), lots(5), TimeInForce::Gtc, OrderFlags::PostOnly),
-        k_t0 + 1);
+    const auto r = eng.handle(make_limit(1, Side::Buy, px(101), lots(5), TimeInForce::Gtc, OrderFlags::PostOnly),
+                              k_t0 + 1);
     // a post-only order that would cross is refused
     ASSERT_EQ(r.events.size(), 1U);
     EXPECT_EQ(r.events[0].type, OrderEventType::Rejected);
@@ -220,8 +215,7 @@ TEST(Engine, IocRemainderExpires) {
     Engine eng;
     SimResult scenery;
     eng.place_background_limit(k_inst, Side::Sell, px(101), lots(4), k_t0, scenery);
-    const auto r =
-        eng.handle(make_limit(1, Side::Buy, px(101), lots(10), TimeInForce::Ioc), k_t0 + 1);
+    const auto r = eng.handle(make_limit(1, Side::Buy, px(101), lots(10), TimeInForce::Ioc), k_t0 + 1);
     ASSERT_EQ(r.events.size(), 2U);
     EXPECT_EQ(r.events[0].type, OrderEventType::Filled);
     EXPECT_EQ(r.events[0].qty, lots(4));
@@ -229,8 +223,7 @@ TEST(Engine, IocRemainderExpires) {
     EXPECT_EQ(r.events[1].type, OrderEventType::Expired);
     EXPECT_EQ(r.events[1].leaves_qty, lots(6));
     EXPECT_EQ(r.events[1].qty, lots(10));
-    const auto rc =
-        eng.handle(make_cancel(2, r.events[0].exchange_order_id, test_ulid(1)), k_t0 + 2);
+    const auto rc = eng.handle(make_cancel(2, r.events[0].exchange_order_id, test_ulid(1)), k_t0 + 2);
     ASSERT_EQ(rc.events.size(), 1U);
     EXPECT_EQ(rc.events[0].type, OrderEventType::CancelRejected);
 }
@@ -378,16 +371,13 @@ TEST(Engine, DeterminismSameSeedSameScript) {
                 const auto snap = eng.bbo(k_inst);
                 if (snap.has_value() && !snap->bid.is_undef()) {
                     const auto cr = eng.handle(
-                        make_limit(
-                            1000 + static_cast<std::uint64_t>(i), Side::Buy, snap->bid, lots(2)),
-                        now);
+                        make_limit(1000 + static_cast<std::uint64_t>(i), Side::Buy, snap->bid, lots(2)), now);
                     serialize(cr, blob);
                 }
             }
             if (i % 25 == 24) {
                 const Side side = (i / 25) % 2 == 0 ? Side::Buy : Side::Sell;
-                const auto cr = eng.handle(
-                    make_market(2000 + static_cast<std::uint64_t>(i), side, lots(3)), now);
+                const auto cr = eng.handle(make_market(2000 + static_cast<std::uint64_t>(i), side, lots(3)), now);
                 serialize(cr, blob);
             }
         }

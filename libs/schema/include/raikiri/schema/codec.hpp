@@ -34,8 +34,7 @@ append_msg(journal::JournalWriter& writer, std::uint64_t ts_ns, Fill&& fill) noe
 }
 
 // the caller has matched frame.schema_id against message_id<MsgTag>()
-template <typename MsgTag>
-[[nodiscard]] auto view_msg(std::span<const std::byte> payload) noexcept {
+template <typename MsgTag> [[nodiscard]] auto view_msg(std::span<const std::byte> payload) noexcept {
     using Msg = typename sbepp::message_traits<MsgTag>::template value_type<const std::byte>;
     return Msg{payload.data(), payload.size()};
 }

@@ -11,8 +11,8 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                            InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -44,8 +44,8 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             const auto underlying = wire::opt_str(obj, "underlying");
             const auto last_trading = wire::opt_str(obj, "lastTradingTime");
             const auto tradeable = wire::opt_bool(obj, "tradeable");
-            if (!tick.has_value() || !contract.has_value() || !underlying.has_value() ||
-                !last_trading.has_value() || !tradeable.has_value()) {
+            if (!tick.has_value() || !contract.has_value() || !underlying.has_value() || !last_trading.has_value() ||
+                !tradeable.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.tick_size = *tick;

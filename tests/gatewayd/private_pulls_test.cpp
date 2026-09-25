@@ -1,6 +1,6 @@
-#include "private_pulls.hpp"
-
 #include <gtest/gtest.h>
+
+#include "private_pulls.hpp"
 
 namespace {
 

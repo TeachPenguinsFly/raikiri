@@ -69,15 +69,12 @@ struct VenueState {
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
-    [[nodiscard]] bool credentialed() const noexcept {
-        return signer.has_credentials() && !passphrase.empty();
-    }
+    [[nodiscard]] bool credentialed() const noexcept { return signer.has_credentials() && !passphrase.empty(); }
 
     // okx refuses a signature more than 30 s off its clock (50102)
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     void add_subscription(std::string_view channel, std::string_view inst_id) {

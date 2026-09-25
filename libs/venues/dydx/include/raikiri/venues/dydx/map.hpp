@@ -37,8 +37,7 @@ enum class Refusal : std::uint8_t {
 
 [[nodiscard]] std::expected<Instrument, Refusal> map_instrument(const WireMarket& wire);
 
-[[nodiscard]] std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 // The oracle is a validator median at its own precision and rarely on the tick:
 // truncated toward zero onto it, never refused.

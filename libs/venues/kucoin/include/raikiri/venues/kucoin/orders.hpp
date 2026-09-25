@@ -70,12 +70,12 @@ struct OrderBuffer {
 };
 
 // data is the array itself
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_spot_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_spot_orders(std::string_view body,
+                                                                                     OrderBuffer& storage);
 
 // data is a page object wrapping items
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_futures_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_futures_orders(std::string_view body,
+                                                                                        OrderBuffer& storage);
 
 inline constexpr std::size_t k_max_active_symbols = 256;
 
@@ -84,8 +84,8 @@ struct SymbolBuffer {
 };
 
 // spot answers actives one symbol at a time; this lists the symbols
-[[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
-parse_active_symbols(std::string_view body, SymbolBuffer& storage);
+[[nodiscard]] std::expected<std::span<const std::string_view>, WireError> parse_active_symbols(std::string_view body,
+                                                                                               SymbolBuffer& storage);
 
 // neither host names the clientOid on a fill
 struct WireFill {

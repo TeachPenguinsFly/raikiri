@@ -44,8 +44,8 @@ exec::ErrorClass classify(std::string_view label) noexcept {
     if (label == k_server_error || label == k_too_busy) {
         return exec::ErrorClass::Retryable;
     }
-    const auto* const found = std::ranges::find_if(
-        k_table, [label](const LabelClass& entry) { return entry.label == label; });
+    const auto* const found = std::ranges::find_if(k_table,
+                                                   [label](const LabelClass& entry) { return entry.label == label; });
     return found != k_table.end() ? found->cls : exec::ErrorClass::Terminal;
 }
 
@@ -63,8 +63,8 @@ exec::ErrorClass classify_stream(std::int64_t code) noexcept {
 }
 
 bool is_benign_cancel_failure(std::string_view label) noexcept {
-    return label == k_order_not_found || label == k_client_id_not_found ||
-           label == k_order_closed || label == k_order_cancelled || label == k_order_finished;
+    return label == k_order_not_found || label == k_client_id_not_found || label == k_order_closed ||
+           label == k_order_cancelled || label == k_order_finished;
 }
 
 } // namespace raikiri::venues::gate

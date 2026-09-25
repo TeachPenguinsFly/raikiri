@@ -251,8 +251,7 @@ TEST(BinanceMap, RowWithoutAPairIsDropped) {
 }
 
 TEST(BinanceErrors, AuthCodesHaltTheVenue) {
-    for (const auto code :
-         {k_unauthorized, k_invalid_signature, k_bad_api_key_format, k_rejected_key_or_ip}) {
+    for (const auto code : {k_unauthorized, k_invalid_signature, k_bad_api_key_format, k_rejected_key_or_ip}) {
         EXPECT_EQ(classify(code), exec::ErrorClass::AuthFailure) << code;
     }
 }
@@ -633,18 +632,13 @@ TEST(BinanceBook, SeedAnswersAreClassified) {
     constexpr std::string_view invalid = R"({"code":-1121,"msg":"Invalid symbol."})";
     EXPECT_EQ(classify_seed_answer(400, invalid), SeedAnswer::NoBook);
     EXPECT_EQ(classify_seed_answer(400, "<html>Bad Request</html>"), SeedAnswer::NoBook);
-    EXPECT_EQ(classify_seed_answer(429, R"({"code":-1003,"msg":"Too many requests."})"),
-              SeedAnswer::RateLimited);
-    EXPECT_EQ(classify_seed_answer(418, R"({"code":-1003,"msg":"banned until 1"})"),
-              SeedAnswer::RateLimited);
-    EXPECT_EQ(classify_seed_answer(400, R"({"code":-1003,"msg":"Too many requests."})"),
-              SeedAnswer::RateLimited);
-    EXPECT_EQ(classify_seed_answer(400, R"({"code":-1001,"msg":"Disconnected."})"),
-              SeedAnswer::Retry);
+    EXPECT_EQ(classify_seed_answer(429, R"({"code":-1003,"msg":"Too many requests."})"), SeedAnswer::RateLimited);
+    EXPECT_EQ(classify_seed_answer(418, R"({"code":-1003,"msg":"banned until 1"})"), SeedAnswer::RateLimited);
+    EXPECT_EQ(classify_seed_answer(400, R"({"code":-1003,"msg":"Too many requests."})"), SeedAnswer::RateLimited);
+    EXPECT_EQ(classify_seed_answer(400, R"({"code":-1001,"msg":"Disconnected."})"), SeedAnswer::Retry);
     EXPECT_EQ(classify_seed_answer(503, ""), SeedAnswer::Retry);
     EXPECT_EQ(classify_seed_answer(408, ""), SeedAnswer::Retry);
-    EXPECT_EQ(classify_seed_answer(200, R"({"lastUpdateId":1,"bids":[],"asks":[]})"),
-              SeedAnswer::Book);
+    EXPECT_EQ(classify_seed_answer(200, R"({"lastUpdateId":1,"bids":[],"asks":[]})"), SeedAnswer::Book);
 }
 
 struct FakeRest {
@@ -704,8 +698,7 @@ TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
 
     std::vector<BalanceReport> held;
     for (const auto& row : account->assets) {
-        if (const auto report = map_balance(row, account->multi_assets_margin);
-            report.has_value()) {
+        if (const auto report = map_balance(row, account->multi_assets_margin); report.has_value()) {
             held.push_back(*report);
         }
     }
@@ -728,12 +721,11 @@ TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
 
 TEST(BinanceMap, BalanceWithholdsAvailableInMultiAssetsMode) {
     // multi-assets mode repeats one account-wide margin on every row
-    const std::string body =
-        R"({"multiAssetsMargin":true,"assets":[)"
-        R"({"asset":"USDT","walletBalance":"827.00000000","unrealizedProfit":"0.00000000",)"
-        R"("availableBalance":"826.00000000","updateTime":1787841486006},)"
-        R"({"asset":"BTC","walletBalance":"0.01000000","unrealizedProfit":"0.00000000",)"
-        R"("availableBalance":"826.00000000","updateTime":1787841486006}],"positions":[]})";
+    const std::string body = R"({"multiAssetsMargin":true,"assets":[)"
+                             R"({"asset":"USDT","walletBalance":"827.00000000","unrealizedProfit":"0.00000000",)"
+                             R"("availableBalance":"826.00000000","updateTime":1787841486006},)"
+                             R"({"asset":"BTC","walletBalance":"0.01000000","unrealizedProfit":"0.00000000",)"
+                             R"("availableBalance":"826.00000000","updateTime":1787841486006}],"positions":[]})";
     auto storage = std::make_unique<BalanceBuffer>();
     const auto account = parse_account(body, *storage);
     ASSERT_TRUE(account.has_value());

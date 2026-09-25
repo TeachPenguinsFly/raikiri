@@ -35,8 +35,8 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_exchange_info(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(std::string_view body,
+                                                                                            InstrumentBuffer& storage);
 
 // bare array of api-tradable names, a subset of the catalogue
 struct TradableBuffer {

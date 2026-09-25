@@ -29,8 +29,8 @@ struct TradeBuffer {
     WireTrade trades[k_max_trades];
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 // a snapshot, then deltas of changed fields only; absent means unchanged
 struct WireTicker {

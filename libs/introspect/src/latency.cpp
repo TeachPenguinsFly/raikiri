@@ -44,8 +44,7 @@ bool OffsetEstimator::add(const OffsetSample& sample) noexcept {
     const auto midpoint = sample.sent_ns + rtt / 2;
     // a truncated server stamp sits half a tick before the instant it names
     const auto server = sample.server_ns + sample.resolution_ns / 2;
-    ring_[next_] = Kept{.offset_ns = static_cast<std::int64_t>(server) -
-                                     static_cast<std::int64_t>(midpoint),
+    ring_[next_] = Kept{.offset_ns = static_cast<std::int64_t>(server) - static_cast<std::int64_t>(midpoint),
                         .rtt_ns = rtt,
                         .resolution_ns = sample.resolution_ns,
                         .sampled_ns = sample.received_ns};
@@ -130,15 +129,13 @@ LatencyStats LatencySeries::stats(std::string channel, Stage stage) const {
 }
 
 LatencySeries& LatencyBook::series(std::string_view channel, Stage stage) {
-    const auto it = std::ranges::find_if(entries_, [&](const Entry& entry) {
-        return entry.stage == stage && entry.channel == channel;
-    });
+    const auto it = std::ranges::find_if(
+        entries_, [&](const Entry& entry) { return entry.stage == stage && entry.channel == channel; });
     if (it != entries_.end()) {
         return *it->series;
     }
-    entries_.push_back(Entry{.channel = std::string{channel},
-                             .stage = stage,
-                             .series = std::make_unique<LatencySeries>()});
+    entries_.push_back(
+        Entry{.channel = std::string{channel}, .stage = stage, .series = std::make_unique<LatencySeries>()});
     return *entries_.back().series;
 }
 

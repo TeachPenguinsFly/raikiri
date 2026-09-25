@@ -32,8 +32,8 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                                          InstrumentBuffer& storage);
 
 // precision is a digit count; the two booleans gate api trading apart from state
 struct WireSpotSymbol {
@@ -52,7 +52,7 @@ struct SpotSymbolBuffer {
     std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                                           SpotSymbolBuffer& storage);
 
 } // namespace raikiri::venues::xt

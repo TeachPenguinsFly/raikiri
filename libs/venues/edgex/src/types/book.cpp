@@ -64,8 +64,7 @@ BookResult Book::apply(const WireDepth& frame) {
     }
     version_ = frame.end_version;
     // a crossed top means the server's window is wrong and no later delta can fix it
-    if (const auto touch = ladders_.touch();
-        touch.has_value() && touch->first.price >= touch->second.price) {
+    if (const auto touch = ladders_.touch(); touch.has_value() && touch->first.price >= touch->second.price) {
         ++gaps_;
         invalidate();
         return BookResult::Crossed;

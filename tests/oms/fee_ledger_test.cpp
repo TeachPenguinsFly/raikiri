@@ -5,8 +5,7 @@
 namespace raikiri::oms {
 namespace {
 
-constexpr InstrumentId k_instrument =
-    InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});
+constexpr InstrumentId k_instrument = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});
 
 LedgerEntry charge(std::string_view reference, std::int64_t amount_e9) {
     LedgerEntry out{};
@@ -46,8 +45,7 @@ TEST(FeeLedger, NothingWorthQuotingBackIsNotRemembered) {
     FeeLedger ledger;
     ledger.book("", FixedE9::from_raw(-500), UnixNanos{1'000});
     ledger.book("exec-3", FixedE9::from_raw(0), UnixNanos{1'000});
-    EXPECT_EQ(ledger.size(), 0U)
-        << "an empty reference cannot be joined on and a zero fee cannot disagree";
+    EXPECT_EQ(ledger.size(), 0U) << "an empty reference cannot be joined on and a zero fee cannot disagree";
 }
 
 TEST(FeeLedger, PruningDropsOnlyWhatTheVenueWillNeverQuoteAgain) {

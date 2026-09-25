@@ -63,8 +63,7 @@ protected:
 
 // shared per gateway process; single threaded, nothing locks
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
-        : sink{&sink_ref}, clock{&clock_ref} {}
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref) : sink{&sink_ref}, clock{&clock_ref} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;
@@ -93,8 +92,7 @@ struct VenueState {
     std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
 
     // own pool so a resync never queues behind the bullet or catalogue
-    net::RestClient depth_rest{io,
-                               net::RestConfig{.host = std::string{rest_host()}, .port = "443"}};
+    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}};
     std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::uint64_t app_ping_interval_ns{k_default_ping_ms * 1'000'000ULL};
@@ -109,8 +107,7 @@ struct VenueState {
 
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     // checked before every market-data rest send; poll class, so seeds never spend the order reserve
@@ -118,8 +115,7 @@ struct VenueState {
         if (budget == nullptr) {
             return true; // unmeasured venue: unlimited, not closed
         }
-        return budget->take(target, clock->mono(), exec::RateClass::Poll)
-            .has_value();
+        return budget->take(target, clock->mono(), exec::RateClass::Poll).has_value();
     }
 
     // a 429 holds spending until gw-ratelimit-reset (ms)
@@ -147,9 +143,7 @@ struct VenueState {
         reopen_at_ns = clock->mono().ns + k_reopen_delay_ns;
     }
 
-    [[nodiscard]] std::string next_connect_id() {
-        return "raikiri" + std::to_string(clock->wall().ns + connect_seq++);
-    }
+    [[nodiscard]] std::string next_connect_id() { return "raikiri" + std::to_string(clock->wall().ns + connect_seq++); }
 
     // null for a symbol this gateway did not list
     FundingMemo* memo_for(std::string_view symbol) {
@@ -161,13 +155,11 @@ struct VenueState {
     }
 
     UtaBook& uta_book_for(const InstrumentBase& base) {
-        return uta_books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-            .first->second;
+        return uta_books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
     }
 
     DepthBook& book_for(const InstrumentBase& base) {
-        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-            .first->second;
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
     }
 };
 
@@ -178,24 +170,20 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-inline std::expected<std::string, exec::VenueError>
-usable_body(const std::optional<net::RestResponse>& response) {
+inline std::expected<std::string, exec::VenueError> usable_body(const std::optional<net::RestResponse>& response) {
     if (!response.has_value()) {
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::Connectivity, 0, "no response before deadline")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response before deadline")};
     }
     if (response->transport_failed()) {
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
     }
     const auto envelope = parse_rest_envelope(response->body);
     if (!envelope.has_value()) {
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
     }
     if (envelope->code != k_ok) {
-        return std::unexpected{
-            exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
+        return std::unexpected{exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
     }
     return response->body;
 }

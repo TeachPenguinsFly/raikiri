@@ -39,16 +39,14 @@ struct WireDepth {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage);
 
 struct DepthEvent {
     EventInfo event;
     std::optional<WireDepth> depth;
 };
 
-[[nodiscard]] std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view frame,
-                                                                         LevelBuffer& storage);
+[[nodiscard]] std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view frame, LevelBuffer& storage);
 
 // #1 bid price, #2 bid qty, #3 ask price, #4 ask qty, all decimal strings
 struct StreamQuote {
@@ -66,7 +64,6 @@ struct StreamBook {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<StreamBook, WireError> parse_stream_book(std::string_view payload,
-                                                                     LevelBuffer& storage);
+[[nodiscard]] std::expected<StreamBook, WireError> parse_stream_book(std::string_view payload, LevelBuffer& storage);
 
 } // namespace raikiri::venues::mexc

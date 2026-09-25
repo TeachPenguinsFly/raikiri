@@ -48,17 +48,12 @@ public:
     };
 
     Position(PositionKey key, const Restored& state) noexcept
-        : key_{key}, qty_{state.qty}, cost_{state.cost}, realized_{state.realized},
-          fees_{state.fees}, fill_count_{state.fill_count}, ts_opened_{state.ts_opened},
-          ts_updated_{state.ts_updated} {}
+        : key_{key}, qty_{state.qty}, cost_{state.cost}, realized_{state.realized}, fees_{state.fees},
+          fill_count_{state.fill_count}, ts_opened_{state.ts_opened}, ts_updated_{state.ts_updated} {}
 
     // `delta` is the caller's fill quantity, normally the drop in leaves
-    Applied apply_fill(const InstrumentBase& base,
-                       Side side,
-                       QtyLots delta,
-                       PriceTicks price,
-                       FixedE9 fee,
-                       UnixNanos ts) noexcept;
+    Applied apply_fill(
+        const InstrumentBase& base, Side side, QtyLots delta, PriceTicks price, FixedE9 fee, UnixNanos ts) noexcept;
 
     [[nodiscard]] PositionKey key() const noexcept { return key_; }
 
@@ -95,7 +90,6 @@ private:
 };
 
 // what closing the whole position at `mark` would realize
-[[nodiscard]] FixedE9
-unrealized_pnl(const InstrumentBase& base, const Position& position, PriceTicks mark) noexcept;
+[[nodiscard]] FixedE9 unrealized_pnl(const InstrumentBase& base, const Position& position, PriceTicks mark) noexcept;
 
 } // namespace raikiri::portfolio

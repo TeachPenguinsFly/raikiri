@@ -59,8 +59,7 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
 
 } // namespace
 
-std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view frame,
-                                                           LevelBuffer& storage) {
+std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireL2Snapshot, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -91,8 +90,7 @@ std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view fram
     });
 }
 
-std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame,
-                                                       ChangeBuffer& storage) {
+std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame, ChangeBuffer& storage) {
     return guarded([&]() -> std::expected<WireL2Update, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -195,8 +193,8 @@ BookResult Book::reset(const WireL2Snapshot& wire) {
         return true;
     };
     // an unreadable snapshot level is refused; changes alone never heal the hole
-    if (!take(wire.bids, ladders_.bids()) || !take(wire.asks, ladders_.asks()) ||
-        ladders_.bids().empty() || ladders_.asks().empty()) {
+    if (!take(wire.bids, ladders_.bids()) || !take(wire.asks, ladders_.asks()) || ladders_.bids().empty() ||
+        ladders_.asks().empty()) {
         invalidate();
         return BookResult::BadLevel;
     }

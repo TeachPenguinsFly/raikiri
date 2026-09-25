@@ -16,7 +16,7 @@
 namespace raikiri::shm {
 
 inline constexpr std::uint64_t k_magic = 0x5241494B53484D31ULL; // "RAIKSHM1"
-inline constexpr std::uint32_t k_abi_version = 12; // 12: InstrumentBase::asset_class, underlying
+inline constexpr std::uint32_t k_abi_version = 12;              // 12: InstrumentBase::asset_class, underlying
 // spare slots so a new channel needs no header-layout change
 inline constexpr std::size_t k_max_channels = 16;
 inline constexpr std::size_t k_max_readers = 4;
@@ -83,10 +83,8 @@ public:
     SegmentOwner& operator=(SegmentOwner&&) = delete;
     ~SegmentOwner();
 
-    [[nodiscard]] static std::expected<SegmentOwner, SegError> create(const std::string& path,
-                                                                      std::size_t total_size,
-                                                                      std::uint64_t generation,
-                                                                      std::uint64_t now_ns);
+    [[nodiscard]] static std::expected<SegmentOwner, SegError>
+    create(const std::string& path, std::size_t total_size, std::uint64_t generation, std::uint64_t now_ns);
 
     template <typename T> [[nodiscard]] T* create_channel(std::string_view name) noexcept {
         void* p = place(name, sizeof(T), alignof(T));
@@ -106,8 +104,7 @@ public:
 private:
     SegmentOwner() = default;
 
-    [[nodiscard]] void*
-    place(std::string_view name, std::size_t size, std::size_t alignment) noexcept;
+    [[nodiscard]] void* place(std::string_view name, std::size_t size, std::size_t alignment) noexcept;
 
     SegmentHeader* header_{nullptr};
     std::byte* base_{nullptr};
@@ -127,8 +124,7 @@ public:
     [[nodiscard]] static std::expected<SegmentClient, SegError> attach(const std::string& path);
 
     // Resolves a channel; the compiled type's size must match the owner's.
-    template <typename T>
-    [[nodiscard]] std::expected<T*, SegError> open_channel(std::string_view name) noexcept {
+    template <typename T> [[nodiscard]] std::expected<T*, SegError> open_channel(std::string_view name) noexcept {
         auto raw = find(name, sizeof(T));
         return raw.transform([](void* p) { return channel_cast<T>(p); });
     }
@@ -155,8 +151,7 @@ public:
 private:
     SegmentClient() = default;
 
-    [[nodiscard]] std::expected<void*, SegError> find(std::string_view name,
-                                                      std::size_t expected_size) noexcept;
+    [[nodiscard]] std::expected<void*, SegError> find(std::string_view name, std::size_t expected_size) noexcept;
 
     SegmentHeader* header_{nullptr};
     std::byte* base_{nullptr};

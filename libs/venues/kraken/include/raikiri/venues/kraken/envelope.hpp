@@ -10,7 +10,7 @@
 namespace raikiri::venues::kraken {
 
 enum class EventKind : std::uint8_t {
-    Ticker, // bid/ask/mark/index/funding in one frame
+    Ticker,     // bid/ask/mark/index/funding in one frame
     TickerLite, // ticker without the derivative fields
     Trade,      // trade and trade_snapshot
     Book,       // book and book_snapshot
@@ -20,7 +20,7 @@ enum class EventKind : std::uint8_t {
 
     Challenge,          // {"event":"challenge","message":"<uuid>"}
     OpenOrdersSnapshot, // the whole working set
-    OpenOrders, // one delta, a different shape
+    OpenOrders,         // one delta, a different shape
     Fills,              // fills and fills_snapshot; one shape, both spellings
 
     Unknown,
@@ -62,16 +62,13 @@ struct RestEnvelope {
 // raw token text; kraken writes both 64110.0 and 8.907125e-6, so map.cpp parses it. null reads as empty
 [[nodiscard]] std::expected<std::string_view, WireError> num_of(wire::ondemand::value value);
 
-[[nodiscard]] std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
-                                                                 std::string_view key);
-[[nodiscard]] std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
-                                                                 std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj, std::string_view key);
 
 // present tells an absent field from a real zero, since precision 0 is valid
 [[nodiscard]] std::expected<std::int64_t, WireError>
 opt_i64(wire::ondemand::object& obj, std::string_view key, bool& present);
 
-[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
-                                                             std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj, std::string_view key);
 
 } // namespace raikiri::venues::kraken

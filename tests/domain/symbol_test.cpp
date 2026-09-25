@@ -19,8 +19,7 @@ TEST(CanonicalSymbol, TheSeparatorIsWhatKeepsTwoMarketsApart) {
 
 TEST(CanonicalSymbol, AMultiplierIsNotAnAlias) {
     EXPECT_EQ(canonical_symbol("1000PEPE", "USDT")->view(), "1000PEPE/USDT");
-    EXPECT_NE(canonical_symbol("1000PEPE", "USDT")->view(),
-              canonical_symbol("PEPE", "USDT")->view());
+    EXPECT_NE(canonical_symbol("1000PEPE", "USDT")->view(), canonical_symbol("PEPE", "USDT")->view());
 }
 
 TEST(CanonicalSymbol, AHalfNamedMarketIsRefused) {

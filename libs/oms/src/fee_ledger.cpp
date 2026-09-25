@@ -16,15 +16,13 @@ FeeCheck FeeLedger::reconcile(const LedgerEntry& charge) const {
     if (it == booked_.end()) {
         return {};
     }
-    return {.verdict = it->second.amount.raw == charge.amount.raw ? FeeVerdict::Agreed
-                                                                  : FeeVerdict::Disagreed,
+    return {.verdict = it->second.amount.raw == charge.amount.raw ? FeeVerdict::Agreed : FeeVerdict::Disagreed,
             .booked = it->second.amount};
 }
 
 void FeeLedger::prune(UnixNanos now, std::uint64_t max_age_ns) {
     std::erase_if(booked_, [&](const auto& entry) {
-        return now.ns > entry.second.booked_at.ns &&
-               now.ns - entry.second.booked_at.ns > max_age_ns;
+        return now.ns > entry.second.booked_at.ns && now.ns - entry.second.booked_at.ns > max_age_ns;
     });
 }
 

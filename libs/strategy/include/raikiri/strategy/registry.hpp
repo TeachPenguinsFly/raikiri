@@ -29,7 +29,7 @@ struct Spec {
 
 enum class CreateError : std::uint8_t {
     UnknownType,
-    IdTaken, // two instances under one id net into one position
+    IdTaken,    // two instances under one id net into one position
     IdReserved, // 0 is the no-order sentinel; k_manual_strategy_id is a person's
     NoContext,  // the kernel would not open a window for this id
     Full,
@@ -93,15 +93,13 @@ public:
 
     explicit Registry(Kernel kernel);
 
-    [[nodiscard]] std::expected<InstanceView, CreateFailure> create(const Spec& spec,
-                                                                   const Factory& types);
+    [[nodiscard]] std::expected<InstanceView, CreateFailure> create(const Spec& spec, const Factory& types);
 
     // the same, against the process factory
     [[nodiscard]] std::expected<InstanceView, CreateFailure> create(const Spec& spec);
 
     // holds the process's stop token so poll() tears this instance down through stop()
-    [[nodiscard]] std::expected<Phase, ControlError> start(std::uint16_t strategy_id,
-                                                           std::stop_token stop);
+    [[nodiscard]] std::expected<Phase, ControlError> start(std::uint16_t strategy_id, std::stop_token stop);
 
     // a stop does not flatten
     [[nodiscard]] std::expected<Phase, ControlError> stop(std::uint16_t strategy_id);
@@ -121,7 +119,9 @@ public:
 
     [[nodiscard]] std::vector<InstanceView> list() const;
     [[nodiscard]] std::optional<InstanceView> find(std::uint16_t strategy_id) const;
+
     [[nodiscard]] std::size_t size() const noexcept { return instances_.size(); }
+
     [[nodiscard]] std::size_t running() const noexcept;
 
 private:

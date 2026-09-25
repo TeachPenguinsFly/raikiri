@@ -35,8 +35,7 @@ std::string_view reason_of(int status) noexcept {
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    Session(tcp::socket socket, const Handler& handler)
-        : stream_{std::move(socket)}, handler_{&handler} {}
+    Session(tcp::socket socket, const Handler& handler) : stream_{std::move(socket)}, handler_{&handler} {}
 
     void run() { read(); }
 
@@ -63,8 +62,7 @@ private:
         const Request req{
             .method = std::string_view{parsed.method_string()},
             .path = target.substr(0, split),
-            .query =
-                split == std::string_view::npos ? std::string_view{} : target.substr(split + 1),
+            .query = split == std::string_view::npos ? std::string_view{} : target.substr(split + 1),
             .body = std::string_view{parsed.body()},
             .idempotency_key = idempotency == parsed.end() ? std::string_view{}
                                                            : std::string_view{idempotency->value()},
@@ -81,8 +79,8 @@ private:
     }
 
     void write(Response answer) {
-        response_ = std::make_shared<http::response<http::string_body>>(
-            static_cast<http::status>(answer.status), request_->get().version());
+        response_ = std::make_shared<http::response<http::string_body>>(static_cast<http::status>(answer.status),
+                                                                        request_->get().version());
         response_->set(http::field::content_type, answer.content_type);
         // the terminal is served from another origin in development
         response_->set(http::field::access_control_allow_origin, "*");
@@ -120,8 +118,8 @@ private:
 struct Server::Impl {
     Impl(void* shared, std::string addr, std::uint16_t p, Handler h)
         : owned{shared == nullptr ? std::make_unique<boost::asio::io_context>(1) : nullptr},
-          ioc{shared == nullptr ? *owned : *static_cast<boost::asio::io_context*>(shared)},
-          address{std::move(addr)}, port{p}, handler{std::move(h)}, acceptor{ioc} {}
+          ioc{shared == nullptr ? *owned : *static_cast<boost::asio::io_context*>(shared)}, address{std::move(addr)},
+          port{p}, handler{std::move(h)}, acceptor{ioc} {}
 
     void accept() {
         acceptor.async_accept([this](beast::error_code ec, tcp::socket socket) {

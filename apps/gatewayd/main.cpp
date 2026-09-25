@@ -1,9 +1,5 @@
 // gatewayd: one venue and one market per process; owns the venue's shm segment and runs the hot loop
 
-#include "latency_meter.hpp"
-#include "private_pulls.hpp"
-#include "stats_collector.hpp"
-
 #include <raikiri/common/platform.hpp>
 #include <raikiri/config/one_password.hpp>
 #include <raikiri/config/rest_limits.hpp>
@@ -24,6 +20,9 @@
 #include <raikiri/net/ws_limits.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
+#include <raikiri/venues/apex/apex_venue.hpp>
+#include <raikiri/venues/aster/aster_venue.hpp>
+#include <raikiri/venues/backpack/backpack_venue.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
@@ -31,11 +30,11 @@
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
+#include <raikiri/venues/cryptocom/cryptocom_venue.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
-#include <raikiri/venues/edgex/edgex_venue.hpp>
 #include <raikiri/venues/dydx/dydx_venue.hpp>
+#include <raikiri/venues/edgex/edgex_venue.hpp>
 #include <raikiri/venues/extended/extended_venue.hpp>
-#include <raikiri/venues/pacifica/pacifica_venue.hpp>
 #include <raikiri/venues/gate/gate_venue.hpp>
 #include <raikiri/venues/grvt/grvt_venue.hpp>
 #include <raikiri/venues/htx/htx_venue.hpp>
@@ -45,26 +44,25 @@
 #include <raikiri/venues/lighter/lighter_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
+#include <raikiri/venues/pacifica/pacifica_venue.hpp>
 #include <raikiri/venues/phemex/phemex_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
-#include <raikiri/venues/apex/apex_venue.hpp>
-#include <raikiri/venues/aster/aster_venue.hpp>
-#include <raikiri/venues/backpack/backpack_venue.hpp>
-#include <raikiri/venues/cryptocom/cryptocom_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
 
 #include <fmt/format.h>
+
+#include <unistd.h>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cctype>
 #include <csignal>
-#include <expected>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <expected>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -72,10 +70,12 @@
 #include <string>
 #include <string_view>
 #include <thread>
-
-#include <unistd.h>
 #include <unordered_map>
 #include <vector>
+
+#include "latency_meter.hpp"
+#include "private_pulls.hpp"
+#include "stats_collector.hpp"
 
 namespace {
 
@@ -102,8 +102,7 @@ struct SubKinds {
         } else if (name == "funding") {
             out.funding = true;
         } else if (!name.empty()) {
-            return std::unexpected{fmt::format(
-                "unknown channel '{}' — bbo, trades, depth or funding", name)};
+            return std::unexpected{fmt::format("unknown channel '{}' — bbo, trades, depth or funding", name)};
         }
         if (comma == std::string_view::npos) {
             break;
@@ -111,8 +110,7 @@ struct SubKinds {
         at = comma + 1;
     }
     if (!named_bbo) {
-        return std::unexpected{std::string{
-            "the quote cannot be dropped — name bbo alongside whatever else you want"}};
+        return std::unexpected{std::string{"the quote cannot be dropped — name bbo alongside whatever else you want"}};
     }
     return out;
 }
@@ -178,8 +176,7 @@ public:
 
     // dropping a depth publish is safe because the cell holds the latest book; do not copy this to the trade ring
     // asks only; on_depth closes the window, so asking twice is safe
-    [[nodiscard]] bool wants_depth(raikiri::InstrumentId instrument,
-                                   raikiri::UnixNanos now) noexcept override {
+    [[nodiscard]] bool wants_depth(raikiri::InstrumentId instrument, raikiri::UnixNanos now) noexcept override {
         const auto idx = instrument.symbol().raw;
         if (idx >= raikiri::shm::k_depth_cells) {
             return false;
@@ -221,27 +218,25 @@ public:
         latency_->published(raikiri::gatewayd::Channel::Funding, funding.ts_event, funding.ts_init);
         // journal funding only when the rate or settlement time changes; venues restate it on a timer
         if (idx < raikiri::shm::k_funding_cells) {
-            const Stated now{.rate = funding.rate.raw,
-                             .next = funding.next_funding_time.ns,
-                             .interval_s = funding.interval_s};
+            const Stated now{
+                .rate = funding.rate.raw, .next = funding.next_funding_time.ns, .interval_s = funding.interval_s};
             if (stated_[idx] == now) {
                 return;
             }
             stated_[idx] = now;
         }
-        (void)raikiri::schema::append_msg<msgs::FundingMsg>(
-            *journal_, funding.ts_init.ns, [&](auto m) {
-                namespace jt = raikiri_journal::types;
-                m.instrument(jt::instrumentId{funding.instrument.packed});
-                m.rate(jt::fixedE9{funding.rate.raw});
-                m.predictedRate(jt::fixedE9{funding.predicted_rate.raw});
-                m.markPrice(jt::priceTicks{funding.mark_price.raw});
-                m.nextFundingTime(jt::timestampNs{funding.next_funding_time.ns});
-                m.intervalS(funding.interval_s);
-                m.accrual(static_cast<jt::fundingAccrualEnum>(funding.accrual));
-                m.tsEvent(jt::timestampNs{funding.ts_event.ns});
-                m.tsInit(jt::timestampNs{funding.ts_init.ns});
-            });
+        (void)raikiri::schema::append_msg<msgs::FundingMsg>(*journal_, funding.ts_init.ns, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            m.instrument(jt::instrumentId{funding.instrument.packed});
+            m.rate(jt::fixedE9{funding.rate.raw});
+            m.predictedRate(jt::fixedE9{funding.predicted_rate.raw});
+            m.markPrice(jt::priceTicks{funding.mark_price.raw});
+            m.nextFundingTime(jt::timestampNs{funding.next_funding_time.ns});
+            m.intervalS(funding.interval_s);
+            m.accrual(static_cast<jt::fundingAccrualEnum>(funding.accrual));
+            m.tsEvent(jt::timestampNs{funding.ts_event.ns});
+            m.tsInit(jt::timestampNs{funding.ts_init.ns});
+        });
     }
 
     void on_option_greeks(const raikiri::OptionGreeks& greeks) noexcept override {
@@ -268,9 +263,8 @@ public:
         event.leaves_qty = raikiri::QtyLots::from_raw(0);
         event.ts_event = cmd.ts_created;
         event.ts_init = cmd.ts_created;
-        on_order_error(
-            cmd.client_order_id,
-            raikiri::exec::VenueError::make(raikiri::exec::ErrorClass::Terminal, 0, why));
+        on_order_error(cmd.client_order_id,
+                       raikiri::exec::VenueError::make(raikiri::exec::ErrorClass::Terminal, 0, why));
         on_order_event(event);
     }
 
@@ -286,13 +280,10 @@ public:
     }
 
     // broadcast rings are single-producer: the account poller publishes charges, this thread only counts them
-    void on_funding_charge(const raikiri::LedgerEntry&) noexcept override {
-        ++counts_.funding_charges;
-    }
+    void on_funding_charge(const raikiri::LedgerEntry&) noexcept override { ++counts_.funding_charges; }
 
     [[nodiscard]] static bool is_rejection(raikiri::OrderEventType type) noexcept {
-        return type == raikiri::OrderEventType::Rejected ||
-               type == raikiri::OrderEventType::CancelRejected ||
+        return type == raikiri::OrderEventType::Rejected || type == raikiri::OrderEventType::CancelRejected ||
                type == raikiri::OrderEventType::ModifyRejected;
     }
 
@@ -307,29 +298,28 @@ public:
         }
         ch_.exec_events->publish({event});
         latency_->order_event(event);
-        (void)raikiri::schema::append_msg<msgs::OrderEventMsg>(
-            *journal_, event.ts_init.ns, [&](auto m) {
-                namespace jt = raikiri_journal::types;
-                m.eventType(static_cast<jt::orderEventTypeEnum>(event.type));
-                m.side(static_cast<jt::sideEnum>(event.side));
-                m.orderType(static_cast<jt::orderTypeEnum>(event.order_type));
-                m.tif(static_cast<jt::tifEnum>(event.tif));
-                m.flags(static_cast<std::uint8_t>(event.flags));
-                m.liquidity(static_cast<jt::liquidityEnum>(event.liquidity));
-                m.instrument(jt::instrumentId{event.instrument.packed});
-                m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
-                m.exchangeClientOrderIdField().assign_range(event.exchange_client_order_id.view());
-                m.exchangeOrderIdField().assign_range(event.exchange_order_id.view());
-                m.execIdField().assign_range(event.exec_id.view());
-                m.price(jt::priceTicks{event.price.raw});
-                m.qty(jt::qtyLots{event.qty.raw});
-                m.leavesQty(jt::qtyLots{event.leaves_qty.raw});
-                m.fee(jt::fixedE9{event.fee.raw});
-                m.tsEvent(jt::timestampNs{event.ts_event.ns});
-                m.tsInit(jt::timestampNs{event.ts_init.ns});
-                m.rejectClass(static_cast<jt::errorClassEnum>(event.reject_class));
-                m.rejectCode(jt::venueCode{event.reject_code});
-            });
+        (void)raikiri::schema::append_msg<msgs::OrderEventMsg>(*journal_, event.ts_init.ns, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            m.eventType(static_cast<jt::orderEventTypeEnum>(event.type));
+            m.side(static_cast<jt::sideEnum>(event.side));
+            m.orderType(static_cast<jt::orderTypeEnum>(event.order_type));
+            m.tif(static_cast<jt::tifEnum>(event.tif));
+            m.flags(static_cast<std::uint8_t>(event.flags));
+            m.liquidity(static_cast<jt::liquidityEnum>(event.liquidity));
+            m.instrument(jt::instrumentId{event.instrument.packed});
+            m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
+            m.exchangeClientOrderIdField().assign_range(event.exchange_client_order_id.view());
+            m.exchangeOrderIdField().assign_range(event.exchange_order_id.view());
+            m.execIdField().assign_range(event.exec_id.view());
+            m.price(jt::priceTicks{event.price.raw});
+            m.qty(jt::qtyLots{event.qty.raw});
+            m.leavesQty(jt::qtyLots{event.leaves_qty.raw});
+            m.fee(jt::fixedE9{event.fee.raw});
+            m.tsEvent(jt::timestampNs{event.ts_event.ns});
+            m.tsInit(jt::timestampNs{event.ts_init.ns});
+            m.rejectClass(static_cast<jt::errorClassEnum>(event.reject_class));
+            m.rejectCode(jt::venueCode{event.reject_code});
+        });
     }
 
     struct Counts {
@@ -351,18 +341,11 @@ public:
     [[nodiscard]] const Counts& counts() const noexcept { return counts_; }
 
     [[nodiscard]] raikiri::gatewayd::MessageCounts message_counts() const noexcept {
-        return {counts_.bbo,
-                counts_.trades,
-                counts_.depth,
-                counts_.funding,
-                counts_.ticker_stats,
-                counts_.greeks,
-                0,
-                0};
+        return {
+            counts_.bbo, counts_.trades, counts_.depth, counts_.funding, counts_.ticker_stats, counts_.greeks, 0, 0};
     }
 
-    [[nodiscard]] raikiri::gatewayd::Coverage coverage(std::uint64_t now_ns,
-                                              std::uint64_t window_ns) const noexcept {
+    [[nodiscard]] raikiri::gatewayd::Coverage coverage(std::uint64_t now_ns, std::uint64_t window_ns) const noexcept {
         raikiri::gatewayd::Coverage out{};
         for (std::size_t i = 0; i < priced_ns_.size(); ++i) {
             if (priced_ns_[i] != 0) {
@@ -376,14 +359,13 @@ public:
     }
 
     void on_connectivity(const raikiri::exec::ConnEvent& event) noexcept override {
-        (void)raikiri::schema::append_msg<msgs::ConnectivityMsg>(
-            *journal_, event.ts.ns, [&](auto m) {
-                namespace jt = raikiri_journal::types;
-                m.venue(static_cast<jt::venueIdEnum>(venue_));
-                m.event(static_cast<jt::connEventEnum>(event.state));
-                m.streamId(event.stream_id);
-                m.tsInit(jt::timestampNs{event.ts.ns});
-            });
+        (void)raikiri::schema::append_msg<msgs::ConnectivityMsg>(*journal_, event.ts.ns, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            m.venue(static_cast<jt::venueIdEnum>(venue_));
+            m.event(static_cast<jt::connEventEnum>(event.state));
+            m.streamId(event.stream_id);
+            m.tsInit(jt::timestampNs{event.ts.ns});
+        });
     }
 
 private:
@@ -403,6 +385,7 @@ private:
 
         [[nodiscard]] bool operator==(const Stated&) const noexcept = default;
     };
+
     std::array<Stated, raikiri::shm::k_funding_cells> stated_{};
     std::array<std::uint64_t, raikiri::shm::k_bbo_cells> priced_ns_{};
     std::array<bool, raikiri::shm::k_funding_cells> funded_{};
@@ -435,8 +418,7 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
                          raikiri::shm::OpenOrderTable& table,
                          raikiri::UnixNanos now) {
     char buf[16];
-    const auto who =
-        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
+    const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     if (!adapter.caps.order_pull.has(market)) {
         if (!announced) {
@@ -473,8 +455,7 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     static std::size_t said = std::numeric_limits<std::size_t>::max();
     if (said != reports->size()) {
         said = reports->size();
-        RLOG_INFO(
-            "gatewayd[{}]: venue answered its open orders — {} working", who, reports->size());
+        RLOG_INFO("gatewayd[{}]: venue answered its open orders — {} working", who, reports->size());
     }
 }
 
@@ -490,8 +471,7 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
                              raikiri::UnixNanos& replay_due,
                              raikiri::UnixNanos now) {
     char buf[16];
-    const auto who =
-        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
+    const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     if (!adapter.caps.funding_charge.has(market)) {
         if (!announced) {
@@ -540,8 +520,7 @@ void publish_fills(const raikiri::exec::VenueAdapter& adapter,
                    raikiri::shm::FillRing& ring,
                    raikiri::UnixNanos& cursor) {
     char buf[16];
-    const auto who =
-        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
+    const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     if (!adapter.caps.fill_pull.has(market)) {
         if (!announced) {
@@ -570,9 +549,7 @@ void publish_fills(const raikiri::exec::VenueAdapter& adapter,
     static std::size_t said = std::numeric_limits<std::size_t>::max();
     if (said != fills->size()) {
         said = fills->size();
-        RLOG_INFO("gatewayd[{}]: venue answered its trade history — {} fill(s) in the window",
-                  who,
-                  fills->size());
+        RLOG_INFO("gatewayd[{}]: venue answered its trade history — {} fill(s) in the window", who, fills->size());
     }
 }
 
@@ -582,8 +559,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
                        raikiri::shm::PositionTable& table,
                        raikiri::UnixNanos now) {
     char buf[16];
-    const auto who =
-        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
+    const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     static std::size_t answered = std::numeric_limits<std::size_t>::max();
     if (!adapter.caps.position_pull.has(market)) {
@@ -637,8 +613,7 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
                       raikiri::shm::BalanceTable& table,
                       raikiri::UnixNanos now) {
     std::array<char, 16> buf{};
-    const auto who = raikiri::format_account(
-        {.venue = adapter.caps.venue, .market = market}, buf.data(), buf.size());
+    const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf.data(), buf.size());
     static bool announced = false;
     static std::uint32_t answered = std::numeric_limits<std::uint32_t>::max();
     if (!adapter.caps.balance_pull.has(market)) {
@@ -679,8 +654,7 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
 // last rate-limit header values seen; locked because the poller thread also writes
 class RateWitness {
 public:
-    void
-    observe(std::string_view host, const raikiri::net::RateHeader& header, raikiri::UnixNanos at) {
+    void observe(std::string_view host, const raikiri::net::RateHeader& header, raikiri::UnixNanos at) {
         const std::lock_guard lock{mu_};
         seen_[std::string{host} + " " + header.name] = Seen{.value = header.value, .at = at};
     }
@@ -691,11 +665,8 @@ public:
             return; // a venue that states nothing must not be reported as zero
         }
         for (const auto& [key, seen] : seen_) {
-            RLOG_INFO("gatewayd[{}]: venue's own metering — {} = {} (read at {})",
-                      account,
-                      key,
-                      seen.value,
-                      seen.at.ns);
+            RLOG_INFO(
+                "gatewayd[{}]: venue's own metering — {} = {} (read at {})", account, key, seen.value, seen.at.ns);
         }
     }
 
@@ -748,8 +719,7 @@ public:
         const auto path = collapse(target.substr(0, target.find('?')));
         const std::lock_guard lock{mu_};
         auto key = std::string{host}.append(path);
-        book_.series(key, raikiri::introspect::Stage::Rest)
-            .record(static_cast<std::int64_t>(elapsed_ns));
+        book_.series(key, raikiri::introspect::Stage::Rest).record(static_cast<std::int64_t>(elapsed_ns));
         auto& row = spent_[std::move(key)];
         ++row.calls;
         if (status < 200 || status >= 300) {
@@ -757,25 +727,18 @@ public:
             row.last_status = status;
         }
         if (verbose_) {
-            RLOG_INFO("gatewayd[{}]: {} {} -> {} in {} ms",
-                      account,
-                      host,
-                      target,
-                      status,
-                      elapsed_ns / 1'000'000);
+            RLOG_INFO("gatewayd[{}]: {} {} -> {} in {} ms", account, host, target, status, elapsed_ns / 1'000'000);
         }
     }
 
     void arrival(std::string_view host, std::uint64_t queued_ns) {
         const std::lock_guard lock{mu_};
-        book_.series(host, raikiri::introspect::Stage::KernelQueue)
-            .record(static_cast<std::int64_t>(queued_ns));
+        book_.series(host, raikiri::introspect::Stage::KernelQueue).record(static_cast<std::int64_t>(queued_ns));
     }
 
     void pong(std::string_view host, std::uint64_t rtt_ns) {
         const std::lock_guard lock{mu_};
-        book_.series(host, raikiri::introspect::Stage::WsPing)
-            .record(static_cast<std::int64_t>(rtt_ns));
+        book_.series(host, raikiri::introspect::Stage::WsPing).record(static_cast<std::int64_t>(rtt_ns));
     }
 
     [[nodiscard]] std::vector<raikiri::introspect::LatencyStats> latency(std::uint64_t mono_ns) {
@@ -789,10 +752,8 @@ public:
         std::vector<raikiri::introspect::RestEndpointStats> out;
         out.reserve(spent_.size());
         for (const auto& [endpoint, row] : spent_) {
-            out.push_back({.endpoint = endpoint,
-                           .calls = row.calls,
-                           .refused = row.refused,
-                           .last_status = row.last_status});
+            out.push_back(
+                {.endpoint = endpoint, .calls = row.calls, .refused = row.refused, .last_status = row.last_status});
         }
         return out;
     }
@@ -826,7 +787,8 @@ private:
     bool verbose_;
 };
 
-constexpr std::string_view k_usage = R"(usage: gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
+constexpr std::string_view
+    k_usage = R"(usage: gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
                 [--channels=bbo,trades,depth,funding] [--feed=<adapter feed>] [--testnet]
                 [--api-key=<ref>] [--api-secret=<ref>] [--passphrase=<ref>]
 )";
@@ -901,8 +863,7 @@ int main(int argc, char** argv) {
         }
         const auto ref = config::SecretRef::parse(spec);
         if (!ref.has_value()) {
-            RLOG_ERROR(
-                "gatewayd: {} reference is malformed ({})", what, config::to_string(ref.error()));
+            RLOG_ERROR("gatewayd: {} reference is malformed ({})", what, config::to_string(ref.error()));
             return false;
         }
         RLOG_INFO("gatewayd: {} from {}", what, config::to_string(ref->scheme));
@@ -914,8 +875,7 @@ int main(int argc, char** argv) {
                            "run `eval $(op signin)`");
                 return false;
             }
-            RLOG_INFO(
-                "gatewayd: 1password {} as {}", config::to_string(status.auth), status.account);
+            RLOG_INFO("gatewayd: 1password {} as {}", config::to_string(status.auth), status.account);
         }
         if (config::is_plaintext(ref->scheme)) {
             RLOG_WARN("gatewayd: {} is a literal value in configuration. Fine for a demo; "
@@ -925,8 +885,7 @@ int main(int argc, char** argv) {
         }
         return true;
     };
-    if (!report_credential("api key", api_key_ref) ||
-        !report_credential("api secret", api_secret_ref) ||
+    if (!report_credential("api key", api_key_ref) || !report_credential("api secret", api_secret_ref) ||
         !report_credential("passphrase", passphrase_ref)) {
         return 2;
     }
@@ -950,9 +909,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     if (!caps.serves(market)) {
-        RLOG_ERROR("gatewayd[{}]: this adapter does not serve the {} market",
-                   venue_name,
-                   to_string(market));
+        RLOG_ERROR("gatewayd[{}]: this adapter does not serve the {} market", venue_name, to_string(market));
         return 2;
     }
 
@@ -967,8 +924,7 @@ int main(int argc, char** argv) {
     }
     const auto generation = clock.mono().ns;
     const auto started_ns = clock.wall().ns;
-    auto owner =
-        shm::SegmentOwner::create(seg_path, shm::k_gateway_segment_bytes, generation, generation);
+    auto owner = shm::SegmentOwner::create(seg_path, shm::k_gateway_segment_bytes, generation, generation);
     if (!owner.has_value()) {
         RLOG_ERROR("gatewayd: segment create failed ({})", static_cast<int>(owner.error()));
         return 1;
@@ -986,11 +942,8 @@ int main(int argc, char** argv) {
     if (const char* env = std::getenv("RAIKIRI_JOURNAL_RETAIN"); env != nullptr && *env != '\0') {
         retain = static_cast<std::size_t>(std::strtoull(env, nullptr, 10));
     }
-    auto journal_writer =
-        journal::JournalWriter::open(data_dir + "/journal/gatewayd-" + account_name,
-                                     "journal",
-                                     journal::k_default_segment_bytes,
-                                     retain);
+    auto journal_writer = journal::JournalWriter::open(
+        data_dir + "/journal/gatewayd-" + account_name, "journal", journal::k_default_segment_bytes, retain);
     if (!journal_writer.has_value()) {
         RLOG_ERROR("gatewayd[{}]: journal open failed{}",
                    account_name,
@@ -1036,19 +989,17 @@ int main(int argc, char** argv) {
     // one budget shared with the account poller; a venue missing from the file is unlimited
     std::optional<exec::RateBudget> budget;
     // an absent venue still gets the default answer timeout; zero would never report an unanswered order
-    std::uint64_t answer_timeout_ns =
-        config::VenueSettings{}.order_answer_timeout_ms * 1'000'000ULL;
+    std::uint64_t answer_timeout_ns = config::VenueSettings{}.order_answer_timeout_ms * 1'000'000ULL;
     std::uint32_t book_depth = 0; // the adapter's own tier until a file says otherwise
     std::string market_data_feed; // and the adapter's own feed
     const auto venues_path = config::config_dir() + "/venues.yaml";
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
-        if (const auto it = settings->venues.find(std::string{venue_name});
-            it != settings->venues.end()) {
+        if (const auto it = settings->venues.find(std::string{venue_name}); it != settings->venues.end()) {
             if (const auto limits = config::rest_limits(it->second); !limits.empty()) {
                 budget.emplace(limits, config::rest_costs(it->second), it->second.default_cost);
             }
-            net::set_process_ws_limits(net::ws_limits(
-                venue_name, it->second, market == MarketType::Spot ? "spot" : "perp"));
+            net::set_process_ws_limits(
+                net::ws_limits(venue_name, it->second, market == MarketType::Spot ? "spot" : "perp"));
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
             book_depth = it->second.book_depth;
             market_data_feed = it->second.market_data_feed;
@@ -1091,8 +1042,7 @@ int main(int argc, char** argv) {
         RLOG_ERROR("gatewayd: order entry failed to start — {}", started.error().message.view());
         return 1;
     } else {
-        RLOG_INFO(
-            "gatewayd[{}]: market data only — {}", account_name, started.error().message.view());
+        RLOG_INFO("gatewayd[{}]: market data only — {}", account_name, started.error().message.view());
     }
     // load the catalogue before subscribing; adapters need tick and lot sizes to map frames
     std::vector<Instrument> catalogue;
@@ -1102,26 +1052,21 @@ int main(int argc, char** argv) {
             classify(venue, instrument);
         }
     } else {
-        const auto load_deadline =
-            duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
-        const auto stopping = [&] {
-            return g_stop.load(std::memory_order_relaxed) || clock.mono() >= load_deadline;
-        };
-        auto loaded =
-            exec::load_catalogue(*adapter->instruments,
-                                 market,
-                                 stopping,
-                                 [&](const exec::VenueError& error,
-                                     std::uint32_t attempt,
-                                     std::chrono::milliseconds wait) {
-                                     RLOG_WARN("gatewayd[{}]: catalogue load failed (attempt {}): "
-                                               "{} (code {}) — retrying in {} ms",
-                                               account_name,
-                                               attempt,
-                                               error.message.view(),
-                                               error.venue_code,
-                                               wait.count());
-                                 });
+        const auto load_deadline = duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
+        const auto stopping = [&] { return g_stop.load(std::memory_order_relaxed) || clock.mono() >= load_deadline; };
+        auto loaded = exec::load_catalogue(
+            *adapter->instruments,
+            market,
+            stopping,
+            [&](const exec::VenueError& error, std::uint32_t attempt, std::chrono::milliseconds wait) {
+                RLOG_WARN("gatewayd[{}]: catalogue load failed (attempt {}): "
+                          "{} (code {}) — retrying in {} ms",
+                          account_name,
+                          attempt,
+                          error.message.view(),
+                          error.venue_code,
+                          wait.count());
+            });
         if (!loaded.has_value()) {
             if (stopping()) {
                 return 0;
@@ -1178,8 +1123,7 @@ int main(int argc, char** argv) {
     };
     for (const auto& instrument : catalogue) {
         const auto& base = base_of(instrument);
-        const auto wanted = symbols.empty() ||
-                            std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
+        const auto wanted = symbols.empty() || std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
                                 return s == base.exchange_symbol.view();
                             });
         if (!wanted) {
@@ -1229,22 +1173,18 @@ int main(int argc, char** argv) {
     owner->publish();
     RequestLedger requests;
     raikiri::net::set_request_observer(
-        [&requests, &account_name](
-            std::string_view host, std::string_view target, int status, std::uint64_t elapsed_ns) {
+        [&requests,
+         &account_name](std::string_view host, std::string_view target, int status, std::uint64_t elapsed_ns) {
             requests.observe(host, target, status, elapsed_ns, account_name);
         });
-    raikiri::net::set_pong_observer([&requests](std::string_view host, std::uint64_t rtt_ns) {
-        requests.pong(host, rtt_ns);
-    });
+    raikiri::net::set_pong_observer(
+        [&requests](std::string_view host, std::uint64_t rtt_ns) { requests.pong(host, rtt_ns); });
     raikiri::net::set_arrival_observer(
-        [&requests](std::string_view host, std::uint64_t queued_ns) {
-            requests.arrival(host, queued_ns);
-        });
+        [&requests](std::string_view host, std::uint64_t queued_ns) { requests.arrival(host, queued_ns); });
     RateWitness rates;
-    raikiri::net::set_rate_observer(
-        [&rates, &clock](std::string_view host, const raikiri::net::RateHeader& header) {
-            rates.observe(host, header, clock.wall());
-        });
+    raikiri::net::set_rate_observer([&rates, &clock](std::string_view host, const raikiri::net::RateHeader& header) {
+        rates.observe(host, header, clock.wall());
+    });
 
     RLOG_INFO("gatewayd[{}]: up, segment {}", account_name, seg_path);
 
@@ -1284,40 +1224,37 @@ int main(int argc, char** argv) {
     raikiri::UnixNanos funding_cursor{};
     raikiri::UnixNanos ledger_replay_due{};
     raikiri::UnixNanos fill_cursor{};
-    const bool private_pulls =
-        gatewayd::private_pulls_enabled(venue, can_trade, credentials_configured);
+    const bool private_pulls = gatewayd::private_pulls_enabled(venue, can_trade, credentials_configured);
     if (can_trade && !private_pulls) {
         RLOG_INFO("gatewayd[{}]: position, balance, open-order, funding and fill pulls off — "
                   "no credentials configured",
                   account_name);
     }
     if (private_pulls) {
-        auto made = exec::make_venue({.venue = venue,
-                                      .market = market,
-                                      .testnet = testnet,
-                                      .api_key_env = api_key_ref,
-                                      .api_secret_env = api_secret_ref,
-                                      .passphrase_env = passphrase_ref,
-                                      .budget = budget.has_value() ? &*budget : nullptr,
-                                      .order_answer_timeout_ns = 0,
-                                      // gcc errors on a skipped trailing designated initializer (-Wmissing-field-initializers)
-                                      .book_depth = 0,
-                                      .market_data_feed = {}},
-                                     poller_sink,
-                                     clock);
+        auto made = exec::make_venue(
+            {.venue = venue,
+             .market = market,
+             .testnet = testnet,
+             .api_key_env = api_key_ref,
+             .api_secret_env = api_secret_ref,
+             .passphrase_env = passphrase_ref,
+             .budget = budget.has_value() ? &*budget : nullptr,
+             .order_answer_timeout_ns = 0,
+             // gcc errors on a skipped trailing designated initializer (-Wmissing-field-initializers)
+             .book_depth = 0,
+             .market_data_feed = {}},
+            poller_sink,
+            clock);
         if (made.has_value()) {
             poller_adapter = std::make_unique<exec::VenueAdapter>(std::move(*made));
             if (const auto up = poller_adapter->execution->start(); !up.has_value()) {
-                RLOG_WARN("gatewayd: account poller could not start — {}",
-                          up.error().message.view());
+                RLOG_WARN("gatewayd: account poller could not start — {}", up.error().message.view());
                 poller_adapter.reset();
             }
             // the poller adapter needs its own catalogue or every reported position maps to nothing
             if (poller_adapter != nullptr) {
-                if (const auto loaded = poller_adapter->instruments->fetch_all(market);
-                    !loaded.has_value()) {
-                    RLOG_WARN("gatewayd: account poller has no catalogue — {}",
-                              loaded.error().message.view());
+                if (const auto loaded = poller_adapter->instruments->fetch_all(market); !loaded.has_value()) {
+                    RLOG_WARN("gatewayd: account poller has no catalogue — {}", loaded.error().message.view());
                     poller_adapter.reset();
                 }
             }
@@ -1326,26 +1263,18 @@ int main(int argc, char** argv) {
             poller = std::thread([&] {
                 auto* channels_ptr = &*channels;
                 while (!g_stop.load(std::memory_order_relaxed)) {
-                    publish_positions(*poller_adapter,
-                                      market,
-                                      *channels_ptr->catalogue,
-                                      *channels_ptr->positions,
-                                      clock.wall());
-                    publish_balances(
-                        *poller_adapter, market, *channels_ptr->balances, clock.wall());
-                    publish_open_orders(
-                        *poller_adapter, market, *channels_ptr->open_orders, clock.wall());
+                    publish_positions(
+                        *poller_adapter, market, *channels_ptr->catalogue, *channels_ptr->positions, clock.wall());
+                    publish_balances(*poller_adapter, market, *channels_ptr->balances, clock.wall());
+                    publish_open_orders(*poller_adapter, market, *channels_ptr->open_orders, clock.wall());
                     publish_funding_charges(*poller_adapter,
                                             market,
                                             *channels_ptr->funding_charges,
                                             funding_cursor,
                                             ledger_replay_due,
                                             clock.wall());
-                    publish_fills(
-                        *poller_adapter, market, *channels_ptr->fills, fill_cursor);
-                    for (int i = 0;
-                         i < k_recon_interval_slices && !g_stop.load(std::memory_order_relaxed);
-                         ++i) {
+                    publish_fills(*poller_adapter, market, *channels_ptr->fills, fill_cursor);
+                    for (int i = 0; i < k_recon_interval_slices && !g_stop.load(std::memory_order_relaxed); ++i) {
                         std::this_thread::sleep_for(std::chrono::milliseconds{100});
                     }
                 }
@@ -1358,22 +1287,20 @@ int main(int argc, char** argv) {
     introspect::ClockEstimate probed{};
     std::string probe_endpoint;
     std::thread prober;
-    if (const auto endpoint = introspect::time_endpoint(venue_name, to_string(market));
-        endpoint.has_value()) {
+    if (const auto endpoint = introspect::time_endpoint(venue_name, to_string(market)); endpoint.has_value()) {
         probe_endpoint = std::string{endpoint->host} + std::string{endpoint->path};
         prober = std::thread([&, endpoint = *endpoint] {
             introspect::RestServerTime source{endpoint, clock};
             std::mt19937_64 rng{std::random_device{}()};
-            introspect::ProbeClock probe{
-                source,
-                [&clock] { return clock.mono().ns; },
-                [&budget, &clock, path = endpoint.path] {
-                    return !budget.has_value() ||
-                           budget->take(path, clock.mono(), exec::RateClass::Poll).has_value();
-                },
-                [&rng](std::uint64_t lo, std::uint64_t hi) {
-                    return std::uniform_int_distribution<std::uint64_t>{lo, hi}(rng);
-                }};
+            introspect::ProbeClock probe{source,
+                                         [&clock] { return clock.mono().ns; },
+                                         [&budget, &clock, path = endpoint.path] {
+                                             return !budget.has_value() ||
+                                                    budget->take(path, clock.mono(), exec::RateClass::Poll).has_value();
+                                         },
+                                         [&rng](std::uint64_t lo, std::uint64_t hi) {
+                                             return std::uniform_int_distribution<std::uint64_t>{lo, hi}(rng);
+                                         }};
             while (!g_stop.load(std::memory_order_relaxed)) {
                 const auto due = probe.tick();
                 {
@@ -1386,12 +1313,10 @@ int main(int argc, char** argv) {
             }
         });
     } else {
-        RLOG_INFO("gatewayd[{}]: no time endpoint — clock offset bounded from the feed",
-                  account_name);
+        RLOG_INFO("gatewayd[{}]: no time endpoint — clock offset bounded from the feed", account_name);
     }
 
-    const auto t_end =
-        duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
+    const auto t_end = duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
     std::uint64_t flush_due = 0;
     // spin while commands arrive, then park; without credentials wait in the reactor instead
     // 5 ms timeout keeps binance depth seeding (25 ms) and htx subscribe pacing (20 ms) at their rate
@@ -1474,11 +1399,10 @@ int main(int argc, char** argv) {
                  .coverage = sink.coverage(wall, gatewayd::StatsCollector::k_window_ns),
                  .venue_refusals = adapter->data->subscribe_refusals(),
                  .rest_endpoints = requests.endpoints(),
-                 .clock = introspect::clock_stats(
-                     std::string{venue_name},
-                     estimate.method == introspect::ClockMethod::RestProbe ? probe_endpoint
-                                                                           : std::string{},
-                     estimate),
+                 .clock = introspect::clock_stats(std::string{venue_name},
+                                                  estimate.method == introspect::ClockMethod::RestProbe ? probe_endpoint
+                                                                                                        : std::string{},
+                                                  estimate),
                  .latency = std::move(measured)},
                 budget.has_value() ? &*budget : nullptr);
             const auto cost = clock.mono().ns - began;

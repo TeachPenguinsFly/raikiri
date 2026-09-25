@@ -69,8 +69,7 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(UnixNanos now);
 
     // a cursor: the 100 fills before it, newest first; empty for the newest page
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(std::string_view last_fill_time,
-                                                                    UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(std::string_view last_fill_time, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(UnixNanos now);
 
@@ -85,10 +84,8 @@ private:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     signed_get(std::string_view endpoint, std::string_view query, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> finish(net::HttpMethod method,
-                                                                     std::string_view endpoint,
-                                                                     std::string_view post_data,
-                                                                     UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    finish(net::HttpMethod method, std::string_view endpoint, std::string_view post_data, UnixNanos now);
 
     // nonces must increase per key, including two orders in one millisecond
     [[nodiscard]] std::string_view next_nonce(UnixNanos now) noexcept;

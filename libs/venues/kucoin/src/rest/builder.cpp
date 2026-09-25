@@ -32,9 +32,7 @@ public:
     }
 
     [[nodiscard]] net::RestRequest get() const noexcept {
-        return {.method = net::HttpMethod::Get,
-                .target = std::string_view{into_.data(), len_},
-                .body = {}};
+        return {.method = net::HttpMethod::Get, .target = std::string_view{into_.data(), len_}, .body = {}};
     }
 
 private:
@@ -69,9 +67,8 @@ private:
 
 std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     const auto [end, ec] = std::to_chars(out.data(), out.data() + out.size(), value);
-    return ec == std::errc{}
-               ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
-               : std::string_view{};
+    return ec == std::errc{} ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
+                             : std::string_view{};
 }
 
 [[nodiscard]] std::string_view method_text(net::HttpMethod method) noexcept {
@@ -116,8 +113,7 @@ std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
         return false;
     }
     for (const char c : id) {
-        const bool alnum =
-            (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        const bool alnum = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
         if (!alnum && c != '_' && c != '-') {
             return false;
         }
@@ -219,10 +215,8 @@ std::string_view OrderRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::sign(net::HttpMethod method,
-                                                                      std::string_view path,
-                                                                      std::string_view body,
-                                                                      UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+OrderRequestBuilder::sign(net::HttpMethod method, std::string_view path, std::string_view body, UnixNanos now) {
     if (!credentials_->complete()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -236,8 +230,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::sign(net::HttpM
     }
     sign_msg_len_ = msg.view().size();
 
-    const auto signature =
-        credentials_->signer().sign(msg.view(), net::Signer::Encoding::Base64, signature_);
+    const auto signature = credentials_->signer().sign(msg.view(), net::Signer::Encoding::Base64, signature_);
     if (signature.empty()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -254,8 +247,8 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::sign(net::HttpM
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+OrderRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
     // check options before the table: ids resolve by symbol index alone
     if (market == MarketType::Option) {
@@ -299,8 +292,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
             .str("type", type_text(cmd.order_type))
             .decimal("size", base.lots_to_qty(cmd.qty));
         if (cmd.order_type == OrderType::Limit) {
-            json.decimal("price", base.ticks_to_price(cmd.price))
-                .str("timeInForce", tif_text(cmd.tif));
+            json.decimal("price", base.ticks_to_price(cmd.price)).str("timeInForce", tif_text(cmd.tif));
         }
         if (post_only) {
             json.boolean("postOnly", true);
@@ -323,8 +315,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
             .str("type", type_text(cmd.order_type))
             .num("size", contracts.raw / k_e9);
         if (cmd.order_type == OrderType::Limit) {
-            json.decimal("price", base.ticks_to_price(cmd.price))
-                .str("timeInForce", tif_text(cmd.tif));
+            json.decimal("price", base.ticks_to_price(cmd.price)).str("timeInForce", tif_text(cmd.tif));
         }
         if (post_only) {
             json.boolean("postOnly", true);
@@ -346,8 +337,8 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
     return sign(net::HttpMethod::Post, path, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+OrderRequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
     if (market == MarketType::Option) {
         return std::unexpected{BuildError::UnsupportedMarket};
@@ -392,8 +383,8 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::cancel_order(
     return sign(net::HttpMethod::Delete, path.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+OrderRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
     switch (market) {
     case MarketType::Spot:
@@ -432,9 +423,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::amend_order(
     } else {
         json.str("clientOid", client_oid);
     }
-    json.decimal("newPrice", base.ticks_to_price(cmd.price))
-        .decimal("newSize", base.lots_to_qty(cmd.qty))
-        .obj_end();
+    json.decimal("newPrice", base.ticks_to_price(cmd.price)).decimal("newSize", base.lots_to_qty(cmd.qty)).obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -469,8 +458,7 @@ OrderRequestBuilder::open_orders(MarketType market, std::string_view symbol, Uni
     return sign(net::HttpMethod::Get, path.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::active_symbols(MarketType market,
-                                                                                UnixNanos now) {
+std::expected<net::RestRequest, BuildError> OrderRequestBuilder::active_symbols(MarketType market, UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
         return sign(net::HttpMethod::Get, ep::k_spot_active_symbols, {}, now);
@@ -510,8 +498,7 @@ OrderRequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
     return sign(net::HttpMethod::Get, path.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::positions(MarketType market,
-                                                                           UnixNanos now) {
+std::expected<net::RestRequest, BuildError> OrderRequestBuilder::positions(MarketType market, UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
         // spot has no positions
@@ -525,8 +512,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::positions(Marke
     return std::unexpected{BuildError::UnsupportedMarket};
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::account_overview(MarketType market,
-                                                                                  UnixNanos now) {
+std::expected<net::RestRequest, BuildError> OrderRequestBuilder::account_overview(MarketType market, UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
         // the spot wallet is a different account on the other host
@@ -546,8 +532,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::account_overvie
     return std::unexpected{BuildError::UnsupportedMarket};
 }
 
-std::expected<net::RestRequest, BuildError> OrderRequestBuilder::bullet_private(MarketType market,
-                                                                                UnixNanos now) {
+std::expected<net::RestRequest, BuildError> OrderRequestBuilder::bullet_private(MarketType market, UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
     case MarketType::Perp:

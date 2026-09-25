@@ -49,8 +49,7 @@ public:
 private:
     static constexpr std::uint64_t k_catalogue_timeout_ms = 20'000;
 
-    template <typename Rows, typename Map>
-    std::vector<Instrument> intern(const Rows& rows, Map&& map) {
+    template <typename Rows, typename Map> std::vector<Instrument> intern(const Rows& rows, Map&& map) {
         std::vector<Instrument> loaded;
         loaded.reserve(rows.size());
         state_->instruments.reserve(rows.size());
@@ -78,24 +77,20 @@ private:
         auto& storage = *storage_owner;
         const auto wire = parse_contracts(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(*wire,
-                      [market](const WireContract& row) { return map_instrument(row, market); });
+        return intern(*wire, [market](const WireContract& row) { return map_instrument(row, market); });
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {
-        const auto body =
-            fetch_checked(*state_, rest_, state_->builder.spot_symbols(), k_catalogue_timeout_ms);
+        const auto body = fetch_checked(*state_, rest_, state_->builder.spot_symbols(), k_catalogue_timeout_ms);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
         auto storage = std::make_unique<SpotSymbolBuffer>();
         const auto wire = parse_spot_symbols(*body, *storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         return intern(*wire, [](const WireSpotSymbol& row) { return map_instrument(row); });
     }

@@ -84,8 +84,7 @@ bool DepthBook::apply(const WireBook& delta) {
     return false;
 }
 
-std::optional<BookSnapshot>
-DepthBook::snapshot(std::uint64_t venue_seq, UnixNanos ts_event, UnixNanos ts_init) const {
+std::optional<BookSnapshot> DepthBook::snapshot(std::uint64_t venue_seq, UnixNanos ts_event, UnixNanos ts_init) const {
     if (!sequence.live()) {
         return std::nullopt;
     }
@@ -148,8 +147,7 @@ bool Quote::apply(const WireQuote& delta) {
 }
 
 std::optional<Bbo> Quote::bbo(UnixNanos ts_event, UnixNanos ts_init) const noexcept {
-    if (!sequence.live() || bid_.is_undef() || ask_.is_undef() || bid_qty_.is_undef() ||
-        ask_qty_.is_undef()) {
+    if (!sequence.live() || bid_.is_undef() || ask_.is_undef() || bid_qty_.is_undef() || ask_qty_.is_undef()) {
         return std::nullopt;
     }
     Bbo out{};

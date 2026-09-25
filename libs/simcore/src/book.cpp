@@ -8,12 +8,8 @@ namespace {
 
 // fully consumed makers leave both the level queue and the id index
 template <typename SideMap, typename IndexMap, typename Crosses>
-[[nodiscard]] std::int64_t consume(SideMap& far,
-                                   IndexMap& index,
-                                   PriceTicks limit,
-                                   std::int64_t qty,
-                                   std::vector<Fill>& fills,
-                                   Crosses crosses) {
+[[nodiscard]] std::int64_t
+consume(SideMap& far, IndexMap& index, PriceTicks limit, std::int64_t qty, std::vector<Fill>& fills, Crosses crosses) {
     std::int64_t left = qty;
     while (left > 0 && !far.empty()) {
         const auto level_it = far.begin();
@@ -26,8 +22,7 @@ template <typename SideMap, typename IndexMap, typename Crosses>
             const std::int64_t take = std::min(left, maker.leaves.raw);
             maker.leaves.raw -= take;
             left -= take;
-            fills.push_back(
-                Fill{maker.id, maker.owner, maker.price, QtyLots::from_raw(take), maker.leaves});
+            fills.push_back(Fill{maker.id, maker.owner, maker.price, QtyLots::from_raw(take), maker.leaves});
             if (maker.leaves.raw == 0) {
                 index.erase(maker.id);
                 queue.pop_front();
@@ -42,8 +37,7 @@ template <typename SideMap, typename IndexMap, typename Crosses>
 
 // fok pre-scan, capped at `cap` so the walk stops once enough is found
 template <typename SideMap, typename Crosses>
-[[nodiscard]] std::int64_t
-liquidity_up_to(const SideMap& far, PriceTicks limit, std::int64_t cap, Crosses crosses) {
+[[nodiscard]] std::int64_t liquidity_up_to(const SideMap& far, PriceTicks limit, std::int64_t cap, Crosses crosses) {
     std::int64_t sum = 0;
     for (const auto& [price, queue] : far) {
         if (!crosses(price, limit)) {
@@ -59,8 +53,7 @@ liquidity_up_to(const SideMap& far, PriceTicks limit, std::int64_t cap, Crosses 
     return sum;
 }
 
-template <typename SideMap>
-[[nodiscard]] bool erase_resting(SideMap& side_map, PriceTicks price, std::uint64_t id) {
+template <typename SideMap> [[nodiscard]] bool erase_resting(SideMap& side_map, PriceTicks price, std::uint64_t id) {
     const auto level_it = side_map.find(price);
     if (level_it == side_map.end()) {
         return false;
@@ -102,23 +95,14 @@ template <typename SideMap>
 
 // A buy crosses ask levels at or below its limit; a sell crosses bid levels
 // at or above. Market orders take every level.
-constexpr auto k_buy_crosses = [](PriceTicks level, PriceTicks limit) noexcept {
-    return level <= limit;
-};
-constexpr auto k_sell_crosses = [](PriceTicks level, PriceTicks limit) noexcept {
-    return level >= limit;
-};
+constexpr auto k_buy_crosses = [](PriceTicks level, PriceTicks limit) noexcept { return level <= limit; };
+constexpr auto k_sell_crosses = [](PriceTicks level, PriceTicks limit) noexcept { return level >= limit; };
 constexpr auto k_any_price = [](PriceTicks, PriceTicks) noexcept { return true; };
 
 } // namespace
 
-MatchResult Book::submit_limit(std::uint64_t id,
-                               std::uint32_t owner,
-                               Side side,
-                               PriceTicks price,
-                               QtyLots qty,
-                               bool post_only,
-                               TimeInForce tif) {
+MatchResult Book::submit_limit(
+    std::uint64_t id, std::uint32_t owner, Side side, PriceTicks price, QtyLots qty, bool post_only, TimeInForce tif) {
     MatchResult out;
     out.remainder = qty;
 
@@ -131,18 +115,16 @@ MatchResult Book::submit_limit(std::uint64_t id,
     }
 
     if (tif == TimeInForce::Fok) {
-        const std::int64_t avail = side == Side::Buy
-                                       ? liquidity_up_to(asks_, price, qty.raw, k_buy_crosses)
-                                       : liquidity_up_to(bids_, price, qty.raw, k_sell_crosses);
+        const std::int64_t avail = side == Side::Buy ? liquidity_up_to(asks_, price, qty.raw, k_buy_crosses)
+                                                     : liquidity_up_to(bids_, price, qty.raw, k_sell_crosses);
         if (avail < qty.raw) {
             out.disposition = Disposition::Expired;
             return out;
         }
     }
 
-    const std::int64_t left =
-        side == Side::Buy ? consume(asks_, index_, price, qty.raw, out.fills, k_buy_crosses)
-                          : consume(bids_, index_, price, qty.raw, out.fills, k_sell_crosses);
+    const std::int64_t left = side == Side::Buy ? consume(asks_, index_, price, qty.raw, out.fills, k_buy_crosses)
+                                                : consume(bids_, index_, price, qty.raw, out.fills, k_sell_crosses);
     out.remainder = QtyLots::from_raw(left);
 
     if (left == 0) {
@@ -161,13 +143,11 @@ MatchResult Book::submit_limit(std::uint64_t id,
     return out;
 }
 
-MatchResult
-Book::submit_market(std::uint64_t /*id*/, std::uint32_t /*owner*/, Side side, QtyLots qty) {
+MatchResult Book::submit_market(std::uint64_t /*id*/, std::uint32_t /*owner*/, Side side, QtyLots qty) {
     MatchResult out;
-    const std::int64_t left =
-        side == Side::Buy
-            ? consume(asks_, index_, PriceTicks::undef(), qty.raw, out.fills, k_any_price)
-            : consume(bids_, index_, PriceTicks::undef(), qty.raw, out.fills, k_any_price);
+    const std::int64_t left = side == Side::Buy
+                                  ? consume(asks_, index_, PriceTicks::undef(), qty.raw, out.fills, k_any_price)
+                                  : consume(bids_, index_, PriceTicks::undef(), qty.raw, out.fills, k_any_price);
     out.remainder = QtyLots::from_raw(left);
     out.disposition = left == 0 ? Disposition::Filled : Disposition::Expired;
     return out;
@@ -180,14 +160,11 @@ bool Book::cancel(std::uint64_t id) {
     }
     const Locator loc = it->second;
     index_.erase(it);
-    return loc.side == Side::Buy ? erase_resting(bids_, loc.price, id)
-                                 : erase_resting(asks_, loc.price, id);
+    return loc.side == Side::Buy ? erase_resting(bids_, loc.price, id) : erase_resting(asks_, loc.price, id);
 }
 
-std::expected<MatchResult, BookError>
-Book::amend(std::uint64_t id, PriceTicks new_price, QtyLots new_leaves) {
-    if (new_price.is_undef() || new_price.raw <= 0 || new_leaves.is_undef() ||
-        new_leaves.raw <= 0) {
+std::expected<MatchResult, BookError> Book::amend(std::uint64_t id, PriceTicks new_price, QtyLots new_leaves) {
+    if (new_price.is_undef() || new_price.raw <= 0 || new_leaves.is_undef() || new_leaves.raw <= 0) {
         return std::unexpected{BookError::BadQty};
     }
     const auto it = index_.find(id);
@@ -195,8 +172,7 @@ Book::amend(std::uint64_t id, PriceTicks new_price, QtyLots new_leaves) {
         return std::unexpected{BookError::UnknownOrder};
     }
     const Locator loc = it->second;
-    RestingOrder* order =
-        loc.side == Side::Buy ? find_in(bids_, loc.price, id) : find_in(asks_, loc.price, id);
+    RestingOrder* order = loc.side == Side::Buy ? find_in(bids_, loc.price, id) : find_in(asks_, loc.price, id);
     if (order == nullptr) {
         return std::unexpected{BookError::UnknownOrder};
     }
@@ -212,8 +188,7 @@ Book::amend(std::uint64_t id, PriceTicks new_price, QtyLots new_leaves) {
     const std::uint32_t owner = order->owner;
     const Side side = order->side;
     cancel(id);
-    return submit_limit(
-        id, owner, side, new_price, new_leaves, /*post_only=*/false, TimeInForce::Gtc);
+    return submit_limit(id, owner, side, new_price, new_leaves, /*post_only=*/false, TimeInForce::Gtc);
 }
 
 std::optional<Book::BboLevels> Book::bbo() const {
@@ -251,8 +226,7 @@ const Book::RestingOrder* Book::find(std::uint64_t id) const noexcept {
         }
         return nullptr;
     };
-    return it->second.side == Side::Buy ? scan(bids_, it->second.price)
-                                        : scan(asks_, it->second.price);
+    return it->second.side == Side::Buy ? scan(bids_, it->second.price) : scan(asks_, it->second.price);
 }
 
 } // namespace raikiri::simcore

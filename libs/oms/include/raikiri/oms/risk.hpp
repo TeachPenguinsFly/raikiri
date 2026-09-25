@@ -86,8 +86,7 @@ public:
 
     [[nodiscard]] const RiskConfig& config() const noexcept { return config_; }
 
-    [[nodiscard]] std::expected<void, RiskReject> check(const OrderCmd& cmd,
-                                                        const Exposure& exposure) const noexcept {
+    [[nodiscard]] std::expected<void, RiskReject> check(const OrderCmd& cmd, const Exposure& exposure) const noexcept {
         // a reconciliation break refuses before any other check
         if (exposure.reconciliation_break) {
             return std::unexpected{RiskReject::ReconBreak};
@@ -107,8 +106,7 @@ public:
         if (cmd.order_type == OrderType::Limit && config_.max_price_band_bp > 0 &&
             !exposure.reference_price.is_undef() && exposure.reference_price.raw > 0) {
             const auto reference = exposure.reference_price.raw;
-            const auto away =
-                cmd.price.raw > reference ? cmd.price.raw - reference : reference - cmd.price.raw;
+            const auto away = cmd.price.raw > reference ? cmd.price.raw - reference : reference - cmd.price.raw;
             // cross-multiplied because tick counts truncate when divided first
             if (away * 10'000 > reference * config_.max_price_band_bp) {
                 return std::unexpected{RiskReject::PriceBand};
@@ -125,15 +123,13 @@ public:
         // reduce-only included
         if (cmd.side == Side::Buy) {
             const auto after = detail::checked_add(
-                detail::checked_add(exposure.position_lots.raw, exposure.working_buy_lots.raw),
-                cmd.qty.raw);
+                detail::checked_add(exposure.position_lots.raw, exposure.working_buy_lots.raw), cmd.qty.raw);
             if (after > config_.max_long_lots.raw) {
                 return std::unexpected{RiskReject::LongLimit};
             }
         } else {
             const auto after = detail::checked_add(
-                detail::checked_sub(exposure.working_sell_lots.raw, exposure.position_lots.raw),
-                cmd.qty.raw);
+                detail::checked_sub(exposure.working_sell_lots.raw, exposure.position_lots.raw), cmd.qty.raw);
             if (after > config_.max_short_lots.raw) {
                 return std::unexpected{RiskReject::ShortLimit};
             }

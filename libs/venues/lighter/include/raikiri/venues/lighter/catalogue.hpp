@@ -32,7 +32,7 @@ struct MarketBuffer {
 
 // A row missing its id or decimals fails the whole parse: half a catalogue would
 // read downstream as delistings.
-[[nodiscard]] std::expected<std::span<const WireMarket>, WireError>
-parse_order_book_details(std::string_view body, MarketBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireMarket>, WireError> parse_order_book_details(std::string_view body,
+                                                                                             MarketBuffer& storage);
 
 } // namespace raikiri::venues::lighter

@@ -11,8 +11,7 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -41,8 +40,8 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             const auto direction = wire::req_str(obj, "direction");
             const auto price = req_num(obj, "price");
             const auto qty = req_num(obj, "amount");
-            if (!instrument.has_value() || !trade_id.has_value() || !direction.has_value() ||
-                !price.has_value() || !qty.has_value()) {
+            if (!instrument.has_value() || !trade_id.has_value() || !direction.has_value() || !price.has_value() ||
+                !qty.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             out.instrument = *instrument;

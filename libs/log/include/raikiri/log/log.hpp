@@ -38,10 +38,10 @@ public:
 #define RLOG_TRACE(...) QUILL_LOG_TRACE_L1(::raikiri::log::logger(), __VA_ARGS__)
 #define RLOG_DEBUG(...) QUILL_LOG_DEBUG(::raikiri::log::logger(), __VA_ARGS__)
 #define RLOG_INFO(...) QUILL_LOG_INFO(::raikiri::log::logger(), __VA_ARGS__)
-#define RLOG_WAKING_(macro, ...)                                                                   \
-    do {                                                                                           \
-        macro(::raikiri::log::logger(), __VA_ARGS__);                                              \
-        ::raikiri::log::wake();                                                                    \
+#define RLOG_WAKING_(macro, ...)                                                                                       \
+    do {                                                                                                               \
+        macro(::raikiri::log::logger(), __VA_ARGS__);                                                                  \
+        ::raikiri::log::wake();                                                                                        \
     } while (0)
 #define RLOG_WARN(...) RLOG_WAKING_(QUILL_LOG_WARNING, __VA_ARGS__)
 #define RLOG_ERROR(...) RLOG_WAKING_(QUILL_LOG_ERROR, __VA_ARGS__)

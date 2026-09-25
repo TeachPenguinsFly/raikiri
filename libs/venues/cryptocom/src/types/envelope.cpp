@@ -43,45 +43,43 @@ std::expected<Event, WireError> parse_event(std::string_view frame) {
         Event out{};
         std::string_view method;
         bool has_result = false;
-        const auto read =
-            each_field(*root, [&](std::string_view key, ondemand::value& value) -> FieldResult {
-                if (key == "id") {
-                    return i64_into(value, out.id);
+        const auto read = each_field(*root, [&](std::string_view key, ondemand::value& value) -> FieldResult {
+            if (key == "id") {
+                return i64_into(value, out.id);
+            }
+            if (key == "method") {
+                return text_into(value, method);
+            }
+            if (key == "code") {
+                return i64_into(value, out.code);
+            }
+            if (key == "channel") {
+                return text_into(value, out.channel);
+            }
+            if (key == "message") {
+                return text_into(value, out.message);
+            }
+            if (key != "result") {
+                return {};
+            }
+            has_result = true;
+            ondemand::object result;
+            if (const auto ec = value.get_object().get(result); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            return each_field(result, [&](std::string_view inner, ondemand::value& field) -> FieldResult {
+                if (inner == "instrument_name") {
+                    return text_into(field, out.instrument);
                 }
-                if (key == "method") {
-                    return text_into(value, method);
+                if (inner == "channel") {
+                    return text_into(field, out.channel);
                 }
-                if (key == "code") {
-                    return i64_into(value, out.code);
+                if (inner == "data") {
+                    return raw_into(field, out.data);
                 }
-                if (key == "channel") {
-                    return text_into(value, out.channel);
-                }
-                if (key == "message") {
-                    return text_into(value, out.message);
-                }
-                if (key != "result") {
-                    return {};
-                }
-                has_result = true;
-                ondemand::object result;
-                if (const auto ec = value.get_object().get(result); ec != simdjson::SUCCESS) {
-                    return std::unexpected(wire::map_error(ec));
-                }
-                return each_field(
-                    result, [&](std::string_view inner, ondemand::value& field) -> FieldResult {
-                        if (inner == "instrument_name") {
-                            return text_into(field, out.instrument);
-                        }
-                        if (inner == "channel") {
-                            return text_into(field, out.channel);
-                        }
-                        if (inner == "data") {
-                            return raw_into(field, out.data);
-                        }
-                        return {};
-                    });
+                return {};
             });
+        });
         if (!read.has_value()) {
             return std::unexpected(read.error());
         }
@@ -105,16 +103,15 @@ std::expected<RestStatus, WireError> parse_rest_status(std::string_view body) {
             return std::unexpected(root.error());
         }
         RestStatus out{};
-        const auto read =
-            each_field(*root, [&](std::string_view key, ondemand::value& value) -> FieldResult {
-                if (key == "code") {
-                    return i64_into(value, out.code);
-                }
-                if (key == "message") {
-                    return text_into(value, out.message);
-                }
-                return {};
-            });
+        const auto read = each_field(*root, [&](std::string_view key, ondemand::value& value) -> FieldResult {
+            if (key == "code") {
+                return i64_into(value, out.code);
+            }
+            if (key == "message") {
+                return text_into(value, out.message);
+            }
+            return {};
+        });
         if (!read.has_value()) {
             return std::unexpected(read.error());
         }

@@ -2,9 +2,9 @@
 
 // transition() is the only arbiter of what an event does to a status
 
-#include <raikiri/domain/error_class.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
+#include <raikiri/domain/error_class.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/order.hpp>
 
@@ -19,7 +19,7 @@ enum class OrderEventType : std::uint8_t {
     Denied,    // risk gate refusal (never reached the wire)
     Submitted, // OMS handed the order to a gateway
     Accepted,  // venue ack (WS or REST)
-    Rejected, // venue reject, also synthesized on a rest error
+    Rejected,  // venue reject, also synthesized on a rest error
     Triggered, // conditional order armed
     PendingUpdate,
     Updated,        // modify confirmed
@@ -90,7 +90,6 @@ static_assert(sizeof(OrderEvent) <= 192, "OrderEvent is the shm exec_events payl
 
 // the venue's exec id, else one derived from the fill and prefixed '~', so a resend maps to the
 // same id
-[[nodiscard]] ExecId
-fill_identity(ClientOrderId order, QtyLots leaves, std::string_view venue_exec_id) noexcept;
+[[nodiscard]] ExecId fill_identity(ClientOrderId order, QtyLots leaves, std::string_view venue_exec_id) noexcept;
 
 } // namespace raikiri

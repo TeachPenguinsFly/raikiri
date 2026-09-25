@@ -28,7 +28,7 @@ struct PositionBuffer {
 };
 
 // bare array
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view body, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
+                                                                                      PositionBuffer& storage);
 
 } // namespace raikiri::venues::weex

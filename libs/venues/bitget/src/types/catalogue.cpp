@@ -63,8 +63,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
     });
 }
 
-std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
+std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                             SpotSymbolBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotSymbol>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -90,14 +90,13 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             }
             out.symbol = *symbol;
             // optional here so the mapper refuses the row
-            for (const auto& [key, target] :
-                 {std::pair{"baseCoin", &out.base_coin},
-                  std::pair{"quoteCoin", &out.quote_coin},
-                  std::pair{"status", &out.status},
-                  std::pair{"pricePrecision", &out.price_precision},
-                  std::pair{"quantityPrecision", &out.quantity_precision},
-                  std::pair{"minTradeAmount", &out.min_trade_amount},
-                  std::pair{"minTradeUSDT", &out.min_trade_usdt}}) {
+            for (const auto& [key, target] : {std::pair{"baseCoin", &out.base_coin},
+                                              std::pair{"quoteCoin", &out.quote_coin},
+                                              std::pair{"status", &out.status},
+                                              std::pair{"pricePrecision", &out.price_precision},
+                                              std::pair{"quantityPrecision", &out.quantity_precision},
+                                              std::pair{"minTradeAmount", &out.min_trade_amount},
+                                              std::pair{"minTradeUSDT", &out.min_trade_usdt}}) {
                 const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());

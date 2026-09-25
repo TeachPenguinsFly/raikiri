@@ -15,18 +15,14 @@ std::string_view to_string(CredentialError::Field field) noexcept {
 }
 
 Credentials& Credentials::key(Install install) {
-    steps_.push_back({.field = CredentialError::Field::Key,
-                      .spec = key_spec_,
-                      .install = std::move(install),
-                      .into = nullptr});
+    steps_.push_back(
+        {.field = CredentialError::Field::Key, .spec = key_spec_, .install = std::move(install), .into = nullptr});
     return *this;
 }
 
 Credentials& Credentials::secret(Secret& into) {
-    steps_.push_back({.field = CredentialError::Field::Secret,
-                      .spec = secret_spec_,
-                      .install = nullptr,
-                      .into = &into});
+    steps_.push_back(
+        {.field = CredentialError::Field::Secret, .spec = secret_spec_, .install = nullptr, .into = &into});
     return *this;
 }
 

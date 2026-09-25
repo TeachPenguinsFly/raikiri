@@ -20,8 +20,7 @@ public:
     InstrumentSource& operator=(const InstrumentSource&) = delete;
     virtual ~InstrumentSource() = default;
 
-    [[nodiscard]] virtual std::expected<std::vector<Instrument>, VenueError>
-    fetch_all(MarketType market) = 0;
+    [[nodiscard]] virtual std::expected<std::vector<Instrument>, VenueError> fetch_all(MarketType market) = 0;
 };
 
 struct CatalogueBackoff {
@@ -31,12 +30,11 @@ struct CatalogueBackoff {
 
 // retries fetch_all until success, a Terminal or AuthFailure error, or `stopping`
 // `stopping` also abandons the request in flight
-[[nodiscard]] std::expected<std::vector<Instrument>, VenueError> load_catalogue(
-    InstrumentSource& source,
-    MarketType market,
-    const std::function<bool()>& stopping,
-    const std::function<void(const VenueError&, std::uint32_t, std::chrono::milliseconds)>&
-        on_retry,
-    CatalogueBackoff backoff = {});
+[[nodiscard]] std::expected<std::vector<Instrument>, VenueError>
+load_catalogue(InstrumentSource& source,
+               MarketType market,
+               const std::function<bool()>& stopping,
+               const std::function<void(const VenueError&, std::uint32_t, std::chrono::milliseconds)>& on_retry,
+               CatalogueBackoff backoff = {});
 
 } // namespace raikiri::exec

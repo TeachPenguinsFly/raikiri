@@ -26,13 +26,13 @@ public:
 
     std::expected<void, exec::VenueError> start() override {
         if (state_->testnet) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "kraken futures has no demo environment")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kraken futures has no demo environment")};
         }
         if (!state_->signer.has_credentials()) {
             // every path signs, so missing credentials fail once at start
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::AuthFailure, 0, "kraken: credentials not loaded")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, "kraken: credentials not loaded")};
         }
         api_.start();
         stream_.start();
@@ -46,9 +46,7 @@ public:
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override {
-        return started_ && stream_.connected();
-    }
+    [[nodiscard]] bool connected() const noexcept override { return started_ && stream_.connected(); }
 
     // sweeps the rest pool so an idle gateway never writes an order into a dead socket
     void poll(UnixNanos now) noexcept override {
@@ -67,18 +65,17 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
@@ -102,13 +99,10 @@ private:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -137,9 +131,7 @@ private:
         if (!api_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded before the callback, which may never run
@@ -159,20 +151,17 @@ private:
         }
         if (response.transport_failed()) {
             // the request may have reached the matcher, so this is not a rejection
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
-        if (response.status < 200 || response.status >= 300 || !envelope.has_value() ||
-            !envelope->ok) {
-            if (kind == Kind::Cancel && envelope.has_value() &&
-                is_benign_cancel_failure(envelope->error)) {
+        if (response.status < 200 || response.status >= 300 || !envelope.has_value() || !envelope->ok) {
+            if (kind == Kind::Cancel && envelope.has_value() && is_benign_cancel_failure(envelope->error)) {
                 return; // the order already finished; reconciliation settles it
             }
             emit_reject(cmd, kind, rest_failure(response.body));
@@ -181,18 +170,13 @@ private:
         // the envelope says success for refused orders too; status is the verdict
         const auto verdict = parse_order_status(response.body, status_kind(kind));
         if (!verdict.has_value()) {
-            emit_reject(
-                cmd,
-                kind,
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "no status in the response"));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, "no status in the response"));
             return;
         }
         switch (kind) {
         case Kind::Create:
             if (!is_send_accepted(verdict->status)) {
-                emit_reject(cmd,
-                            kind,
-                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
+                emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
                 return;
             }
             // accepted comes from the open_orders delta; binding the id here routes a fill that arrives first
@@ -200,16 +184,12 @@ private:
             return;
         case Kind::Cancel:
             if (!is_cancel_accepted(verdict->status)) {
-                emit_reject(cmd,
-                            kind,
-                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
+                emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
             }
             return;
         case Kind::Amend:
             if (!is_edit_accepted(verdict->status)) {
-                emit_reject(cmd,
-                            kind,
-                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
+                emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
                 return;
             }
             // open_orders has no reason for an edit, so this response is the only confirmation

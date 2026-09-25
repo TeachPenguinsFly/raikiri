@@ -136,33 +136,27 @@ WireOrderStatus spot_order_status(std::string_view text) noexcept {
     return WireOrderStatus::Unknown;
 }
 
-std::expected<std::span<const WireFuturesOrder>, WireError>
-parse_futures_orders(std::string_view body, FuturesOrderBuffer& storage) {
-    return guarded([&] {
-        return read_envelope_array<WireFuturesOrder>(body, storage.orders, read_futures_order);
-    });
+std::expected<std::span<const WireFuturesOrder>, WireError> parse_futures_orders(std::string_view body,
+                                                                                 FuturesOrderBuffer& storage) {
+    return guarded([&] { return read_envelope_array<WireFuturesOrder>(body, storage.orders, read_futures_order); });
 }
 
 std::expected<WireFuturesOrder, WireError> parse_futures_order(std::string_view body) {
-    return guarded(
-        [&] { return read_envelope_object<WireFuturesOrder>(body, read_futures_order); });
+    return guarded([&] { return read_envelope_object<WireFuturesOrder>(body, read_futures_order); });
 }
 
-std::expected<std::span<const WireFuturesDeal>, WireError>
-parse_futures_deals(std::string_view body, FuturesDealBuffer& storage) {
-    return guarded([&] {
-        return read_envelope_array<WireFuturesDeal>(body, storage.deals, read_futures_deal);
-    });
+std::expected<std::span<const WireFuturesDeal>, WireError> parse_futures_deals(std::string_view body,
+                                                                               FuturesDealBuffer& storage) {
+    return guarded([&] { return read_envelope_array<WireFuturesDeal>(body, storage.deals, read_futures_deal); });
 }
 
 std::expected<WireFuturesDeal, WireError> parse_futures_deal(std::string_view frame) {
     return guarded([&] { return read_envelope_object<WireFuturesDeal>(frame, read_futures_deal); });
 }
 
-std::expected<std::span<const WireSpotOrder>, WireError>
-parse_spot_orders(std::string_view body, SpotOrderBuffer& storage) {
-    return guarded(
-        [&] { return read_bare_array<WireSpotOrder>(body, storage.orders, read_spot_order); });
+std::expected<std::span<const WireSpotOrder>, WireError> parse_spot_orders(std::string_view body,
+                                                                           SpotOrderBuffer& storage) {
+    return guarded([&] { return read_bare_array<WireSpotOrder>(body, storage.orders, read_spot_order); });
 }
 
 std::expected<WireSpotOrder, WireError> parse_spot_order(std::string_view body) {
@@ -179,10 +173,9 @@ std::expected<WireSpotOrder, WireError> parse_spot_order(std::string_view body) 
     });
 }
 
-std::expected<std::span<const WireSpotTrade>, WireError>
-parse_spot_trades(std::string_view body, SpotTradeBuffer& storage) {
-    return guarded(
-        [&] { return read_bare_array<WireSpotTrade>(body, storage.trades, read_spot_trade); });
+std::expected<std::span<const WireSpotTrade>, WireError> parse_spot_trades(std::string_view body,
+                                                                           SpotTradeBuffer& storage) {
+    return guarded([&] { return read_bare_array<WireSpotTrade>(body, storage.trades, read_spot_trade); });
 }
 
 } // namespace raikiri::venues::mexc

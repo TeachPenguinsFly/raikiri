@@ -21,7 +21,9 @@ constexpr std::size_t k_max_handlers_per_poll = 256;
 // set while a handler may be running, including when one throws
 struct Pumping {
     explicit Pumping(bool& flag) noexcept : flag_{flag} { flag_ = true; }
+
     ~Pumping() { flag_ = false; }
+
     Pumping(const Pumping&) = delete;
     Pumping& operator=(const Pumping&) = delete;
 
@@ -54,8 +56,7 @@ std::size_t IoContext::run_for(std::size_t timeout_ms) noexcept {
     }
     const Pumping guard{impl_->pumping};
     try {
-        return impl_->ioc.run_for(
-            std::chrono::milliseconds{static_cast<std::chrono::milliseconds::rep>(timeout_ms)});
+        return impl_->ioc.run_for(std::chrono::milliseconds{static_cast<std::chrono::milliseconds::rep>(timeout_ms)});
     } catch (...) {
         return 0;
     }

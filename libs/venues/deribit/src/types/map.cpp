@@ -165,8 +165,7 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 || ms > k_max_expiry_ms ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
-std::optional<Bbo>
-map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.instrument);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -194,8 +193,7 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.instrument);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -233,8 +231,7 @@ std::optional<FixedE9> iv_ratio(std::string_view text) {
 
 } // namespace
 
-std::optional<OptionGreeks>
-map_greeks(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<OptionGreeks> map_greeks(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (!has_greeks(wire)) {
         return std::nullopt; // a perpetual's ticker carries no greeks object
     }
@@ -364,10 +361,7 @@ std::optional<QtyLots> leaves_of(const WireOrder& wire, const InstrumentBase& ba
     return QtyLots::from_raw(amount->raw - filled->raw);
 }
 
-void stamp(OrderEvent& event,
-           const WireOrder& wire,
-           const InstrumentBase& base,
-           UnixNanos ts_init) {
+void stamp(OrderEvent& event, const WireOrder& wire, const InstrumentBase& base, UnixNanos ts_init) {
     event.side = wire.sell ? Side::Sell : Side::Buy;
     event.instrument = base.id;
     if (const auto id = ExchangeClientOrderId::from(wire.label); id.has_value()) {
@@ -447,10 +441,8 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
     return event;
 }
 
-std::optional<OrderEvent> map_fill(const WireUserTrade& wire,
-                                   const exec::InstrumentTable& table,
-                                   QtyLots leaves,
-                                   UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_fill(const WireUserTrade& wire, const exec::InstrumentTable& table, QtyLots leaves, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.instrument);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -487,15 +479,13 @@ std::optional<OrderEvent> map_fill(const WireUserTrade& wire,
     if (const auto fee = parse_number_e9(wire.fee); fee.has_value()) {
         event.fee = *fee;
     }
-    event.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
-                                            : Liquidity::Unknown;
+    event.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker) : Liquidity::Unknown;
     event.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     event.ts_init = ts_init;
     return event;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.instrument);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -514,8 +504,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     exec::OrderStatusReport report{};
     switch (*state) {
     case OrderState::Open:
-        report.status =
-            leaves->raw == qty->raw ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
+        report.status = leaves->raw == qty->raw ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
         break;
     case OrderState::Filled:
         report.status = OrderStatus::Filled;
@@ -550,8 +539,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     return report;
 }
 
-std::optional<exec::FillReport> map_fill_report(const WireUserTrade& wire,
-                                                const exec::InstrumentTable& table) {
+std::optional<exec::FillReport> map_fill_report(const WireUserTrade& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.instrument);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -580,8 +568,7 @@ std::optional<exec::FillReport> map_fill_report(const WireUserTrade& wire,
     if (const auto fee = parse_number_e9(wire.fee); fee.has_value()) {
         report.fee = *fee;
     }
-    report.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
-                                             : Liquidity::Unknown;
+    report.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker) : Liquidity::Unknown;
     report.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{0});
     return report;
 }
@@ -639,8 +626,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     const auto tick = parse_number_e9(wire.tick_size);
     const auto lot = parse_number_e9(wire.min_trade_amount);
     const auto contract = parse_number_e9(wire.contract_size);
-    if (!tick.has_value() || !lot.has_value() || !contract.has_value() || tick->raw <= 0 ||
-        lot->raw <= 0 || contract->raw <= 0) {
+    if (!tick.has_value() || !lot.has_value() || !contract.has_value() || tick->raw <= 0 || lot->raw <= 0 ||
+        contract->raw <= 0) {
         return std::nullopt;
     }
     const auto symbol = SymbolText::from(wire.instrument_name);
@@ -675,10 +662,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
             return std::nullopt;
         }
         const auto put_call = wire.option_type == "put" ? PutCall::Put : PutCall::Call;
-        return OptionInstrument{base,
-                                PriceTicks::from_raw(*strike),
-                                ms_to_unix(wire.expiration_ms, UnixNanos{0}),
-                                put_call};
+        return OptionInstrument{
+            base, PriceTicks::from_raw(*strike), ms_to_unix(wire.expiration_ms, UnixNanos{0}), put_call};
     }
 
     if (market == MarketType::Future) {

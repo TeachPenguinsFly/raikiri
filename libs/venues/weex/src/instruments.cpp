@@ -43,17 +43,14 @@ public:
         // large body, so the deadline is generous
         const auto response = await_response(*state_, rest_, state_->builder.instruments(), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        if (const auto err = parse_rest_error(response->body);
-            err.has_value() && err->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(err->code), err->code, err->msg)};
+        if (const auto err = parse_rest_error(response->body); err.has_value() && err->code != k_ok) {
+            return std::unexpected{exec::VenueError::make(classify(err->code), err->code, err->msg)};
         }
 
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
@@ -61,14 +58,12 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_exchange_info(response->body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         // the api-tradable set; on failure it stays empty and refuses nothing
         {
-            const auto listed =
-                await_response(*state_, rest_, state_->builder.api_trading_symbols(), 20'000);
+            const auto listed = await_response(*state_, rest_, state_->builder.api_trading_symbols(), 20'000);
             if (!listed.has_value() || listed->transport_failed()) {
                 RLOG_WARN("weex: no API-tradable list — an order for a contract outside it will "
                           "be refused by the venue rather than here");

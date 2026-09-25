@@ -30,8 +30,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         }
         // remembered before emitting so a queued deal can read its leaves
         state.remember(*wire);
-        if (const auto mapped = map_futures_order_event(*wire, state.instruments, received);
-            mapped.has_value()) {
+        if (const auto mapped = map_futures_order_event(*wire, state.instruments, received); mapped.has_value()) {
             state.sink->on_order_event(*mapped);
         }
         break;
@@ -42,8 +41,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
             return;
         }
         const auto memo = state.memo_for(wire->order_id);
-        if (const auto mapped = map_futures_deal(
-                *wire, state.instruments, memo.leaves, memo.client_order_id, received);
+        if (const auto mapped = map_futures_deal(*wire, state.instruments, memo.leaves, memo.client_order_id, received);
             mapped.has_value()) {
             state.sink->on_order_event(*mapped);
         }
@@ -53,16 +51,14 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         // no position event on the sink; the reconciler polls position_reports()
         break;
     case EventKind::LoginAck:
-        state.sink->on_connectivity({.state = exec::ConnState::Connected,
-                                     .stream_id = k_private_stream_id,
-                                     .ts = state.clock->wall()});
+        state.sink->on_connectivity(
+            {.state = exec::ConnState::Connected, .stream_id = k_private_stream_id, .ts = state.clock->wall()});
         break;
     case EventKind::Error: {
         // rs.error has no code; this socket only logs in, so treat it as an auth failure
         if (parse_stream_error(frame).has_value()) {
-            state.sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                         .stream_id = k_private_stream_id,
-                                         .ts = state.clock->wall()});
+            state.sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state.clock->wall()});
         }
         break;
     }
@@ -83,17 +79,14 @@ public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        const auto frame =
-            state_->protocol.login_frame(state_->signer, state_->venue_now(MarketType::Perp));
+        const auto frame = state_->protocol.login_frame(state_->signer, state_->venue_now(MarketType::Perp));
         if (!frame.has_value() || client_ == nullptr || !client_->send(*frame)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_private_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
             return;
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -101,9 +94,8 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void attach(net::WsClient& client) noexcept { client_ = &client; }

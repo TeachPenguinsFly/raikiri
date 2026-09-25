@@ -40,8 +40,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             // cost_hold is the entry; cost_open stops moving after a partial close
             const auto cost = num_of(obj, "cost_hold");
             const auto direction = wire::opt_str(obj, "direction");
-            if (!code.has_value() || !volume.has_value() || !cost.has_value() ||
-                !direction.has_value()) {
+            if (!code.has_value() || !volume.has_value() || !cost.has_value() || !direction.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             storage.positions[count] = {.contract_code = *code,

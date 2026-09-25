@@ -55,8 +55,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -68,12 +67,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         // spot contexts carry no funding, so only turnover is published for them
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -183,16 +180,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto channel = channel_for(kind);
         if (channel.empty()) {
@@ -204,8 +197,8 @@ public:
         // the pool opens another socket when none has room
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "hyperliquid: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "hyperliquid: connection pool is full")};
         }
         return {};
     }
@@ -239,8 +232,7 @@ private:
         }
         // bbo first, since paced sends at the tail may never go out
         const auto quote = channel_for(exec::SubKind::Bbo);
-        std::ranges::stable_partition(
-            views, [quote](const Subscription& one) { return one.channel == quote; });
+        std::ranges::stable_partition(views, [quote](const Subscription& one) { return one.channel == quote; });
 
         std::vector<std::string> frames;
         frames.reserve(views.size());

@@ -34,10 +34,8 @@ std::expected<WirePrint, WireError> read_print(wire::ondemand::object& obj) {
     return out;
 }
 
-std::expected<std::size_t, WireError> read_prints(wire::ondemand::object& root,
-                                                  std::string_view key,
-                                                  PrintBuffer& storage,
-                                                  std::size_t count) {
+std::expected<std::size_t, WireError>
+read_prints(wire::ondemand::object& root, std::string_view key, PrintBuffer& storage, std::size_t count) {
     auto array = wire::req_array(root, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -93,8 +91,7 @@ std::expected<WireMarketStats, WireError> read_stats(wire::ondemand::object& obj
 
 } // namespace
 
-std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
-                                                                  PrintBuffer& storage) {
+std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame, PrintBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePrint>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -112,8 +109,7 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
     });
 }
 
-std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view frame,
-                                                            StatsBuffer& storage) {
+std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view frame, StatsBuffer& storage) {
     return guarded([&]() -> std::expected<WireStatsFrame, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -127,8 +123,7 @@ std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view fra
         }
         out.ts_ms = *ts;
         const bool all = channel->ends_with(":all");
-        const std::string_view key =
-            channel->starts_with("spot_") ? "spot_market_stats" : "market_stats";
+        const std::string_view key = channel->starts_with("spot_") ? "spot_market_stats" : "market_stats";
         auto body = wire::req_object(*root, key);
         if (!body.has_value()) {
             return std::unexpected(body.error());

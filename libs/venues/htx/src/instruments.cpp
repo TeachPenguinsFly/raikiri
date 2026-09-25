@@ -26,16 +26,13 @@ namespace {
 class HtxInstruments final : public exec::InstrumentSource {
 public:
     explicit HtxInstruments(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{rest_host()},
-                                .port = "443",
-                                // the cold endpoint is slower than the 5 s default
-                                .timeout_ms = 20'000}},
+        : state_{std::move(state)}, rest_{state_->io,
+                                          net::RestConfig{.host = std::string{rest_host()},
+                                                          .port = "443",
+                                                          // the cold endpoint is slower than the 5 s default
+                                                          .timeout_ms = 20'000}},
           spot_rest_{state_->io,
-                     net::RestConfig{.host = std::string{spot_rest_host()},
-                                     .port = "443",
-                                     .timeout_ms = 20'000}} {}
+                     net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443", .timeout_ms = 20'000}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
@@ -50,41 +47,35 @@ public:
         const auto request = spot ? RequestBuilder::spot_symbols() : RequestBuilder::contracts();
         const auto response = await_response(*state_, rest, request, 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status != 200) {
-            return std::unexpected{exec::VenueError::make(
-                classify_http(response->status), response->status, "catalogue: http error")};
+            return std::unexpected{
+                exec::VenueError::make(classify_http(response->status), response->status, "catalogue: http error")};
         }
         const auto envelope = parse_rest_envelope(response->body);
         if (!envelope.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
         }
         if (!envelope->ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(envelope->code), 0, envelope->msg)};
+            return std::unexpected{exec::VenueError::make(classify(envelope->code), 0, envelope->msg)};
         }
         return spot ? load_spot(response->body) : load_perp(response->body, market);
     }
 
 private:
-    std::expected<std::vector<Instrument>, exec::VenueError> load_perp(std::string_view body,
-                                                                       MarketType market) {
+    std::expected<std::vector<Instrument>, exec::VenueError> load_perp(std::string_view body, MarketType market) {
         static thread_local const auto storage_owner = std::make_unique<ContractBuffer>();
         auto& storage = *storage_owner;
         const auto wire = parse_contracts(body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(*wire,
-                      [market](const WireContract& row) { return map_instrument(row, market); });
+        return intern(*wire, [market](const WireContract& row) { return map_instrument(row, market); });
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot(std::string_view body) {
@@ -92,14 +83,12 @@ private:
         auto& storage = *storage_owner;
         const auto wire = parse_spot_symbols(body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         return intern(*wire, map_spot_symbol);
     }
 
-    template <typename Row, typename Map>
-    std::vector<Instrument> intern(std::span<const Row> rows, Map&& map) {
+    template <typename Row, typename Map> std::vector<Instrument> intern(std::span<const Row> rows, Map&& map) {
         std::vector<Instrument> loaded;
         loaded.reserve(rows.size());
         state_->instruments.reserve(state_->instruments.size() + rows.size());

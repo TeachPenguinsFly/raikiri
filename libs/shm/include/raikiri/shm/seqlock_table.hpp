@@ -56,9 +56,7 @@ struct alignas(k_cache_line) SeqlockCell {
     }
 
     // Change-gate probe without copying the payload.
-    [[nodiscard]] std::uint32_t version_now() const noexcept {
-        return version.load(std::memory_order_acquire);
-    }
+    [[nodiscard]] std::uint32_t version_now() const noexcept { return version.load(std::memory_order_acquire); }
 };
 
 template <typename T, std::size_t N> struct SeqlockTable {
@@ -68,9 +66,7 @@ template <typename T, std::size_t N> struct SeqlockTable {
 
     void write(std::size_t index, const T& value) noexcept { cells[index].write(value); }
 
-    [[nodiscard]] std::uint32_t read(std::size_t index, T& out) const noexcept {
-        return cells[index].read(out);
-    }
+    [[nodiscard]] std::uint32_t read(std::size_t index, T& out) const noexcept { return cells[index].read(out); }
 };
 
 } // namespace raikiri::shm

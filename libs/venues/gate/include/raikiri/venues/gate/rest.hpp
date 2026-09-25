@@ -63,8 +63,7 @@ static_assert(sizeof(ExchangeClientOrderId::data) <= k_client_id_body_max,
               "gate rejects a client order id longer than 28 bytes after the t- prefix");
 
 // renders t-<ulid> into caller storage; empty when it does not fit
-[[nodiscard]] std::string_view client_id_text(const ExchangeClientOrderId& id,
-                                              std::span<char> out) noexcept;
+[[nodiscard]] std::string_view client_id_text(const ExchangeClientOrderId& id, std::span<char> out) noexcept;
 
 // text without the t- prefix is one of gate's own sources and is not ours
 [[nodiscard]] std::string_view client_id_from_text(std::string_view text) noexcept;
@@ -89,8 +88,7 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     cancel_batch(std::span<const OrderCmd> cmds, const exec::InstrumentTable& table, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
-                                                                          UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market, UnixNanos now);
 
     // perp only: spot's single-order read needs the currency_pair
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
@@ -99,8 +97,7 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     my_trades(MarketType market, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // funding settlements from the account book; pairs with VenueCaps::funding_charge
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
@@ -115,11 +112,8 @@ public:
     inline static constexpr std::size_t k_max_batch_cancel = 20;
 
 private:
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign(net::HttpMethod method,
-                                                                   std::string_view path,
-                                                                   std::string_view query,
-                                                                   std::string_view body,
-                                                                   UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    sign(net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now);
 
     const net::Signer* signer_;
 

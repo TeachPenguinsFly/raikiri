@@ -2,8 +2,6 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/trust_store.hpp>
 
-#include "sni.hpp"
-
 #include <openssl/ssl.h>
 
 #include <boost/asio/error.hpp>
@@ -30,6 +28,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include "sni.hpp"
 
 namespace raikiri::net {
 
@@ -75,8 +75,7 @@ constexpr std::string_view k_rate_header_prefixes[] = {
 RateObserver g_rate_observer;       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 RequestObserver g_request_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-template <typename Response>
-void collect_rate_headers(const Response& res, std::vector<RateHeader>& out) {
+template <typename Response> void collect_rate_headers(const Response& res, std::vector<RateHeader>& out) {
     for (const auto& field : res) {
         const auto name = std::string_view{field.name_string().data(), field.name_string().size()};
         if (!is_rate_header(name)) {
@@ -124,8 +123,8 @@ namespace internal {
 class RestPool : public std::enable_shared_from_this<RestPool> {
 public:
     RestPool(asio::io_context& ioc, RestConfig config)
-        : ioc_{ioc}, cfg_{std::move(config)}, tls_{ssl::context::tls_client}, resolver_{ioc},
-          queue_timer_{ioc}, slots_(cfg_.pool_size == 0 ? std::size_t{1} : cfg_.pool_size) {
+        : ioc_{ioc}, cfg_{std::move(config)}, tls_{ssl::context::tls_client}, resolver_{ioc}, queue_timer_{ioc},
+          slots_(cfg_.pool_size == 0 ? std::size_t{1} : cfg_.pool_size) {
         if (cfg_.verify_tls) {
             const auto trust = resolve_trust_store();
             boost::system::error_code ec;
@@ -199,8 +198,7 @@ public:
 
     // asked before the admission gate so a request the pool would refuse spends no allowance
     [[nodiscard]] bool has_room() const noexcept {
-        return !dead_ && (find_free_slot() != k_no_slot ||
-                          queue_.size() < slots_.size() * k_queue_depth_per_conn);
+        return !dead_ && (find_free_slot() != k_no_slot || queue_.size() < slots_.size() * k_queue_depth_per_conn);
     }
 
     void keepalive(UnixNanos now) {
@@ -221,8 +219,7 @@ public:
 
 private:
     struct Conn {
-        Conn(asio::io_context& ioc, ssl::context& tls)
-            : stream{ioc.get_executor(), tls}, resolve_timer{ioc} {}
+        Conn(asio::io_context& ioc, ssl::context& tls) : stream{ioc.get_executor(), tls}, resolve_timer{ioc} {}
 
         TlsStream stream;
         asio::steady_timer resolve_timer;
@@ -247,10 +244,8 @@ private:
         UnixNanos queued{};
     };
 
-    [[nodiscard]] bool
-    current(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn) const noexcept {
-        return !dead_ && idx < slots_.size() && slots_[idx].generation == gen &&
-               slots_[idx].conn == conn;
+    [[nodiscard]] bool current(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn) const noexcept {
+        return !dead_ && idx < slots_.size() && slots_[idx].generation == gen && slots_[idx].conn == conn;
     }
 
     [[nodiscard]] std::size_t find_free_slot() const noexcept {
@@ -300,8 +295,7 @@ private:
         slots_[idx].conn = conn;
         // bounds the name lookup, which the stream's timer does not cover; a late answer is dropped by generation
         conn->resolve_timer.expires_after(std::chrono::milliseconds{cfg_.connect_timeout_ms});
-        conn->resolve_timer.async_wait([self = shared_from_this(), idx, gen, conn](
-                                           const beast::error_code& ec) {
+        conn->resolve_timer.async_wait([self = shared_from_this(), idx, gen, conn](const beast::error_code& ec) {
             if (ec || !self->current(idx, gen, conn)) {
                 return;
             }
@@ -309,13 +303,12 @@ private:
             self->fail_queue(self->describe("name lookup did not answer in " +
                                             std::to_string(self->cfg_.connect_timeout_ms) + "ms"));
         });
-        resolver_.async_resolve(
-            cfg_.host,
-            cfg_.port,
-            [self = shared_from_this(), idx, gen, conn](
-                const beast::error_code& ec, const tcp::resolver::results_type& results) {
-                self->on_resolve(idx, gen, conn, ec, results);
-            });
+        resolver_.async_resolve(cfg_.host,
+                                cfg_.port,
+                                [self = shared_from_this(), idx, gen, conn](
+                                    const beast::error_code& ec, const tcp::resolver::results_type& results) {
+                                    self->on_resolve(idx, gen, conn, ec, results);
+                                });
     }
 
     void on_resolve(std::size_t idx,
@@ -333,17 +326,15 @@ private:
         }
         auto& lowest = beast::get_lowest_layer(conn->stream);
         lowest.expires_after(std::chrono::milliseconds{cfg_.connect_timeout_ms});
-        lowest.async_connect(results,
-                             [self = shared_from_this(), idx, gen, conn](
-                                 const beast::error_code& connect_ec, const tcp::endpoint&) {
-                                 self->on_connect(idx, gen, conn, connect_ec);
-                             });
+        lowest.async_connect(
+            results,
+            [self = shared_from_this(), idx, gen, conn](const beast::error_code& connect_ec, const tcp::endpoint&) {
+                self->on_connect(idx, gen, conn, connect_ec);
+            });
     }
 
-    void on_connect(std::size_t idx,
-                    std::uint64_t gen,
-                    const std::shared_ptr<Conn>& conn,
-                    const beast::error_code& ec) {
+    void
+    on_connect(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         if (!current(idx, gen, conn)) {
             return;
         }
@@ -351,22 +342,17 @@ private:
             on_setup_failed(idx, ec);
             return;
         }
-        if (!is_ip_literal(cfg_.host) &&
-            !internal::set_sni_host(conn->stream.native_handle(), cfg_.host.c_str())) {
+        if (!is_ip_literal(cfg_.host) && !internal::set_sni_host(conn->stream.native_handle(), cfg_.host.c_str())) {
             on_setup_failed(idx, beast::error_code{asio::error::invalid_argument});
             return;
         }
-        conn->stream.async_handshake(
-            ssl::stream_base::client,
-            [self = shared_from_this(), idx, gen, conn](const beast::error_code& tls_ec) {
-                self->on_tls(idx, gen, conn, tls_ec);
-            });
+        conn->stream.async_handshake(ssl::stream_base::client,
+                                     [self = shared_from_this(), idx, gen, conn](const beast::error_code& tls_ec) {
+                                         self->on_tls(idx, gen, conn, tls_ec);
+                                     });
     }
 
-    void on_tls(std::size_t idx,
-                std::uint64_t gen,
-                const std::shared_ptr<Conn>& conn,
-                const beast::error_code& ec) {
+    void on_tls(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         if (!current(idx, gen, conn)) {
             return;
         }
@@ -397,20 +383,15 @@ private:
         conn->sent = clock_.wall();
         ++dispatched_;
 
-        beast::get_lowest_layer(conn->stream)
-            .expires_after(std::chrono::milliseconds{cfg_.timeout_ms});
-        http::async_write(
-            conn->stream,
-            conn->req,
-            [self = shared_from_this(), idx, gen, conn](const beast::error_code& ec, std::size_t) {
-                self->on_write(idx, gen, conn, ec);
-            });
+        beast::get_lowest_layer(conn->stream).expires_after(std::chrono::milliseconds{cfg_.timeout_ms});
+        http::async_write(conn->stream,
+                          conn->req,
+                          [self = shared_from_this(), idx, gen, conn](const beast::error_code& ec, std::size_t) {
+                              self->on_write(idx, gen, conn, ec);
+                          });
     }
 
-    void on_write(std::size_t idx,
-                  std::uint64_t gen,
-                  const std::shared_ptr<Conn>& conn,
-                  const beast::error_code& ec) {
+    void on_write(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         if (!current(idx, gen, conn)) {
             return;
         }
@@ -421,16 +402,12 @@ private:
         http::async_read(conn->stream,
                          conn->buffer,
                          conn->res,
-                         [self = shared_from_this(), idx, gen, conn](
-                             const beast::error_code& read_ec, std::size_t) {
+                         [self = shared_from_this(), idx, gen, conn](const beast::error_code& read_ec, std::size_t) {
                              self->on_read(idx, gen, conn, read_ec);
                          });
     }
 
-    void on_read(std::size_t idx,
-                 std::uint64_t gen,
-                 const std::shared_ptr<Conn>& conn,
-                 const beast::error_code& ec) {
+    void on_read(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         if (!current(idx, gen, conn)) {
             return;
         }
@@ -450,11 +427,10 @@ private:
             }
         }
         if (g_request_observer) {
-            g_request_observer(
-                cfg_.host,
-                std::string_view{conn->req.target().data(), conn->req.target().size()},
-                response.status,
-                response.received.ns - response.sent.ns);
+            g_request_observer(cfg_.host,
+                               std::string_view{conn->req.target().data(), conn->req.target().size()},
+                               response.status,
+                               response.received.ns - response.sent.ns);
         }
 
         const bool reusable = conn->res.keep_alive();
@@ -473,9 +449,7 @@ private:
         pump();
     }
 
-    void fail_in_flight(std::size_t idx,
-                        const std::shared_ptr<Conn>& conn,
-                        const beast::error_code& ec) {
+    void fail_in_flight(std::size_t idx, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         RestResponse response;
         response.status = 0;
         response.error = describe(ec);
@@ -521,8 +495,7 @@ private:
         const auto budget = queue_budget_ns();
         const auto waited = waited_ns(queue_.front(), clock_.wall());
         queue_timer_armed_ = true;
-        queue_timer_.expires_after(
-            std::chrono::nanoseconds{waited >= budget ? 0 : budget - waited});
+        queue_timer_.expires_after(std::chrono::nanoseconds{waited >= budget ? 0 : budget - waited});
         queue_timer_.async_wait([self = shared_from_this()](const beast::error_code& ec) {
             self->queue_timer_armed_ = false;
             if (ec || self->dead_) {
@@ -545,8 +518,7 @@ private:
         for (auto& item : expired) {
             RestResponse response;
             response.status = 0;
-            response.error =
-                describe("waited " + std::to_string(cfg_.timeout_ms) + "ms for a free connection");
+            response.error = describe("waited " + std::to_string(cfg_.timeout_ms) + "ms for a free connection");
             response.sent = item.queued;
             response.received = now;
             invoke(item.cb, std::move(response));
@@ -577,9 +549,7 @@ private:
         slot.generation = ++generation_;
     }
 
-    [[nodiscard]] std::string describe(const beast::error_code& ec) const {
-        return describe(ec.message());
-    }
+    [[nodiscard]] std::string describe(const beast::error_code& ec) const { return describe(ec.message()); }
 
     [[nodiscard]] std::string describe(std::string_view what) const {
         return cfg_.host + ":" + cfg_.port + " " + std::string{what};
@@ -631,8 +601,7 @@ void set_request_observer(RequestObserver observer) {
 }
 
 RestClient::RestClient(IoContext& io, RestConfig config)
-    : impl_{std::make_unique<Impl>(*static_cast<asio::io_context*>(io.native()),
-                                   std::move(config))} {}
+    : impl_{std::make_unique<Impl>(*static_cast<asio::io_context*>(io.native()), std::move(config))} {}
 
 RestClient::~RestClient() {
     impl_->pool->shutdown();

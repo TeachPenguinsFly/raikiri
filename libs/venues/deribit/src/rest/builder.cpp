@@ -26,9 +26,7 @@ public:
     }
 
     [[nodiscard]] net::RestRequest get() const noexcept {
-        return {.method = net::HttpMethod::Get,
-                .target = std::string_view{into_.data(), len_},
-                .body = {}};
+        return {.method = net::HttpMethod::Get, .target = std::string_view{into_.data(), len_}, .body = {}};
     }
 
 private:
@@ -115,8 +113,7 @@ private:
     return amount;
 }
 
-[[nodiscard]] std::optional<FixedE9> price_of(const InstrumentBase& base,
-                                              PriceTicks price) noexcept {
+[[nodiscard]] std::optional<FixedE9> price_of(const InstrumentBase& base, PriceTicks price) noexcept {
     if (price.is_undef()) {
         return std::nullopt;
     }
@@ -192,8 +189,7 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
-net::RestRequest RequestBuilder::instruments(std::string_view currency,
-                                             std::string_view kind) noexcept {
+net::RestRequest RequestBuilder::instruments(std::string_view currency, std::string_view kind) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_instruments);
     writer.put("?currency=");
@@ -203,8 +199,7 @@ net::RestRequest RequestBuilder::instruments(std::string_view currency,
     return writer.get();
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(std::string_view target,
-                                                                       UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(std::string_view target, UnixNanos now) {
     if (target.empty()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -239,8 +234,8 @@ std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -263,8 +258,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     Appender target{target_};
     target << (cmd.side == Side::Sell ? ep::k_order_sell : ep::k_order_buy)
            << "?instrument_name=" << base.exchange_symbol.view() << "&amount=" << *amount
-           << "&label=" << cmd.exchange_client_order_id.view()
-           << "&type=" << (is_market ? "market" : "limit");
+           << "&label=" << cmd.exchange_client_order_id.view() << "&type=" << (is_market ? "market" : "limit");
     if (!is_market) {
         const auto price = price_of(base, cmd.price);
         if (!price.has_value()) {
@@ -287,8 +281,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     return sign(target.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -316,8 +310,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     return sign(target.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -372,16 +366,15 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view currency, 
         return std::unexpected{BuildError::UnknownCurrency};
     }
     Appender target{target_};
-    target << ep::k_open_orders_by_currency << "?currency=" << currency
-           << "&kind=" << kind_of(market);
+    target << ep::k_open_orders_by_currency << "?currency=" << currency << "&kind=" << kind_of(market);
     if (!target.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return sign(target.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::order_state_by_label(
-    const ExchangeClientOrderId& id, std::string_view currency, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::order_state_by_label(const ExchangeClientOrderId& id, std::string_view currency, UnixNanos now) {
     if (id.empty()) {
         return std::unexpected{BuildError::NoOrderTarget};
     }
@@ -396,8 +389,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::order_state_by
     return sign(target.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::user_trades(
-    MarketType market, std::string_view currency, UnixNanos since, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::user_trades(MarketType market, std::string_view currency, UnixNanos since, UnixNanos now) {
     if (const auto refusal = market_refusal(market); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -405,8 +398,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::user_trades(
         return std::unexpected{BuildError::UnknownCurrency};
     }
     Appender target{target_};
-    target << ep::k_user_trades_by_currency << "?currency=" << currency
-           << "&kind=" << kind_of(market)
+    target << ep::k_user_trades_by_currency << "?currency=" << currency << "&kind=" << kind_of(market)
            << "&count=" << static_cast<std::uint64_t>(k_max_trade_page);
     if (since.ns != 0) {
         // ascending, so a full page leaves the oldest unseen fills for the next page

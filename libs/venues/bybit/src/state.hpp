@@ -57,8 +57,7 @@ struct VenueState {
 
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     void add_topic(std::string_view topic) {
@@ -76,8 +75,7 @@ struct VenueState {
         if (it != books.end()) {
             return it->second;
         }
-        return books.emplace(base.id, BookSync{base.id, base.tick_size, base.lot_size})
-            .first->second;
+        return books.emplace(base.id, BookSync{base.id, base.tick_size, base.lot_size}).first->second;
     }
 };
 

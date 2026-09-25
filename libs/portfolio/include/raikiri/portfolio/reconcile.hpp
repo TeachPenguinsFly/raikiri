@@ -29,8 +29,7 @@ struct ReconResult {
 
 // `report` is nullopt when an answering venue's snapshot had no row (flat); `local` sums all
 // strategies
-[[nodiscard]] ReconResult reconcile_position(bool venue_answered,
-                                             const std::optional<PositionReport>& report,
-                                             QtyLots local) noexcept;
+[[nodiscard]] ReconResult
+reconcile_position(bool venue_answered, const std::optional<PositionReport>& report, QtyLots local) noexcept;
 
 } // namespace raikiri::portfolio

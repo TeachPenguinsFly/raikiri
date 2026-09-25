@@ -27,8 +27,7 @@ namespace raikiri::venues::xt {
 [[nodiscard]] std::optional<FixedE9> step_from_precision(std::int64_t digits) noexcept;
 
 // nullopt when either side is empty, a real state on an illiquid contract
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<BookSnapshot>
 map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
@@ -37,23 +36,18 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // the memo carries what the mark channel said, since the record is written whole
-[[nodiscard]] std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
-                                                       const exec::InstrumentTable& table,
-                                                       FundingMemo& memo,
-                                                       UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
 
 // merged with what the funding poll already said
-[[nodiscard]] std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
-                                                          const exec::InstrumentTable& table,
-                                                          FundingMemo& memo,
-                                                          UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
 
 // futures fills only the quote column; its quantity is a contract count
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
-                                                       MarketType market);
+[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 [[nodiscard]] std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire);
 
@@ -70,33 +64,31 @@ struct OrderContext {
 };
 
 // lifecycle only; the futures order push has no clientOrderId, so fallback_client_id supplies it
-[[nodiscard]] std::optional<OrderEvent>
-map_futures_order_event(const WireFuturesOrder& wire,
-                        const exec::InstrumentTable& table,
-                        const ExchangeClientOrderId& fallback_client_id,
-                        UnixNanos ts_init);
+[[nodiscard]] std::optional<OrderEvent> map_futures_order_event(const WireFuturesOrder& wire,
+                                                                const exec::InstrumentTable& table,
+                                                                const ExchangeClientOrderId& fallback_client_id,
+                                                                UnixNanos ts_init);
 
 [[nodiscard]] std::optional<OrderEvent> map_futures_deal(const WireFuturesDeal& wire,
                                                          const exec::InstrumentTable& table,
                                                          const OrderContext& context,
                                                          UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_futures_open_order(const WireFuturesOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_futures_open_order(const WireFuturesOrder& wire,
+                                                                            const exec::InstrumentTable& table);
 
 // nullopt for a flat row
-[[nodiscard]] std::optional<exec::PositionReport>
-map_futures_position(const WireFuturesPosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_futures_position(const WireFuturesPosition& wire,
+                                                                       const exec::InstrumentTable& table);
 
 // nullopt when xt names no coin
 [[nodiscard]] std::optional<BalanceReport> map_futures_balance(const WireFuturesBalance& wire);
 
-[[nodiscard]] std::optional<OrderEvent> map_spot_order_event(const WireSpotOrder& wire,
-                                                             const exec::InstrumentTable& table,
-                                                             UnixNanos ts_init);
+[[nodiscard]] std::optional<OrderEvent>
+map_spot_order_event(const WireSpotOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_spot_open_order(const WireSpotOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_spot_open_order(const WireSpotOrder& wire,
+                                                                         const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<OrderEvent> map_spot_trade(const WireSpotTrade& wire,
                                                        const exec::InstrumentTable& table,

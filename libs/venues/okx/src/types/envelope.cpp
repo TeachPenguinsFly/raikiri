@@ -82,8 +82,7 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!msg.has_value() || !code.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        return StreamError{.code = static_cast<std::int64_t>(wire::digits_to_u64(*code)),
-                           .msg = *msg};
+        return StreamError{.code = static_cast<std::int64_t>(wire::digits_to_u64(*code)), .msg = *msg};
     });
 }
 
@@ -112,17 +111,16 @@ std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_first_data(
-            *root, [](wire::ondemand::object& obj) -> std::expected<std::uint64_t, WireError> {
-                const auto ts = wire::opt_ms(obj, "ts");
-                if (!ts.has_value()) {
-                    return std::unexpected(ts.error());
-                }
-                if (*ts == 0) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                return *ts;
-            });
+        return with_first_data(*root, [](wire::ondemand::object& obj) -> std::expected<std::uint64_t, WireError> {
+            const auto ts = wire::opt_ms(obj, "ts");
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            if (*ts == 0) {
+                return std::unexpected(WireError::MissingField);
+            }
+            return *ts;
+        });
     });
 }
 

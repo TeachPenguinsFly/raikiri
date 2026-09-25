@@ -23,11 +23,9 @@ std::string_view stream_prefix(exec::SubKind kind) noexcept {
     return {};
 }
 
-std::string_view
-stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
+std::string_view stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
     const auto prefix = stream_prefix(kind);
-    if (prefix.empty() || exchange_symbol.empty() ||
-        prefix.size() + exchange_symbol.size() > out.size()) {
+    if (prefix.empty() || exchange_symbol.empty() || prefix.size() + exchange_symbol.size() > out.size()) {
         return {};
     }
     std::memcpy(out.data(), prefix.data(), prefix.size());
@@ -39,8 +37,7 @@ std::string_view depth_symbol(std::string_view key) noexcept {
     return key.starts_with(k_depth_stream) ? key.substr(k_depth_stream.size()) : std::string_view{};
 }
 
-std::expected<Protocol::Frame, std::string_view>
-Protocol::subscribe_frame(std::span<const std::string_view> streams) {
+std::expected<Protocol::Frame, std::string_view> Protocol::subscribe_frame(std::span<const std::string_view> streams) {
     if (streams.empty()) {
         return std::unexpected{"no streams"};
     }

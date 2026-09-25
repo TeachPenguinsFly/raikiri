@@ -46,11 +46,9 @@ public:
 
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
-    [[nodiscard]] net::RestRequest ticker(std::string_view symbol,
-                                          std::string_view product) noexcept;
+    [[nodiscard]] net::RestRequest ticker(std::string_view symbol, std::string_view product) noexcept;
 
-    [[nodiscard]] net::RestRequest current_fund_rate(std::string_view symbol,
-                                                     std::string_view product) noexcept;
+    [[nodiscard]] net::RestRequest current_fund_rate(std::string_view symbol, std::string_view product) noexcept;
 
     [[nodiscard]] net::RestRequest
     orderbook(std::string_view symbol, std::string_view product, std::uint32_t depth) noexcept;
@@ -59,16 +57,10 @@ public:
     void set_credentials(const net::Signer& signer, std::string_view passphrase) noexcept;
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    create_order(const OrderCmd& cmd,
-                 const exec::InstrumentTable& table,
-                 std::string_view product,
-                 UnixNanos now);
+    create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, std::string_view product, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    cancel_order(const OrderCmd& cmd,
-                 const exec::InstrumentTable& table,
-                 std::string_view product,
-                 UnixNanos now);
+    cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, std::string_view product, UnixNanos now);
 
     // one symbol per call; consumes at most k_max_cancel_batch and reports how many
     struct Batch {
@@ -86,10 +78,7 @@ public:
 
     // by client id with no symbol; mix order/detail needs one, so the pending list is used
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    order_by_client_id(const ExchangeClientOrderId& id,
-                       MarketType market,
-                       std::string_view product,
-                       UnixNanos now);
+    order_by_client_id(const ExchangeClientOrderId& id, MarketType market, std::string_view product, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     fills(MarketType market, std::string_view product, UnixNanos since, UnixNanos now);
@@ -111,11 +100,8 @@ private:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     signed_get(std::string_view path, std::string_view query, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign(net::HttpMethod method,
-                                                                   std::string_view path,
-                                                                   std::string_view query,
-                                                                   std::string_view body,
-                                                                   UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    sign(net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now);
 
     std::array<char, 256> target_{};        // public reads
     std::array<char, 4096> body_{};         // signed POST bodies, and GET queries

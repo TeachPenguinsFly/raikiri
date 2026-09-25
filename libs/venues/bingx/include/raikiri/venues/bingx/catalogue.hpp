@@ -32,8 +32,8 @@ struct ContractBuffer {
     std::array<WireContract, k_max_instruments> contracts{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_contracts(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
+                                                                                      ContractBuffer& storage);
 
 // tickSize/stepSize are raw tokens, often scientific; a step finer than 1e-9 is refused
 // status 1 is online; apiStateBuy/apiStateSell gate api orders separately
@@ -53,7 +53,7 @@ struct SpotSymbolBuffer {
     std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                                           SpotSymbolBuffer& storage);
 
 } // namespace raikiri::venues::bingx

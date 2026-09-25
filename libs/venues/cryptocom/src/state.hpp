@@ -1,8 +1,8 @@
 #pragma once
 
 #include <raikiri/exec/events.hpp>
-#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -46,10 +46,8 @@ struct VenueState {
     std::uint64_t trade_replays_dropped{0};
 };
 
-inline std::optional<net::RestResponse> await_response(VenueState& state,
-                                                       net::RestClient& rest,
-                                                       const net::RestRequest& request,
-                                                       std::uint64_t timeout_ms) {
+inline std::optional<net::RestResponse>
+await_response(VenueState& state, net::RestClient& rest, const net::RestRequest& request, std::uint64_t timeout_ms) {
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 

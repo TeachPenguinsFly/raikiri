@@ -13,7 +13,7 @@ using WireError = wire::Error;
 
 // futures codes; zero means success
 inline constexpr std::int64_t k_not_logged_in = 401; // no credentials
-inline constexpr std::int64_t k_key_expired = 402; // bogus api key
+inline constexpr std::int64_t k_key_expired = 402;   // bogus api key
 inline constexpr std::int64_t k_ip_not_whitelisted = 406;
 inline constexpr std::int64_t k_internal_error = 500;
 inline constexpr std::int64_t k_system_busy = 501;

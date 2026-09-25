@@ -23,8 +23,7 @@ namespace raikiri::venues::coinbase {
 // derived from the ulid deterministically but not reversibly
 inline constexpr std::size_t k_uuid_len = 36;
 
-[[nodiscard]] std::optional<std::array<char, k_uuid_len>>
-client_oid_of(const ExchangeClientOrderId& id) noexcept;
+[[nodiscard]] std::optional<std::array<char, k_uuid_len>> client_oid_of(const ExchangeClientOrderId& id) noexcept;
 
 enum class BuildError : std::uint8_t {
     UnknownInstrument, // not in the table: we never loaded it
@@ -83,8 +82,7 @@ public:
     amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
     // `status` is required; omitting it is a 400
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
-                                                                          UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     query_order(const ExchangeClientOrderId& id, MarketType market, UnixNanos now);

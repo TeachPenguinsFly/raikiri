@@ -24,12 +24,11 @@ constexpr std::uint32_t k_timeout_ms = 10'000;
 class BlofinInstruments final : public exec::InstrumentSource {
 public:
     explicit BlofinInstruments(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{ep::host(state_->testnet)},
-                                .port = "443",
-                                .pool_size = 1,
-                                .timeout_ms = k_timeout_ms}} {
+        : state_{std::move(state)}, rest_{state_->io,
+                                          net::RestConfig{.host = std::string{ep::host(state_->testnet)},
+                                                          .port = "443",
+                                                          .pool_size = 1,
+                                                          .timeout_ms = k_timeout_ms}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
 
@@ -42,8 +41,7 @@ public:
         static thread_local const auto rows_owner = std::make_unique<InstrumentBuffer>();
         const auto rows = parse_instruments(*catalogue, *rows_owner);
         if (!rows.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
 
         // a failed read leaves every period at 0, which a carry board must refuse
@@ -107,30 +105,26 @@ private:
     [[nodiscard]] static bool has_logger() noexcept { return ::raikiri::log::logger() != nullptr; }
 
     [[nodiscard]] std::expected<std::string, exec::VenueError> get(std::string_view target) {
-        const net::RestRequest request{
-            .method = net::HttpMethod::Get, .target = target, .body = {}};
-        auto response = net::await_response(
-            state_->io, *state_->clock, rest_, request, 2ULL * k_timeout_ms + 1'000);
+        const net::RestRequest request{.method = net::HttpMethod::Get, .target = target, .body = {}};
+        auto response = net::await_response(state_->io, *state_->clock, rest_, request, 2ULL * k_timeout_ms + 1'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "blofin: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "blofin: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status == 429 || response->status == 403) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::RateLimited, response->status, "blofin: rate limited")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::RateLimited, response->status, "blofin: rate limited")};
         }
         const auto envelope = parse_rest_envelope(response->body);
         if (!envelope.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, response->status, to_string(envelope.error()))};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, response->status, to_string(envelope.error()))};
         }
         if (envelope->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, envelope->code, envelope->msg)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, envelope->code, envelope->msg)};
         }
         return std::move(response->body);
     }

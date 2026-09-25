@@ -33,8 +33,7 @@ std::expected<std::uint32_t, WireError> req_id(json::ondemand::object& obj, std:
     return id;
 }
 
-template <typename Entry>
-std::expected<json::ondemand::object, WireError> as_object(Entry&& entry) {
+template <typename Entry> std::expected<json::ondemand::object, WireError> as_object(Entry&& entry) {
     json::ondemand::object obj;
     if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
         return std::unexpected(json::map_error(ec));
@@ -135,8 +134,8 @@ parse_catalogue(std::string_view body, ContractBuffer& storage, const RowKeys& k
             const auto tick = json::req_str(*obj, "tickSize");
             const auto step = json::req_str(*obj, "stepSize");
             const auto enabled = json::opt_bool(*obj, "enableTrade");
-            if (!id.has_value() || !name.has_value() || !base.has_value() || !quote.has_value() ||
-                !tick.has_value() || !step.has_value() || !enabled.has_value()) {
+            if (!id.has_value() || !name.has_value() || !base.has_value() || !quote.has_value() || !tick.has_value() ||
+                !step.has_value() || !enabled.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             row.id = *id;
@@ -172,8 +171,7 @@ parse_catalogue(std::string_view body, ContractBuffer& storage, const RowKeys& k
     });
 }
 
-std::expected<json::ondemand::array, WireError> open_data(std::string_view frame,
-                                                          bool* snapshot = nullptr) {
+std::expected<json::ondemand::array, WireError> open_data(std::string_view frame, bool* snapshot = nullptr) {
     auto root = session().open_object(frame);
     if (!root.has_value()) {
         return std::unexpected(root.error());
@@ -217,8 +215,7 @@ read_levels(json::ondemand::object& row, std::string_view key, std::span<WireLev
     return count;
 }
 
-std::expected<std::uint64_t, WireError> req_version(json::ondemand::object& row,
-                                                    std::string_view key) {
+std::expected<std::uint64_t, WireError> req_version(json::ondemand::object& row, std::string_view key) {
     const auto text = json::req_str(row, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -263,18 +260,15 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
 
 } // namespace
 
-std::expected<std::span<const WireContract>, WireError>
-parse_perp_catalogue(std::string_view body, ContractBuffer& storage) {
+std::expected<std::span<const WireContract>, WireError> parse_perp_catalogue(std::string_view body,
+                                                                             ContractBuffer& storage) {
     return parse_catalogue(
-        body,
-        storage,
-        {.list = "contractList", .id = "contractId", .name = "contractName", .perp = true});
+        body, storage, {.list = "contractList", .id = "contractId", .name = "contractName", .perp = true});
 }
 
-std::expected<std::span<const WireContract>, WireError>
-parse_spot_catalogue(std::string_view body, ContractBuffer& storage) {
-    return parse_catalogue(
-        body, storage, {.list = "symbolList", .id = "symbolId", .name = "symbolName"});
+std::expected<std::span<const WireContract>, WireError> parse_spot_catalogue(std::string_view body,
+                                                                             ContractBuffer& storage) {
+    return parse_catalogue(body, storage, {.list = "symbolList", .id = "symbolId", .name = "symbolName"});
 }
 
 std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
@@ -404,8 +398,7 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
     });
 }
 
-std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
-                                                                  PrintBuffer& storage) {
+std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame, PrintBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePrint>, WireError> {
         auto data = open_data(frame);
         if (!data.has_value()) {
@@ -432,18 +425,14 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
             if (!ts.has_value() || !maker.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
-            storage.prints[count++] = {.contract_id = *contract,
-                                       .price = *price,
-                                       .size = *size,
-                                       .ts_ms = *ts,
-                                       .buyer_maker = *maker};
+            storage.prints[count++] = {
+                .contract_id = *contract, .price = *price, .size = *size, .ts_ms = *ts, .buyer_maker = *maker};
         }
         return std::span<const WirePrint>{storage.prints.data(), count};
     });
 }
 
-std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view frame,
-                                                                    TickerBuffer& storage) {
+std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view frame, TickerBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
         auto data = open_data(frame);
         if (!data.has_value()) {
@@ -488,8 +477,7 @@ std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_
     });
 }
 
-std::string_view
-channel_name(exec::SubKind kind, std::uint32_t contract_id, std::span<char> out) noexcept {
+std::string_view channel_name(exec::SubKind kind, std::uint32_t contract_id, std::span<char> out) noexcept {
     const auto channel = channel_for(kind);
     if (channel.empty()) {
         return {};
@@ -530,8 +518,7 @@ std::expected<std::string_view, WsBuildError> Protocol::subscribe_frame(std::str
     return frame("subscribe", "channel", channel);
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::unsubscribe_frame(std::string_view channel) {
+std::expected<std::string_view, WsBuildError> Protocol::unsubscribe_frame(std::string_view channel) {
     return frame("unsubscribe", "channel", channel);
 }
 
@@ -541,8 +528,7 @@ std::expected<std::string_view, WsBuildError> Protocol::pong_frame(std::string_v
 
 std::expected<std::string_view, WsBuildError>
 Protocol::frame(std::string_view type, std::string_view key, std::string_view value) {
-    const std::array<std::string_view, 7> parts{
-        R"({"type":")", type, R"(",")", key, R"(":")", value, R"("})"};
+    const std::array<std::string_view, 7> parts{R"({"type":")", type, R"(",")", key, R"(":")", value, R"("})"};
     std::size_t size = 0;
     for (const auto part : parts) {
         size += part.size();

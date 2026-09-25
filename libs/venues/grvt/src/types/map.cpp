@@ -87,10 +87,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     return perp;
 }
 
-std::optional<TradeTick> map_trade(const WirePrint& wire,
-                                   const InstrumentBase& base,
-                                   UnixNanos ts_event,
-                                   UnixNanos ts_init) {
+std::optional<TradeTick>
+map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_event, UnixNanos ts_init) {
     const auto price = to_ticks(wire.price, base.tick_size);
     const auto qty = to_lots(wire.size, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -106,10 +104,8 @@ std::optional<TradeTick> map_trade(const WirePrint& wire,
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(const WireTicker& wire,
-                                         const Instrument& instrument,
-                                         UnixNanos ts_event,
-                                         UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_event, UnixNanos ts_init) {
     const auto rate = percent_to_ratio(wire.funding_rate);
     if (rate.is_undef()) {
         return std::nullopt;
@@ -123,29 +119,24 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
     out.instrument = base.id;
     out.rate = rate;
     // the mark sits off the tick grid, so it is truncated rather than refused
-    if (const auto mark = parse_decimal_e9(wire.mark_price);
-        mark.has_value() && base.tick_size.raw > 0) {
+    if (const auto mark = parse_decimal_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
     out.next_funding_time = UnixNanos{wire.next_funding_ns};
-    out.interval_s = wire.funding_interval_hours != 0 ? wire.funding_interval_hours * 3600U
-                                                      : perp->funding_interval_s;
+    out.interval_s = wire.funding_interval_hours != 0 ? wire.funding_interval_hours * 3600U : perp->funding_interval_s;
     out.ts_event = ts_event;
     out.ts_init = ts_init;
     return out;
 }
 
-std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
-                                            const InstrumentBase& base,
-                                            UnixNanos ts_event,
-                                            UnixNanos ts_init) {
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_event, UnixNanos ts_init) {
     TickerStats out{};
     out.instrument = base.id;
     out.volume_24h_base = sum_e9(wire.buy_volume_base, wire.sell_volume_base);
     const auto buys = parse_turnover_e6(wire.buy_volume_quote);
     const auto sells = parse_turnover_e6(wire.sell_volume_quote);
-    out.volume_24h_quote =
-        buys.has_value() && sells.has_value() ? *buys + *sells : FixedE6::undef();
+    out.volume_24h_quote = buys.has_value() && sells.has_value() ? *buys + *sells : FixedE6::undef();
     if (out.volume_24h_base.is_undef() && out.volume_24h_quote.is_undef()) {
         return std::nullopt;
     }

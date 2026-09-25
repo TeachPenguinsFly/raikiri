@@ -11,8 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-std::expected<void, WireError> read_futures_position(wire::ondemand::object& obj,
-                                                     WireFuturesPosition& out) {
+std::expected<void, WireError> read_futures_position(wire::ondemand::object& obj, WireFuturesPosition& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"positionSide", &out.position_side},
                                      std::pair{"positionSize", &out.position_size},
@@ -30,8 +29,8 @@ std::expected<void, WireError> read_futures_position(wire::ondemand::object& obj
 
 } // namespace
 
-std::expected<std::span<const WireFuturesPosition>, WireError>
-parse_futures_positions(std::string_view body, FuturesPositionBuffer& storage) {
+std::expected<std::span<const WireFuturesPosition>, WireError> parse_futures_positions(std::string_view body,
+                                                                                       FuturesPositionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFuturesPosition>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

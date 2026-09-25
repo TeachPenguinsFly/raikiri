@@ -34,8 +34,7 @@ struct WireAccount {
     std::span<const WireAssetBalance> assets;
 };
 
-[[nodiscard]] std::expected<WireAccount, WireError> parse_account(std::string_view body,
-                                                                  BalanceBuffer& storage);
+[[nodiscard]] std::expected<WireAccount, WireError> parse_account(std::string_view body, BalanceBuffer& storage);
 
 // one row of /fapi/v1/income; income is signed as the account moved
 struct WireIncome {
@@ -55,7 +54,7 @@ struct IncomeBuffer {
     std::array<WireIncome, k_max_income_rows> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireIncome>, WireError>
-parse_income(std::string_view body, IncomeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body,
+                                                                                 IncomeBuffer& storage);
 
 } // namespace raikiri::venues::binance

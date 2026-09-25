@@ -37,8 +37,7 @@ TEST(AccountId, PerpKeepsThePlainVenueName) {
     char buf[16];
     EXPECT_EQ(format_account({VenueId::Bybit, MarketType::Perp}, buf, sizeof buf), "bybit");
     EXPECT_EQ(format_account({VenueId::Bybit, MarketType::Spot}, buf, sizeof buf), "bybit-spot");
-    EXPECT_EQ(format_account({VenueId::Binance, MarketType::Future}, buf, sizeof buf),
-              "binance-fut");
+    EXPECT_EQ(format_account({VenueId::Binance, MarketType::Future}, buf, sizeof buf), "binance-fut");
 }
 
 TEST(AccountId, ParsesBackToWhatItFormatted) {
@@ -47,8 +46,7 @@ TEST(AccountId, ParsesBackToWhatItFormatted) {
         if (is_retired(static_cast<VenueId>(v))) {
             continue;
         }
-        for (const auto market :
-             {MarketType::Perp, MarketType::Spot, MarketType::Future, MarketType::Option}) {
+        for (const auto market : {MarketType::Perp, MarketType::Spot, MarketType::Future, MarketType::Option}) {
             const AccountId account{static_cast<VenueId>(v), market};
             const auto text = format_account(account, buf, sizeof buf);
             EXPECT_EQ(account_from_string(text), account) << text;

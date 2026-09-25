@@ -25,16 +25,15 @@ void to_base64(std::span<const std::uint8_t, k_hmac_bytes> digest, char* out) no
     std::size_t o = 0;
     std::size_t i = 0;
     for (; i + 2 < k_hmac_bytes; i += 3) {
-        const std::uint32_t triple =
-            (std::uint32_t{digest[i]} << 16) | (std::uint32_t{digest[i + 1]} << 8) | digest[i + 2];
+        const std::uint32_t triple = (std::uint32_t{digest[i]} << 16) | (std::uint32_t{digest[i + 1]} << 8) |
+                                     digest[i + 2];
         out[o++] = k_b64_digits[(triple >> 18) & 0x3F];
         out[o++] = k_b64_digits[(triple >> 12) & 0x3F];
         out[o++] = k_b64_digits[(triple >> 6) & 0x3F];
         out[o++] = k_b64_digits[triple & 0x3F];
     }
     // 32 % 3 == 2, so exactly one two-byte tail with a single '=' pad.
-    const std::uint32_t tail =
-        (std::uint32_t{digest[i]} << 16) | (std::uint32_t{digest[i + 1]} << 8);
+    const std::uint32_t tail = (std::uint32_t{digest[i]} << 16) | (std::uint32_t{digest[i + 1]} << 8);
     out[o++] = k_b64_digits[(tail >> 18) & 0x3F];
     out[o++] = k_b64_digits[(tail >> 12) & 0x3F];
     out[o++] = k_b64_digits[(tail >> 6) & 0x3F];
@@ -43,9 +42,7 @@ void to_base64(std::span<const std::uint8_t, k_hmac_bytes> digest, char* out) no
 
 } // namespace
 
-bool hmac_sha256(std::string_view key,
-                 std::string_view message,
-                 std::span<std::uint8_t, k_hmac_bytes> out) noexcept {
+bool hmac_sha256(std::string_view key, std::string_view message, std::span<std::uint8_t, k_hmac_bytes> out) noexcept {
     unsigned int len = 0;
     const auto* result = ::HMAC(EVP_sha256(),
                                 key.data(),
@@ -57,8 +54,7 @@ bool hmac_sha256(std::string_view key,
     return result != nullptr && len == k_hmac_bytes;
 }
 
-std::string_view
-hmac_sha256_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept {
+std::string_view hmac_sha256_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept {
     if (out.size() < k_hex_bytes) {
         return {};
     }
@@ -77,8 +73,7 @@ std::string_view sha512_hex(std::string_view message, std::span<char> out) noexc
     std::array<std::uint8_t, k_hmac512_bytes> digest{};
     unsigned int len = 0;
     // an empty body still hashes; gate signs SHA512("") for every GET
-    if (::EVP_Digest(message.data(), message.size(), digest.data(), &len, EVP_sha512(), nullptr) !=
-            1 ||
+    if (::EVP_Digest(message.data(), message.size(), digest.data(), &len, EVP_sha512(), nullptr) != 1 ||
         len != k_hmac512_bytes) {
         return {};
     }
@@ -86,8 +81,7 @@ std::string_view sha512_hex(std::string_view message, std::span<char> out) noexc
     return {out.data(), k_hex512_bytes};
 }
 
-std::string_view
-hmac_sha512_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept {
+std::string_view hmac_sha512_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept {
     if (out.size() < k_hex512_bytes) {
         return {};
     }
@@ -107,8 +101,7 @@ hmac_sha512_hex(std::string_view key, std::string_view message, std::span<char> 
     return {out.data(), k_hex512_bytes};
 }
 
-std::string_view
-hmac_sha256_base64(std::string_view key, std::string_view message, std::span<char> out) noexcept {
+std::string_view hmac_sha256_base64(std::string_view key, std::string_view message, std::span<char> out) noexcept {
     if (out.size() < k_base64_bytes) {
         return {};
     }
@@ -129,8 +122,7 @@ std::string_view Signer::api_key() const noexcept {
     return {api_key_.data(), api_key_len_};
 }
 
-std::string_view
-Signer::sign(std::string_view message, Encoding encoding, std::span<char> out) const noexcept {
+std::string_view Signer::sign(std::string_view message, Encoding encoding, std::span<char> out) const noexcept {
     switch (encoding) {
     case Encoding::Hex:
         return hmac_sha256_hex(secret_.view(), message, out);

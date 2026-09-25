@@ -28,8 +28,8 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 // amount is base, trade_turnover quote; vol is contracts and is not read
 struct WireDetail {

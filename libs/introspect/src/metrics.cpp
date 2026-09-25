@@ -32,10 +32,7 @@ void escaped(std::string& out, std::string_view value) {
 
 using Label = std::pair<std::string_view, std::string_view>;
 
-void sample(std::string& out,
-            std::string_view name,
-            std::initializer_list<Label> labels,
-            double value) {
+void sample(std::string& out, std::string_view name, std::initializer_list<Label> labels, double value) {
     out += name;
     char sep = '{';
     for (const auto& [key, val] : labels) {
@@ -53,8 +50,7 @@ void sample(std::string& out,
 }
 
 void family(std::string& out, std::string_view name, std::string_view type, std::string_view help) {
-    std::format_to(
-        std::back_inserter(out), "# HELP {} {}\n# TYPE {} {}\n", name, help, name, type);
+    std::format_to(std::back_inserter(out), "# HELP {} {}\n# TYPE {} {}\n", name, help, name, type);
 }
 
 double seconds(std::uint64_t ns) {
@@ -99,6 +95,7 @@ std::string prometheus_text(const MachineStats& machine) {
         std::string_view help;
         double (*read)(const ClockStats&, std::uint64_t now_ns);
     };
+
     const std::array<ClockGauge, 4> clock_gauges{{
         {"raikiri_clock_offset_seconds",
          "Venue clock minus ours; a feed_bound method is a lower bound",
@@ -111,9 +108,7 @@ std::string prometheus_text(const MachineStats& machine) {
          [](const ClockStats& c, std::uint64_t) { return seconds(c.rtt_ns); }},
         {"raikiri_clock_sample_age_seconds",
          "Age of the probe the offset was taken from",
-         [](const ClockStats& c, std::uint64_t now) {
-             return now > c.sampled_ns ? seconds(now - c.sampled_ns) : 0.0;
-         }},
+         [](const ClockStats& c, std::uint64_t now) { return now > c.sampled_ns ? seconds(now - c.sampled_ns) : 0.0; }},
     }};
     for (const auto& gauge : clock_gauges) {
         family(out, gauge.name, "gauge", gauge.help);
@@ -174,17 +169,13 @@ std::string prometheus_text(const MachineStats& machine) {
             for (const auto& l : s.latency) {
                 sample(out,
                        name,
-                       {{"account", s.account},
-                        {"venue", s.venue},
-                        {"channel", l.channel},
-                        {"stage", l.stage}},
+                       {{"account", s.account}, {"venue", s.venue}, {"channel", l.channel}, {"stage", l.stage}},
                        value(l));
             }
         }
     };
     family(out, "raikiri_latency_max_seconds", "gauge", "Largest value in the trailing window");
-    per_series("raikiri_latency_max_seconds",
-               [](const LatencyStats& l) { return seconds(l.max_ns); });
+    per_series("raikiri_latency_max_seconds", [](const LatencyStats& l) { return seconds(l.max_ns); });
     family(out, "raikiri_latency_below_zero_total", "counter", "Values clamped up to zero");
     per_series("raikiri_latency_below_zero_total",
                [](const LatencyStats& l) { return static_cast<double>(l.below_zero); });

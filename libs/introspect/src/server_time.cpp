@@ -1,6 +1,5 @@
-#include <raikiri/introspect/server_time.hpp>
-
 #include <raikiri/common/time.hpp>
+#include <raikiri/introspect/server_time.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -25,8 +24,7 @@ constexpr std::array k_endpoints{
     TimeEndpoint{"kucoin", "", "api-futures.kucoin.com", "/api/v1/timestamp", "data", k_ms},
     TimeEndpoint{"mexc", "spot", "api.mexc.com", "/api/v3/time", "serverTime", k_ms},
     TimeEndpoint{"mexc", "", "contract.mexc.com", "/api/v1/contract/ping", "data", k_ms},
-    TimeEndpoint{
-        "bingx", "", "open-api.bingx.com", "/openApi/swap/v2/server/time", "serverTime", k_ms},
+    TimeEndpoint{"bingx", "", "open-api.bingx.com", "/openApi/swap/v2/server/time", "serverTime", k_ms},
     TimeEndpoint{"bitget", "", "api.bitget.com", "/api/v2/public/time", "serverTime", k_ms},
     TimeEndpoint{"deribit", "", "www.deribit.com", "/api/v2/public/get_time", "result", k_ms},
     TimeEndpoint{"htx", "spot", "api.huobi.pro", "/v1/common/timestamp", "data", k_ms},
@@ -50,8 +48,7 @@ net::RestConfig rest_config(std::string_view host) {
 
 } // namespace
 
-std::optional<TimeEndpoint> time_endpoint(std::string_view venue,
-                                          std::string_view market) noexcept {
+std::optional<TimeEndpoint> time_endpoint(std::string_view venue, std::string_view market) noexcept {
     for (const auto& entry : k_endpoints) {
         if (entry.venue == venue && (entry.market.empty() || entry.market == market)) {
             return entry;
@@ -77,8 +74,7 @@ parse_server_time(std::string_view body, std::string_view key, std::uint64_t uni
             at = end;
         }
     }
-    while (at < body.size() &&
-           (body[at] == ' ' || body[at] == ':' || body[at] == '"' || body[at] == '\n')) {
+    while (at < body.size() && (body[at] == ' ' || body[at] == ':' || body[at] == '"' || body[at] == '\n')) {
         ++at;
     }
     std::uint64_t value = 0;
@@ -97,9 +93,7 @@ struct RestServerTime::Impl {
     net::IoContext io;
     net::RestClient rest;
 
-    Impl(TimeEndpoint e, const Clock& c) : endpoint{e}, clock{&c}, rest{io, rest_config(e.host)} {
-        rest.start();
-    }
+    Impl(TimeEndpoint e, const Clock& c) : endpoint{e}, clock{&c}, rest{io, rest_config(e.host)} { rest.start(); }
 };
 
 RestServerTime::RestServerTime(TimeEndpoint endpoint, const Clock& clock)
@@ -122,8 +116,7 @@ std::optional<OffsetSample> RestServerTime::read() {
     if (!response.has_value() || response->status != 200) {
         return std::nullopt;
     }
-    const auto server =
-        parse_server_time(response->body, impl_->endpoint.key, impl_->endpoint.unit_ns);
+    const auto server = parse_server_time(response->body, impl_->endpoint.key, impl_->endpoint.unit_ns);
     if (!server.has_value()) {
         return std::nullopt;
     }

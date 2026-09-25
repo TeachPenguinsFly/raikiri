@@ -21,45 +21,39 @@ public:
         : state_{std::move(state)},
           // both legs of max_wait_ms must fit inside the 20 s await below
           rest_{state_->io,
-                net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
-                                .port = "443",
-                                .timeout_ms = 9'000}} {
+                net::RestConfig{
+                    .host = std::string{ep::rest_host(state_->testnet)}, .port = "443", .timeout_ms = 9'000}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        const net::RestRequest request{
-            .method = net::HttpMethod::Get, .target = ep::k_instruments, .body = {}};
+        const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_instruments, .body = {}};
         const auto response = await_response(*state_, rest_, request, 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         const auto status = parse_rest_status(response->body);
         if (!status.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(status.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(status.error()))};
         }
         if (status->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(status->code), status->code, status->message)};
+            return std::unexpected{exec::VenueError::make(classify(status->code), status->code, status->message)};
         }
         // A 404 body carries no `code`, which reads as success above.
         if (response->status != 200) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, response->status, "catalogue: HTTP error")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, response->status, "catalogue: HTTP error")};
         }
 
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
         const auto wire = parse_instruments(response->body, *storage_owner);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;
@@ -67,9 +61,8 @@ public:
         state_->instruments.reserve(wire->size());
         std::size_t listed = 0;
         for (const auto& row : *wire) {
-            const bool this_market =
-                (market == MarketType::Spot && row.inst_type == "CCY_PAIR") ||
-                (market == MarketType::Perp && row.inst_type == "PERPETUAL_SWAP");
+            const bool this_market = (market == MarketType::Spot && row.inst_type == "CCY_PAIR") ||
+                                     (market == MarketType::Perp && row.inst_type == "PERPETUAL_SWAP");
             listed += this_market ? 1 : 0;
             auto instrument = map_instrument(row, market);
             if (!instrument.has_value()) {

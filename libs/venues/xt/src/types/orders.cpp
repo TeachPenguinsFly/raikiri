@@ -11,8 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-std::expected<void, WireError>
-take_status(wire::ondemand::object& obj, std::string_view key, WireOrderStatus& into) {
+std::expected<void, WireError> take_status(wire::ondemand::object& obj, std::string_view key, WireOrderStatus& into) {
     const auto text = opt_scalar(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -34,8 +33,7 @@ std::expected<wire::ondemand::object, WireError> payload_of(wire::ondemand::obje
     return wire::req_object(root, "data");
 }
 
-std::expected<void, WireError> read_futures_order(wire::ondemand::object& obj,
-                                                  WireFuturesOrder& out) {
+std::expected<void, WireError> read_futures_order(wire::ondemand::object& obj, WireFuturesOrder& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"orderId", &out.order_id},
                                      std::pair{"clientOrderId", &out.client_order_id},
@@ -67,8 +65,7 @@ std::expected<void, WireError> read_futures_order(wire::ondemand::object& obj,
     return {};
 }
 
-std::expected<void, WireError> read_futures_deal(wire::ondemand::object& obj,
-                                                 WireFuturesDeal& out) {
+std::expected<void, WireError> read_futures_deal(wire::ondemand::object& obj, WireFuturesDeal& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"execId", &out.exec_id},
                                      std::pair{"orderId", &out.order_id},
@@ -205,8 +202,8 @@ WireOrderStatus order_status(std::string_view text) noexcept {
     return WireOrderStatus::Unknown;
 }
 
-std::expected<std::span<const WireFuturesOrder>, WireError>
-parse_futures_orders(std::string_view body, FuturesOrderBuffer& storage) {
+std::expected<std::span<const WireFuturesOrder>, WireError> parse_futures_orders(std::string_view body,
+                                                                                 FuturesOrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFuturesOrder>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -217,9 +214,7 @@ parse_futures_orders(std::string_view body, FuturesOrderBuffer& storage) {
             return std::unexpected(array.error());
         }
         const auto count = read_rows<WireFuturesOrder>(
-            *array, storage.orders, [](auto& obj, WireFuturesOrder& row) {
-                return read_futures_order(obj, row);
-            });
+            *array, storage.orders, [](auto& obj, WireFuturesOrder& row) { return read_futures_order(obj, row); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
@@ -245,8 +240,8 @@ std::expected<WireFuturesOrder, WireError> parse_futures_order(std::string_view 
     });
 }
 
-std::expected<std::span<const WireFuturesDeal>, WireError>
-parse_futures_deals(std::string_view body, FuturesDealBuffer& storage) {
+std::expected<std::span<const WireFuturesDeal>, WireError> parse_futures_deals(std::string_view body,
+                                                                               FuturesDealBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFuturesDeal>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -256,10 +251,8 @@ parse_futures_deals(std::string_view body, FuturesDealBuffer& storage) {
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
-        const auto count =
-            read_rows<WireFuturesDeal>(*array, storage.deals, [](auto& obj, WireFuturesDeal& row) {
-                return read_futures_deal(obj, row);
-            });
+        const auto count = read_rows<WireFuturesDeal>(
+            *array, storage.deals, [](auto& obj, WireFuturesDeal& row) { return read_futures_deal(obj, row); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
@@ -318,8 +311,8 @@ std::expected<std::string_view, WireError> parse_order_ack(std::string_view body
     });
 }
 
-std::expected<std::span<const WireSpotOrder>, WireError>
-parse_spot_orders(std::string_view body, SpotOrderBuffer& storage) {
+std::expected<std::span<const WireSpotOrder>, WireError> parse_spot_orders(std::string_view body,
+                                                                           SpotOrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotOrder>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -329,10 +322,8 @@ parse_spot_orders(std::string_view body, SpotOrderBuffer& storage) {
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
-        const auto count =
-            read_rows<WireSpotOrder>(*array, storage.orders, [](auto& obj, WireSpotOrder& row) {
-                return read_spot_order(obj, row);
-            });
+        const auto count = read_rows<WireSpotOrder>(
+            *array, storage.orders, [](auto& obj, WireSpotOrder& row) { return read_spot_order(obj, row); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
@@ -358,8 +349,8 @@ std::expected<WireSpotOrder, WireError> parse_spot_order(std::string_view body) 
     });
 }
 
-std::expected<std::span<const WireSpotTrade>, WireError>
-parse_spot_trades(std::string_view body, SpotTradeBuffer& storage) {
+std::expected<std::span<const WireSpotTrade>, WireError> parse_spot_trades(std::string_view body,
+                                                                           SpotTradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotTrade>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -369,10 +360,8 @@ parse_spot_trades(std::string_view body, SpotTradeBuffer& storage) {
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
-        const auto count =
-            read_rows<WireSpotTrade>(*array, storage.trades, [](auto& obj, WireSpotTrade& row) {
-                return read_spot_trade(obj, row);
-            });
+        const auto count = read_rows<WireSpotTrade>(
+            *array, storage.trades, [](auto& obj, WireSpotTrade& row) { return read_spot_trade(obj, row); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }

@@ -38,6 +38,7 @@ ws_limits(std::string_view venue, const config::VenueSettings& settings, std::st
 class Meter {
 public:
     explicit Meter(WsRate rate) : log_{rate.max, rate.window_ns} {}
+
     // zero and spent, or how long until one may be
     [[nodiscard]] std::uint64_t take(std::uint64_t now_ns) noexcept;
     [[nodiscard]] std::uint64_t wait(std::uint64_t now_ns) noexcept;

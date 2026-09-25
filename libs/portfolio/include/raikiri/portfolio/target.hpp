@@ -23,17 +23,12 @@ struct Rebalance {
 };
 
 // nets working orders on both sides, unlike the risk gate
-[[nodiscard]] Rebalance delta_to_target(QtyLots target,
-                                        QtyLots position,
-                                        QtyLots working_buy,
-                                        QtyLots working_sell) noexcept;
+[[nodiscard]] Rebalance
+delta_to_target(QtyLots target, QtyLots position, QtyLots working_buy, QtyLots working_sell) noexcept;
 
 // size where `stop_distance` against the position costs `risk_fraction` of `equity`
 // truncated, and in the instrument's settlement currency
-[[nodiscard]] std::optional<QtyLots> size_for_risk(const InstrumentBase& base,
-                                                   FixedE9 equity,
-                                                   FixedE9 risk_fraction,
-                                                   PriceTicks entry,
-                                                   PriceTicks stop) noexcept;
+[[nodiscard]] std::optional<QtyLots> size_for_risk(
+    const InstrumentBase& base, FixedE9 equity, FixedE9 risk_fraction, PriceTicks entry, PriceTicks stop) noexcept;
 
 } // namespace raikiri::portfolio

@@ -8,8 +8,7 @@
 namespace raikiri::oms {
 namespace {
 
-constexpr InstrumentId k_instrument =
-    InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{2});
+constexpr InstrumentId k_instrument = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{2});
 
 OrderCmd valid_limit(std::int64_t qty = 10, std::int64_t price = 100) {
     OrderCmd cmd{};
@@ -35,8 +34,7 @@ OrderCmd valid_market(std::int64_t qty = 10) {
 TEST(RiskGate, DefaultConfigPassesValidOrders) {
     const RiskGate gate{};
     EXPECT_EQ(gate.config().max_open_orders, std::size_t{64});
-    EXPECT_EQ(gate.config().max_qty_lots,
-              QtyLots::from_raw(std::numeric_limits<std::int64_t>::max()));
+    EXPECT_EQ(gate.config().max_qty_lots, QtyLots::from_raw(std::numeric_limits<std::int64_t>::max()));
     EXPECT_TRUE(gate.check(valid_limit(), Exposure{.open_orders = 0}).has_value());
     EXPECT_TRUE(gate.check(valid_market(), Exposure{.open_orders = 0}).has_value());
     EXPECT_TRUE(gate.check(valid_limit(), Exposure{.open_orders = 63}).has_value());
@@ -64,8 +62,7 @@ TEST(RiskGate, BadQty) {
 
 TEST(RiskGate, QtyTooLarge) {
     const RiskGate gate{RiskConfig{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(10)}};
-    EXPECT_TRUE(
-        gate.check(valid_limit(10), Exposure{.open_orders = 0}).has_value()); // at the cap is fine
+    EXPECT_TRUE(gate.check(valid_limit(10), Exposure{.open_orders = 0}).has_value()); // at the cap is fine
     const auto res = gate.check(valid_limit(11), Exposure{.open_orders = 0});
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), RiskReject::QtyTooLarge);
@@ -73,8 +70,7 @@ TEST(RiskGate, QtyTooLarge) {
 
 TEST(RiskGate, BadPriceOnLimitOrders) {
     const RiskGate gate{};
-    for (const auto price :
-         {PriceTicks::from_raw(0), PriceTicks::from_raw(-1), PriceTicks::undef()}) {
+    for (const auto price : {PriceTicks::from_raw(0), PriceTicks::from_raw(-1), PriceTicks::undef()}) {
         auto cmd = valid_limit();
         cmd.price = price;
         const auto res = gate.check(cmd, Exposure{.open_orders = 0});
@@ -107,12 +103,10 @@ TEST(RiskGate, TooManyOpen) {
     EXPECT_EQ(res.error(), RiskReject::TooManyOpen);
 
     const RiskGate tight{
-        RiskConfig{.max_open_orders = 2,
-                   .max_qty_lots = QtyLots::from_raw(std::numeric_limits<std::int64_t>::max())}};
+        RiskConfig{.max_open_orders = 2, .max_qty_lots = QtyLots::from_raw(std::numeric_limits<std::int64_t>::max())}};
     EXPECT_TRUE(tight.check(valid_limit(), Exposure{.open_orders = 1}).has_value());
     ASSERT_FALSE(tight.check(valid_limit(), Exposure{.open_orders = 2}).has_value());
-    EXPECT_EQ(tight.check(valid_limit(), Exposure{.open_orders = 2}).error(),
-              RiskReject::TooManyOpen);
+    EXPECT_EQ(tight.check(valid_limit(), Exposure{.open_orders = 2}).error(), RiskReject::TooManyOpen);
 }
 
 TEST(RiskGate, MostFundamentalRejectWinsWhenSeveralApply) {
@@ -152,10 +146,9 @@ TEST(RiskGate, OppositeSideWorkingOrdersAreNotNettedOff) {
     cmd.side = Side::Buy;
     cmd.qty = QtyLots::from_raw(1);
 
-    EXPECT_FALSE(gate.check(cmd,
-                            Exposure{.position_lots = QtyLots::from_raw(10),
-                                     .working_sell_lots = QtyLots::from_raw(10)})
-                     .has_value());
+    EXPECT_FALSE(
+        gate.check(cmd, Exposure{.position_lots = QtyLots::from_raw(10), .working_sell_lots = QtyLots::from_raw(10)})
+            .has_value());
 }
 
 TEST(RiskGate, SellingIntoAShortIsWhatTheShortLimitBounds) {
@@ -190,8 +183,7 @@ TEST(RiskGate, NoLimitConfiguredMeansNoLimitApplied) {
     const RiskGate gate{};
     auto cmd = valid_limit();
     cmd.qty = QtyLots::from_raw(1'000'000);
-    EXPECT_TRUE(
-        gate.check(cmd, Exposure{.position_lots = QtyLots::from_raw(1'000'000'000)}).has_value());
+    EXPECT_TRUE(gate.check(cmd, Exposure{.position_lots = QtyLots::from_raw(1'000'000'000)}).has_value());
 }
 
 TEST(Risk, AReconciliationBreakRefusesEverythingItGates) {

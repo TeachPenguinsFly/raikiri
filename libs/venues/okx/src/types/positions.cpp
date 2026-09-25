@@ -15,8 +15,7 @@ std::expected<void, WireError> read_position(wire::ondemand::object& obj, WirePo
         return std::unexpected(inst_id.error());
     }
     out.inst_id = *inst_id;
-    if (const auto ok = read_strings(
-            obj, {{"pos", &out.pos}, {"posSide", &out.pos_side}, {"avgPx", &out.avg_px}});
+    if (const auto ok = read_strings(obj, {{"pos", &out.pos}, {"posSide", &out.pos_side}, {"avgPx", &out.avg_px}});
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }

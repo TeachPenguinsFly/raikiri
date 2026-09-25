@@ -31,10 +31,9 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         if (!ok && ack.has_value()) {
             state.last_error_code = ack->code;
         }
-        state.sink->on_connectivity(
-            {.state = ok ? exec::ConnState::Connected : exec::ConnState::AuthFailed,
-             .stream_id = k_private_stream_id,
-             .ts = state.clock->wall()});
+        state.sink->on_connectivity({.state = ok ? exec::ConnState::Connected : exec::ConnState::AuthFailed,
+                                     .stream_id = k_private_stream_id,
+                                     .ts = state.clock->wall()});
         return;
     }
     if (info->kind != FrameKind::Data || info->chan_id != 0) {
@@ -58,8 +57,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         }
         // remembered before emitting: an execution for this order may follow immediately
         const auto client_id = remember(*wire);
-        if (const auto event = map_order_event(*wire, state.instruments, client_id, received);
-            event.has_value()) {
+        if (const auto event = map_order_event(*wire, state.instruments, client_id, received); event.has_value()) {
             state.sink->on_order_event(*event);
         }
         return;
@@ -83,8 +81,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         if (!wire.has_value()) {
             return;
         }
-        if (const auto event = map_execution(
-                *wire, state.instruments, state.context_for(wire->order_id), received);
+        if (const auto event = map_execution(*wire, state.instruments, state.context_for(wire->order_id), received);
             event.has_value()) {
             state.sink->on_order_event(*event);
         }
@@ -99,19 +96,15 @@ public:
 
     void on_open() override {
         std::array<char, 512> buffer{};
-        const auto frame = ws_auth_frame(state_->api_key,
-                                         state_->api_secret.view(),
-                                         nonces_.next(state_->clock->wall().ns),
-                                         buffer);
+        const auto frame = ws_auth_frame(
+            state_->api_key, state_->api_secret.view(), nonces_.next(state_->clock->wall().ns), buffer);
         if (frame.empty() || client_ == nullptr || !client_->send(frame)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_private_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
             return;
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -119,9 +112,8 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void attach(net::WsClient& client) noexcept { client_ = &client; }

@@ -29,7 +29,7 @@ struct PairBuffer {
     std::array<WirePairInfo, k_max_pairs> pairs{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePairInfo>, WireError>
-parse_pair_info(std::string_view body, PairBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::string_view body,
+                                                                                      PairBuffer& storage);
 
 } // namespace raikiri::venues::bitfinex

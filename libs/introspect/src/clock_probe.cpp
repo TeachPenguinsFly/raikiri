@@ -4,13 +4,9 @@
 
 namespace raikiri::introspect {
 
-ProbeClock::ProbeClock(ServerTimeSource& source,
-                       MonoClock now,
-                       Admit admit,
-                       Jitter jitter,
-                       ProbeSchedule schedule)
-    : source_{&source}, now_{std::move(now)}, admit_{std::move(admit)},
-      jitter_{std::move(jitter)}, schedule_{schedule} {}
+ProbeClock::ProbeClock(ServerTimeSource& source, MonoClock now, Admit admit, Jitter jitter, ProbeSchedule schedule)
+    : source_{&source}, now_{std::move(now)}, admit_{std::move(admit)}, jitter_{std::move(jitter)},
+      schedule_{schedule} {}
 
 std::uint64_t ProbeClock::tick() {
     const auto now = now_();
@@ -25,9 +21,8 @@ std::uint64_t ProbeClock::tick() {
         ++failures_;
     }
     ++attempts_;
-    due_ns_ = attempts_ < schedule_.burst
-                  ? now_() + schedule_.burst_gap_ns
-                  : now_() + jitter_(schedule_.period_min_ns, schedule_.period_max_ns);
+    due_ns_ = attempts_ < schedule_.burst ? now_() + schedule_.burst_gap_ns
+                                          : now_() + jitter_(schedule_.period_min_ns, schedule_.period_max_ns);
     return due_ns_;
 }
 

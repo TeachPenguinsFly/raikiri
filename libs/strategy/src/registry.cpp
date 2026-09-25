@@ -43,14 +43,14 @@ Registry::Registry(Kernel kernel) : kernel_{std::move(kernel)} {
 }
 
 Registry::Instance* Registry::find_mut(std::uint16_t strategy_id) noexcept {
-    const auto found = std::ranges::find_if(
-        instances_, [&](const Instance& one) { return one.spec.strategy_id == strategy_id; });
+    const auto found = std::ranges::find_if(instances_,
+                                            [&](const Instance& one) { return one.spec.strategy_id == strategy_id; });
     return found == instances_.end() ? nullptr : &*found;
 }
 
 const Registry::Instance* Registry::find_mut(std::uint16_t strategy_id) const noexcept {
-    const auto found = std::ranges::find_if(
-        instances_, [&](const Instance& one) { return one.spec.strategy_id == strategy_id; });
+    const auto found = std::ranges::find_if(instances_,
+                                            [&](const Instance& one) { return one.spec.strategy_id == strategy_id; });
     return found == instances_.end() ? nullptr : &*found;
 }
 
@@ -67,46 +67,40 @@ std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec) {
     return create(spec, factory());
 }
 
-std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec,
-                                                            const Factory& types) {
+std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec, const Factory& types) {
     if (spec.strategy_id == 0) {
         // zero is the no-order sentinel
         return std::unexpected{
-            CreateFailure{.error = CreateError::IdReserved,
-                          .detail = "0 is the no-order sentinel, never a strategy"}};
+            CreateFailure{.error = CreateError::IdReserved, .detail = "0 is the no-order sentinel, never a strategy"}};
     }
     if (spec.strategy_id == k_manual_strategy_id) {
         // a strategy sharing the desk's id would net into the manual book
-        return std::unexpected{CreateFailure{
-            .error = CreateError::IdReserved,
-            .detail = std::string{to_string(CreateError::IdReserved)}}};
+        return std::unexpected{
+            CreateFailure{.error = CreateError::IdReserved, .detail = std::string{to_string(CreateError::IdReserved)}}};
     }
     if (find_mut(spec.strategy_id) != nullptr) {
         return std::unexpected{
-            CreateFailure{.error = CreateError::IdTaken,
-                          .detail = std::string{to_string(CreateError::IdTaken)}}};
+            CreateFailure{.error = CreateError::IdTaken, .detail = std::string{to_string(CreateError::IdTaken)}}};
     }
     if (instances_.size() >= k_max_instances) {
-        return std::unexpected{CreateFailure{.error = CreateError::Full,
-                                             .detail = std::string{to_string(CreateError::Full)}}};
+        return std::unexpected{
+            CreateFailure{.error = CreateError::Full, .detail = std::string{to_string(CreateError::Full)}}};
     }
     if (!types.contains(spec.type)) {
-        return std::unexpected{CreateFailure{.error = CreateError::UnknownType,
-                                             .detail = "no strategy type named " + spec.type}};
+        return std::unexpected{
+            CreateFailure{.error = CreateError::UnknownType, .detail = "no strategy type named " + spec.type}};
     }
 
     // the context before the strategy, so a failed context needs no unwind
     Context* ctx = kernel_.context_for ? kernel_.context_for(spec.strategy_id) : nullptr;
     if (ctx == nullptr) {
         return std::unexpected{
-            CreateFailure{.error = CreateError::NoContext,
-                          .detail = std::string{to_string(CreateError::NoContext)}}};
+            CreateFailure{.error = CreateError::NoContext, .detail = std::string{to_string(CreateError::NoContext)}}};
     }
 
     auto built = types.make(spec.type, {.config = spec.config, .strategy_id = spec.strategy_id});
     if (!built.has_value()) {
-        return std::unexpected{
-            CreateFailure{.error = CreateError::Refused, .detail = built.error()}};
+        return std::unexpected{CreateFailure{.error = CreateError::Refused, .detail = built.error()}};
     }
 
     instances_.push_back(Instance{.spec = spec,
@@ -117,8 +111,7 @@ std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec,
     return view_of(instances_.back());
 }
 
-std::expected<Phase, ControlError> Registry::start(std::uint16_t strategy_id,
-                                                   std::stop_token stop) {
+std::expected<Phase, ControlError> Registry::start(std::uint16_t strategy_id, std::stop_token stop) {
     auto* instance = find_mut(strategy_id);
     if (instance == nullptr) {
         return std::unexpected{ControlError::NoSuchStrategy};
@@ -223,8 +216,8 @@ std::optional<InstanceView> Registry::find(std::uint16_t strategy_id) const {
 }
 
 std::size_t Registry::running() const noexcept {
-    return static_cast<std::size_t>(std::ranges::count_if(
-        instances_, [](const Instance& one) { return one.phase == Phase::Running; }));
+    return static_cast<std::size_t>(
+        std::ranges::count_if(instances_, [](const Instance& one) { return one.phase == Phase::Running; }));
 }
 
 } // namespace raikiri::strategy

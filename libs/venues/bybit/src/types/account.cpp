@@ -15,8 +15,8 @@ bool is_funding_execution(const WireExecution& wire) noexcept {
     return wire.exec_type == "Funding";
 }
 
-std::expected<std::span<const WireLedgerEntry>, WireError>
-parse_funding_charges(std::string_view result, LedgerEntryBuffer& storage) {
+std::expected<std::span<const WireLedgerEntry>, WireError> parse_funding_charges(std::string_view result,
+                                                                                 LedgerEntryBuffer& storage) {
     return guarded([&] {
         return read_list<WireLedgerEntry>(
             result,
@@ -45,8 +45,8 @@ parse_funding_charges(std::string_view result, LedgerEntryBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireCoinBalance>, WireError>
-parse_wallet_balance(std::string_view result, CoinBalanceBuffer& storage) {
+std::expected<std::span<const WireCoinBalance>, WireError> parse_wallet_balance(std::string_view result,
+                                                                                CoinBalanceBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCoinBalance>, WireError> {
         auto& session = wire::session();
         auto root = session.open_object(result);

@@ -10,8 +10,7 @@ namespace {
 
 // crockford base32, the ulid alphabet: no I, L, O or U
 constexpr std::string_view k_ulid_alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-constexpr std::string_view k_base62_alphabet =
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+constexpr std::string_view k_base62_alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 constexpr std::size_t k_ulid_len = 26;
 constexpr uint128_t k_base = 62;
@@ -21,8 +20,7 @@ constexpr std::uint8_t k_max_leading_digit = 7;
 
 [[nodiscard]] std::optional<std::uint8_t> index_of(std::string_view alphabet, char c) noexcept {
     const auto at = alphabet.find(c);
-    return at == std::string_view::npos ? std::nullopt
-                                        : std::optional{static_cast<std::uint8_t>(at)};
+    return at == std::string_view::npos ? std::nullopt : std::optional{static_cast<std::uint8_t>(at)};
 }
 
 } // namespace

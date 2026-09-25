@@ -14,8 +14,7 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "unknown";
 }
 
-std::string_view
-topic_name(exec::SubKind kind, std::string_view cross_symbol, std::span<char> out) noexcept {
+std::string_view topic_name(exec::SubKind kind, std::string_view cross_symbol, std::span<char> out) noexcept {
     std::string_view prefix;
     switch (kind) {
     case exec::SubKind::Bbo:
@@ -40,8 +39,8 @@ topic_name(exec::SubKind kind, std::string_view cross_symbol, std::span<char> ou
     return {out.data(), prefix.size() + cross_symbol.size()};
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::op_frame(std::string_view op, std::span<const std::string_view> args) {
+std::expected<std::string_view, WsBuildError> Protocol::op_frame(std::string_view op,
+                                                                 std::span<const std::string_view> args) {
     if (args.empty()) {
         return std::unexpected{WsBuildError::Empty};
     }
@@ -73,13 +72,11 @@ Protocol::op_frame(std::string_view op, std::span<const std::string_view> args) 
     return std::string_view{frame_.data(), len};
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::subscribe_frame(std::span<const std::string_view> topics) {
+std::expected<std::string_view, WsBuildError> Protocol::subscribe_frame(std::span<const std::string_view> topics) {
     return op_frame("subscribe", topics);
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const std::string_view> topics) {
+std::expected<std::string_view, WsBuildError> Protocol::unsubscribe_frame(std::span<const std::string_view> topics) {
     return op_frame("unsubscribe", topics);
 }
 

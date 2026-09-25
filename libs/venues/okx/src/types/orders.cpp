@@ -79,8 +79,7 @@ std::expected<void, WireError> read_fill(wire::ondemand::object& obj, WireFill& 
 }
 
 std::expected<void, WireError> read_ack(wire::ondemand::object& obj, WireOrderAck& out) {
-    if (const auto ok = read_strings(
-            obj, {{"ordId", &out.ord_id}, {"clOrdId", &out.cl_ord_id}, {"sMsg", &out.s_msg}});
+    if (const auto ok = read_strings(obj, {{"ordId", &out.ord_id}, {"clOrdId", &out.cl_ord_id}, {"sMsg", &out.s_msg}});
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
@@ -118,18 +117,15 @@ WireOrderState order_state_from(std::string_view text) noexcept {
     return WireOrderState::Unknown;
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                  OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
     return guarded([&] { return read_data<WireOrder>(body, storage.orders, read_order); });
 }
 
-std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
-                                                                FillBuffer& storage) {
+std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body, FillBuffer& storage) {
     return guarded([&] { return read_data<WireFill>(body, storage.fills, read_fill); });
 }
 
-std::expected<std::span<const WireOrderAck>, WireError> parse_order_acks(std::string_view body,
-                                                                         AckBuffer& storage) {
+std::expected<std::span<const WireOrderAck>, WireError> parse_order_acks(std::string_view body, AckBuffer& storage) {
     return guarded([&] { return read_data<WireOrderAck>(body, storage.acks, read_ack); });
 }
 

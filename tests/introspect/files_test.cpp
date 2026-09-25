@@ -2,12 +2,12 @@
 
 #include <gtest/gtest.h>
 
-#include <glaze/glaze.hpp>
 #include <unistd.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <glaze/glaze.hpp>
 #include <iterator>
 #include <string>
 
@@ -24,6 +24,7 @@ protected:
                 ::testing::UnitTest::GetInstance()->current_test_info()->name());
         std::filesystem::remove_all(dir_);
     }
+
     void TearDown() override { std::filesystem::remove_all(dir_); }
 
     [[nodiscard]] std::string dir() const { return dir_.string(); }
@@ -63,9 +64,20 @@ TEST_F(StatsFiles, APublishedSnapshotIsRenamedIntoPlaceAndCarriesTheSchema) {
     EXPECT_EQ(text.size(), publisher.last_bytes());
     glz::generic json{};
     ASSERT_FALSE(glz::read_json(json, text));
-    for (const auto* key : {"version", "taken_ns", "account", "venue", "market", "feed",
-                            "channels", "process", "catalogue", "subscriptions", "sockets",
-                            "limits", "coverage", "rates"}) {
+    for (const auto* key : {"version",
+                            "taken_ns",
+                            "account",
+                            "venue",
+                            "market",
+                            "feed",
+                            "channels",
+                            "process",
+                            "catalogue",
+                            "subscriptions",
+                            "sockets",
+                            "limits",
+                            "coverage",
+                            "rates"}) {
         EXPECT_TRUE(json.contains(key)) << key;
     }
     EXPECT_EQ(json["version"].get<double>(), k_stats_version);

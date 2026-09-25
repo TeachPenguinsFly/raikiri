@@ -41,8 +41,8 @@ struct ContractBuffer {
     std::array<WireContract, k_max_contracts> contracts{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_contracts(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
+                                                                                      ContractBuffer& storage);
 
 // base_increment is the lot step, price_increment the tick, min_funds a quote-currency floor
 struct WireSpotSymbol {
@@ -59,8 +59,8 @@ struct SpotSymbolBuffer {
     std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                                           SpotSymbolBuffer& storage);
 
 // the only place spot states its 24h window; vol is base, volValue quote
 struct WireSpotTicker {
@@ -74,7 +74,7 @@ struct SpotTickerBuffer {
     std::array<WireSpotTicker, k_max_spot_symbols> tickers{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotTicker>, WireError>
-parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                                           SpotTickerBuffer& storage);
 
 } // namespace raikiri::venues::kucoin

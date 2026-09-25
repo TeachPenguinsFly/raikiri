@@ -4,9 +4,7 @@
 
 namespace raikiri::oms {
 
-std::int64_t book_as_of(std::int64_t book_now,
-                        std::span<const BookedFill> booked,
-                        std::uint64_t boundary_ns) noexcept {
+std::int64_t book_as_of(std::int64_t book_now, std::span<const BookedFill> booked, std::uint64_t boundary_ns) noexcept {
     for (const auto& fill : booked) {
         // strictly after; a fill at the boundary was already in the venue's answer
         if (fill.ts_ns > boundary_ns) {

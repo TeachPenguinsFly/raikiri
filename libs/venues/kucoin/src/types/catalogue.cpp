@@ -74,9 +74,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             }
             out.funding_granularity_ms = *granularity;
             // optional: a never-traded contract carries neither field
-            for (const auto& [key, field] :
-                 {std::pair{"fundingFeeRate", &out.funding_fee_rate},
-                  std::pair{"predictedFundingFeeRate", &out.predicted_funding_fee_rate}}) {
+            for (const auto& [key, field] : {std::pair{"fundingFeeRate", &out.funding_fee_rate},
+                                             std::pair{"predictedFundingFeeRate", &out.predicted_funding_fee_rate}}) {
                 if (const auto value = opt_decimal(obj, key); value.has_value()) {
                     *field = *value;
                 }
@@ -84,8 +83,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             if (const auto next = opt_u64(obj, "nextFundingRateDateTime"); next.has_value()) {
                 out.next_funding_ms = *next;
             }
-            for (const auto& [key, field] : {std::pair{"volumeOf24h", &out.volume_24h},
-                                             std::pair{"turnoverOf24h", &out.turnover_24h}}) {
+            for (const auto& [key, field] :
+                 {std::pair{"volumeOf24h", &out.volume_24h}, std::pair{"turnoverOf24h", &out.turnover_24h}}) {
                 if (const auto value = opt_decimal(obj, key); value.has_value()) {
                     *field = *value;
                 }
@@ -97,8 +96,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
     });
 }
 
-std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
+std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                             SpotSymbolBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotSymbol>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -109,9 +108,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             return std::unexpected(array.error());
         }
         const auto count = read_rows<WireSpotSymbol>(
-            *array,
-            storage.symbols,
-            [](auto& obj, WireSpotSymbol& row) -> std::expected<void, WireError> {
+            *array, storage.symbols, [](auto& obj, WireSpotSymbol& row) -> std::expected<void, WireError> {
                 const auto symbol = req_decimal(obj, "symbol");
                 if (!symbol.has_value()) {
                     return std::unexpected(symbol.error());
@@ -140,8 +137,8 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireSpotTicker>, WireError>
-parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
+std::expected<std::span<const WireSpotTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                             SpotTickerBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotTicker>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -160,17 +157,14 @@ parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
             return std::unexpected(array.error());
         }
         const auto count = read_rows<WireSpotTicker>(
-            *array,
-            storage.tickers,
-            [&](auto& obj, WireSpotTicker& row) -> std::expected<void, WireError> {
+            *array, storage.tickers, [&](auto& obj, WireSpotTicker& row) -> std::expected<void, WireError> {
                 const auto symbol = wire::req_str(obj, "symbol");
                 if (!symbol.has_value()) {
                     return std::unexpected(symbol.error());
                 }
                 row.symbol = *symbol;
                 row.ts_ms = *time;
-                for (const auto& [key, field] :
-                     {std::pair{"vol", &row.vol}, std::pair{"volValue", &row.vol_value}}) {
+                for (const auto& [key, field] : {std::pair{"vol", &row.vol}, std::pair{"volValue", &row.vol_value}}) {
                     const auto value = opt_decimal(obj, key);
                     if (!value.has_value()) {
                         return std::unexpected(value.error());

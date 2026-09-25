@@ -106,8 +106,7 @@ struct VenueState {
     // gate refuses a timestamp more than 60 s from its clock
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     void remember(const WireOrder& wire) {
@@ -119,8 +118,7 @@ struct VenueState {
             live_orders.erase(std::string{wire.order_id});
             return;
         }
-        if (live_orders.size() >= k_max_live_orders &&
-            !live_orders.contains(std::string{wire.order_id})) {
+        if (live_orders.size() >= k_max_live_orders && !live_orders.contains(std::string{wire.order_id})) {
             return; // a runaway order count must not become a runaway heap
         }
         auto& memo = live_orders[std::string{wire.order_id}];

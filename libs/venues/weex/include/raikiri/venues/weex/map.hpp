@@ -23,10 +23,8 @@ namespace raikiri::venues::weex {
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
 // the frame names the symbol once for several prints
-[[nodiscard]] std::optional<TradeTick> map_trade(const WirePrint& wire,
-                                                 std::string_view symbol,
-                                                 const exec::InstrumentTable& table,
-                                                 UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick>
+map_trade(const WirePrint& wire, std::string_view symbol, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // a column the frame omits stays undef
 [[nodiscard]] std::optional<TickerStats>
@@ -40,12 +38,11 @@ map_funding(const WirePremium& wire, const exec::InstrumentTable& table, UnixNan
 [[nodiscard]] Side side_from(std::string_view text) noexcept;
 
 // leaves is origQty minus executedQty; a half-filled order is still NEW
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                                    const exec::InstrumentTable& table);
 
 // fills carry no client order id
-[[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire,
-                                                       const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::InstrumentTable& table);
 
 // avg_entry stays undef; weex states no entry price
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
@@ -63,7 +60,6 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 map_funding_charge(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // nullopt for another market or steps that do not fit fixed point
-[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
-                                                       MarketType market);
+[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 } // namespace raikiri::venues::weex

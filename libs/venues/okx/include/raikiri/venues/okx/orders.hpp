@@ -55,8 +55,8 @@ struct OrderBuffer {
     std::array<WireOrder, k_max_orders> orders{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
+                                                                                OrderBuffer& storage);
 
 // fee is the rest spelling of fill_fee, with the same sign
 struct WireFill {
@@ -96,7 +96,7 @@ struct AckBuffer {
     std::array<WireOrderAck, k_max_acks> acks{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireOrderAck>, WireError>
-parse_order_acks(std::string_view body, AckBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrderAck>, WireError> parse_order_acks(std::string_view body,
+                                                                                       AckBuffer& storage);
 
 } // namespace raikiri::venues::okx

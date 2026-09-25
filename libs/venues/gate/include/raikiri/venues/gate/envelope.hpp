@@ -16,13 +16,13 @@
 namespace raikiri::venues::gate {
 
 enum class EventKind : std::uint8_t {
-    BookTicker, // {futures,spot}.book_ticker
+    BookTicker,   // {futures,spot}.book_ticker
     Trade,        // {futures,spot}.trades
-    Ticker, // futures.tickers: funding rate and mark price
-    BookUpdate, // futures.order_book_update: deltas, needs a seed
+    Ticker,       // futures.tickers: funding rate and mark price
+    BookUpdate,   // futures.order_book_update: deltas, needs a seed
     BookSnapshot, // spot.order_book: a complete book
-    OrderUpdate, // futures.orders / spot.orders, private
-    UserTrade, // futures.usertrades / spot.usertrades, private
+    OrderUpdate,  // futures.orders / spot.orders, private
+    UserTrade,    // futures.usertrades / spot.usertrades, private
     SubscribeAck,
     Error,
     Pong,
@@ -60,17 +60,14 @@ struct RestError {
 // gate quotes prices and leaves sizes bare, so either encoding is accepted
 [[nodiscard]] std::expected<std::string_view, WireError> num_of(wire::ondemand::value value);
 
-[[nodiscard]] std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
-                                                                 std::string_view key);
-[[nodiscard]] std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
-                                                                 std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj, std::string_view key);
 
 // whole part of a decimal token, or 0; parse_decimal_e9 would overflow on epoch ms
 [[nodiscard]] std::uint64_t whole_u64(std::string_view s) noexcept;
 
 // absent yields 0; gate quotes some integer fields, which wire::opt_u64 refuses
-[[nodiscard]] std::expected<std::uint64_t, WireError> num_u64(wire::ondemand::object& obj,
-                                                              std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> num_u64(wire::ondemand::object& obj, std::string_view key);
 
 // find_field_unordered only rewinds from the start, so both reset before looking
 [[nodiscard]] inline std::string_view field(wire::ondemand::object& obj, std::string_view key) {
@@ -78,8 +75,7 @@ struct RestError {
     return opt_num(obj, key).value_or(std::string_view{});
 }
 
-[[nodiscard]] inline std::string_view text_field(wire::ondemand::object& obj,
-                                                 std::string_view key) {
+[[nodiscard]] inline std::string_view text_field(wire::ondemand::object& obj, std::string_view key) {
     obj.reset();
     return wire::opt_str(obj, key).value_or(std::string_view{});
 }
@@ -101,8 +97,8 @@ struct SignedSize {
 
 // payloads hang off result: an object for book_ticker and order_book_update, an array for trades and tickers
 template <typename Fn>
-[[nodiscard]] auto with_result_object(wire::ondemand::object& root, Fn&& fn)
-    -> decltype(fn(std::declval<wire::ondemand::object&>())) {
+[[nodiscard]] auto with_result_object(wire::ondemand::object& root,
+                                      Fn&& fn) -> decltype(fn(std::declval<wire::ondemand::object&>())) {
     auto obj = wire::req_object(root, "result");
     if (!obj.has_value()) {
         return std::unexpected(obj.error());

@@ -23,18 +23,13 @@ inline constexpr std::string_view k_perp_quote = "USDC";
 
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType market);
 
-[[nodiscard]] std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 // Nullopt when no rate is quoted: a missing rate is not a rate of zero.
-[[nodiscard]] std::optional<FundingUpdate> map_funding(const WireMarketStats& wire,
-                                                       const InstrumentBase& base,
-                                                       std::uint64_t frame_ms,
-                                                       UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_funding(const WireMarketStats& wire, const InstrumentBase& base, std::uint64_t frame_ms, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireMarketStats& wire,
-                                                          const InstrumentBase& base,
-                                                          std::uint64_t frame_ms,
-                                                          UnixNanos ts_init);
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireMarketStats& wire, const InstrumentBase& base, std::uint64_t frame_ms, UnixNanos ts_init);
 
 } // namespace raikiri::venues::lighter

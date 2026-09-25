@@ -84,8 +84,7 @@ TEST(PhemexCatalogue, ALinearPerpReadsDecimalStringsAndItsOwnInterval) {
     // the description says 8 hours; the field says four
     EXPECT_EQ(listed("CAKEUSDT", MarketType::Perp).listing.funding_interval_s, 14400U);
     EXPECT_EQ(listed("XAUUSDT", MarketType::Perp).listing.funding_interval_s, 14400U);
-    EXPECT_EQ(base_of(listed("u1000SHIBUSDT", MarketType::Perp).instrument).local_symbol.view(),
-              "1000SHIB/USDT");
+    EXPECT_EQ(base_of(listed("u1000SHIBUSDT", MarketType::Perp).instrument).local_symbol.view(), "1000SHIB/USDT");
 }
 
 TEST(PhemexCatalogue, ACoinMarginedPerpIsInverseInWholeUsdContracts) {
@@ -113,8 +112,7 @@ TEST(PhemexCatalogue, ASpotPairTakesItsLotFromTheBaseCoinsScale) {
     EXPECT_EQ(btc.listing.qty_step, 100);
     const auto& shib = listed("sSHIBUSDT", MarketType::Spot);
     EXPECT_NE(shib.listing.volume_scale, 8U);
-    EXPECT_EQ(base_of(shib.instrument).lot_size,
-              *scaled_e9(shib.listing.qty_step, shib.listing.volume_scale));
+    EXPECT_EQ(base_of(shib.instrument).lot_size, *scaled_e9(shib.listing.qty_step, shib.listing.volume_scale));
 }
 
 TEST(PhemexNumbers, TheTwoDecodersRefuseAnythingOffTheGrid) {
@@ -128,7 +126,7 @@ TEST(PhemexNumbers, TheTwoDecodersRefuseAnythingOffTheGrid) {
 }
 
 TEST(PhemexNumbers, TheNextSettlementIsTheNextStepOfTheContractsUtcGrid) {
-    const UnixNanos now{1'790'315'481'432'695'660ULL}; // 2026-09-25 05:51:21Z
+    const UnixNanos now{1'790'315'481'432'695'660ULL};                                // 2026-09-25 05:51:21Z
     EXPECT_EQ(next_funding_time(now, 28800).ns, 1'790'323'200ULL * 1'000'000'000ULL); // 08:00
     EXPECT_EQ(next_funding_time(now, 14400).ns, 1'790'323'200ULL * 1'000'000'000ULL); // 08:00
     EXPECT_EQ(next_funding_time(UnixNanos{1'790'323'200ULL * 1'000'000'000ULL}, 14400).ns,
@@ -156,8 +154,7 @@ std::size_t levels_of(const WireBook<Level>& wire,
     return b.value_or(0);
 }
 
-template <typename Level>
-BookResult feed(Book& book, const std::string& frame, const Listed& row) {
+template <typename Level> BookResult feed(Book& book, const std::string& frame, const Listed& row) {
     static LevelBuffer<Level> storage;
     std::expected<WireBook<Level>, WireError> wire;
     if constexpr (std::is_same_v<Level, WireRealLevel>) {
@@ -180,22 +177,18 @@ BookResult feed(Book& book, const std::string& frame, const Listed& row) {
 TEST(PhemexBook, APerpBookIsReplacedByEverySnapshotAndCutToItsDepth) {
     const auto& row = listed("BTCUSDT", MarketType::Perp);
     Book book{base_of(row.instrument).id};
-    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_update.json"), row),
-              BookResult::Ignored);
-    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_snapshot.json"), row),
-              BookResult::Replaced);
+    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_update.json"), row), BookResult::Ignored);
+    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_snapshot.json"), row), BookResult::Replaced);
     EXPECT_EQ(book.bids().size(), 30U);
     EXPECT_EQ(book.asks().size(), 30U);
-    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_update.json"), row),
-              BookResult::Applied);
+    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_update.json"), row), BookResult::Applied);
     EXPECT_LE(book.asks().size(), 30U);
     const auto has_ask = [&](std::int64_t raw) {
         return std::ranges::any_of(book.asks(), [&](const auto& l) { return l.price.raw == raw; });
     };
     EXPECT_FALSE(has_ask(842330)); // "84233","0" deleted it
     EXPECT_TRUE(has_ask(842346));
-    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_resnapshot.json"), row),
-              BookResult::Replaced);
+    EXPECT_EQ(feed<WireRealLevel>(book, fixture("ws_real_book_resnapshot.json"), row), BookResult::Replaced);
     EXPECT_EQ(book.bids().size(), 30U);
     EXPECT_EQ(book.replacements(), 2U);
     const auto top = book.top(k_ingest, k_ingest);
@@ -206,10 +199,8 @@ TEST(PhemexBook, APerpBookIsReplacedByEverySnapshotAndCutToItsDepth) {
 TEST(PhemexBook, ASpotBookDecodesScaledIntegers) {
     const auto& row = listed("sBTCUSDT", MarketType::Spot);
     Book book{base_of(row.instrument).id};
-    EXPECT_EQ(feed<WireScaledLevel>(book, fixture("ws_spot_book_snapshot.json"), row),
-              BookResult::Replaced);
-    EXPECT_EQ(feed<WireScaledLevel>(book, fixture("ws_spot_book_update.json"), row),
-              BookResult::Applied);
+    EXPECT_EQ(feed<WireScaledLevel>(book, fixture("ws_spot_book_snapshot.json"), row), BookResult::Replaced);
+    EXPECT_EQ(feed<WireScaledLevel>(book, fixture("ws_spot_book_update.json"), row), BookResult::Applied);
     const auto top = book.top(k_ingest, k_ingest);
     ASSERT_TRUE(top.has_value());
     EXPECT_GT(top->bid.raw, 8'000'000); // above 80 000.00 in 0.01 ticks
@@ -219,8 +210,7 @@ TEST(PhemexBook, ASpotBookDecodesScaledIntegers) {
 TEST(PhemexBook, AnInverseBookCountsWholeContracts) {
     const auto& row = listed("BTCUSD", MarketType::Perp);
     Book book{base_of(row.instrument).id};
-    EXPECT_EQ(feed<WireScaledLevel>(book, fixture("ws_inverse_book_snapshot.json"), row),
-              BookResult::Replaced);
+    EXPECT_EQ(feed<WireScaledLevel>(book, fixture("ws_inverse_book_snapshot.json"), row), BookResult::Replaced);
     const auto top = book.top(k_ingest, k_ingest);
     ASSERT_TRUE(top.has_value());
     EXPECT_GT(top->bid.raw, 800'000); // above 80 000.0 in 0.1 ticks
@@ -258,17 +248,15 @@ TEST(PhemexTrades, TheSubscribeBacklogIsFlaggedAndTheTapeCarriesTheTakerSide) {
 
 TEST(PhemexTrades, ScaledPrintsDecodeOnTheirOwnGrid) {
     PrintBuffer<WireScaledPrint> storage;
-    for (const auto& [file, symbol, market] :
-         {std::tuple{"ws_spot_trades.json", "sBTCUSDT", MarketType::Spot},
-          std::tuple{"ws_inverse_trades.json", "BTCUSD", MarketType::Perp}}) {
+    for (const auto& [file, symbol, market] : {std::tuple{"ws_spot_trades.json", "sBTCUSDT", MarketType::Spot},
+                                               std::tuple{"ws_inverse_trades.json", "BTCUSD", MarketType::Perp}}) {
         const auto text = fixture(file);
         const auto tape = parse_scaled_trades(text, storage);
         ASSERT_TRUE(tape.has_value()) << file;
         EXPECT_EQ(tape->symbol, symbol);
         const auto& row = listed(symbol, market);
         for (const auto& print : tape->prints) {
-            EXPECT_TRUE(map_trade(print, base_of(row.instrument), row.listing, k_ingest).has_value())
-                << file;
+            EXPECT_TRUE(map_trade(print, base_of(row.instrument), row.listing, k_ingest).has_value()) << file;
         }
     }
 }
@@ -298,8 +286,7 @@ TEST(PhemexFunding, TheRateIsPerTheContractsOwnIntervalAndTheNextTimeIsOnItsGrid
         return WirePackRow{};
     };
     const auto& cake = listed("CAKEUSDT", MarketType::Perp);
-    const auto funding =
-        map_funding(row_of("CAKEUSDT"), base_of(cake.instrument), cake.listing, pack->ts_ns, k_ingest);
+    const auto funding = map_funding(row_of("CAKEUSDT"), base_of(cake.instrument), cake.listing, pack->ts_ns, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate, e9("0.00005"));
     EXPECT_EQ(funding->predicted_rate, e9("0.00005"));
@@ -310,8 +297,8 @@ TEST(PhemexFunding, TheRateIsPerTheContractsOwnIntervalAndTheNextTimeIsOnItsGrid
     EXPECT_EQ(funding->mark_price.raw, 27408); // markRp, not the indexRp beside it
 
     const auto& btc = listed("BTCUSDT", MarketType::Perp);
-    const auto btc_funding =
-        map_funding(row_of("BTCUSDT"), base_of(btc.instrument), btc.listing, pack->ts_ns, k_ingest);
+    const auto btc_funding = map_funding(
+        row_of("BTCUSDT"), base_of(btc.instrument), btc.listing, pack->ts_ns, k_ingest);
     ASSERT_TRUE(btc_funding.has_value());
     EXPECT_EQ(btc_funding->interval_s, 28800U);
     EXPECT_EQ(btc_funding->next_funding_time.ns % (8 * k_hour_ns), 0U);
@@ -320,8 +307,7 @@ TEST(PhemexFunding, TheRateIsPerTheContractsOwnIntervalAndTheNextTimeIsOnItsGrid
     EXPECT_EQ(stats->volume_24h_base, e9("4551.127"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("382619179.95088"));
 
-    EXPECT_FALSE(map_funding(WirePackRow{}, base_of(btc.instrument), btc.listing, pack->ts_ns, k_ingest)
-                     .has_value());
+    EXPECT_FALSE(map_funding(WirePackRow{}, base_of(btc.instrument), btc.listing, pack->ts_ns, k_ingest).has_value());
 }
 
 TEST(PhemexFunding, TheInverseTickerIsScaledAndCountsContractsAsTheQuote) {
@@ -379,16 +365,11 @@ TEST(PhemexEnvelope, EveryFrameIsRecognisedByItsPayloadKey) {
 
 TEST(PhemexWs, KeysAndFramesFollowTheInstrumentsEncoding) {
     std::array<char, 64> buf{};
-    EXPECT_EQ(channel_key(exec::SubKind::Bbo, MarketType::Perp, Encoding::Real, "BTCUSDT", buf),
-              "orderbook_p:BTCUSDT");
-    EXPECT_EQ(channel_key(exec::SubKind::Trades, MarketType::Perp, Encoding::Scaled, "BTCUSD", buf),
-              "trade:BTCUSD");
-    EXPECT_EQ(channel_key(exec::SubKind::Funding, MarketType::Perp, Encoding::Real, "BTCUSDT", buf),
-              k_perp_pack);
-    EXPECT_EQ(channel_key(exec::SubKind::Funding, MarketType::Perp, Encoding::Scaled, "BTCUSD", buf),
-              k_inverse_ticker);
-    EXPECT_EQ(channel_key(exec::SubKind::Funding, MarketType::Spot, Encoding::Scaled, "sBTCUSDT", buf),
-              k_spot_ticker);
+    EXPECT_EQ(channel_key(exec::SubKind::Bbo, MarketType::Perp, Encoding::Real, "BTCUSDT", buf), "orderbook_p:BTCUSDT");
+    EXPECT_EQ(channel_key(exec::SubKind::Trades, MarketType::Perp, Encoding::Scaled, "BTCUSD", buf), "trade:BTCUSD");
+    EXPECT_EQ(channel_key(exec::SubKind::Funding, MarketType::Perp, Encoding::Real, "BTCUSDT", buf), k_perp_pack);
+    EXPECT_EQ(channel_key(exec::SubKind::Funding, MarketType::Perp, Encoding::Scaled, "BTCUSD", buf), k_inverse_ticker);
+    EXPECT_EQ(channel_key(exec::SubKind::Funding, MarketType::Spot, Encoding::Scaled, "sBTCUSDT", buf), k_spot_ticker);
     EXPECT_TRUE(is_book_key("orderbook:sBTCUSDT"));
     EXPECT_EQ(key_symbol("orderbook:sBTCUSDT"), "sBTCUSDT");
     Protocol protocol;

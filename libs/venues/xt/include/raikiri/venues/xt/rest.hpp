@@ -1,7 +1,8 @@
 #pragma once
 
-// spot signs the sorted validate-* headers + #METHOD#path[#query][#body]; futures signs appkey, timestamp + #path[#params], no method;
-// the header prefix sent must match the signed one; xt's go sdk is the reference, its doc example does not reproduce
+// spot signs the sorted validate-* headers + #METHOD#path[#query][#body]; futures signs appkey, timestamp +
+// #path[#params], no method; the header prefix sent must match the signed one; xt's go sdk is the reference, its doc
+// example does not reproduce
 
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/instrument_table.hpp>
@@ -101,8 +102,7 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     my_trades(MarketType market, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // the u-based futures wallet only; coin-margined is on dapi.xt.com and spot on sapi
     [[nodiscard]] std::expected<net::RestRequest, BuildError> futures_balances(UnixNanos now);
@@ -120,17 +120,11 @@ public:
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_spot(net::HttpMethod method,
-                                                                        std::string_view path,
-                                                                        std::string_view query,
-                                                                        std::string_view body,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_spot(
+        net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_futures(net::HttpMethod method,
-                                                                           std::string_view path,
-                                                                           std::string_view query,
-                                                                           std::string_view body,
-                                                                           UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_futures(
+        net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now);
 
     const net::Signer* signer_;
 

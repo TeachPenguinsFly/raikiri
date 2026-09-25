@@ -52,7 +52,7 @@ enum class BuildError : std::uint8_t {
     MixedBatch,         // one cancel batch straddling instruments
     BatchTooLarge,      // more ids than the endpoint accepts in one call
     SpotHasNoPositions, // a spot balance is not a position HTX can report
-    SpotHasNoFunding, // spot pays no funding
+    SpotHasNoFunding,   // spot pays no funding
     AmendUnsupported,
     OptionsUnsupported,      // HTX lists options; this adapter does not trade them
     DatedFuturesUnsupported, // the dated-futures surface is a separate API
@@ -107,15 +107,13 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     open_orders(MarketType market, std::uint32_t page, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    query_order(const ExchangeClientOrderId& id,
-                std::int64_t numeric_id,
-                std::string_view contract_code,
-                MarketType market,
-                UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> query_order(const ExchangeClientOrderId& id,
+                                                                          std::int64_t numeric_id,
+                                                                          std::string_view contract_code,
+                                                                          MarketType market,
+                                                                          UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // htx refuses windows wider than 48 hours, so since is clamped
     [[nodiscard]] std::expected<net::RestRequest, BuildError>

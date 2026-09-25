@@ -17,7 +17,7 @@ namespace raikiri::venues::weex {
 struct WirePrint {
     std::string_view trade_id;  // t
     std::string_view price;     // p
-    std::string_view qty; // q, base units
+    std::string_view qty;       // q, base units
     std::uint64_t trade_ms{0};  // T
     bool buyer_is_maker{false}; // m: true => the aggressor sold
 };
@@ -29,8 +29,8 @@ struct PrintBuffer {
 };
 
 // a tradeSnapshot backfill overlaps live prints, so the caller drops it
-[[nodiscard]] std::expected<std::span<const WirePrint>, WireError>
-parse_trades(std::string_view frame, PrintBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
+                                                                                PrintBuffer& storage);
 
 // the only place weex publishes turnover; no bid, ask or funding rate
 struct WireTicker {
@@ -59,7 +59,7 @@ struct PremiumBuffer {
     std::array<WirePremium, k_max_premium_rows> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePremium>, WireError>
-parse_premium_index(std::string_view body, PremiumBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePremium>, WireError> parse_premium_index(std::string_view body,
+                                                                                         PremiumBuffer& storage);
 
 } // namespace raikiri::venues::weex

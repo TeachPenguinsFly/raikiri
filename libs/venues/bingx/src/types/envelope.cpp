@@ -32,8 +32,7 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
 
 } // namespace
 
-std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj,
-                                               std::string_view key) {
+std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj, std::string_view key) {
     std::int64_t out = 0;
     if (const auto ec = wire::find(obj, key).get_int64().get(out); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -62,8 +61,7 @@ std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
-                                                      std::string_view key) {
+std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -75,8 +73,7 @@ std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& ob
     return scalar_of(value);
 }
 
-std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj,
-                                                      std::string_view key) {
+std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_scalar(obj, key);
     if (text.has_value() && text->empty()) {
         return std::unexpected(WireError::MissingField);
@@ -84,8 +81,7 @@ std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& ob
     return text;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms_any(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::uint64_t, WireError> opt_ms_any(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_scalar(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());

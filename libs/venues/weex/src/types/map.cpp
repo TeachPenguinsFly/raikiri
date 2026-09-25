@@ -75,8 +75,7 @@ std::optional<std::uint32_t> interval_from(std::uint32_t settlements_per_day) no
 }
 
 // weex has no PARTIALLY_FILLED, so the quantities decide; unknown words fall through to the same arithmetic
-OrderStatus
-status_of(WireOrderStatus status, QtyLots qty, std::optional<QtyLots> executed) noexcept {
+OrderStatus status_of(WireOrderStatus status, QtyLots qty, std::optional<QtyLots> executed) noexcept {
     switch (status) {
     case WireOrderStatus::Filled:
         return OrderStatus::Filled;
@@ -106,10 +105,8 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
-std::optional<TradeTick> map_trade(const WirePrint& wire,
-                                   std::string_view symbol,
-                                   const exec::InstrumentTable& table,
-                                   UnixNanos ts_init) {
+std::optional<TradeTick>
+map_trade(const WirePrint& wire, std::string_view symbol, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -201,8 +198,7 @@ Side side_from(std::string_view text) noexcept {
     return text == "SELL" ? Side::Sell : Side::Buy;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -269,8 +265,7 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;

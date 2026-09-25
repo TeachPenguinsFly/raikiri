@@ -60,8 +60,7 @@ void requeue(std::vector<InstrumentId>& queue, InstrumentId id) {
         auto& target = entry->second;
         static thread_local LevelBuffer storage;
         const bool answered = !response.transport_failed() && response.status == 200;
-        const auto wire = answered ? parse_depth_snapshot(response.body, storage)
-                                   : std::unexpected(WireError::NotJson);
+        const auto wire = answered ? parse_depth_snapshot(response.body, storage) : std::unexpected(WireError::NotJson);
         if (!wire.has_value()) {
             heed_rate_refusal(*owner, response);
             requeue(owner->pending_seeds, id); // still marked in flight so the delta path stays out
@@ -105,8 +104,7 @@ void requeue(std::vector<InstrumentId>& queue, InstrumentId id) {
         if (!wire.has_value()) {
             return;
         }
-        if (const auto bbo = map_touch(*wire, base_of(*listed), response.received);
-            bbo.has_value()) {
+        if (const auto bbo = map_touch(*wire, base_of(*listed), response.received); bbo.has_value()) {
             owner->sink->on_bbo(*bbo);
         }
     };
@@ -125,8 +123,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
         return;
     }
     const auto& base = base_of(*instrument);
-    auto& book = state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-                     .first->second;
+    auto& book = state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
     // asked before the delta is offered so the triggering frame buffers behind it
     if (book.wants_seed()) {
         if (std::ranges::find(state.pending_seeds, base.id) == state.pending_seeds.end()) {
@@ -140,8 +137,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
-    if (const auto snapshot = book.snapshot(us_to_unix(wire->engine_us, received), received);
-        snapshot.has_value()) {
+    if (const auto snapshot = book.snapshot(us_to_unix(wire->engine_us, received), received); snapshot.has_value()) {
         state.sink->on_depth(*snapshot);
     }
 }
@@ -178,8 +174,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
         break;
@@ -248,16 +243,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const bool perp = instrument.market() == MarketType::Perp;
         if (kind == exec::SubKind::Funding) {
@@ -282,8 +273,8 @@ public:
         }
         const std::array<std::string, 1> one{std::string{stream}};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "backpack: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "backpack: connection pool is full")};
         }
         if (kind == exec::SubKind::Bbo) {
             state_->pending_touches.push_back(instrument);
@@ -292,10 +283,8 @@ public:
         if (kind == exec::SubKind::Depth) {
             const auto* listed = state_->instruments.find(instrument);
             const auto& base = base_of(*listed);
-            auto& book =
-                state_->books
-                    .try_emplace(instrument.packed, instrument, base.tick_size, base.lot_size)
-                    .first->second;
+            auto& book = state_->books.try_emplace(instrument.packed, instrument, base.tick_size, base.lot_size)
+                             .first->second;
             if (book.wants_seed()) {
                 state_->pending_seeds.push_back(instrument);
                 book.seed_requested();
@@ -345,14 +334,13 @@ private:
     // quote first: with paced sends a short run never sees the last stream
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> streams(keys.begin(), keys.end());
-        std::ranges::stable_partition(
-            streams, [](std::string_view stream) { return stream.starts_with(k_bbo_stream); });
+        std::ranges::stable_partition(streams,
+                                      [](std::string_view stream) { return stream.starts_with(k_bbo_stream); });
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < streams.size()) {
-            const auto frame =
-                state_->protocol.subscribe_frame(std::span<const std::string_view>{streams}.subspan(
-                    built, std::min(net::frame_subscriptions(), streams.size() - built)));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const std::string_view>{streams}.subspan(
+                built, std::min(net::frame_subscriptions(), streams.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
@@ -402,15 +390,13 @@ private:
     }
 
     void poll_tickers(UnixNanos now) noexcept {
-        if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ ||
-            ticker_in_flight_) {
+        if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
             return;
         }
         ticker_in_flight_ = true;
         try {
-            if (!state_->rest.send(
-                    state_->builder.tickers(),
-                    [this](const net::RestResponse& response) { on_tickers(response); })) {
+            if (!state_->rest.send(state_->builder.tickers(),
+                                   [this](const net::RestResponse& response) { on_tickers(response); })) {
                 ticker_in_flight_ = false;
                 return;
             }
@@ -500,8 +486,8 @@ private:
     }
 
     [[nodiscard]] std::size_t cold_books() const noexcept {
-        return static_cast<std::size_t>(std::ranges::count_if(
-            state_->books, [](const auto& entry) { return !entry.second.live(); }));
+        return static_cast<std::size_t>(
+            std::ranges::count_if(state_->books, [](const auto& entry) { return !entry.second.live(); }));
     }
 
     [[nodiscard]] static bool has_logger() noexcept { return ::raikiri::log::logger() != nullptr; }

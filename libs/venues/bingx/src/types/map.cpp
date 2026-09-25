@@ -53,8 +53,7 @@ std::optional<FixedE9> to_e9(std::string_view text) {
 }
 
 // spot and perp share symbols, so each mapper names its market; funding and positions are perp
-const InstrumentBase*
-base_for_market(std::string_view symbol, const exec::InstrumentTable& table, MarketType market) {
+const InstrumentBase* base_for_market(std::string_view symbol, const exec::InstrumentTable& table, MarketType market) {
     const auto* instrument = table.find(symbol);
     if (instrument == nullptr) {
         return nullptr;
@@ -119,10 +118,8 @@ std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept {
     return FixedE9::from_raw(k_e9 / divisor);
 }
 
-std::optional<Bbo> map_bbo(const WireBookTicker& wire,
-                           const exec::InstrumentTable& table,
-                           MarketType market,
-                           UnixNanos ts_init) {
+std::optional<Bbo>
+map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init) {
     const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
@@ -147,10 +144,8 @@ std::optional<Bbo> map_bbo(const WireBookTicker& wire,
     return out;
 }
 
-std::optional<TradeTick> map_trade(const WireTrade& wire,
-                                   const exec::InstrumentTable& table,
-                                   MarketType market,
-                                   UnixNanos ts_init) {
+std::optional<TradeTick>
+map_trade(const WireTrade& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init) {
     const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
@@ -173,10 +168,8 @@ std::optional<TradeTick> map_trade(const WireTrade& wire,
     return out;
 }
 
-std::optional<BookSnapshot> map_book(const WireDepth& wire,
-                                     const exec::InstrumentTable& table,
-                                     MarketType market,
-                                     UnixNanos ts_init) {
+std::optional<BookSnapshot>
+map_book(const WireDepth& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init) {
     const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
@@ -188,8 +181,7 @@ std::optional<BookSnapshot> map_book(const WireDepth& wire,
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
 
-    const auto fill = [&](std::span<const WireLevel> src,
-                          std::array<BookLevel, k_book_levels>& dst) {
+    const auto fill = [&](std::span<const WireLevel> src, std::array<BookLevel, k_book_levels>& dst) {
         std::uint32_t n = 0;
         for (const auto& level : src) {
             if (n == k_book_levels) {
@@ -247,18 +239,15 @@ map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, Un
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     if (wire.funding_interval_hours > 0) {
-        out.interval_s =
-            static_cast<std::uint32_t>(wire.funding_interval_hours) * k_seconds_per_hour;
+        out.interval_s = static_cast<std::uint32_t>(wire.funding_interval_hours) * k_seconds_per_hour;
     }
     out.ts_event = ts_init;
     out.ts_init = ts_init;
     return out;
 }
 
-std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
-                                            const exec::InstrumentTable& table,
-                                            MarketType market,
-                                            UnixNanos ts_init) {
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init) {
     if (wire.volume.empty() && wire.quote_volume.empty()) {
         return std::nullopt;
     }
@@ -500,8 +489,7 @@ std::optional<BalanceReport> map_balance(const WireBalance& wire, UnixNanos ts_v
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* base = base_for_market(wire.symbol, table, MarketType::Perp);
     if (base == nullptr) {
         return std::nullopt;

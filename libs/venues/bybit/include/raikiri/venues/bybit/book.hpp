@@ -39,8 +39,7 @@ struct OrderbookBuffer {
     WireLevel asks[k_max_levels];
 };
 
-[[nodiscard]] std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
-                                                                      OrderbookBuffer& storage);
+[[nodiscard]] std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame, OrderbookBuffer& storage);
 
 enum class SyncResult : std::uint8_t {
     Applied,     // book updated and coherent

@@ -24,8 +24,7 @@ inline constexpr std::size_t k_max_unanswered = 512;
 // holds orders sent over rest and not yet answered on the user stream, and owns the listen key
 class BinanceExec final : public exec::ExecutionClient {
 public:
-    explicit BinanceExec(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, api_{*state_} {
+    explicit BinanceExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {
         state_->tick_hook = [this](UnixNanos now) { tick(now); };
     }
 
@@ -64,9 +63,7 @@ public:
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override {
-        return stream_ != nullptr && stream_->connected();
-    }
+    [[nodiscard]] bool connected() const noexcept override { return stream_ != nullptr && stream_->connected(); }
 
     // sweeps rest connections the venue closed, so an idle gateway does not write into a dead socket
     void poll(UnixNanos now) noexcept override {
@@ -79,13 +76,10 @@ public:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -109,13 +103,11 @@ public:
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
-        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order);
-            !allowed.has_value()) {
+        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order); !allowed.has_value()) {
             emit(cmd, OrderEventType::Rejected, allowed.error());
             return;
         }
-        const auto request =
-            api_.builder().create_order(cmd, base_of(*instrument), state_->venue_now());
+        const auto request = api_.builder().create_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
             emit(cmd, OrderEventType::Rejected, build_failed(request.error()));
             return;
@@ -131,13 +123,11 @@ public:
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
-        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order);
-            !allowed.has_value()) {
+        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order); !allowed.has_value()) {
             emit(cmd, OrderEventType::CancelRejected, allowed.error());
             return;
         }
-        const auto request =
-            api_.builder().cancel_order(cmd, base_of(*instrument), state_->venue_now());
+        const auto request = api_.builder().cancel_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
             emit(cmd, OrderEventType::CancelRejected, build_failed(request.error()));
             return;
@@ -153,8 +143,7 @@ public:
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
-        const auto request =
-            api_.builder().amend_order(cmd, base_of(*instrument), state_->venue_now());
+        const auto request = api_.builder().amend_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
             emit(cmd, OrderEventType::ModifyRejected, build_failed(request.error()));
             return;
@@ -168,28 +157,26 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<BalanceReport>, exec::VenueError>
-    balance_reports(MarketType market) override {
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
         return api_.balance_reports(market);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
@@ -224,8 +211,7 @@ private:
         }
         const auto key = parse_listen_key(*body);
         if (!key.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "listen key missing")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "listen key missing")};
         }
         state_->listen_key.assign(*key);
         state_->listen_key_due_ns = state_->clock->mono().ns + k_listen_key_interval_ns;
@@ -238,9 +224,7 @@ private:
         return {};
     }
 
-    void send_order(const net::RestRequest& request,
-                    const OrderCmd& cmd,
-                    OrderEventType on_failure) noexcept {
+    void send_order(const net::RestRequest& request, const OrderCmd& cmd, OrderEventType on_failure) noexcept {
         const auto captured = cmd;
         const auto sent = api_.send(request, [this, captured, on_failure](net::RestResponse&& r) {
             // any answer settles it; the table tracks silence
@@ -249,43 +233,36 @@ private:
             }
             if (r.transport_failed()) {
                 // the request may have reached the matcher, so this is no rejection; the sweep handles it
-                state_->sink->on_order_error(
-                    captured.client_order_id,
-                    exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                           0,
-                                           r.error.empty()
-                                               ? std::string_view{"no response from venue"}
-                                               : std::string_view{r.error}));
+                state_->sink->on_order_error(captured.client_order_id,
+                                             exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                    0,
+                                                                    r.error.empty()
+                                                                        ? std::string_view{"no response from venue"}
+                                                                        : std::string_view{r.error}));
                 return;
             }
             const auto err = parse_rest_error(r.body);
             if (!err.has_value()) {
                 emit(captured,
                      on_failure,
-                     exec::VenueError::make(
-                         exec::ErrorClass::Terminal, 0, "unparseable error body"));
+                     exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable error body"));
                 return;
             }
             if (err->code == k_ok) {
                 return; // accepted; the user stream reports what happens next
             }
-            if (on_failure == OrderEventType::CancelRejected &&
-                is_benign_cancel_failure(err->code)) {
+            if (on_failure == OrderEventType::CancelRejected && is_benign_cancel_failure(err->code)) {
                 // already filled or gone
                 return;
             }
             if (classify(err->code) == exec::ErrorClass::RateLimited) {
                 api_.penalize();
             }
-            emit(captured,
-                 on_failure,
-                 exec::VenueError::make(classify(err->code), err->code, err->msg));
+            emit(captured, on_failure, exec::VenueError::make(classify(err->code), err->code, err->msg));
         });
         if (!sent) {
             // never left this process, so the refusal is certain
-            emit(cmd,
-                 on_failure,
-                 exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit(cmd, on_failure, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded here since the callback may never run

@@ -34,8 +34,8 @@ struct ProductBuffer {
     std::array<WireProduct, k_max_products> products{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireProduct>, WireError>
-parse_products(std::string_view body, ProductBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireProduct>, WireError> parse_products(std::string_view body,
+                                                                                    ProductBuffer& storage);
 
 // /products/{id} answers with the bare object
 [[nodiscard]] std::expected<WireProduct, WireError> parse_product(std::string_view body);

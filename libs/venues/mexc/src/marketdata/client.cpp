@@ -48,8 +48,7 @@ void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos rece
         if (!quote.has_value()) {
             return;
         }
-        if (const auto bbo =
-                map_spot_bbo(*quote, event->symbol, event->ts_ms, state.instruments, received);
+        if (const auto bbo = map_spot_bbo(*quote, event->symbol, event->ts_ms, state.instruments, received);
             bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
@@ -62,8 +61,7 @@ void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos rece
             return;
         }
         for (const auto& entry : *parsed) {
-            if (const auto trade =
-                    map_spot_trade(entry, event->symbol, state.instruments, received);
+            if (const auto trade = map_spot_trade(entry, event->symbol, state.instruments, received);
                 trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
@@ -76,8 +74,7 @@ void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos rece
         if (!book.has_value()) {
             return;
         }
-        if (const auto depth =
-                map_spot_book(*book, event->symbol, event->ts_ms, state.instruments, received);
+        if (const auto depth = map_spot_book(*book, event->symbol, event->ts_ms, state.instruments, received);
             depth.has_value()) {
             state.sink->on_depth(*depth);
         }
@@ -115,8 +112,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -127,12 +123,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -182,14 +176,12 @@ constexpr char k_key_sep = '\x1f';
         return std::nullopt;
     }
     const auto channel = key.substr(0, cut);
-    return Subscription{
-        .channel = channel, .symbol = key.substr(cut + 1), .limit = limit_for(channel, market)};
+    return Subscription{.channel = channel, .symbol = key.substr(cut + 1), .limit = limit_for(channel, market)};
 }
 
 // on futures depth.full feeds both the quote and the ladder
 [[nodiscard]] std::string_view quote_channel(MarketType market) noexcept {
-    return market == MarketType::Spot ? spot_channel_for(exec::SubKind::Bbo)
-                                      : channel_for(exec::SubKind::Bbo);
+    return market == MarketType::Spot ? spot_channel_for(exec::SubKind::Bbo) : channel_for(exec::SubKind::Bbo);
 }
 
 class PublicHandler final : public net::WsHandler {
@@ -223,8 +215,7 @@ class MexcData final : public exec::DataClient {
 public:
     explicit MexcData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          spot_rest_{state_->io,
-                     net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
+          spot_rest_{state_->io, net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
           pool_{state_->io,
                 net::WsConfig{.host = std::string{stream_host(state_->market)},
                               .port = std::string{stream_port()},
@@ -253,20 +244,16 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
             // one pool per market; the trees use different encodings
             return std::unexpected{exec::not_implemented("mexc: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const bool spot = state_->market == MarketType::Spot;
         if (spot && kind == exec::SubKind::Funding) {
@@ -291,8 +278,8 @@ public:
         // the pool opens another socket when none has room
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "mexc: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "mexc: connection pool is full")};
         }
         return {};
     }
@@ -327,9 +314,7 @@ private:
         ticker_in_flight_ = true;
         try {
             if (!spot_rest_.send(state_->builder.spot_ticker_24h(),
-                                 [this](const net::RestResponse& response) {
-                                     on_spot_ticker(response);
-                                 })) {
+                                 [this](const net::RestResponse& response) { on_spot_ticker(response); })) {
                 ticker_in_flight_ = false;
                 return;
             }
@@ -354,8 +339,7 @@ private:
         for (const auto& row : *rows) {
             const auto stats = map_spot_ticker_stats(row, state_->instruments, received);
             if (stats.has_value() &&
-                std::ranges::find(ticker_instruments_, stats->instrument) !=
-                    ticker_instruments_.end()) {
+                std::ranges::find(ticker_instruments_, stats->instrument) != ticker_instruments_.end()) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -373,8 +357,7 @@ private:
         }
         // quote first, since paced sends at the tail may never go out
         const auto quote = quote_channel(state_->market);
-        std::ranges::stable_partition(
-            views, [quote](const Subscription& one) { return one.channel == quote; });
+        std::ranges::stable_partition(views, [quote](const Subscription& one) { return one.channel == quote; });
 
         std::vector<std::string> frames;
         frames.reserve(views.size());

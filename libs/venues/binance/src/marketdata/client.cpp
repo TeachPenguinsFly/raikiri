@@ -87,8 +87,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
                 const auto* listed = owner->instruments.find(id);
                 RLOG_WARN("binance: {} depth snapshot refused with {} ({}) — no book for it "
                           "until the catalogue is reloaded",
-                          listed != nullptr ? base_of(*listed).exchange_symbol.view()
-                                            : std::string_view{"?"},
+                          listed != nullptr ? base_of(*listed).exchange_symbol.view() : std::string_view{"?"},
                           response.status,
                           response.body.substr(0, 120));
             }
@@ -109,8 +108,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
             owner->sink->on_depth(*seeded);
         }
     };
-    if (!state.depth_rest.send(
-            state.builder.depth_snapshot(base.exchange_symbol.view(), k_seed_depth), handled)) {
+    if (!state.depth_rest.send(state.builder.depth_snapshot(base.exchange_symbol.view(), k_seed_depth), handled)) {
         // refused: undo the in-flight mark or the book waits forever
         book.seed_failed();
         return false;
@@ -130,8 +128,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
         return;
     }
     const auto& base = base_of(*instrument);
-    const auto entry =
-        state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
+    const auto entry = state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
     auto& book = entry->second;
     // asked before the delta is offered so the triggering frame buffers behind it
     if (book.wants_seed()) {
@@ -148,8 +145,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
-    if (const auto snapshot = book.snapshot(ms_to_unix(wire->event_ms, received), received);
-        snapshot.has_value()) {
+    if (const auto snapshot = book.snapshot(ms_to_unix(wire->event_ms, received), received); snapshot.has_value()) {
         state.sink->on_depth(*snapshot);
     }
 }
@@ -190,8 +186,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
         break;
@@ -241,8 +236,7 @@ private:
 class BinanceData final : public exec::DataClient {
 public:
     explicit BinanceData(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, handler_{*state_},
-          pool_{make_pool(stream_path(exec::SubKind::Bbo))},
+        : state_{std::move(state)}, handler_{*state_}, pool_{make_pool(stream_path(exec::SubKind::Bbo))},
           market_pool_{make_pool(stream_path(exec::SubKind::MarkPrice))} {
         // seeds, funding and the 24h table share this pool and the order path's weight
         meter_market_data(*state_, state_->depth_rest);
@@ -264,20 +258,14 @@ public:
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override {
-        return pool_.connected() || market_pool_.connected();
-    }
+    [[nodiscard]] bool connected() const noexcept override { return pool_.connected() || market_pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
             for (const auto existing : state_->funding_instruments) {
@@ -302,8 +290,8 @@ public:
         const std::array<std::string, 1> one{std::string{stream}};
         auto& pool = stream_path(kind) == stream_path(exec::SubKind::Bbo) ? pool_ : market_pool_;
         if (!pool.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "binance: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "binance: connection pool is full")};
         }
         return {};
     }
@@ -391,13 +379,12 @@ private:
 
     [[nodiscard]] std::size_t cold_books() const noexcept {
         return static_cast<std::size_t>(std::ranges::count_if(
-            state_->books,
-            [](const auto& entry) { return !entry.second.live() && !entry.second.refused(); }));
+            state_->books, [](const auto& entry) { return !entry.second.live() && !entry.second.refused(); }));
     }
 
     [[nodiscard]] std::size_t refused_books() const noexcept {
-        return static_cast<std::size_t>(std::ranges::count_if(
-            state_->books, [](const auto& entry) { return entry.second.refused(); }));
+        return static_cast<std::size_t>(
+            std::ranges::count_if(state_->books, [](const auto& entry) { return entry.second.refused(); }));
     }
 
     // a library may run without a logger installed
@@ -428,15 +415,13 @@ private:
 
     // one call covers every symbol; only subscribed instruments reach the sink
     void poll_funding(UnixNanos now) noexcept {
-        if (state_->funding_instruments.empty() || now.ns < state_->next_funding_poll_ns ||
-            in_flight_) {
+        if (state_->funding_instruments.empty() || now.ns < state_->next_funding_poll_ns || in_flight_) {
             return;
         }
         in_flight_ = true;
         try {
-            if (!state_->depth_rest.send(
-                    state_->builder.premium_index(),
-                    [this](const net::RestResponse& response) { on_funding(response); })) {
+            if (!state_->depth_rest.send(state_->builder.premium_index(),
+                                         [this](const net::RestResponse& response) { on_funding(response); })) {
                 in_flight_ = false;
                 return; // refused: still due, so the next tick asks again
             }
@@ -450,15 +435,13 @@ private:
 
     // polled only for instruments subscribed to funding
     void poll_ticker(UnixNanos now) noexcept {
-        if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ ||
-            ticker_in_flight_) {
+        if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
             return;
         }
         ticker_in_flight_ = true;
         try {
-            if (!state_->depth_rest.send(
-                    state_->builder.ticker_24h(),
-                    [this](const net::RestResponse& response) { on_ticker(response); })) {
+            if (!state_->depth_rest.send(state_->builder.ticker_24h(),
+                                         [this](const net::RestResponse& response) { on_ticker(response); })) {
                 ticker_in_flight_ = false;
                 return; // refused: still due, so the next tick asks again
             }
@@ -492,8 +475,7 @@ private:
             if (!wanted) {
                 continue;
             }
-            if (const auto stats = map_ticker_stats(row, state_->instruments, received);
-                stats.has_value()) {
+            if (const auto stats = map_ticker_stats(row, state_->instruments, received); stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -522,8 +504,7 @@ private:
             if (!wanted) {
                 continue;
             }
-            if (const auto funding = map_funding(row, state_->instruments, received);
-                funding.has_value()) {
+            if (const auto funding = map_funding(row, state_->instruments, received); funding.has_value()) {
                 state_->sink->on_funding(*funding);
             }
         }
@@ -531,14 +512,13 @@ private:
 
     // binance caps one connection at 1024 streams
     net::WsPool make_pool(std::string_view target) {
-        return net::WsPool{
-            state_->io,
-            net::WsConfig{.host = std::string{stream_host(state_->testnet)},
-                          .port = "443",
-                          .target = std::string{target}},
-            handler_,
-            net::WsPoolConfig{},
-            [this](std::span<const std::string> keys) { return build_frames(keys); }};
+        return net::WsPool{state_->io,
+                           net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                                         .port = "443",
+                                         .target = std::string{target}},
+                           handler_,
+                           net::WsPoolConfig{},
+                           [this](std::span<const std::string> keys) { return build_frames(keys); }};
     }
 
     // called on every socket open, so the order here is the order the venue is asked in
@@ -549,15 +529,13 @@ private:
             streams.push_back(key);
         }
         // bookTicker first: with paced sends the last streams go out late
-        std::ranges::stable_partition(
-            streams, [](std::string_view stream) { return stream.ends_with("@bookTicker"); });
+        std::ranges::stable_partition(streams, [](std::string_view stream) { return stream.ends_with("@bookTicker"); });
 
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < streams.size()) {
-            const auto frame =
-                state_->protocol.subscribe_frame(std::span<const std::string_view>{streams}.subspan(
-                    built, std::min(net::frame_subscriptions(), streams.size() - built)));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const std::string_view>{streams}.subspan(
+                built, std::min(net::frame_subscriptions(), streams.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

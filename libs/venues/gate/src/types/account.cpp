@@ -9,8 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-std::expected<void, WireError> read_book_row(wire::ondemand::object& obj,
-                                             WireAccountBookRow& out) {
+std::expected<void, WireError> read_book_row(wire::ondemand::object& obj, WireAccountBookRow& out) {
     out.contract = field(obj, "contract");
     out.type = field(obj, "type");
     out.change = field(obj, "change");
@@ -62,8 +61,8 @@ std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view b
     });
 }
 
-std::expected<std::span<const WireAccountBookRow>, WireError>
-parse_account_book(std::string_view body, AccountBookBuffer& storage) {
+std::expected<std::span<const WireAccountBookRow>, WireError> parse_account_book(std::string_view body,
+                                                                                 AccountBookBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireAccountBookRow>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {

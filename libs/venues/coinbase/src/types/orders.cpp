@@ -56,8 +56,7 @@ std::expected<WireOrder, WireError> parse_order(std::string_view body) {
     });
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                  OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {

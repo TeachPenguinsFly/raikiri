@@ -59,16 +59,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto contract = state_->contract_of.find(instrument.packed);
         if (contract == state_->contract_of.end()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::string channel;
         switch (kind) {
@@ -98,8 +94,8 @@ public:
         const std::array<std::string, 1> one{channel};
         if (!pool_.subscribe(one)) {
             state_->channels.erase(channel);
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "edgex: every socket the pool may open is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "edgex: every socket the pool may open is full")};
         }
         return {};
     }
@@ -122,9 +118,8 @@ private:
         explicit Handler(EdgexData& owner) : owner_{&owner} {}
 
         void on_open() override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
         void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -132,9 +127,8 @@ private:
         }
 
         void on_close(net::WsCloseReason) override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
     private:
@@ -144,8 +138,7 @@ private:
     // a reopened socket broke the version chain; the resubscription's snapshot restores it
     void on_socket_open(std::span<const std::string> keys) {
         for (const auto& key : keys) {
-            if (const auto book = state_->books.find(depth_contract(key));
-                book != state_->books.end()) {
+            if (const auto book = state_->books.find(depth_contract(key)); book != state_->books.end()) {
                 book->second.invalidate();
             }
         }
@@ -212,9 +205,7 @@ private:
             return;
         }
         const auto& base = base_of(*instrument);
-        auto& book =
-            state_->books.try_emplace(wire->contract_id, base.id, base.tick_size, base.lot_size)
-                .first->second;
+        auto& book = state_->books.try_emplace(wire->contract_id, base.id, base.tick_size, base.lot_size).first->second;
         const auto result = book.apply(*wire);
         if (result == BookResult::Gap || result == BookResult::Crossed) {
             resubscribe_book(wire->contract_id);
@@ -228,8 +219,7 @@ private:
             state_->sink->on_bbo(*top);
             state_->priced.insert(wire->contract_id);
         }
-        if (!state_->depth_wanted.contains(base.id.packed) ||
-            !state_->sink->wants_depth(base.id, received)) {
+        if (!state_->depth_wanted.contains(base.id.packed) || !state_->sink->wants_depth(base.id, received)) {
             return;
         }
         if (const auto depth = book.snapshot(received, received); depth.has_value()) {
@@ -263,8 +253,7 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto trade = map_trade(print, base_of(*instrument), received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(print, base_of(*instrument), received); trade.has_value()) {
                 state_->sink->on_trade(*trade);
                 state_->traded.insert(print.contract_id);
             }

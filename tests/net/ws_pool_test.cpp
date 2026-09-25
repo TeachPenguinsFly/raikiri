@@ -133,9 +133,7 @@ TEST(WsPool, TheOpenHookNamesOnlyTheKeysOfTheSocketThatOpened) {
                 handler,
                 {.max_keys_per_connection = 10},
                 one_each,
-                [&announced](std::span<const std::string> keys) {
-                    announced.emplace_back(keys.begin(), keys.end());
-                }};
+                [&announced](std::span<const std::string> keys) { announced.emplace_back(keys.begin(), keys.end()); }};
 
     ASSERT_TRUE(pool.subscribe(names(25)));
     EXPECT_EQ(pool.connection_count(), 3U);
@@ -151,8 +149,7 @@ TEST(WsPool, AnAnswerOutsideAHandlerIsRefusedRatherThanSentToAGuessedSocket) {
 
     ASSERT_TRUE(pool.subscribe(names(10)));
     EXPECT_EQ(pool.connection_count(), 1U);
-    EXPECT_FALSE(pool.reply("{\"pong\":1}"))
-        << "a socket exists but nothing is being dispatched on it";
+    EXPECT_FALSE(pool.reply("{\"pong\":1}")) << "a socket exists but nothing is being dispatched on it";
 }
 
 TEST(WsPool, AnEmptyAskIsNotAnError) {
@@ -165,7 +162,9 @@ TEST(WsPool, AnEmptyAskIsNotAnError) {
 
 struct ProcessLimits {
     explicit ProcessLimits(const WsLimits& limits) { set_process_ws_limits(limits); }
+
     ~ProcessLimits() { set_process_ws_limits(WsLimits{}); }
+
     ProcessLimits(const ProcessLimits&) = delete;
     ProcessLimits& operator=(const ProcessLimits&) = delete;
 };
@@ -192,9 +191,9 @@ TEST(WsPoolLimits, AnIpChannelCapIsSharedByEveryPoolOfTheProcess) {
 }
 
 TEST(WsPoolLimits, PacingNeverExceedsTheIpLimitAcrossAReconnect) {
-    const WsLimits table{.configured = true,
-                         .ip_messages = {{.max = 6, .window_ns = 2'000'000'000ULL},
-                                         {.max = 180, .window_ns = 60'000'000'000ULL}}};
+    const WsLimits table{
+        .configured = true,
+        .ip_messages = {{.max = 6, .window_ns = 2'000'000'000ULL}, {.max = 180, .window_ns = 60'000'000'000ULL}}};
     const ProcessLimits limits{table};
     auto& meters = process_ip_meters();
     std::vector<std::uint64_t> sent;

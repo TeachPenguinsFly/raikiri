@@ -14,7 +14,7 @@ enum class OpAuth : std::uint8_t {
     None,           // op is installed but nothing authenticates it
     ServiceAccount, // OP_SERVICE_ACCOUNT_TOKEN
     Connect,        // OP_CONNECT_HOST + OP_CONNECT_TOKEN
-    UserSession, // an interactive `op signin` session
+    UserSession,    // an interactive `op signin` session
 };
 
 [[nodiscard]] std::string_view to_string(OpAuth auth) noexcept;
@@ -22,7 +22,7 @@ enum class OpAuth : std::uint8_t {
 struct OpStatus {
     bool installed{false};
     OpAuth auth{OpAuth::None};
-    std::string version;    // "2.34.0"
+    std::string version; // "2.34.0"
     std::string account;
     std::string diagnostic; // why it is unusable, when it is
 

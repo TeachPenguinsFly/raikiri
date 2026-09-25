@@ -8,11 +8,10 @@ namespace {
 
 // wrong round constants still yield a well-formed hash; the tests pin published vectors
 constexpr std::array<std::uint64_t, 24> k_round_constants = {
-    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL, 0x8000000080008000ULL,
-    0x000000000000808bULL, 0x0000000080000001ULL, 0x8000000080008081ULL, 0x8000000000008009ULL,
-    0x000000000000008aULL, 0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
-    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL, 0x8000000000008003ULL,
-    0x8000000000008002ULL, 0x8000000000000080ULL, 0x000000000000800aULL, 0x800000008000000aULL,
+    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL, 0x8000000080008000ULL, 0x000000000000808bULL,
+    0x0000000080000001ULL, 0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL, 0x0000000000000088ULL,
+    0x0000000080008009ULL, 0x000000008000000aULL, 0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL,
+    0x8000000000008003ULL, 0x8000000000008002ULL, 0x8000000000000080ULL, 0x000000000000800aULL, 0x800000008000000aULL,
     0x8000000080008081ULL, 0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
 
 // rho offsets and the pi lane permutation, walked as one chain
@@ -60,8 +59,7 @@ void permute(std::array<std::uint64_t, 25>& a) noexcept {
     }
 }
 
-void absorb_block(std::array<std::uint64_t, 25>& state,
-                  std::span<const std::uint8_t> block) noexcept {
+void absorb_block(std::array<std::uint64_t, 25>& state, std::span<const std::uint8_t> block) noexcept {
     for (std::size_t i = 0; i < k_rate; ++i) {
         // lanes are little-endian per the spec, independent of the host
         state[i / 8] ^= static_cast<std::uint64_t>(block[i]) << (8U * (i % 8));

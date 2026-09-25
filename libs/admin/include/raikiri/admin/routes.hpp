@@ -20,7 +20,6 @@ namespace raikiri::admin {
                                         std::map<std::string, std::uint16_t> upstreams = {});
 
 // rfc 9457 problem response
-[[nodiscard]] http::Response
-problem(int status, std::string_view title, std::string_view detail = {});
+[[nodiscard]] http::Response problem(int status, std::string_view title, std::string_view detail = {});
 
 } // namespace raikiri::admin

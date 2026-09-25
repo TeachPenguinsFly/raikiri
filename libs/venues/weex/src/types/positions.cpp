@@ -30,8 +30,7 @@ std::expected<void, WireError> read_position(ondemand::object& obj, WirePosition
 
 std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
                                                                         PositionBuffer& storage) {
-    return guarded(
-        [&] { return read_array<WirePosition>(body, storage.positions, read_position); });
+    return guarded([&] { return read_array<WirePosition>(body, storage.positions, read_position); });
 }
 
 } // namespace raikiri::venues::weex

@@ -46,7 +46,6 @@ struct WireDepth {
     std::span<const WireLevel> asks; // ascending
 };
 
-[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage);
 
 } // namespace raikiri::venues::htx

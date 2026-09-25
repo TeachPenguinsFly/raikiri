@@ -43,16 +43,14 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const std::string_view> channels);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const std::string_view> channels);
 
     // only followed by a subscribe of the same channel, to reseed its book
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const std::string_view> channels);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const std::string_view> channels);
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    method_frame(std::string_view head, std::span<const std::string_view> channels);
+    [[nodiscard]] std::expected<Frame, WsBuildError> method_frame(std::string_view head,
+                                                                  std::span<const std::string_view> channels);
 
     std::array<char, 2048> frame_{};
     std::uint64_t next_id_{1};

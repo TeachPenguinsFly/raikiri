@@ -40,15 +40,13 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions);
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    op_frame(std::string_view type, std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view type,
+                                                              std::span<const Subscription> subscriptions);
 
     std::array<char, 8192> frame_{};
 };

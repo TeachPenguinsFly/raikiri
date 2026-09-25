@@ -56,8 +56,7 @@ std::string_view stream_path() noexcept {
     return ep::k_ws_public;
 }
 
-std::string_view
-channel_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
+std::string_view channel_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
     const auto suffix = suffix_for(kind);
     if (suffix.empty() || exchange_symbol.empty()) {
         return {};
@@ -70,18 +69,16 @@ channel_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<cha
     return {out.data(), exchange_symbol.size() + suffix.size()};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const std::string_view> channels) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const std::string_view> channels) {
     return method_frame(R"({"method":"SUBSCRIBE","params":[)", channels);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const std::string_view> channels) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const std::string_view> channels) {
     return method_frame(R"({"method":"UNSUBSCRIBE","params":[)", channels);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::method_frame(std::string_view head, std::span<const std::string_view> channels) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::method_frame(std::string_view head,
+                                                                    std::span<const std::string_view> channels) {
     if (channels.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }

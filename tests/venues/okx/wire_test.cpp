@@ -329,10 +329,8 @@ TEST(OkxWire, DeletedLevelsKeepTheirZeroQuantity) {
 }
 
 TEST(OkxWire, RestEnvelopeSeparatesSuccessFromRefusal) {
-    for (const char* file : {"rest_instruments.json",
-                             "rest_mark_price.json",
-                             "rest_funding_rate.json",
-                             "rest_server_time.json"}) {
+    for (const char* file :
+         {"rest_instruments.json", "rest_mark_price.json", "rest_funding_rate.json", "rest_server_time.json"}) {
         const auto body = fixture(file);
         const auto envelope = parse_rest_envelope(body);
         ASSERT_TRUE(envelope.has_value()) << file;
@@ -409,15 +407,14 @@ TEST(OkxWire, EmptyDataArrayIsNotADatum) {
 TEST(OkxWire, GarbageIsRefusedRatherThanPartiallyRead) {
     auto levels = std::make_unique<LevelBuffer>();
     auto trades = std::make_unique<TradeBuffer>();
-    for (const char* junk :
-         {"",
-          "{",
-          "[]",
-          "null",
-          R"({"arg":)",
-          "\xff\xfe",
-          R"({"arg":{"channel":"bbo-tbt"}})",
-          R"({"arg":{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"},"data":[{}]})"}) {
+    for (const char* junk : {"",
+                             "{",
+                             "[]",
+                             "null",
+                             R"({"arg":)",
+                             "\xff\xfe",
+                             R"({"arg":{"channel":"bbo-tbt"}})",
+                             R"({"arg":{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"},"data":[{}]})"}) {
         const std::string_view frame{junk};
         (void)parse_event(frame);
         EXPECT_FALSE(parse_bbo(frame).has_value()) << junk;
@@ -675,8 +672,7 @@ TEST(OkxRest, GetSignsTheTargetIncludingItsQuestionMark) {
     EXPECT_TRUE(request->body.empty());
 
     // okx signs the whole request path
-    EXPECT_EQ(builder.last_sign_message(),
-              "2023-11-14T22:13:20.123ZGET/api/v5/trade/orders-pending?instType=SWAP");
+    EXPECT_EQ(builder.last_sign_message(), "2023-11-14T22:13:20.123ZGET/api/v5/trade/orders-pending?instType=SWAP");
     EXPECT_EQ(header(*request, "OK-ACCESS-SIGN"), "nTXtPpBhja/wts2kTr/a/B7UsuIEb9EPxI1Dis0AdfQ=");
     EXPECT_EQ(header(*request, "OK-ACCESS-KEY"), k_api_key);
     EXPECT_EQ(header(*request, "OK-ACCESS-TIMESTAMP"), "2023-11-14T22:13:20.123Z");
@@ -696,13 +692,12 @@ TEST(OkxRest, PostSignsTimestampMethodPathAndBody) {
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->target, "/api/v5/trade/order");
 
-    const std::string expected = std::string{"2023-11-14T22:13:20.123Z"} + "POST" +
-                                 "/api/v5/trade/order" + std::string{request->body};
+    const std::string expected = std::string{"2023-11-14T22:13:20.123Z"} + "POST" + "/api/v5/trade/order" +
+                                 std::string{request->body};
     EXPECT_EQ(builder.last_sign_message(), expected);
 
     std::array<char, net::k_base64_bytes> reference{};
-    EXPECT_EQ(header(*request, "OK-ACCESS-SIGN"),
-              net::hmac_sha256_base64(k_secret, expected, reference));
+    EXPECT_EQ(header(*request, "OK-ACCESS-SIGN"), net::hmac_sha256_base64(k_secret, expected, reference));
     // demo trading is a header on the live host
     EXPECT_EQ(header(*request, "x-simulated-trading"), "1");
 }
@@ -756,8 +751,7 @@ TEST(OkxRest, SpotMarketBuyIsSizedInTheBaseCurrency) {
     cmd.qty = QtyLots::from_raw(300'000);
     const auto request = builder.create_order(cmd, table, k_now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
-    EXPECT_NE(request->body.find(R"("tgtCcy":"base_ccy")"), std::string_view::npos)
-        << request->body;
+    EXPECT_NE(request->body.find(R"("tgtCcy":"base_ccy")"), std::string_view::npos) << request->body;
     EXPECT_EQ(request->body.find(R"("px")"), std::string_view::npos) << "market carries no price";
 
     // tgtCcy is spot-only
@@ -829,8 +823,7 @@ TEST(OkxRest, CancelAndAmendTargetTheOrderByWhicheverIdIsPresent) {
     auto request = builder.cancel_order(cmd, table, k_now);
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(request->target, "/api/v5/trade/cancel-order");
-    EXPECT_EQ(request->body,
-              R"({"instId":"BTC-USDT-SWAP","clOrdId":"01ARZ3NDEKTSV4RRFFQ69G5FAV"})");
+    EXPECT_EQ(request->body, R"({"instId":"BTC-USDT-SWAP","clOrdId":"01ARZ3NDEKTSV4RRFFQ69G5FAV"})");
 
     cmd.target_exchange_order_id = *ExchangeOrderId::from("680800019749904385");
     request = builder.cancel_order(cmd, table, k_now);
@@ -844,8 +837,7 @@ TEST(OkxRest, CancelAndAmendTargetTheOrderByWhicheverIdIsPresent) {
     request = builder.amend_order(cmd, table, k_now);
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(request->target, "/api/v5/trade/amend-order");
-    EXPECT_EQ(request->body,
-              R"({"instId":"BTC-USDT-SWAP","ordId":"680800019749904385","newSz":"8"})");
+    EXPECT_EQ(request->body, R"({"instId":"BTC-USDT-SWAP","ordId":"680800019749904385","newSz":"8"})");
 }
 
 TEST(OkxRest, CancelBatchIsAJsonArrayCappedAtTwenty) {
@@ -868,8 +860,7 @@ TEST(OkxRest, CancelBatchIsAJsonArrayCappedAtTwenty) {
     EXPECT_EQ(first->request.body.front(), '[');
     EXPECT_EQ(first->request.body.back(), ']');
 
-    const auto second =
-        builder.cancel_batch(std::span<const OrderCmd>{cmds}.subspan(20), table, k_now);
+    const auto second = builder.cancel_batch(std::span<const OrderCmd>{cmds}.subspan(20), table, k_now);
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->consumed, 5U);
 
@@ -882,8 +873,7 @@ TEST(OkxRest, PullsNameTheInstrumentTypeAndCarryASince) {
     RequestBuilder builder{signer};
     builder.set_passphrase(k_passphrase);
 
-    const auto fills =
-        builder.fills(MarketType::Spot, UnixNanos{1'700'000'000'000'000'000ULL}, k_now);
+    const auto fills = builder.fills(MarketType::Spot, UnixNanos{1'700'000'000'000'000'000ULL}, k_now);
     ASSERT_TRUE(fills.has_value());
     EXPECT_EQ(fills->target, "/api/v5/trade/fills?instType=SPOT&begin=1700000000000");
 
@@ -918,9 +908,8 @@ TEST(OkxWs, LoginSignsEpochSecondsAndTheVerifyPath) {
 
 TEST(OkxWs, PrivateSubscribeNamesAnInstrumentTypeAndPublicNamesAnInstrument) {
     Protocol protocol;
-    const std::array<Subscription, 2> private_args{
-        Subscription{.channel = k_orders_channel, .inst_type = "SPOT"},
-        Subscription{.channel = k_orders_channel, .inst_type = "SWAP"}};
+    const std::array<Subscription, 2> private_args{Subscription{.channel = k_orders_channel, .inst_type = "SPOT"},
+                                                   Subscription{.channel = k_orders_channel, .inst_type = "SWAP"}};
     const auto orders = protocol.subscribe_frame(private_args);
     ASSERT_TRUE(orders.has_value());
     EXPECT_EQ(orders->consumed, 2U);
@@ -929,12 +918,10 @@ TEST(OkxWs, PrivateSubscribeNamesAnInstrumentTypeAndPublicNamesAnInstrument) {
               R"({"channel":"orders","instType":"SWAP"}]})");
 
     // the public shape: one instId, no instType
-    const std::array<Subscription, 1> public_args{
-        Subscription{.channel = "bbo-tbt", .inst_id = "BTC-USDT-SWAP"}};
+    const std::array<Subscription, 1> public_args{Subscription{.channel = "bbo-tbt", .inst_id = "BTC-USDT-SWAP"}};
     const auto bbo = protocol.subscribe_frame(public_args);
     ASSERT_TRUE(bbo.has_value());
-    EXPECT_EQ(bbo->text,
-              R"({"op":"subscribe","args":[{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"}]})");
+    EXPECT_EQ(bbo->text, R"({"op":"subscribe","args":[{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"}]})");
 
     // neither key set means everything; okx answers 60018
     const std::array<Subscription, 1> empty{Subscription{.channel = "orders"}};
@@ -963,8 +950,7 @@ TEST(OkxWire, ReadsTheTradingAccountAndTheModeItRunsUnder) {
     EXPECT_EQ(*mode, AccountMode::Futures);
 
     // an unknown level reads as Unknown
-    const auto future_level =
-        parse_account_mode(R"({"code":"0","msg":"","data":[{"acctLv":"9"}]})");
+    const auto future_level = parse_account_mode(R"({"code":"0","msg":"","data":[{"acctLv":"9"}]})");
     ASSERT_TRUE(future_level.has_value());
     EXPECT_EQ(*future_level, AccountMode::Unknown);
     // an answer with no account is a failure

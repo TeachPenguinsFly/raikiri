@@ -1,7 +1,7 @@
-#include <raikiri/log/log.hpp>
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -28,10 +28,10 @@
 
 namespace raikiri::venues::kucoin {
 
-using internal::VenueState;
 using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
+using internal::VenueState;
 
 namespace {
 
@@ -45,29 +45,23 @@ void load_credentials(const exec::VenueConfig& config, VenueState& state) {
     // the passphrase is sealed with the secret, so skip sealing without one
     if (!state.credentials.signer().secret().view().empty()) {
         (void)config::Credentials{{}, {}, config.passphrase_env}
-            .passphrase(
-                [&](std::string_view value) { (void)state.credentials.seal_passphrase(value); })
+            .passphrase([&](std::string_view value) { (void)state.credentials.seal_passphrase(value); })
             .resolve();
     }
 }
 
-exec::VenueAdapter
-make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     // "uta" selects the obu feed; anything else keeps classic
-    if (const std::string_view feed = config.market_data_feed;
-        feed == "uta" || feed.starts_with("uta:")) {
+    if (const std::string_view feed = config.market_data_feed; feed == "uta" || feed.starts_with("uta:")) {
         state->uta = true;
         const auto depth = feed.size() > 4 ? feed.substr(4) : k_uta_book_depth;
         state->protocol.set_uta_book_depth(depth);
-        RLOG_INFO("kucoin: market data on the unified feed ({}, obu depth {})",
-                  k_uta_futures_host,
-                  depth);
+        RLOG_INFO("kucoin: market data on the unified feed ({}, obu depth {})", k_uta_futures_host, depth);
     } else if (!config.market_data_feed.empty()) {
-        RLOG_WARN("kucoin: unknown feed '{}' — staying on the classic tree",
-                  config.market_data_feed);
+        RLOG_WARN("kucoin: unknown feed '{}' — staying on the classic tree", config.market_data_feed);
     }
     load_credentials(config, *state);
 

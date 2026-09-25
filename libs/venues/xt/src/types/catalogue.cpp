@@ -13,8 +13,8 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                            InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -76,8 +76,8 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
+std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                             SpotSymbolBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotSymbol>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -112,8 +112,8 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             const auto qty_precision = req_i64(obj, "quantityPrecision");
             const auto trading = req_bool(obj, "tradingEnabled");
             const auto openapi = req_bool(obj, "openapiEnabled");
-            if (!price_precision.has_value() || !qty_precision.has_value() ||
-                !trading.has_value() || !openapi.has_value()) {
+            if (!price_precision.has_value() || !qty_precision.has_value() || !trading.has_value() ||
+                !openapi.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.price_precision = *price_precision;

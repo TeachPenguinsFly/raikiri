@@ -12,6 +12,7 @@ namespace raikiri {
 class SlidingLog {
 public:
     SlidingLog() = default;
+
     SlidingLog(std::uint32_t max, std::uint64_t window_ns, std::uint32_t reserve = 0)
         : ring_(max), max_{max}, window_ns_{window_ns}, reserve_{std::min(reserve, max)} {}
 
@@ -60,6 +61,7 @@ public:
     }
 
     [[nodiscard]] std::uint32_t max() const noexcept { return max_; }
+
     [[nodiscard]] std::uint64_t window_ns() const noexcept { return window_ns_; }
 
 private:

@@ -26,8 +26,7 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
 
 std::size_t count_of(std::string_view text, std::string_view needle) noexcept {
     std::size_t count = 0;
-    for (auto at = text.find(needle); at != std::string_view::npos;
-         at = text.find(needle, at + needle.size())) {
+    for (auto at = text.find(needle); at != std::string_view::npos; at = text.find(needle, at + needle.size())) {
         ++count;
     }
     return count;

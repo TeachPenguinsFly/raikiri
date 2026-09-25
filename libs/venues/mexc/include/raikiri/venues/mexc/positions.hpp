@@ -31,7 +31,6 @@ struct FuturesPositionBuffer {
 parse_futures_positions(std::string_view body, FuturesPositionBuffer& storage);
 
 // `data` as a single object (socket push)
-[[nodiscard]] std::expected<WireFuturesPosition, WireError>
-parse_futures_position(std::string_view frame);
+[[nodiscard]] std::expected<WireFuturesPosition, WireError> parse_futures_position(std::string_view frame);
 
 } // namespace raikiri::venues::mexc

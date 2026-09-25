@@ -1,6 +1,5 @@
-#include <raikiri/strategies/register.hpp>
-
 #include <raikiri/strategies/demo_maker.hpp>
+#include <raikiri/strategies/register.hpp>
 #include <raikiri/strategy/factory.hpp>
 
 namespace raikiri::strategies {

@@ -36,8 +36,7 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    net::RestClient rest{
-        io, net::RestConfig{.host = std::string{ep::rest_host(testnet)}, .pool_size = 4}};
+    net::RestClient rest{io, net::RestConfig{.host = std::string{ep::rest_host(testnet)}, .pool_size = 4}};
     std::unordered_map<std::uint64_t, DepthBook> books;
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};

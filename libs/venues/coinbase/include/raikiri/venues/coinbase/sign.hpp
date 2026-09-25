@@ -22,8 +22,7 @@ inline constexpr std::string_view k_ws_signature_path = "/users/self/verify";
 inline constexpr std::size_t k_max_secret_bytes = 128;
 
 // nullopt for non-base64 input, usually a mis-pasted key
-[[nodiscard]] std::optional<std::size_t> decode_secret(std::string_view base64_secret,
-                                                       std::span<char> out) noexcept;
+[[nodiscard]] std::optional<std::size_t> decode_secret(std::string_view base64_secret, std::span<char> out) noexcept;
 
 // empty on overflow
 [[nodiscard]] std::string_view prehash(std::string_view timestamp,

@@ -62,13 +62,11 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
         if (target.seed(*wire) != BookResult::Applied) {
             return;
         }
-        if (const auto seeded = target.snapshot(UnixNanos{wire->ts_ns}, response.received);
-            seeded.has_value()) {
+        if (const auto seeded = target.snapshot(UnixNanos{wire->ts_ns}, response.received); seeded.has_value()) {
             owner->sink->on_depth(*seeded);
         }
     };
-    if (state.depth_rest.send(state.builder.level2_snapshot(base.exchange_symbol.view()),
-                              handled)) {
+    if (state.depth_rest.send(state.builder.level2_snapshot(base.exchange_symbol.view()), handled)) {
         book.seed_requested();
     }
 }
@@ -119,8 +117,7 @@ void handle_uta_frame(VenueState& state, std::string_view frame, UnixNanos recei
     const auto wire = parse_uta_book(frame, *storage);
     if (!wire.has_value()) {
         if (const auto print = parse_uta_trade(frame); print.has_value()) {
-            if (const auto trade = map_trade(*print, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(*print, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -186,8 +183,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (memo == nullptr) {
             break; // nothing to accumulate into, and nothing to publish
         }
-        if (const auto funding =
-                map_funding(*wire, wire->symbol, state.instruments, *memo, received);
+        if (const auto funding = map_funding(*wire, wire->symbol, state.instruments, *memo, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
         }
@@ -220,8 +216,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (memo == nullptr) {
             break;
         }
-        if (const auto funding = map_mark_price(*wire, state.instruments, *memo, received);
-            funding.has_value()) {
+        if (const auto funding = map_mark_price(*wire, state.instruments, *memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
         break;
@@ -275,17 +270,14 @@ class KucoinData final : public exec::DataClient {
 public:
     explicit KucoinData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{rest_host(state_->market)}, .port = "443"}} {
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host(state_->market)}, .port = "443"}} {
         // both pools spend kucoin's per-ip allowance; the pool's room is checked before the budget
-        const auto gate = [owner = state_.get()](const net::RestClient& client,
-                                                 std::string_view target) {
+        const auto gate = [owner = state_.get()](const net::RestClient& client, std::string_view target) {
             return client.in_flight() < k_rest_queue_headroom && owner->admit_poll(target);
         };
-        state_->depth_rest.set_admit([gate, client = &state_->depth_rest](
-                                         std::string_view target) { return gate(*client, target); });
-        rest_.set_admit(
-            [gate, client = &rest_](std::string_view target) { return gate(*client, target); });
+        state_->depth_rest.set_admit(
+            [gate, client = &state_->depth_rest](std::string_view target) { return gate(*client, target); });
+        rest_.set_admit([gate, client = &rest_](std::string_view target) { return gate(*client, target); });
     }
 
     std::expected<void, exec::VenueError> start() override {
@@ -308,24 +300,18 @@ public:
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override {
-        return pool_ != nullptr && pool_->connected();
-    }
+    [[nodiscard]] bool connected() const noexcept override { return pool_ != nullptr && pool_->connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
             // a bullet serves one market tree
             return std::unexpected{exec::not_implemented("kucoin: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         // on uta one channel serves the quote and the ladder
         const auto topic = state_->uta ? uta_topic_for(kind) : topic_for(kind, state_->market);
@@ -343,8 +329,8 @@ public:
         if (state_->desired.size() != before && pool_ != nullptr) {
             const std::array<std::string, 1> one{key_of(topic, symbol)};
             if (!pool_->subscribe(one)) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, "kucoin: connection pool is full")};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kucoin: connection pool is full")};
             }
         }
         if (kind == exec::SubKind::Funding) {
@@ -401,8 +387,7 @@ public:
             if (!book.wants_seed(now.ns)) {
                 continue;
             }
-            if (const auto* instrument = state_->instruments.find(InstrumentId{packed});
-                instrument != nullptr) {
+            if (const auto* instrument = state_->instruments.find(InstrumentId{packed}); instrument != nullptr) {
                 request_seed(*state_, book, base_of(*instrument));
             }
         }
@@ -418,8 +403,7 @@ public:
         // depth_rest is pinned to the futures host; rest_ follows the market.
         auto& client = spot ? rest_ : state_->depth_rest;
         try {
-            if (!client.send(spot ? state_->builder.spot_all_tickers()
-                                  : state_->builder.contracts_active(),
+            if (!client.send(spot ? state_->builder.spot_all_tickers() : state_->builder.contracts_active(),
                              [this, spot](net::RestResponse&& response) {
                                  spot ? on_spot_ticker(response) : on_ticker(response);
                              })) {
@@ -431,8 +415,7 @@ public:
             return;
         }
         // only a sent call advances the interval
-        next_ticker_poll_ns_ =
-            now.ns + (state_->uta ? k_uta_funding_poll_interval_ns : k_ticker_poll_interval_ns);
+        next_ticker_poll_ns_ = now.ns + (state_->uta ? k_uta_funding_poll_interval_ns : k_ticker_poll_interval_ns);
     }
 
     // one refused funding seed per tick
@@ -464,8 +447,7 @@ public:
         for (const auto& row : *rows) {
             const auto stats = map_ticker_stats(row, state_->instruments, received);
             if (stats.has_value() &&
-                std::ranges::any_of(
-                    wanted_, [id = stats->instrument](InstrumentId sub) { return sub == id; })) {
+                std::ranges::any_of(wanted_, [id = stats->instrument](InstrumentId sub) { return sub == id; })) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -491,8 +473,7 @@ public:
             if (std::ranges::none_of(wanted_, [id](InstrumentId sub) { return sub == id; })) {
                 continue;
             }
-            if (const auto stats = map_ticker_stats(row, state_->instruments, received);
-                stats.has_value()) {
+            if (const auto stats = map_ticker_stats(row, state_->instruments, received); stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
             // uta only: the classic feed has its own funding stream writing the same cell
@@ -532,11 +513,9 @@ private:
                 if (cut == std::string::npos) {
                     continue;
                 }
-                const std::array<Subscription, 1> one{
-                    Subscription{.topic = std::string_view{key}.substr(0, cut),
-                                 .symbol = std::string_view{key}.substr(cut + 1)}};
-                if (const auto frame = state_->protocol.uta_subscribe_frame(one);
-                    frame.has_value()) {
+                const std::array<Subscription, 1> one{Subscription{.topic = std::string_view{key}.substr(0, cut),
+                                                                   .symbol = std::string_view{key}.substr(cut + 1)}};
+                if (const auto frame = state_->protocol.uta_subscribe_frame(one); frame.has_value()) {
                     out.emplace_back(frame->text);
                 }
             }
@@ -549,8 +528,8 @@ private:
             if (cut == std::string::npos) {
                 continue;
             }
-            views.push_back({.topic = std::string_view{key}.substr(0, cut),
-                             .symbol = std::string_view{key}.substr(cut + 1)});
+            views.push_back(
+                {.topic = std::string_view{key}.substr(0, cut), .symbol = std::string_view{key}.substr(cut + 1)});
         }
         // grouped by topic, quote first so it lands before the slower kinds
         const auto rank = [](std::string_view topic) {
@@ -574,8 +553,7 @@ private:
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < views.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(built));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(built));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
@@ -597,8 +575,7 @@ private:
             if (listed == nullptr) {
                 continue;
             }
-            if (const auto entry = state_->books.find(base_of(*listed).id.packed);
-                entry != state_->books.end()) {
+            if (const auto entry = state_->books.find(base_of(*listed).id.packed); entry != state_->books.end()) {
                 entry->second.invalidate();
             }
         }
@@ -619,8 +596,7 @@ private:
             return open_stream_at(
                 StreamEndpoint{.host = std::string{k_uta_futures_host}, .port = "443", .target = "/"});
         }
-        const auto body =
-            usable_body(await_response(*state_, rest_, state_->builder.bullet_public(), 10'000));
+        const auto body = usable_body(await_response(*state_, rest_, state_->builder.bullet_public(), 10'000));
         if (!body.has_value()) {
             state_->schedule_reopen();
             return std::unexpected{body.error()};
@@ -632,8 +608,7 @@ private:
     void begin_reopen() noexcept {
         if (state_->uta) {
             // no mint, so the reopen is immediate
-            (void)open_stream_at(
-                StreamEndpoint{.host = std::string{k_uta_futures_host}, .port = "443", .target = "/"})
+            (void)open_stream_at(StreamEndpoint{.host = std::string{k_uta_futures_host}, .port = "443", .target = "/"})
                 .has_value();
             return;
         }
@@ -642,9 +617,7 @@ private:
         }
         auto landing = std::make_shared<std::optional<net::RestResponse>>();
         if (!rest_.send(state_->builder.bullet_public(),
-                        [landing](net::RestResponse&& response) {
-                            *landing = std::move(response);
-                        })) {
+                        [landing](net::RestResponse&& response) { *landing = std::move(response); })) {
             state_->schedule_reopen();
             return;
         }
@@ -678,15 +651,12 @@ private:
         const auto bullet = parse_bullet(body);
         if (!bullet.has_value()) {
             state_->schedule_reopen();
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bullet.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bullet.error()))};
         }
-        const auto endpoint =
-            make_endpoint(bullet->endpoint, bullet->token, state_->next_connect_id());
+        const auto endpoint = make_endpoint(bullet->endpoint, bullet->token, state_->next_connect_id());
         if (!endpoint.has_value()) {
             state_->schedule_reopen();
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(endpoint.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(endpoint.error()))};
         }
         if (bullet->ping_interval_ms != 0) {
             state_->app_ping_interval_ns = bullet->ping_interval_ms * 1'000'000ULL;
@@ -703,8 +673,7 @@ private:
         // one bullet and connect id for the whole pool; a refused token answers 401 and remints
         pool_ = std::make_unique<net::WsPool>(
             state_->io,
-            net::WsConfig{
-                .host = endpoint.host, .port = endpoint.port, .target = endpoint.target},
+            net::WsConfig{.host = endpoint.host, .port = endpoint.port, .target = endpoint.target},
             handler_,
             // kucoin accepts 100 topic-symbol pairs per connection and drops the rest silently
             net::WsPoolConfig{},
@@ -719,8 +688,8 @@ private:
             keys.push_back(key_of(entry.topic, entry.symbol));
         }
         if (!keys.empty() && !pool_->subscribe(keys)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "kucoin: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kucoin: connection pool is full")};
         }
         // the pool forwards on_open per connection; calling it here would double the event
         return {};
@@ -728,33 +697,31 @@ private:
 
     [[nodiscard]] bool seed_funding(std::string_view symbol) {
         std::string owned{symbol};
-        return rest_.send(
-            state_->builder.funding_rate_current(symbol),
-            [this, owned = std::move(owned)](net::RestResponse&& response) {
-                if (response.status == 429) {
-                    state_->hold_after_refusal(response);
-                    pending_funding_seeds_.push_back(owned);
-                    return;
-                }
-                const auto body =
-                    usable_body(std::optional<net::RestResponse>{std::move(response)});
-                if (!body.has_value()) {
-                    return; // a contract without funding answers 415000
-                }
-                const auto wire = parse_funding_current(*body);
-                if (!wire.has_value()) {
-                    return;
-                }
-                const auto now = state_->clock->wall();
-                auto* memo = state_->memo_for(owned);
-                if (memo == nullptr) {
-                    return;
-                }
-                if (const auto funding = map_funding(*wire, owned, state_->instruments, *memo, now);
-                    funding.has_value()) {
-                    state_->sink->on_funding(*funding);
-                }
-            });
+        return rest_.send(state_->builder.funding_rate_current(symbol),
+                          [this, owned = std::move(owned)](net::RestResponse&& response) {
+                              if (response.status == 429) {
+                                  state_->hold_after_refusal(response);
+                                  pending_funding_seeds_.push_back(owned);
+                                  return;
+                              }
+                              const auto body = usable_body(std::optional<net::RestResponse>{std::move(response)});
+                              if (!body.has_value()) {
+                                  return; // a contract without funding answers 415000
+                              }
+                              const auto wire = parse_funding_current(*body);
+                              if (!wire.has_value()) {
+                                  return;
+                              }
+                              const auto now = state_->clock->wall();
+                              auto* memo = state_->memo_for(owned);
+                              if (memo == nullptr) {
+                                  return;
+                              }
+                              if (const auto funding = map_funding(*wire, owned, state_->instruments, *memo, now);
+                                  funding.has_value()) {
+                                  state_->sink->on_funding(*funding);
+                              }
+                          });
     }
 
     std::shared_ptr<VenueState> state_;

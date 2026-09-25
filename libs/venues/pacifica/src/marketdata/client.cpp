@@ -49,8 +49,8 @@ constexpr char k_key_sep = '\x1f';
         return R"({"method":"subscribe","params":{"source":")" + std::string{key} + R"("}})";
     }
     const auto source = key.substr(0, cut);
-    std::string frame = R"({"method":"subscribe","params":{"source":")" + std::string{source} +
-                        R"(","symbol":")" + std::string{key.substr(cut + 1)} + '"';
+    std::string frame = R"({"method":"subscribe","params":{"source":")" + std::string{source} + R"(","symbol":")" +
+                        std::string{key.substr(cut + 1)} + '"';
     if (source == "book") {
         frame += R"(,"agg_level":1)";
     }
@@ -193,8 +193,7 @@ private:
                 state_->sink->on_funding(*funding);
                 found->market->funded = true;
             }
-            if (const auto stats = map_ticker_stats(row, *found->base, received);
-                stats.has_value()) {
+            if (const auto stats = map_ticker_stats(row, *found->base, received); stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -228,17 +227,13 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         auto* market = state_->market_of(instrument);
         if (symbol.empty() || market == nullptr) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto source = source_of(kind);
         if (source.empty()) {
@@ -257,8 +252,8 @@ public:
         }
         const std::array<std::string, 1> one{std::move(key)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "pacifica: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "pacifica: connection pool is full")};
         }
         return {};
     }
@@ -288,8 +283,7 @@ public:
 private:
     [[nodiscard]] static std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string> ordered{keys.begin(), keys.end()};
-        std::ranges::stable_partition(
-            ordered, [](const std::string& key) { return key.starts_with("bbo"); });
+        std::ranges::stable_partition(ordered, [](const std::string& key) { return key.starts_with("bbo"); });
         std::vector<std::string> frames;
         frames.reserve(ordered.size());
         for (const auto& key : ordered) {

@@ -14,8 +14,7 @@ namespace raikiri::platform {
 // true if the pid exists; pids recycle, so pair it with segment heartbeats
 [[nodiscard]] bool process_alive(pid_t pid) noexcept;
 
-[[nodiscard]] std::expected<void, std::error_code> preallocate(int fd,
-                                                               std::uint64_t bytes) noexcept;
+[[nodiscard]] std::expected<void, std::error_code> preallocate(int fd, std::uint64_t bytes) noexcept;
 
 // returns ENOTSUP on macos
 [[nodiscard]] std::expected<void, std::error_code> pin_thread(unsigned cpu) noexcept;

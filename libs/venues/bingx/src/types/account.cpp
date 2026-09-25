@@ -45,8 +45,7 @@ namespace {
 
 // rows under data; both endpoints send a bare array
 template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError>
-read_data(std::string_view body, std::span<Entry> into, Read&& read) {
+std::expected<std::span<const Entry>, WireError> read_data(std::string_view body, std::span<Entry> into, Read&& read) {
     auto root = session().open_object(body);
     if (!root.has_value()) {
         return std::unexpected(root.error());
@@ -112,13 +111,11 @@ std::expected<void, WireError> read_income(wire::ondemand::object& obj, WireInco
 
 } // namespace
 
-std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body,
-                                                                      BalanceBuffer& storage) {
+std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body, BalanceBuffer& storage) {
     return guarded([&] { return read_data<WireBalance>(body, storage.balances, read_balance); });
 }
 
-std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body,
-                                                                   IncomeBuffer& storage) {
+std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body, IncomeBuffer& storage) {
     return guarded([&] { return read_data<WireIncome>(body, storage.rows, read_income); });
 }
 

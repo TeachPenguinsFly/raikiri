@@ -14,8 +14,7 @@ using wire::guarded;
 using wire::session;
 
 // a level is ["price","qty"] strings on the socket and in rest
-std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
-                                                  std::span<WireLevel> into) {
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side, std::span<WireLevel> into) {
     wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -82,9 +81,7 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         std::optional<std::size_t> bids;
         std::optional<std::size_t> asks;
         const auto walked = wire::for_each_field(
-            *root,
-            [&](std::string_view key,
-                wire::ondemand::value& value) -> std::expected<void, WireError> {
+            *root, [&](std::string_view key, wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "b" || key == "a") {
                     const bool bid = key == "b";
                     const auto count = read_levels(value, bid ? storage.bids : storage.asks);

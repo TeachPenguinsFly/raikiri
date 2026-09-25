@@ -16,7 +16,7 @@ enum class Step : std::uint8_t {
     Apply,
     Stale, // already applied, or from before the snapshot
     Cold,
-    Gap,   // the chain broke: the state is dropped and asked for again
+    Gap, // the chain broke: the state is dropped and asked for again
 };
 
 // latest_sequence_number from the ack anchors the snapshot; a delta whose prev breaks the chain resubscribes

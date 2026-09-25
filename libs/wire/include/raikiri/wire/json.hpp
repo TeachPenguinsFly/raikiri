@@ -53,20 +53,17 @@ private:
 
 // Reads a JSON string as a view over the caller's buffer; JSON null reads as
 // empty.
-[[nodiscard]] std::expected<std::string_view, Error> str_of(ondemand::value value,
-                                                            const Session& s = session());
+[[nodiscard]] std::expected<std::string_view, Error> str_of(ondemand::value value, const Session& s = session());
 
 // The token as written, trimmed, whatever its type.
-[[nodiscard]] std::expected<std::string_view, Error> raw_of(ondemand::value value,
-                                                            const Session& s = session());
+[[nodiscard]] std::expected<std::string_view, Error> raw_of(ondemand::value value, const Session& s = session());
 
 [[nodiscard]] std::expected<std::uint64_t, Error> u64_of(ondemand::value value);
 [[nodiscard]] std::expected<std::int64_t, Error> i64_of(ondemand::value value);
 [[nodiscard]] std::expected<bool, Error> bool_of(ondemand::value value);
 
 // every field once, in wire order; fn may return void or std::expected<void, Error>
-template <typename Fn>
-[[nodiscard]] std::expected<void, Error> for_each_field(ondemand::object& obj, Fn&& fn) {
+template <typename Fn> [[nodiscard]] std::expected<void, Error> for_each_field(ondemand::object& obj, Fn&& fn) {
     for (auto field : obj) {
         std::string_view key;
         if (const auto ec = field.escaped_key().get(key); ec != simdjson::SUCCESS) {
@@ -76,8 +73,7 @@ template <typename Fn>
         if (const auto ec = field.value().get(value); ec != simdjson::SUCCESS) {
             return std::unexpected(map_error(ec));
         }
-        if constexpr (std::is_void_v<
-                          std::invoke_result_t<Fn&, std::string_view, ondemand::value&>>) {
+        if constexpr (std::is_void_v<std::invoke_result_t<Fn&, std::string_view, ondemand::value&>>) {
             fn(key, value);
         } else if (auto done = fn(key, value); !done.has_value()) {
             return std::unexpected(done.error());
@@ -87,29 +83,21 @@ template <typename Fn>
 }
 
 // find_field_unordered with every step of the wraparound pass checked, safe on a malformed frame
-[[nodiscard]] simdjson::simdjson_result<ondemand::value> find(ondemand::object& obj,
-                                                              std::string_view key);
+[[nodiscard]] simdjson::simdjson_result<ondemand::value> find(ondemand::object& obj, std::string_view key);
 
-[[nodiscard]] std::expected<std::string_view, Error> opt_str(ondemand::object& obj,
-                                                             std::string_view key);
-[[nodiscard]] std::expected<std::string_view, Error> req_str(ondemand::object& obj,
-                                                             std::string_view key);
+[[nodiscard]] std::expected<std::string_view, Error> opt_str(ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::string_view, Error> req_str(ondemand::object& obj, std::string_view key);
 
 // for ids and timestamps sent as json numbers
-[[nodiscard]] std::expected<std::uint64_t, Error> opt_u64(ondemand::object& obj,
-                                                          std::string_view key);
-[[nodiscard]] std::expected<std::int64_t, Error> opt_i64(ondemand::object& obj,
-                                                         std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, Error> opt_u64(ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::int64_t, Error> opt_i64(ondemand::object& obj, std::string_view key);
 [[nodiscard]] std::expected<bool, Error> opt_bool(ondemand::object& obj, std::string_view key);
 
 // raw json text of a field, for a payload handed to a second parser
-[[nodiscard]] std::expected<std::string_view, Error> opt_raw(ondemand::object& obj,
-                                                             std::string_view key);
+[[nodiscard]] std::expected<std::string_view, Error> opt_raw(ondemand::object& obj, std::string_view key);
 
-[[nodiscard]] std::expected<ondemand::array, Error> req_array(ondemand::object& obj,
-                                                              std::string_view key);
-[[nodiscard]] std::expected<ondemand::object, Error> req_object(ondemand::object& obj,
-                                                                std::string_view key);
+[[nodiscard]] std::expected<ondemand::array, Error> req_array(ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<ondemand::object, Error> req_object(ondemand::object& obj, std::string_view key);
 
 // on-demand throws through its implicit conversions; this keeps an exception out of a gateway
 template <typename Fn> [[nodiscard]] auto guarded(Fn&& fn) -> decltype(fn()) {
@@ -120,8 +108,7 @@ template <typename Fn> [[nodiscard]] auto guarded(Fn&& fn) -> decltype(fn()) {
     }
 }
 
-[[nodiscard]] std::expected<std::uint64_t, Error> opt_ms(ondemand::object& obj,
-                                                         std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, Error> opt_ms(ondemand::object& obj, std::string_view key);
 
 [[nodiscard]] std::uint64_t digits_to_u64(std::string_view s) noexcept;
 

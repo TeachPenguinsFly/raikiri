@@ -71,8 +71,7 @@ struct VenueState {
     }
 
     Book& book_for(const InstrumentBase& base) {
-        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-            .first->second;
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
     }
 };
 

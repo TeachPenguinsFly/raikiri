@@ -25,8 +25,7 @@ public:
     JournalReader& operator=(JournalReader&& other) noexcept;
     ~JournalReader();
 
-    [[nodiscard]] static std::expected<JournalReader, JournalError> open(std::string dir,
-                                                                         std::string prefix);
+    [[nodiscard]] static std::expected<JournalReader, JournalError> open(std::string dir, std::string prefix);
 
     [[nodiscard]] static std::expected<JournalReader, JournalError>
     open_after(std::string dir, std::string prefix, std::uint64_t after_seq);

@@ -32,8 +32,8 @@ struct BalanceBuffer {
 };
 
 // data is a bare array here; v2 returns a single object under data.balance
-[[nodiscard]] std::expected<std::span<const WireBalance>, WireError>
-parse_balances(std::string_view body, BalanceBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body,
+                                                                                    BalanceBuffer& storage);
 
 // income is signed as the account moved; tranId and tradeId are underscored strings
 struct WireIncome {
@@ -52,7 +52,7 @@ struct IncomeBuffer {
     std::array<WireIncome, k_max_income_rows> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireIncome>, WireError>
-parse_income(std::string_view body, IncomeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body,
+                                                                                 IncomeBuffer& storage);
 
 } // namespace raikiri::venues::bingx

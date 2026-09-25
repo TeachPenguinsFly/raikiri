@@ -46,7 +46,7 @@ struct TickerBuffer {
     std::array<WireTicker, k_max_tickers> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTicker>, WireError>
-parse_tickers(std::string_view body, TickerBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body,
+                                                                                  TickerBuffer& storage);
 
 } // namespace raikiri::venues::backpack

@@ -18,12 +18,8 @@ GatewayStats gateway(std::string account, std::string venue, std::uint64_t taken
     stats.venue = std::move(venue);
     stats.taken_ns = taken_ns;
     stats.catalogue.instruments = 100;
-    stats.subscriptions.push_back(SubscriptionStats{.channel = "bbo",
-                                                    .requested = 100,
-                                                    .accepted = 90,
-                                                    .refused = 10,
-                                                    .messages = 0,
-                                                    .per_second = 0});
+    stats.subscriptions.push_back(SubscriptionStats{
+        .channel = "bbo", .requested = 100, .accepted = 90, .refused = 10, .messages = 0, .per_second = 0});
     SocketStats pool{};
     pool.host = "ws";
     pool.sockets = 2;
@@ -96,10 +92,8 @@ public:
 TEST(IntrospectQueries, TheMachineViewClassifiesEachSnapshotAgainstTheInjectedClock) {
     FakeSource source;
     source.records["bybit"] = {.stats = gateway("bybit", "bybit", 995 * k_s), .process_alive = true};
-    source.records["kucoin"] = {.stats = gateway("kucoin", "kucoin", 900 * k_s),
-                                .process_alive = true};
-    source.records["pacifica"] = {.stats = gateway("pacifica", "pacifica", 999 * k_s),
-                                  .process_alive = false};
+    source.records["kucoin"] = {.stats = gateway("kucoin", "kucoin", 900 * k_s), .process_alive = true};
+    source.records["pacifica"] = {.stats = gateway("pacifica", "pacifica", 999 * k_s), .process_alive = false};
     const GetMachineStats machine{source, [] { return 1000 * k_s; }};
     const auto stats = machine();
     EXPECT_EQ(stats.taken_ns, 1000 * k_s);

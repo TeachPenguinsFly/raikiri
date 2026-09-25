@@ -275,8 +275,7 @@ TEST(BybitOrders, StatusMappingIncludingTheTerminalTrap) {
     EXPECT_EQ(order_status_from("Filled"), WireOrderStatus::Filled);
     EXPECT_EQ(order_status_from("Cancelled"), WireOrderStatus::Cancelled);
     // PartiallyFilledCanceled is terminal
-    EXPECT_EQ(order_status_from("PartiallyFilledCanceled"),
-              WireOrderStatus::PartiallyFilledCanceled);
+    EXPECT_EQ(order_status_from("PartiallyFilledCanceled"), WireOrderStatus::PartiallyFilledCanceled);
     EXPECT_EQ(order_status_from("SomethingNew"), WireOrderStatus::Unknown);
     EXPECT_EQ(order_status_from(""), WireOrderStatus::Unknown);
 }
@@ -364,8 +363,7 @@ TEST(BybitRest, TheCataloguePagesOnTheCursorItStates) {
 
     net::Signer signer;
     RequestBuilder builder{signer, 5'000};
-    EXPECT_EQ(builder.instruments(MarketType::Perp).target,
-              "/v5/market/instruments-info?category=linear&limit=1000");
+    EXPECT_EQ(builder.instruments(MarketType::Perp).target, "/v5/market/instruments-info?category=linear&limit=1000");
     EXPECT_EQ(builder.instruments(MarketType::Perp, *cursor).target,
               "/v5/market/instruments-info?category=linear&limit=1000"
               "&cursor=first%3D0GUSDT%26last%3D1000000BABYDOGEUSDT");
@@ -377,8 +375,7 @@ TEST(BybitRest, TheCataloguePagesOnTheCursorItStates) {
     ASSERT_TRUE(second_rows.has_value());
     ASSERT_EQ(second_rows->size(), 2U);
     EXPECT_EQ((*second_rows)[0].symbol, "1000000MOGUSDT");
-    EXPECT_EQ(*parse_page_cursor(second->result),
-              "first%3D1000000MOGUSDT%26last%3D10000NEXUSDT");
+    EXPECT_EQ(*parse_page_cursor(second->result), "first%3D1000000MOGUSDT%26last%3D10000NEXUSDT");
 
     // a last page states no cursor, or an empty one
     EXPECT_EQ(*parse_page_cursor(R"({"category":"linear","list":[],"nextPageCursor":""})"), "");

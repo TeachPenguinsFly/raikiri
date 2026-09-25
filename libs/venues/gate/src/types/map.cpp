@@ -51,8 +51,7 @@ UnixNanos s_to_unix(std::uint64_t seconds) noexcept {
     return UnixNanos{seconds * 1'000'000'000ULL};
 }
 
-std::optional<Bbo>
-map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -80,9 +79,8 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
 namespace {
 
 // levels stop at the domain's ceiling; the count says how many are real
-std::uint32_t fill_levels(std::span<const WireLevel> from,
-                          const InstrumentBase& base,
-                          std::array<BookLevel, k_book_levels>& into) {
+std::uint32_t
+fill_levels(std::span<const WireLevel> from, const InstrumentBase& base, std::array<BookLevel, k_book_levels>& into) {
     std::uint32_t count = 0;
     for (const auto& level : from) {
         if (count == k_book_levels) {
@@ -121,8 +119,7 @@ map_book(const WireBookUpdate& wire, const exec::InstrumentTable& table, UnixNan
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -268,8 +265,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.kind = ContractKind::Linear;
     PerpInstrument perp{base, wire.funding_interval_s};
     // undef when unparsable; zero would read as never paying
-    if (const auto limit = parse_decimal_e9(wire.funding_rate_limit);
-        limit.has_value() && limit->raw > 0) {
+    if (const auto limit = parse_decimal_e9(wire.funding_rate_limit); limit.has_value() && limit->raw > 0) {
         perp.funding_cap = *limit;
         perp.funding_floor = FixedE9::from_raw(-limit->raw);
     }
@@ -398,9 +394,8 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
     out.instrument = base.id;
     out.side = wire.sell ? Side::Sell : Side::Buy;
     // futures has no order type: price 0 with ioc is a market order
-    out.order_type = (wire.order_type == "market" || (wire.price == "0" && wire.tif == "ioc"))
-                         ? OrderType::Market
-                         : OrderType::Limit;
+    out.order_type = (wire.order_type == "market" || (wire.price == "0" && wire.tif == "ioc")) ? OrderType::Market
+                                                                                               : OrderType::Limit;
     if (wire.tif == "ioc") {
         out.tif = TimeInForce::Ioc;
     } else if (wire.tif == "fok") {
@@ -466,8 +461,7 @@ std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -537,8 +531,7 @@ std::optional<BalanceReport> map_futures_account(const WireFuturesAccount& wire)
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;

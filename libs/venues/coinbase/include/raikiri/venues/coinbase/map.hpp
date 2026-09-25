@@ -19,8 +19,7 @@ namespace raikiri::venues::coinbase {
 [[nodiscard]] UnixNanos iso_to_unix(std::string_view text, UnixNanos fallback) noexcept;
 
 // the ticker is republished per match only, so quote moves between trades are invisible; ts_event is the match time
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
@@ -33,8 +32,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType market);
 
 // size minus filled_size, both in base; coinbase publishes no leaves
-[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
-                                                  const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::InstrumentTable& table);
 
 // client_id is passed in because the uuid cannot be turned back into the ulid; nullopt for done/filled rows
 [[nodiscard]] std::optional<OrderEvent> map_order_event(const WireOrder& wire,
@@ -43,8 +41,6 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
                                                         UnixNanos ts_init);
 
 [[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire,
-               const exec::InstrumentTable& table,
-               const ExchangeClientOrderId& client_id);
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table, const ExchangeClientOrderId& client_id);
 
 } // namespace raikiri::venues::coinbase

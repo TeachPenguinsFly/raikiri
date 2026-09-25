@@ -65,10 +65,9 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     const auto lot = parse_decimal_e9(wire.lot);
     const auto symbol = SymbolText::from(wire.name);
     // kFLOKI and 1000PEPE are a thousand of the coin and keep their own name.
-    const auto local =
-        canonical_symbol(wire.name.substr(0, wire.name.size() - k_wire_quote.size()), k_perp_quote);
-    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 ||
-        !symbol.has_value() || !local.has_value()) {
+    const auto local = canonical_symbol(wire.name.substr(0, wire.name.size() - k_wire_quote.size()), k_perp_quote);
+    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 || !symbol.has_value() ||
+        !local.has_value()) {
         return std::nullopt;
     }
 
@@ -87,8 +86,7 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     return perp;
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = steps_of(wire.price, base.tick_size);
     const auto qty = steps_of(wire.qty, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -138,8 +136,7 @@ void note_market(const WireMarket& wire, const InstrumentBase& base, FundingMemo
     }
 }
 
-FundingUpdate
-merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
+FundingUpdate merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = memo.rate;
@@ -153,8 +150,7 @@ merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, 
     return out;
 }
 
-std::optional<TickerStats>
-map_ticker_stats(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TickerStats> map_ticker_stats(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto base_volume = parse_amount_e9(wire.volume_base);
     const auto quote_volume = parse_turnover_e6(wire.volume_quote);
     if (!base_volume.has_value() && !quote_volume.has_value()) {

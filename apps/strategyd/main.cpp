@@ -1,6 +1,7 @@
 // strategyd: strategy kernel; attaches gateways, runs strategies and serves a loopback control port
 // single thread: rings, timers and the control surface are polled in one loop
 
+#include <raikiri/http/server.hpp>
 #include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -18,7 +19,6 @@
 #include <raikiri/portfolio/position_book.hpp>
 #include <raikiri/portfolio/reconcile.hpp>
 #include <raikiri/portfolio/target.hpp>
-#include <raikiri/http/server.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/strategies/register.hpp>
@@ -85,15 +85,10 @@ struct Gateway {
     // one kernel gate per gateway so a break on one does not stop another
     oms::KernelGate kernel;
 
-    Gateway(AccountId id,
-            std::string display,
-            shm::SegmentClient attached,
-            shm::GatewayChannels channels)
-        : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels},
-          exec{channels.exec_events}, charges{channels.funding_charges},
-          fills{channels.fills}, md{channels.md_events},
-          creates{channels.cmd_create}, cancels{channels.cmd_cancel},
-          intents{channels.order_intents},
+    Gateway(AccountId id, std::string display, shm::SegmentClient attached, shm::GatewayChannels channels)
+        : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels}, exec{channels.exec_events},
+          charges{channels.funding_charges}, fills{channels.fills}, md{channels.md_events},
+          creates{channels.cmd_create}, cancels{channels.cmd_cancel}, intents{channels.order_intents},
           bbo_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_bbo_cells)),
           funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
 };
@@ -109,8 +104,7 @@ public:
                   oms::IdGen& ids,
                   journal::JournalWriter& journal,
                   const Clock& clock)
-        : gateways_{&gateways}, store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal},
-          clock_{&clock} {}
+        : gateways_{&gateways}, store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal}, clock_{&clock} {}
 
     [[nodiscard]] Gateway* gateway_for(InstrumentId id) const noexcept {
         const AccountId want{.venue = id.venue(), .market = id.market()};
@@ -144,11 +138,9 @@ public:
         if (gw == nullptr) {
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
-        oms::Exposure exposure{.reconciliation_break =
-                                   recon_gate.halted(order.instrument) || !gw->kernel.may_open(),
+        oms::Exposure exposure{.reconciliation_break = recon_gate.halted(order.instrument) || !gw->kernel.may_open(),
                                .open_orders = store_->open_count()};
-        if (const auto* held = positions.find({id.strategy_id(), order.instrument});
-            held != nullptr) {
+        if (const auto* held = positions.find({id.strategy_id(), order.instrument}); held != nullptr) {
             exposure.position_lots = held->qty();
         }
         const auto working = oms::working_lots(*store_, order.instrument);
@@ -159,9 +151,7 @@ public:
             exposure.reference_price = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
         }
         if (const auto allowed = risk_->check(cmd, exposure); !allowed.has_value()) {
-            RLOG_WARN("strategyd: risk refused coid={} — {}",
-                      cmd.client_order_id.raw,
-                      oms::to_string(allowed.error()));
+            RLOG_WARN("strategyd: risk refused coid={} — {}", cmd.client_order_id.raw, oms::to_string(allowed.error()));
             return std::unexpected{strategy::RejectReason::Risk};
         }
         if (!store_->create(cmd, cmd.exchange_client_order_id).has_value()) {
@@ -283,8 +273,7 @@ public:
     std::unordered_map<std::uint64_t, std::vector<oms::BookedFill>> fills_after;
 
     void record_fill(InstrumentId instrument, Side side, QtyLots delta, UnixNanos ts) {
-        fills_after[instrument.packed].push_back(
-            {.ts_ns = ts.ns, .lots = side == Side::Buy ? delta.raw : -delta.raw});
+        fills_after[instrument.packed].push_back({.ts_ns = ts.ns, .lots = side == Side::Buy ? delta.raw : -delta.raw});
     }
 
     std::unordered_map<std::uint64_t, std::uint64_t> inflight_; // coid -> submit mono ns
@@ -302,42 +291,37 @@ public:
         (void)schema::append_msg<msgs::PnlIncrementMsg>(*journal_, event.ts_event.ns, [&](auto m) {
             namespace jt = raikiri_journal::types;
             m.kind(kind);
-            m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base
-                             ? jt::settleSideEnum::Base
-                             : jt::settleSideEnum::Quote);
+            m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base ? jt::settleSideEnum::Base
+                                                                                          : jt::settleSideEnum::Quote);
             m.strategyId(event.client_order_id.strategy_id());
             m.instrument(jt::instrumentId{event.instrument.packed});
             m.symbol().assign_range(base.exchange_symbol.view());
             m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
             m.execIdField().assign_range(
-                fill_identity(event.client_order_id, event.leaves_qty, event.exec_id.view())
-                    .view());
+                fill_identity(event.client_order_id, event.leaves_qty, event.exec_id.view()).view());
             m.amount(jt::fixedE9{amount.raw});
             m.tsEvent(jt::timestampNs{event.ts_event.ns});
         });
     }
 
-    void journal_position(const portfolio::Position& position,
-                          const InstrumentBase& base) noexcept {
-        (void)schema::append_msg<msgs::PositionMsg>(
-            *journal_, position.ts_updated().ns, [&](auto m) {
-                namespace jt = raikiri_journal::types;
-                m.strategyId(position.key().strategy_id);
-                m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base
-                                 ? jt::settleSideEnum::Base
-                                 : jt::settleSideEnum::Quote);
-                m.venue(static_cast<jt::venueIdEnum>(position.key().instrument.venue()));
-                m.instrument(jt::instrumentId{position.key().instrument.packed});
-                m.symbol().assign_range(base.exchange_symbol.view());
-                m.netQty(jt::qtyLots{position.qty().raw});
-                // store cost; the average is derived
-                m.cost(jt::fixedE9{position.cost().raw});
-                m.realized(jt::fixedE9{position.realized().raw});
-                m.fees(jt::fixedE9{position.fees().raw});
-                m.fillCount(position.fill_count());
-                m.tsOpened(jt::timestampNs{position.ts_opened().ns});
-                m.tsUpdated(jt::timestampNs{position.ts_updated().ns});
-            });
+    void journal_position(const portfolio::Position& position, const InstrumentBase& base) noexcept {
+        (void)schema::append_msg<msgs::PositionMsg>(*journal_, position.ts_updated().ns, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            m.strategyId(position.key().strategy_id);
+            m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base ? jt::settleSideEnum::Base
+                                                                                          : jt::settleSideEnum::Quote);
+            m.venue(static_cast<jt::venueIdEnum>(position.key().instrument.venue()));
+            m.instrument(jt::instrumentId{position.key().instrument.packed});
+            m.symbol().assign_range(base.exchange_symbol.view());
+            m.netQty(jt::qtyLots{position.qty().raw});
+            // store cost; the average is derived
+            m.cost(jt::fixedE9{position.cost().raw});
+            m.realized(jt::fixedE9{position.realized().raw});
+            m.fees(jt::fixedE9{position.fees().raw});
+            m.fillCount(position.fill_count());
+            m.tsOpened(jt::timestampNs{position.ts_opened().ns});
+            m.tsUpdated(jt::timestampNs{position.ts_updated().ns});
+        });
     }
 
     // journal a desk order the risk gate refused so /v1/orders/{id} can answer
@@ -391,13 +375,11 @@ private:
 };
 
 // working lots for one strategy; oms::working_lots nets the whole process
-[[nodiscard]] oms::WorkingLots working_lots_of(const oms::OrderStore& store,
-                                               std::uint16_t strategy_id,
-                                               InstrumentId instrument) noexcept {
+[[nodiscard]] oms::WorkingLots
+working_lots_of(const oms::OrderStore& store, std::uint16_t strategy_id, InstrumentId instrument) noexcept {
     oms::WorkingLots out{};
     store.for_each_open([&](const oms::Order& order) {
-        if (order.instrument() != instrument ||
-            order.client_order_id().strategy_id() != strategy_id) {
+        if (order.instrument() != instrument || order.client_order_id().strategy_id() != strategy_id) {
             return;
         }
         auto& side = order.side() == Side::Buy ? out.buy : out.sell;
@@ -414,26 +396,19 @@ public:
 
     [[nodiscard]] std::uint16_t strategy_id() const noexcept { return ids_.strategy_id(); }
 
-    std::expected<ClientOrderId, strategy::RejectReason>
-    submit(const strategy::NewOrder& order) noexcept override {
+    std::expected<ClientOrderId, strategy::RejectReason> submit(const strategy::NewOrder& order) noexcept override {
         return kernel_->submit_as(order, ids_.next_client_id());
     }
 
-    bool cancel(ClientOrderId id) noexcept override {
-        return id.strategy_id() == strategy_id() && kernel_->cancel(id);
-    }
+    bool cancel(ClientOrderId id) noexcept override { return id.strategy_id() == strategy_id() && kernel_->cancel(id); }
 
     void cancel_all(InstrumentId instrument) noexcept override { (void)pull(&instrument); }
 
     std::size_t pull_all() noexcept { return pull(nullptr); }
 
-    std::optional<Bbo> bbo(InstrumentId instrument) const noexcept override {
-        return kernel_->bbo(instrument);
-    }
+    std::optional<Bbo> bbo(InstrumentId instrument) const noexcept override { return kernel_->bbo(instrument); }
 
-    const Instrument* instrument(InstrumentId id) const noexcept override {
-        return kernel_->instrument(id);
-    }
+    const Instrument* instrument(InstrumentId id) const noexcept override { return kernel_->instrument(id); }
 
     const portfolio::Position* position(InstrumentId id) const noexcept override {
         return kernel_->positions.find({strategy_id(), id});
@@ -448,8 +423,7 @@ public:
         return portfolio::unrealized_pnl(base_of(*listed), *held, mark);
     }
 
-    std::optional<ClientOrderId>
-    set_target(const portfolio::PortfolioTarget& target) noexcept override {
+    std::optional<ClientOrderId> set_target(const portfolio::PortfolioTarget& target) noexcept override {
         auto held = QtyLots::from_raw(0);
         if (const auto* p = position(target.instrument); p != nullptr) {
             held = p->qty();
@@ -537,9 +511,8 @@ void journal_break(raikiri::journal::JournalWriter& journal,
                    raikiri::UnixNanos now) {
     (void)raikiri::schema::append_msg<msgs::ReconBreakMsg>(journal, now.ns, [&](auto m) {
         namespace jt = raikiri_journal::types;
-        m.verdict(result.verdict == raikiri::portfolio::ReconVerdict::Unknown
-                      ? jt::reconVerdictEnum::Unknown
-                      : jt::reconVerdictEnum::Break);
+        m.verdict(result.verdict == raikiri::portfolio::ReconVerdict::Unknown ? jt::reconVerdictEnum::Unknown
+                                                                              : jt::reconVerdictEnum::Break);
         m.venue(static_cast<jt::venueIdEnum>(venue));
         m.instrument(jt::instrumentId{instrument.packed});
         m.symbol().assign_range(symbol);
@@ -640,15 +613,13 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
         shm::PositionCell cell{};
         const bool written = table.read(idx, cell) != 0;
         // rewind fills the venue had not seen at the snapshot, using venue timestamps
-        const auto boundary =
-            cell.report.ts_venue.ns != 0 ? cell.report.ts_venue.ns : cell.ts_pulled.ns;
+        const auto boundary = cell.report.ts_venue.ns != 0 ? cell.report.ts_venue.ns : cell.ts_pulled.ns;
         auto local_raw = book.contains(id.packed) ? book[id.packed] : 0;
         if (const auto it = ctx.fills_after.find(id.packed); it != ctx.fills_after.end()) {
             local_raw = oms::book_as_of(local_raw, it->second, boundary);
         }
         const auto local = QtyLots::from_raw(local_raw);
-        const bool answered = written && !cell.report.net_qty.is_undef() &&
-                              cell.ts_pulled.ns != 0 &&
+        const bool answered = written && !cell.report.net_qty.is_undef() && cell.ts_pulled.ns != 0 &&
                               now.ns - cell.ts_pulled.ns <= k_snapshot_max_age_ns;
         if (!answered && local.raw == 0 && (!written || cell.report.net_qty.raw == 0)) {
             continue;
@@ -721,17 +692,15 @@ void write_funding_row(journal::JournalWriter& writer,
     (void)schema::append_msg<msgs::PnlIncrementMsg>(writer, charge.settled_at.ns, [&](auto m) {
         namespace jt = raikiri_journal::types;
         m.kind(jt::pnlKindEnum::Funding);
-        m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base
-                         ? jt::settleSideEnum::Base
-                         : jt::settleSideEnum::Quote);
+        m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base ? jt::settleSideEnum::Base
+                                                                                      : jt::settleSideEnum::Quote);
         m.strategyId(strategy_id);
         m.instrument(jt::instrumentId{base.id.packed});
         m.symbol().assign_range(base.exchange_symbol.view());
         // zero means no order
         m.clientOrderIdField(jt::clientOrderId{0});
         std::array<char, oms::k_max_funding_identity> buf{};
-        m.execIdField().assign_range(
-            oms::funding_identity(base.id, charge.settled_at, strategy_id, buf));
+        m.execIdField().assign_range(oms::funding_identity(base.id, charge.settled_at, strategy_id, buf));
         m.amount(jt::fixedE9{amount.raw});
         m.tsEvent(jt::timestampNs{charge.settled_at.ns});
     });
@@ -744,8 +713,7 @@ void journal_funding(journal::JournalWriter& writer,
     std::vector<oms::FundingHolder> holders;
     for (const auto& position : book.all()) {
         if (position.key().instrument == charge.instrument) {
-            holders.push_back(
-                {.strategy_id = position.key().strategy_id, .lots = position.qty().raw});
+            holders.push_back({.strategy_id = position.key().strategy_id, .lots = position.qty().raw});
         }
     }
     for (const auto& share : oms::split_funding(holders, charge.amount, k_manual_strategy_id)) {
@@ -796,17 +764,15 @@ Restoration restore_book(portfolio::PositionBook& book,
         if (row.state.qty.raw == 0 && row.state.realized.raw == 0) {
             continue; // a closed position carries nothing worth restoring
         }
-        const bool listed = std::ranges::any_of(catalogues, [&](const auto* table) {
-            return table != nullptr && table->find(row.instrument) != nullptr;
-        });
+        const bool listed = std::ranges::any_of(
+            catalogues, [&](const auto* table) { return table != nullptr && table->find(row.instrument) != nullptr; });
         if (!listed) {
             std::array<char, 16> buf{};
-            unattached.emplace(format_account(
-                {row.instrument.venue(), row.instrument.market()}, buf.data(), buf.size()));
+            unattached.emplace(
+                format_account({row.instrument.venue(), row.instrument.market()}, buf.data(), buf.size()));
             continue;
         }
-        if (book.restore({.strategy_id = row.strategy_id, .instrument = row.instrument},
-                         row.state)) {
+        if (book.restore({.strategy_id = row.strategy_id, .instrument = row.instrument}, row.state)) {
             ++out.restored;
         }
     }
@@ -824,8 +790,7 @@ struct Requested {
 };
 
 // the config is the whole remainder, colons included
-[[nodiscard]] std::optional<Requested> parse_strategy_spec(std::string_view spec,
-                                                           std::uint16_t default_id) {
+[[nodiscard]] std::optional<Requested> parse_strategy_spec(std::string_view spec, std::uint16_t default_id) {
     Requested out{};
     out.strategy_id = default_id;
     const auto after_type = spec.find(':');
@@ -841,8 +806,7 @@ struct Requested {
     const auto after_id = rest.find(':');
     if (const auto text = rest.substr(0, after_id); !text.empty()) {
         std::uint64_t value = 0;
-        const auto [stop, ec] =
-            std::from_chars(text.data(), text.data() + text.size(), value);
+        const auto [stop, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
         if (ec != std::errc{} || stop != text.data() + text.size() || value > 0xFFFFULL) {
             return std::nullopt;
         }
@@ -937,8 +901,7 @@ int main(int argc, char** argv) {
         }
         // Retry: the gateway may still be coming up.
         const auto seg_path = shm::gateway_segment_path(account);
-        std::expected<shm::SegmentClient, shm::SegError> client =
-            std::unexpected{shm::SegError::MapFailed};
+        std::expected<shm::SegmentClient, shm::SegError> client = std::unexpected{shm::SegError::MapFailed};
         for (int attempt = 0; attempt < 100; ++attempt) {
             client = shm::SegmentClient::attach(seg_path);
             if (client.has_value()) {
@@ -952,9 +915,7 @@ int main(int argc, char** argv) {
         }
         auto channels = shm::open_gateway_channels(*client);
         if (!channels.has_value()) {
-            RLOG_ERROR("strategyd: channel open failed on {} ({})",
-                       seg_path,
-                       static_cast<int>(channels.error()));
+            RLOG_ERROR("strategyd: channel open failed on {} ({})", seg_path, static_cast<int>(channels.error()));
             return 1;
         }
         (void)client->register_reader(::getpid());
@@ -971,9 +932,7 @@ int main(int argc, char** argv) {
 
     oms::OrderStore store{4096};
     // 500 bp off the mid
-    oms::RiskGate risk{{.max_open_orders = 64,
-                        .max_qty_lots = QtyLots::from_raw(1'000),
-                        .max_price_band_bp = 500}};
+    oms::RiskGate risk{{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(1'000), .max_price_band_bp = 500}};
     // used only for the exchange-side id; client order ids are minted per instance
     oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
     KernelContext ctx{gateways, store, risk, ids, *journal_writer, clock};
@@ -992,8 +951,7 @@ int main(int argc, char** argv) {
     for (const auto& gw : gateways) {
         catalogues.push_back(gw.ch.catalogue);
     }
-    const auto restoration =
-        restore_book(ctx.positions, catalogues, data_dir + "/journal/strategyd");
+    const auto restoration = restore_book(ctx.positions, catalogues, data_dir + "/journal/strategyd");
     if (restoration.restored > 0) {
         RLOG_INFO("strategyd: restored {} position(s) from the journal", restoration.restored);
     }
@@ -1014,33 +972,29 @@ int main(int argc, char** argv) {
     // deque so a strategy's context address stays stable
     std::deque<InstanceContext> contexts;
     std::stop_source shutdown;
-    strategy::Registry live{
-        {.context_for =
-             [&contexts, &ctx](std::uint16_t id) -> strategy::Context* {
-                 for (auto& window : contexts) {
-                     if (window.strategy_id() == id) {
-                         // reuse the window a refused create already minted
-                         return &window;
-                     }
-                 }
-                 contexts.emplace_back(ctx, id, 0x7A10ULL + id);
-                 return &contexts.back();
-             },
-         .cancel_working =
-             [&contexts](std::uint16_t id) -> std::size_t {
-                 for (auto& window : contexts) {
-                     if (window.strategy_id() == id) {
-                         return window.pull_all();
-                     }
-                 }
-                 return 0;
-             },
-         .wall = [&clock] { return clock.wall(); }}};
+    strategy::Registry live{{.context_for = [&contexts, &ctx](std::uint16_t id) -> strategy::Context* {
+                                 for (auto& window : contexts) {
+                                     if (window.strategy_id() == id) {
+                                         // reuse the window a refused create already minted
+                                         return &window;
+                                     }
+                                 }
+                                 contexts.emplace_back(ctx, id, 0x7A10ULL + id);
+                                 return &contexts.back();
+                             },
+                             .cancel_working = [&contexts](std::uint16_t id) -> std::size_t {
+                                 for (auto& window : contexts) {
+                                     if (window.strategy_id() == id) {
+                                         return window.pull_all();
+                                     }
+                                 }
+                                 return 0;
+                             },
+                             .wall = [&clock] { return clock.wall(); }}};
 
     // demo-maker only against sim; live gateways are observed
     if (requested.empty()) {
-        const bool quoting =
-            gateways.size() == 1 && gateways.front().account.venue == VenueId::Sim;
+        const bool quoting = gateways.size() == 1 && gateways.front().account.venue == VenueId::Sim;
         requested.emplace_back(quoting ? "demo-maker" : "observer");
     }
     std::uint16_t next_id = strategy_id;
@@ -1050,21 +1004,14 @@ int main(int argc, char** argv) {
             fmt::print(stderr, "strategyd: cannot read --strategy {}\n", spec);
             return 2;
         }
-        const auto made = live.create({.name = parsed->name,
-                                       .type = parsed->type,
-                                       .config = parsed->config,
-                                       .strategy_id = parsed->strategy_id});
+        const auto made = live.create(
+            {.name = parsed->name, .type = parsed->type, .config = parsed->config, .strategy_id = parsed->strategy_id});
         if (!made.has_value()) {
-            fmt::print(
-                stderr, "strategyd: --strategy {} refused — {}\n", spec, made.error().detail);
+            fmt::print(stderr, "strategyd: --strategy {} refused — {}\n", spec, made.error().detail);
             return 2;
         }
-        if (const auto started = live.start(parsed->strategy_id, shutdown.get_token());
-            !started.has_value()) {
-            fmt::print(stderr,
-                       "strategyd: --strategy {} would not start — {}\n",
-                       spec,
-                       to_string(started.error()));
+        if (const auto started = live.start(parsed->strategy_id, shutdown.get_token()); !started.has_value()) {
+            fmt::print(stderr, "strategyd: --strategy {} would not start — {}\n", spec, to_string(started.error()));
             return 2;
         }
         // two instances under one id would share a position
@@ -1077,8 +1024,7 @@ int main(int argc, char** argv) {
     }
     std::string running;
     for (const auto& view : live.list()) {
-        running += (running.empty() ? "" : ", ") +
-                   fmt::format("{}#{} ({})", view.name, view.strategy_id, view.type);
+        running += (running.empty() ? "" : ", ") + fmt::format("{}#{} ({})", view.name, view.strategy_id, view.type);
     }
     RLOG_INFO("strategyd: attached to {}, {} instruments, running {} for {}s",
               attached,
@@ -1092,8 +1038,7 @@ int main(int argc, char** argv) {
         control = std::make_unique<http::Server>(
             "127.0.0.1",
             control_port,
-            strategy::make_control(live, strategy::factory(), ctx.positions,
-                                   shutdown.get_token()));
+            strategy::make_control(live, strategy::factory(), ctx.positions, shutdown.get_token()));
         if (!control->start()) {
             RLOG_ERROR("strategyd: cannot bind the control surface on 127.0.0.1:{}", control_port);
             return 1;
@@ -1185,8 +1130,7 @@ int main(int argc, char** argv) {
                 case CmdKind::Cancel:
                     if (!ctx.cancel(intent.client_order_id)) {
                         desk_refusals += 1;
-                        RLOG_WARN("strategyd: desk cancel {} refused — no such order here",
-                                  intent.client_order_id.raw);
+                        RLOG_WARN("strategyd: desk cancel {} refused — no such order here", intent.client_order_id.raw);
                     }
                     break;
                 case CmdKind::Amend:
@@ -1224,8 +1168,7 @@ int main(int argc, char** argv) {
 
         // one path for pushed and pulled fills; by value because attribute writes our id onto it
         const auto handle_exec_event = [&](OrderEvent event) {
-            if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
-                it != ctx.inflight_.end()) {
+            if (const auto it = ctx.inflight_.find(event.client_order_id.raw); it != ctx.inflight_.end()) {
                 rt_hist.record(clock.mono().ns - it->second);
                 ctx.inflight_.erase(it);
             }
@@ -1241,8 +1184,7 @@ int main(int argc, char** argv) {
                 (void)ctx.seen_fills.admit(event.exec_id.view(), clock.wall());
                 if (who.order == nullptr) {
                     ++unattributed_fills;
-                    RLOG_ERROR("strategyd: FILL {} matched no order here",
-                               event.exchange_client_order_id.view());
+                    RLOG_ERROR("strategyd: FILL {} matched no order here", event.exchange_client_order_id.view());
                 }
                 const auto delta = oms::filled_delta(who, event);
                 const auto* listed = ctx.instrument(event.instrument);
@@ -1255,11 +1197,9 @@ int main(int argc, char** argv) {
                     } else {
                         namespace jt = raikiri_journal::types;
                         // one increment per kind per exec_id
-                        ctx.journal_pnl(
-                            event, base, jt::pnlKindEnum::Realized, applied->realized);
+                        ctx.journal_pnl(event, base, jt::pnlKindEnum::Realized, applied->realized);
                         // fee from what the book took, negated to the ledger's positive-is-gain sign
-                        const auto booked_fee = FixedE9::from_raw(
-                            -(applied->close_fee.raw + applied->open_fee.raw));
+                        const auto booked_fee = FixedE9::from_raw(-(applied->close_fee.raw + applied->open_fee.raw));
                         ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, booked_fee);
                         ctx.fees.book(event.exec_id.view(), booked_fee, clock.wall());
                         if (const auto* held = ctx.positions.find(
@@ -1395,14 +1335,9 @@ int main(int argc, char** argv) {
                 // seven days is the widest ledger and trade-history window any venue reaches back over
                 ctx.fees.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 ctx.seen_fills.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
-                reconcile_open_orders(
-                    ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
-                const auto sweep = reconcile_against_venue(ctx,
-                                                           gw.account.venue,
-                                                           *gw.ch.catalogue,
-                                                           *gw.ch.positions,
-                                                           *journal_writer,
-                                                           clock.wall());
+                reconcile_open_orders(ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
+                const auto sweep = reconcile_against_venue(
+                    ctx, gw.account.venue, *gw.ch.catalogue, *gw.ch.positions, *journal_writer, clock.wall());
                 // a sweep that compared nothing neither halts nor clears
                 if (sweep.confirmed_break) {
                     if (gw.kernel.on(oms::KernelEvent::ReconFailed, clock.wall())) {
@@ -1418,9 +1353,8 @@ int main(int argc, char** argv) {
                 gw.recon_due = now_ns + k_recon_read_interval_ns;
             }
         }
-        if (std::ranges::all_of(gateways, [](const Gateway& gw) {
-                return gw.kernel.state() == oms::KernelState::Halted;
-            })) {
+        if (std::ranges::all_of(gateways,
+                                [](const Gateway& gw) { return gw.kernel.state() == oms::KernelState::Halted; })) {
             gateway_gone = gateways.empty() ? std::string{"none attached"} : gateways.front().name;
             break;
         }
@@ -1441,21 +1375,9 @@ int main(int argc, char** argv) {
     const auto submit = ctx.submit_hist.snapshot();
     const auto rt = rt_hist.snapshot();
     fmt::print("\n===== raikiri: {}, {}s, single unpinned core =====\n", attached, duration_s);
-    fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n",
-               "metric (ns)",
-               "count",
-               "p50",
-               "p90",
-               "p99",
-               "max");
+    fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n", "metric (ns)", "count", "p50", "p90", "p99", "max");
     const auto row = [](const char* name, const observ::HistogramSnapshot& s) {
-        fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n",
-                   name,
-                   s.count,
-                   s.p50_ns,
-                   s.p90_ns,
-                   s.p99_ns,
-                   s.max_ns);
+        fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n", name, s.count, s.p50_ns, s.p90_ns, s.p99_ns, s.max_ns);
     };
     row("tick-to-callback", tick);
     row("submit-call", submit);
@@ -1484,10 +1406,8 @@ int main(int argc, char** argv) {
                ctx.seen_fills.size());
     fmt::print("fills-unattributed={}\n", unattributed_fills);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
-    fmt::print("fees: agreed={}  disagreed={}  unmatched={}\n",
-               ctx.fees_agreed,
-               ctx.fees_disagreed,
-               ctx.fees_unmatched);
+    fmt::print(
+        "fees: agreed={}  disagreed={}  unmatched={}\n", ctx.fees_agreed, ctx.fees_disagreed, ctx.fees_unmatched);
     fmt::print("recon: agreed={}  unknown={}  broken={}  halted={}\n",
                ctx.recon_agreed,
                ctx.recon_unknown,
@@ -1495,12 +1415,8 @@ int main(int argc, char** argv) {
                ctx.recon_gate.halted_count());
 
     if (ctx.positions.size() > 0) {
-        fmt::print("\n{:<16}{:>12}{:>16}{:>16}{:>16}\n",
-                   "instrument",
-                   "net (lots)",
-                   "avg entry",
-                   "realized",
-                   "unrealized");
+        fmt::print(
+            "\n{:<16}{:>12}{:>16}{:>16}{:>16}\n", "instrument", "net (lots)", "avg entry", "realized", "unrealized");
         char buf[32]{};
         for (const auto& position : ctx.positions.all()) {
             const auto* listed = ctx.instrument(position.key().instrument);
@@ -1513,16 +1429,14 @@ int main(int argc, char** argv) {
                 mark = PriceTicks::from_raw((bbo->bid.raw + bbo->ask.raw) / 2);
             }
             const auto fixed = [&buf](FixedE9 v) -> std::string {
-                return v.is_undef() ? std::string{"-"}
-                                    : std::string{format_e9(v, buf, sizeof(buf))};
+                return v.is_undef() ? std::string{"-"} : std::string{format_e9(v, buf, sizeof(buf))};
             };
             fmt::print("{:<16}{:>12}{:>16}{:>16}{:>16}\n",
                        base.exchange_symbol.view(),
                        position.qty().raw,
                        fixed(position.avg_entry_price(base)),
                        fixed(position.net_realized()),
-                       mark.raw == 0 ? std::string{"-"}
-                                     : fixed(portfolio::unrealized_pnl(base, position, mark)));
+                       mark.raw == 0 ? std::string{"-"} : fixed(portfolio::unrealized_pnl(base, position, mark)));
         }
     }
     return gateway_gone.empty() ? 0 : 1;

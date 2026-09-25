@@ -1,7 +1,6 @@
 #include <raikiri/http/server.hpp>
 
 #include <glaze/glaze.hpp>
-
 #include <optional>
 #include <string>
 

@@ -43,8 +43,7 @@ std::string fixture(std::string_view name) {
     return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
 }
 
-std::size_t
-load_catalogue(exec::InstrumentTable& table, MarketType market, const std::string& body) {
+std::size_t load_catalogue(exec::InstrumentTable& table, MarketType market, const std::string& body) {
     auto storage = std::make_unique<InstrumentBuffer>();
     const auto wire = parse_instruments(body, *storage);
     if (!wire.has_value()) {
@@ -88,8 +87,7 @@ TEST(DeribitVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Deribit);
     EXPECT_NE(adapter->data, nullptr);
@@ -100,13 +98,11 @@ TEST(DeribitVenue, EveryMarketItServesCanActuallyBeBuilt) {
     CaptureSink sink;
     const LiveClock clock;
     for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option}) {
-        const auto adapter =
-            exec::make_venue({.venue = VenueId::Deribit, .market = market}, sink, clock);
+        const auto adapter = exec::make_venue({.venue = VenueId::Deribit, .market = market}, sink, clock);
         ASSERT_TRUE(adapter.has_value()) << to_string(market);
         EXPECT_NE(adapter->instruments, nullptr) << to_string(market);
     }
-    const auto spot =
-        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Spot}, sink, clock);
+    const auto spot = exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Spot}, sink, clock);
     ASSERT_FALSE(spot.has_value());
     EXPECT_EQ(spot.error(), exec::MakeError::UnsupportedMarket);
 }
@@ -123,8 +119,7 @@ TEST(DeribitVenue, OrderEntryWithoutCredentialsFailsAtTheConfigNotTheVenue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // AuthFailure sends an operator to the config
@@ -158,8 +153,7 @@ TEST(DeribitVenue, SpotIsRefusedByNameOnEveryEntryPoint) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // an empty vector would read as holding no spot
@@ -683,8 +677,7 @@ TEST(DeribitBook, DeleteRemovesTheLevelAndNewAddsOne) {
     auto book = book_for(table);
     BookFrame snapshot_frame;
     BookFrame change_frame;
-    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")),
-              BookResult::Resynced);
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")), BookResult::Resynced);
 
     const auto before = book.snapshot(UnixNanos{1}, UnixNanos{1});
     ASSERT_TRUE(before.has_value());
@@ -694,15 +687,13 @@ TEST(DeribitBook, DeleteRemovesTheLevelAndNewAddsOne) {
     const auto after = book.snapshot(UnixNanos{1}, UnixNanos{1});
     ASSERT_TRUE(after.has_value());
 
-    const auto gone =
-        std::find_if(after->asks.begin(),
-                     after->asks.begin() + after->ask_count,
-                     [](const BookLevel& level) { return level.price.raw == 128'092; });
+    const auto gone = std::find_if(after->asks.begin(),
+                                   after->asks.begin() + after->ask_count,
+                                   [](const BookLevel& level) { return level.price.raw == 128'092; });
     EXPECT_EQ(gone, after->asks.begin() + after->ask_count) << "the delete removed it";
-    const auto added =
-        std::find_if(after->asks.begin(),
-                     after->asks.begin() + after->ask_count,
-                     [](const BookLevel& level) { return level.price.raw == 128'090; });
+    const auto added = std::find_if(after->asks.begin(),
+                                    after->asks.begin() + after->ask_count,
+                                    [](const BookLevel& level) { return level.price.raw == 128'090; });
     ASSERT_NE(added, after->asks.begin() + after->ask_count);
     EXPECT_EQ(added->qty.raw, 1300); // 13000 USD over the 10 USD step
     EXPECT_EQ(book.asks().size(), 1063U);
@@ -714,8 +705,7 @@ TEST(DeribitBook, ABrokenBackPointerDropsTheBookUntilTheNextSnapshot) {
     auto book = book_for(table);
     BookFrame snapshot_frame;
     BookFrame change_frame;
-    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")),
-              BookResult::Resynced);
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")), BookResult::Resynced);
 
     auto orphan = book_of(change_frame, "ws_book_change_full.json");
     orphan.prev_change_id += 1; // a frame we never saw sits between them
@@ -731,8 +721,7 @@ TEST(DeribitBook, ARedeliveredFrameIsIgnoredRatherThanTreatedAsAGap) {
     auto book = book_for(table);
     BookFrame snapshot_frame;
     BookFrame change_frame;
-    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")),
-              BookResult::Resynced);
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")), BookResult::Resynced);
     const auto change = book_of(change_frame, "ws_book_change_full.json");
     EXPECT_EQ(book.apply(change), BookResult::Applied);
 
@@ -749,8 +738,7 @@ TEST(DeribitBook, ALevelOffTheStepInvalidatesTheWholeBook) {
     const auto snapshot = book_of(snapshot_frame, "ws_book_snapshot_full.json");
     EXPECT_EQ(book.apply(snapshot), BookResult::Resynced);
 
-    const std::array<WireLevel, 1> bad{
-        WireLevel{.action = LevelAction::Change, .price = "64035.25", .qty = "1.0e3"}};
+    const std::array<WireLevel, 1> bad{WireLevel{.action = LevelAction::Change, .price = "64035.25", .qty = "1.0e3"}};
     WireBook off_tick{};
     off_tick.instrument = "BTC-PERPETUAL";
     off_tick.change_id = snapshot.change_id + 1;
@@ -763,8 +751,7 @@ TEST(DeribitBook, ALevelOffTheStepInvalidatesTheWholeBook) {
     // a size finer than the 10 usd step is refused too, deletes included
     auto again = book_for(table);
     EXPECT_EQ(again.apply(snapshot), BookResult::Resynced);
-    const std::array<WireLevel, 1> sub_lot{
-        WireLevel{.action = LevelAction::Delete, .price = "64035.25", .qty = "0.0"}};
+    const std::array<WireLevel, 1> sub_lot{WireLevel{.action = LevelAction::Delete, .price = "64035.25", .qty = "0.0"}};
     WireBook fine{};
     fine.instrument = "BTC-PERPETUAL";
     fine.change_id = snapshot.change_id + 1;
@@ -776,17 +763,12 @@ TEST(DeribitBook, ALevelOffTheStepInvalidatesTheWholeBook) {
 
 TEST(DeribitWs, ChannelNamesCarryTheInstrumentAndTheParameters) {
     std::array<char, k_max_channel_len> buffer{};
-    EXPECT_EQ(channel_for(exec::SubKind::Bbo, "BTC-PERPETUAL", buffer),
-              "book.BTC-PERPETUAL.none.1.100ms");
-    EXPECT_EQ(channel_for(exec::SubKind::Trades, "BTC-PERPETUAL", buffer),
-              "trades.BTC-PERPETUAL.100ms");
-    EXPECT_EQ(channel_for(exec::SubKind::Depth, "BTC-PERPETUAL", buffer),
-              "book.BTC-PERPETUAL.100ms");
+    EXPECT_EQ(channel_for(exec::SubKind::Bbo, "BTC-PERPETUAL", buffer), "book.BTC-PERPETUAL.none.1.100ms");
+    EXPECT_EQ(channel_for(exec::SubKind::Trades, "BTC-PERPETUAL", buffer), "trades.BTC-PERPETUAL.100ms");
+    EXPECT_EQ(channel_for(exec::SubKind::Depth, "BTC-PERPETUAL", buffer), "book.BTC-PERPETUAL.100ms");
     // funding and mark share one ticker channel
-    EXPECT_EQ(channel_for(exec::SubKind::Funding, "BTC-PERPETUAL", buffer),
-              "ticker.BTC-PERPETUAL.100ms");
-    EXPECT_EQ(channel_for(exec::SubKind::MarkPrice, "BTC-PERPETUAL", buffer),
-              "ticker.BTC-PERPETUAL.100ms");
+    EXPECT_EQ(channel_for(exec::SubKind::Funding, "BTC-PERPETUAL", buffer), "ticker.BTC-PERPETUAL.100ms");
+    EXPECT_EQ(channel_for(exec::SubKind::MarkPrice, "BTC-PERPETUAL", buffer), "ticker.BTC-PERPETUAL.100ms");
     EXPECT_TRUE(channel_for(exec::SubKind::Kline, "BTC-PERPETUAL", buffer).empty());
     EXPECT_TRUE(channel_for(exec::SubKind::Bbo, "", buffer).empty());
 
@@ -797,9 +779,8 @@ TEST(DeribitWs, ChannelNamesCarryTheInstrumentAndTheParameters) {
 
 TEST(DeribitWs, SubscribeFramesAreJsonRpcAndCapped) {
     Protocol protocol;
-    const std::array<Subscription, 2> two{
-        Subscription{.channel = "book.BTC-PERPETUAL.none.1.100ms"},
-        Subscription{.channel = "trades.BTC-PERPETUAL.100ms"}};
+    const std::array<Subscription, 2> two{Subscription{.channel = "book.BTC-PERPETUAL.none.1.100ms"},
+                                          Subscription{.channel = "trades.BTC-PERPETUAL.100ms"}};
     const auto frame = protocol.subscribe_frame(two);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
@@ -812,8 +793,8 @@ TEST(DeribitWs, SubscribeFramesAreJsonRpcAndCapped) {
     EXPECT_EQ(next->id, 2);
 
     // one refused channel fails the whole batch
-    const std::array<Subscription, 2> poisoned{
-        Subscription{.channel = "trades.BTC-PERPETUAL.100ms"}, Subscription{.channel = ""}};
+    const std::array<Subscription, 2> poisoned{Subscription{.channel = "trades.BTC-PERPETUAL.100ms"},
+                                               Subscription{.channel = ""}};
     EXPECT_FALSE(protocol.subscribe_frame(poisoned).has_value());
     EXPECT_FALSE(protocol.subscribe_frame({}).has_value());
 
@@ -828,11 +809,9 @@ TEST(DeribitWs, SubscribeFramesAreJsonRpcAndCapped) {
 
 TEST(DeribitWs, HeartbeatFramesMatchWhatDeribitAnswered) {
     Protocol protocol;
-    EXPECT_EQ(
-        protocol.set_heartbeat_frame(15).text,
-        R"({"jsonrpc":"2.0","id":1,"method":"public/set_heartbeat","params":{"interval":15}})");
-    EXPECT_EQ(protocol.test_frame().text,
-              R"({"jsonrpc":"2.0","id":2,"method":"public/test","params":{}})");
+    EXPECT_EQ(protocol.set_heartbeat_frame(15).text,
+              R"({"jsonrpc":"2.0","id":1,"method":"public/set_heartbeat","params":{"interval":15}})");
+    EXPECT_EQ(protocol.test_frame().text, R"({"jsonrpc":"2.0","id":2,"method":"public/test","params":{}})");
 }
 
 TEST(DeribitWs, ThePrivateSocketAuthenticatesTheConnectionNotEachMessage) {
@@ -855,9 +834,8 @@ TEST(DeribitWs, ThePrivateSocketAuthenticatesTheConnectionNotEachMessage) {
     EXPECT_EQ(user_changes_channel("option", "ETH", buffer), "user.changes.option.ETH.raw");
     EXPECT_TRUE(user_changes_channel("future", {}, buffer).empty());
 
-    const std::array<Subscription, 2> channels{
-        Subscription{.channel = "user.changes.future.BTC.raw"},
-        Subscription{.channel = "user.changes.option.BTC.raw"}};
+    const std::array<Subscription, 2> channels{Subscription{.channel = "user.changes.future.BTC.raw"},
+                                               Subscription{.channel = "user.changes.option.BTC.raw"}};
     const auto subscribe = protocol.private_subscribe_frame(channels);
     ASSERT_TRUE(subscribe.has_value());
     EXPECT_EQ(subscribe->text,
@@ -880,10 +858,8 @@ TEST(DeribitRest, TargetsNameTheMethodInThePath) {
     RequestBuilder builder;
     EXPECT_EQ(builder.server_time().target, "/api/v2/public/get_time");
     // there is no perpetual kind; perpetuals ride the future call
-    EXPECT_EQ(builder.instruments("BTC", "future").target,
-              "/api/v2/public/get_instruments?currency=BTC&kind=future");
-    EXPECT_EQ(builder.instruments("ETH", "option").target,
-              "/api/v2/public/get_instruments?currency=ETH&kind=option");
+    EXPECT_EQ(builder.instruments("BTC", "future").target, "/api/v2/public/get_instruments?currency=BTC&kind=future");
+    EXPECT_EQ(builder.instruments("ETH", "option").target, "/api/v2/public/get_instruments?currency=ETH&kind=option");
     EXPECT_EQ(rest_host(false), "www.deribit.com");
     EXPECT_EQ(rest_host(true), "test.deribit.com");
 }
@@ -983,8 +959,7 @@ TEST(DeribitSignedRest, PostOnlyIsAlwaysStatedBecauseTheVenueDefaultsItToTrue) {
     maker.price = PriceTicks::from_raw(120'000);
     const auto reduce = builder.create_order(maker, table, now);
     ASSERT_TRUE(reduce.has_value());
-    EXPECT_NE(std::string{reduce->target}.find("&post_only=true&reject_post_only=true"),
-              std::string::npos);
+    EXPECT_NE(std::string{reduce->target}.find("&post_only=true&reject_post_only=true"), std::string::npos);
     EXPECT_NE(std::string{reduce->target}.find("&reduce_only=true"), std::string::npos);
 }
 
@@ -1066,8 +1041,7 @@ TEST(DeribitSignedRest, CancelPrefersTheVenueIdAndFallsBackToTheLabel) {
     cmd.target_exchange_order_id = {};
     const auto by_label = builder.cancel_order(cmd, table, now);
     ASSERT_TRUE(by_label.has_value());
-    EXPECT_EQ(by_label->target,
-              "/api/v2/private/cancel_by_label?label=01K3QW9F2H6M5N8P0R2T4V6X8Z&currency=BTC");
+    EXPECT_EQ(by_label->target, "/api/v2/private/cancel_by_label?label=01K3QW9F2H6M5N8P0R2T4V6X8Z&currency=BTC");
 
     cmd.exchange_client_order_id = {};
     EXPECT_EQ(builder.cancel_order(cmd, table, now).error(), BuildError::NoOrderTarget);
@@ -1117,37 +1091,30 @@ TEST(DeribitSignedRest, PullsAreScopedByCurrencyAndByDeribitsOwnKind) {
               "/api/v2/private/get_open_orders_by_currency?currency=BTC&kind=option");
     EXPECT_EQ(builder.positions(MarketType::Option, "BTC", now)->target,
               "/api/v2/private/get_positions?currency=BTC&kind=option");
-    EXPECT_EQ(builder
-                  .order_state_by_label(
-                      *ExchangeClientOrderId::from("01K3QW9F2H6M5N8P0R2T4V6X8Z"), "BTC", now)
-                  ->target,
-              "/api/v2/private/get_order_state_by_label?currency=BTC"
-              "&label=01K3QW9F2H6M5N8P0R2T4V6X8Z");
+    EXPECT_EQ(
+        builder.order_state_by_label(*ExchangeClientOrderId::from("01K3QW9F2H6M5N8P0R2T4V6X8Z"), "BTC", now)->target,
+        "/api/v2/private/get_order_state_by_label?currency=BTC"
+        "&label=01K3QW9F2H6M5N8P0R2T4V6X8Z");
 
     EXPECT_EQ(builder.user_trades(MarketType::Perp, "BTC", UnixNanos{0}, now)->target,
               "/api/v2/private/get_user_trades_by_currency?currency=BTC&kind=future&count=1000");
-    EXPECT_EQ(
-        builder.user_trades(MarketType::Perp, "BTC", UnixNanos{1'787'751'000'000'000'000ULL}, now)
-            ->target,
-        "/api/v2/private/get_user_trades_by_currency?currency=BTC&kind=future&count=1000"
-        "&start_timestamp=1787751000000&sorting=asc");
+    EXPECT_EQ(builder.user_trades(MarketType::Perp, "BTC", UnixNanos{1'787'751'000'000'000'000ULL}, now)->target,
+              "/api/v2/private/get_user_trades_by_currency?currency=BTC&kind=future&count=1000"
+              "&start_timestamp=1787751000000&sorting=asc");
 
-    EXPECT_EQ(builder.open_orders(MarketType::Spot, "BTC", now).error(),
-              BuildError::SpotNotModelled);
+    EXPECT_EQ(builder.open_orders(MarketType::Spot, "BTC", now).error(), BuildError::SpotNotModelled);
 }
 
 TEST(DeribitSignedRest, RefusesToSignWithoutCredentials) {
     net::Signer signer; // no key, no secret
     SignedRequestBuilder builder{signer};
     // unsigned requests are answered 13009, which reads like an outage
-    EXPECT_EQ(builder.positions(MarketType::Perp, "BTC", UnixNanos{1}).error(),
-              BuildError::NotSigned);
+    EXPECT_EQ(builder.positions(MarketType::Perp, "BTC", UnixNanos{1}).error(), BuildError::NotSigned);
 }
 
 TEST(DeribitVenue, LabelCarriesAWholeUlid) {
     EXPECT_GE(k_max_label, sizeof(ExchangeClientOrderId::data));
-    EXPECT_GE(exec::caps_of(VenueId::Deribit).max_client_order_id_len,
-              exec::k_min_client_order_id_len);
+    EXPECT_GE(exec::caps_of(VenueId::Deribit).max_client_order_id_len, exec::k_min_client_order_id_len);
     EXPECT_EQ(currency_of("BTC-11AUG26-64000-C"), "BTC");
     EXPECT_EQ(currency_of("ETH-PERPETUAL"), "ETH");
     EXPECT_TRUE(currency_of("NODASH").empty());
@@ -1182,12 +1149,12 @@ TEST(DeribitPrivateWire, AListAndASingleObjectCarryTheSameRow) {
     ASSERT_TRUE(many.has_value());
     EXPECT_EQ(many->size(), 3U);
 
-    const std::string single =
-        R"({"jsonrpc":"2.0","id":1,"result":{"order_id":"BTC-4356791","order_state":"cancelled",)"
-        R"("time_in_force":"good_til_cancelled","instrument_name":"BTC-PERPETUAL",)"
-        R"("label":"01K3QW9F2H6M5N8P0R2T4V6X91","direction":"buy","price":63500.0,)"
-        R"("amount":200.0,"filled_amount":60.0,"average_price":63500.0,)"
-        R"("last_update_timestamp":1787751022000}})";
+    const std::string
+        single = R"({"jsonrpc":"2.0","id":1,"result":{"order_id":"BTC-4356791","order_state":"cancelled",)"
+                 R"("time_in_force":"good_til_cancelled","instrument_name":"BTC-PERPETUAL",)"
+                 R"("label":"01K3QW9F2H6M5N8P0R2T4V6X91","direction":"buy","price":63500.0,)"
+                 R"("amount":200.0,"filled_amount":60.0,"average_price":63500.0,)"
+                 R"("last_update_timestamp":1787751022000}})";
     const auto one = parse_orders(single, *storage);
     ASSERT_TRUE(one.has_value());
     ASSERT_EQ(one->size(), 1U);

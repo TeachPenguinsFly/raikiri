@@ -20,9 +20,8 @@ inline constexpr std::size_t k_hmac512_bytes = 64;
 inline constexpr std::size_t k_hex512_bytes = k_hmac512_bytes * 2; // 128
 
 // raw digest of `message` keyed by `key`; false only on an openssl failure
-[[nodiscard]] bool hmac_sha256(std::string_view key,
-                               std::string_view message,
-                               std::span<std::uint8_t, k_hmac_bytes> out) noexcept;
+[[nodiscard]] bool
+hmac_sha256(std::string_view key, std::string_view message, std::span<std::uint8_t, k_hmac_bytes> out) noexcept;
 
 // lowercase hex (binance, bybit, bingx, xt, mexc, gate); `out` holds at least k_hex_bytes
 [[nodiscard]] std::string_view
@@ -52,9 +51,7 @@ public:
 
     [[nodiscard]] config::Secret& secret() noexcept { return secret_; }
 
-    [[nodiscard]] bool has_credentials() const noexcept {
-        return api_key_len_ != 0 && !secret_.empty();
-    }
+    [[nodiscard]] bool has_credentials() const noexcept { return api_key_len_ != 0 && !secret_.empty(); }
 
     [[nodiscard]] std::string_view api_key() const noexcept;
 

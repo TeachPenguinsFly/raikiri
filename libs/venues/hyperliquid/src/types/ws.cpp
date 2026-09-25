@@ -50,8 +50,8 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
     return {};
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::method_frame(std::string_view method, const Subscription& subscription) {
+std::expected<std::string_view, WsBuildError> Protocol::method_frame(std::string_view method,
+                                                                     const Subscription& subscription) {
     if (subscription.channel.empty() || subscription.coin.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -79,13 +79,11 @@ Protocol::method_frame(std::string_view method, const Subscription& subscription
     return std::string_view{frame_.data(), len};
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::subscribe_frame(const Subscription& subscription) {
+std::expected<std::string_view, WsBuildError> Protocol::subscribe_frame(const Subscription& subscription) {
     return method_frame("subscribe", subscription);
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::unsubscribe_frame(const Subscription& subscription) {
+std::expected<std::string_view, WsBuildError> Protocol::unsubscribe_frame(const Subscription& subscription) {
     return method_frame("unsubscribe", subscription);
 }
 

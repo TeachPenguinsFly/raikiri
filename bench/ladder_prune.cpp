@@ -29,6 +29,7 @@ void bm_drop_beyond_inside_band(benchmark::State& state) {
         benchmark::DoNotOptimize(bids.size());
     }
 }
+
 BENCHMARK(bm_drop_beyond_inside_band)->Arg(50)->Arg(500)->Arg(1000);
 
 void bm_delta_then_prune(benchmark::State& state) {
@@ -44,6 +45,7 @@ void bm_delta_then_prune(benchmark::State& state) {
         benchmark::DoNotOptimize(bids.size());
     }
 }
+
 BENCHMARK(bm_delta_then_prune)->Arg(50)->Arg(500)->Arg(1000);
 
 } // namespace

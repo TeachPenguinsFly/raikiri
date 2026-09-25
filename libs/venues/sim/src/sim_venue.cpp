@@ -58,8 +58,7 @@ public:
     explicit SimData(std::shared_ptr<SimState> state) : state_{std::move(state)} {}
 
     std::expected<void, exec::VenueError> start() override {
-        state_->sink_ref.on_connectivity(
-            {.state = exec::ConnState::Connected, .stream_id = 0, .ts = {}});
+        state_->sink_ref.on_connectivity({.state = exec::ConnState::Connected, .stream_id = 0, .ts = {}});
         started_ = true;
         return {};
     }
@@ -68,8 +67,7 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return started_; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         if (kind != exec::SubKind::Bbo && kind != exec::SubKind::Trades) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -80,8 +78,7 @@ public:
         }
         const auto idx = instrument.symbol().raw;
         if (idx >= std::size(demo::k_demo_mid_ticks)) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown sim instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown sim instrument")};
         }
         state_->mdgen.add_instrument(instrument, PriceTicks::from_raw(demo::k_demo_mid_ticks[idx]));
         state_->active.push_back(instrument);
@@ -107,8 +104,7 @@ private:
 
 class SimExec final : public exec::ExecutionClient {
 public:
-    explicit SimExec(std::shared_ptr<SimState> state, const Clock& clock)
-        : state_{std::move(state)}, clock_{&clock} {}
+    explicit SimExec(std::shared_ptr<SimState> state, const Clock& clock) : state_{std::move(state)}, clock_{&clock} {}
 
     std::expected<void, exec::VenueError> start() override { return {}; }
 
@@ -122,8 +118,7 @@ public:
 
     void amend(const OrderCmd& cmd) noexcept override { run(cmd); }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType) override {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType) override {
         std::vector<exec::OrderStatusReport> reports;
         for (const auto& meta : state_->engine.open_client_orders()) {
             exec::OrderStatusReport report{};
@@ -131,8 +126,7 @@ public:
             report.exchange_order_id = meta.exchange_order_id;
             report.instrument = meta.instrument;
             report.side = meta.side;
-            report.status =
-                meta.leaves == meta.qty ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
+            report.status = meta.leaves == meta.qty ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
             report.price = meta.price;
             report.qty = meta.qty;
             report.leaves = meta.leaves;
@@ -142,26 +136,23 @@ public:
         return reports;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         auto reports = open_order_reports(market);
         for (const auto& report : *reports) {
             if (report.exchange_client_order_id == id) {
                 return report;
             }
         }
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open on sim")};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open on sim")};
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType, UnixNanos) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType, UnixNanos) override {
         return std::unexpected{exec::not_implemented("sim reconciliation pulls")};
     }
 
     // the engine printed the fills, so it answers positions like a venue
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         if (market != MarketType::Perp) {
             return std::unexpected{exec::not_implemented("sim spot")};
         }

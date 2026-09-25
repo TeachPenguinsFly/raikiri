@@ -10,8 +10,7 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
-                                                                  PrintBuffer& storage) {
+std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame, PrintBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePrint>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -32,27 +31,24 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
                 return std::unexpected(wire::map_error(ec));
             }
             WirePrint print{};
-            std::expected<std::string_view, WireError> price{
-                std::unexpected(WireError::MissingField)};
-            std::expected<std::string_view, WireError> qty{
-                std::unexpected(WireError::MissingField)};
+            std::expected<std::string_view, WireError> price{std::unexpected(WireError::MissingField)};
+            std::expected<std::string_view, WireError> qty{std::unexpected(WireError::MissingField)};
             std::expected<std::string_view, WireError> id{std::string_view{}};
             std::expected<std::uint64_t, WireError> trade_ms{0};
             std::expected<bool, WireError> maker{false};
-            const auto walked = wire::for_each_field(
-                item, [&](std::string_view key, wire::ondemand::value& value) {
-                    if (key == "p") {
-                        price = wire::str_of(value);
-                    } else if (key == "q") {
-                        qty = wire::str_of(value);
-                    } else if (key == "t") {
-                        id = wire::str_of(value);
-                    } else if (key == "T") {
-                        trade_ms = wire::u64_of(value);
-                    } else if (key == "m") {
-                        maker = wire::bool_of(value);
-                    }
-                });
+            const auto walked = wire::for_each_field(item, [&](std::string_view key, wire::ondemand::value& value) {
+                if (key == "p") {
+                    price = wire::str_of(value);
+                } else if (key == "q") {
+                    qty = wire::str_of(value);
+                } else if (key == "t") {
+                    id = wire::str_of(value);
+                } else if (key == "T") {
+                    trade_ms = wire::u64_of(value);
+                } else if (key == "m") {
+                    maker = wire::bool_of(value);
+                }
+            });
             if (!walked.has_value()) {
                 return std::unexpected(walked.error());
             }
@@ -123,8 +119,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             if (const auto ec = entry.get_object().get(item); ec != simdjson::SUCCESS) {
                 return std::unexpected(wire::map_error(ec));
             }
-            for (const auto& [key, field] :
-                 {std::pair{"v", &out.volume}, std::pair{"q", &out.quote_volume}}) {
+            for (const auto& [key, field] : {std::pair{"v", &out.volume}, std::pair{"q", &out.quote_volume}}) {
                 item.reset();
                 const auto value = wire::opt_str(item, key);
                 if (!value.has_value()) {
@@ -169,10 +164,9 @@ std::expected<std::span<const WirePremium>, WireError> parse_premium_index(std::
                 return std::unexpected(symbol.error());
             }
             row.symbol = *symbol;
-            for (const auto& [key, field] :
-                 {std::pair{"markPrice", &row.mark_price},
-                  std::pair{"lastFundingRate", &row.funding_rate},
-                  std::pair{"forecastFundingRate", &row.forecast_rate}}) {
+            for (const auto& [key, field] : {std::pair{"markPrice", &row.mark_price},
+                                             std::pair{"lastFundingRate", &row.funding_rate},
+                                             std::pair{"forecastFundingRate", &row.forecast_rate}}) {
                 item.reset();
                 const auto value = wire::opt_str(item, key);
                 if (!value.has_value()) {

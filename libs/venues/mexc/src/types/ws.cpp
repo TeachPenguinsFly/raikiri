@@ -69,8 +69,7 @@ std::string_view spot_channel_for(exec::SubKind kind) noexcept {
     return {};
 }
 
-std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view op,
-                                                                const Subscription& subscription) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view op, const Subscription& subscription) {
     if (subscription.channel.empty() || subscription.symbol.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -95,8 +94,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
     if (subscription.limit != 0) {
         put(R"(,"limit":)");
         std::array<char, 16> num{};
-        const auto [stop, ec] =
-            std::to_chars(num.data(), num.data() + num.size(), subscription.limit);
+        const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), subscription.limit);
         if (ec != std::errc{}) {
             return std::unexpected{WsBuildError::BufferTooSmall};
         }
@@ -110,8 +108,8 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
 }
 
 // one channel per frame, since a failed subscription is reported by id
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::spot_op_frame(std::string_view op, const Subscription& subscription) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::spot_op_frame(std::string_view op,
+                                                                     const Subscription& subscription) {
     if (subscription.channel.empty() || subscription.symbol.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -133,8 +131,7 @@ Protocol::spot_op_frame(std::string_view op, const Subscription& subscription) {
     if (subscription.limit != 0) {
         put("@");
         std::array<char, 16> num{};
-        const auto [stop, ec] =
-            std::to_chars(num.data(), num.data() + num.size(), subscription.limit);
+        const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), subscription.limit);
         if (ec != std::errc{}) {
             return std::unexpected{WsBuildError::BufferTooSmall};
         }
@@ -147,21 +144,18 @@ Protocol::spot_op_frame(std::string_view op, const Subscription& subscription) {
     return Frame{.text = {frame_.data(), len}, .consumed = 1};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::spot_subscribe_frame(const Subscription& subscription) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::spot_subscribe_frame(const Subscription& subscription) {
     return spot_op_frame("SUBSCRIPTION", subscription);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
     return op_frame("sub", subscriptions.front());
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -172,14 +166,12 @@ std::string_view Protocol::last_login_message() const noexcept {
     return {login_msg_.data(), login_msg_len_};
 }
 
-std::expected<std::string_view, WsBuildError> Protocol::login_frame(const net::Signer& signer,
-                                                                    UnixNanos now) {
+std::expected<std::string_view, WsBuildError> Protocol::login_frame(const net::Signer& signer, UnixNanos now) {
     if (!signer.has_credentials()) {
         return std::unexpected{WsBuildError::NotSigned};
     }
     std::array<char, 24> ts_buf{};
-    const auto [ts_stop, ts_ec] =
-        std::to_chars(ts_buf.data(), ts_buf.data() + ts_buf.size(), now.ns / 1'000'000ULL);
+    const auto [ts_stop, ts_ec] = std::to_chars(ts_buf.data(), ts_buf.data() + ts_buf.size(), now.ns / 1'000'000ULL);
     if (ts_ec != std::errc{}) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }

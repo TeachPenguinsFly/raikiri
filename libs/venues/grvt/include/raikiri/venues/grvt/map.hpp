@@ -20,21 +20,16 @@ namespace raikiri::venues::grvt {
 
 [[nodiscard]] FixedE9 percent_to_ratio(std::string_view text) noexcept;
 
-[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
-                                                       MarketType market);
+[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_event, UnixNanos ts_init);
 
 // nullopt when the frame states no rate
-[[nodiscard]] std::optional<FundingUpdate> map_funding(const WireTicker& wire,
-                                                       const Instrument& instrument,
-                                                       UnixNanos ts_event,
-                                                       UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_event, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
-                                                          const InstrumentBase& base,
-                                                          UnixNanos ts_event,
-                                                          UnixNanos ts_init);
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_event, UnixNanos ts_init);
 
 } // namespace raikiri::venues::grvt

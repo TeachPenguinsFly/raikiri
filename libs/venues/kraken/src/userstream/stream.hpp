@@ -59,9 +59,8 @@ public:
         signed_len_ = 0;
         const auto frame = protocol_.challenge_request_frame(state_->signer.api_key());
         if (!frame.has_value() || !client_->send(frame->text)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_private_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
         }
     }
 
@@ -85,9 +84,8 @@ public:
             return;
         case EventKind::Alert:
             // a refused private subscribe arrives as an alert, the same shape as a bad product id
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_private_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
             return;
         case EventKind::Subscribed:
         case EventKind::Info:
@@ -102,47 +100,40 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
 private:
     void on_challenge(std::string_view frame) noexcept {
         const auto wire = parse_challenge(frame);
-        if (!wire.has_value() || wire->message.empty() ||
-            wire->message.size() > challenge_.size()) {
+        if (!wire.has_value() || wire->message.empty() || wire->message.size() > challenge_.size()) {
             return;
         }
         std::memcpy(challenge_.data(), wire->message.data(), wire->message.size());
         challenge_len_ = wire->message.size();
-        const auto signature = authent(state_->signer.secret().view(),
-                                       std::string_view{challenge_.data(), challenge_len_},
-                                       signed_challenge_);
+        const auto signature = authent(
+            state_->signer.secret().view(), std::string_view{challenge_.data(), challenge_len_}, signed_challenge_);
         if (signature.empty()) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_private_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
             return;
         }
         signed_len_ = signature.size();
         if (!subscribe(k_feed_open_orders) || !subscribe(k_feed_fills)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_private_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
             return;
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     [[nodiscard]] bool subscribe(std::string_view feed) noexcept {
-        const auto frame =
-            protocol_.private_subscribe_frame(feed,
-                                              state_->signer.api_key(),
-                                              {challenge_.data(), challenge_len_},
-                                              {signed_challenge_.data(), signed_len_});
+        const auto frame = protocol_.private_subscribe_frame(feed,
+                                                             state_->signer.api_key(),
+                                                             {challenge_.data(), challenge_len_},
+                                                             {signed_challenge_.data(), signed_len_});
         return frame.has_value() && client_->send(frame->text);
     }
 
@@ -155,8 +146,7 @@ private:
             return;
         }
         for (const auto& wire : *orders) {
-            if (const auto event =
-                    map_ws_order(wire, OrderEventType::Accepted, state_->instruments, received);
+            if (const auto event = map_ws_order(wire, OrderEventType::Accepted, state_->instruments, received);
                 event.has_value()) {
                 state_->remember(wire.order_id, memo_of(*event));
             }
@@ -170,8 +160,7 @@ private:
         }
         const auto effect = effect_of(delta->reason, delta->is_cancel);
         if (delta->has_order) {
-            const auto event =
-                map_ws_order(delta->order, event_type_of(effect), state_->instruments, received);
+            const auto event = map_ws_order(delta->order, event_type_of(effect), state_->instruments, received);
             if (!event.has_value()) {
                 return;
             }

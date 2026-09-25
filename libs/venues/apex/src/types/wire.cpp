@@ -16,8 +16,7 @@ std::expected<WireContract, WireError> read_contract(ondemand::object& obj) {
     const auto settle = wire::req_str(obj, "settleAssetId");
     const auto tick = wire::req_str(obj, "tickSize");
     const auto step = wire::req_str(obj, "stepSize");
-    if (!cross.has_value() || !base.has_value() || !settle.has_value() || !tick.has_value() ||
-        !step.has_value()) {
+    if (!cross.has_value() || !base.has_value() || !settle.has_value() || !tick.has_value() || !step.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.cross_symbol = *cross;
@@ -35,10 +34,8 @@ std::expected<WireContract, WireError> read_contract(ondemand::object& obj) {
     return out;
 }
 
-std::expected<std::size_t, WireError> read_contracts(ondemand::object& config,
-                                                     std::string_view key,
-                                                     ContractBuffer& storage,
-                                                     std::size_t count) {
+std::expected<std::size_t, WireError>
+read_contracts(ondemand::object& config, std::string_view key, ContractBuffer& storage, std::size_t count) {
     auto rows = wire::req_array(config, key);
     if (!rows.has_value()) {
         return std::unexpected(rows.error());
@@ -60,8 +57,7 @@ std::expected<std::size_t, WireError> read_contracts(ondemand::object& config,
     return count;
 }
 
-std::expected<std::size_t, WireError>
-read_levels(ondemand::array levels, std::span<WireLevel> out) {
+std::expected<std::size_t, WireError> read_levels(ondemand::array levels, std::span<WireLevel> out) {
     std::size_t count = 0;
     for (auto entry : levels) {
         if (count == out.size()) {
@@ -103,8 +99,7 @@ bool is_snapshot(ondemand::object& obj) {
 
 } // namespace
 
-std::expected<std::span<const WireContract>, WireError>
-parse_symbols(std::string_view body, ContractBuffer& storage) {
+std::expected<std::span<const WireContract>, WireError> parse_symbols(std::string_view body, ContractBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireContract>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -156,8 +151,7 @@ std::expected<TopicInfo, WireError> parse_topic(std::string_view frame) {
             return std::unexpected{root.error()};
         }
         auto obj = *root;
-        if (const auto topic = wire::opt_str(obj, "topic");
-            topic.has_value() && !topic->empty()) {
+        if (const auto topic = wire::opt_str(obj, "topic"); topic.has_value() && !topic->empty()) {
             return classify_topic(*topic);
         }
         if (wire::has_field(obj, "success")) {
@@ -240,8 +234,7 @@ std::expected<std::string_view, WireError> parse_ping(std::string_view frame) {
     });
 }
 
-std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
-                                                        OrderbookBuffer& storage) {
+std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame, OrderbookBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderbook, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -318,8 +311,7 @@ std::expected<WireTrades, WireError> parse_trades(std::string_view frame, TradeB
             const auto price = wire::req_str(row, "p");
             const auto size = wire::req_str(row, "v");
             const auto side = wire::req_str(row, "S");
-            if (!symbol.has_value() || !price.has_value() || !size.has_value() ||
-                !side.has_value()) {
+            if (!symbol.has_value() || !price.has_value() || !size.has_value() || !side.has_value()) {
                 return std::unexpected{WireError::MissingField};
             }
             trade.symbol = *symbol;
@@ -353,9 +345,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             return std::unexpected{symbol.error()};
         }
         out.symbol = *symbol;
-        const auto field = [&](std::string_view key) {
-            return wire::opt_str(row, key).value_or(std::string_view{});
-        };
+        const auto field = [&](std::string_view key) { return wire::opt_str(row, key).value_or(std::string_view{}); };
         out.mark_price = field("markPrice");
         out.funding_rate = field("fundingRate");
         out.next_funding_time = field("nextFundingTime");

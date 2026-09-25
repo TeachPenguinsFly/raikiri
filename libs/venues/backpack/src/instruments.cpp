@@ -26,28 +26,23 @@ public:
         rest_.start();
         const auto response = await_response(*state_, rest_, state_->builder.markets(), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status != 200) {
             const auto err = parse_rest_error(response->body);
-            const auto cls = response->status == 429 ? exec::ErrorClass::RateLimited
-                                                     : exec::ErrorClass::Terminal;
+            const auto cls = response->status == 429 ? exec::ErrorClass::RateLimited : exec::ErrorClass::Terminal;
             return std::unexpected{exec::VenueError::make(
-                cls,
-                response->status,
-                err.has_value() && !err->message.empty() ? err->message : "catalogue refused")};
+                cls, response->status, err.has_value() && !err->message.empty() ? err->message : "catalogue refused")};
         }
 
         static thread_local const auto storage_owner = std::make_unique<MarketBuffer>();
         const auto wire = parse_markets(response->body, *storage_owner);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;

@@ -43,12 +43,11 @@ public:
         const auto response = await_response(
             *state_, rest_, state_->builder.pair_info(market == MarketType::Perp), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (const auto failed = as_venue_error(response->body); failed.has_value()) {
             return std::unexpected{*failed};
@@ -59,8 +58,7 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_pair_info(response->body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;
@@ -93,24 +91,22 @@ private:
     }
 
     std::expected<void, exec::VenueError> platform_status() {
-        const auto response =
-            await_response(*state_, rest_, state_->builder.platform_status(), 5'000);
+        const auto response = await_response(*state_, rest_, state_->builder.platform_status(), 5'000);
         if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "platform status unavailable")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "platform status unavailable")};
         }
         if (const auto failed = as_venue_error(response->body); failed.has_value()) {
             return std::unexpected{*failed};
         }
         const auto status = parse_platform_status(response->body);
         if (!status.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(status.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(status.error()))};
         }
         if (*status != k_platform_operative) {
             // retryable: maintenance ends
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Retryable, *status, "platform in maintenance")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Retryable, *status, "platform in maintenance")};
         }
         return {};
     }

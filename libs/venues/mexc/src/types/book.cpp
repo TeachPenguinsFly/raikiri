@@ -40,8 +40,7 @@ std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
     return level;
 }
 
-std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
-                                                  std::span<WireLevel> into) {
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side, std::span<WireLevel> into) {
     wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -74,8 +73,7 @@ std::expected<std::uint64_t, WireError> ms_of(wire::ondemand::value value) {
 }
 
 // one forward walk since begin and end are absent on a snapshot
-std::expected<void, WireError>
-read_depth_data(wire::ondemand::object& data, LevelBuffer& storage, WireDepth& out) {
+std::expected<void, WireError> read_depth_data(wire::ondemand::object& data, LevelBuffer& storage, WireDepth& out) {
     std::optional<std::size_t> bids;
     std::optional<std::size_t> asks;
     std::expected<std::int64_t, WireError> begin{0};
@@ -83,8 +81,7 @@ read_depth_data(wire::ondemand::object& data, LevelBuffer& storage, WireDepth& o
     std::expected<std::int64_t, WireError> version{0};
     std::expected<std::uint64_t, WireError> cts{wire::digits_to_u64({})};
     std::expected<std::uint64_t, WireError> timestamp{wire::digits_to_u64({})};
-    const auto int_of =
-        [](wire::ondemand::value value) -> std::expected<std::int64_t, WireError> {
+    const auto int_of = [](wire::ondemand::value value) -> std::expected<std::int64_t, WireError> {
         std::int64_t n = 0;
         if (const auto ec = value.get_int64().get(n); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));
@@ -200,8 +197,7 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
     });
 }
 
-std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view frame,
-                                                           LevelBuffer& storage) {
+std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<DepthEvent, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -215,8 +211,7 @@ std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view fram
         if (!channel.has_value()) {
             return std::unexpected(channel.error());
         }
-        DepthEvent out{.event = {.kind = kind_from_channel(*channel), .symbol = *symbol},
-                       .depth = std::nullopt};
+        DepthEvent out{.event = {.kind = kind_from_channel(*channel), .symbol = *symbol}, .depth = std::nullopt};
         if (out.event.kind != EventKind::DepthFull || root->reset().error() != simdjson::SUCCESS) {
             return out;
         }
@@ -245,12 +240,10 @@ std::expected<StreamQuote, WireError> parse_stream_quote(std::string_view payloa
     if (bid->empty() || bid_qty->empty() || ask->empty() || ask_qty->empty()) {
         return std::unexpected(WireError::MissingField);
     }
-    return StreamQuote{
-        .bid_price = *bid, .bid_qty = *bid_qty, .ask_price = *ask, .ask_qty = *ask_qty};
+    return StreamQuote{.bid_price = *bid, .bid_qty = *bid_qty, .ask_price = *ask, .ask_qty = *ask_qty};
 }
 
-std::expected<StreamBook, WireError> parse_stream_book(std::string_view payload,
-                                                       LevelBuffer& storage) {
+std::expected<StreamBook, WireError> parse_stream_book(std::string_view payload, LevelBuffer& storage) {
     const auto asks = read_stream_side(payload, 1, storage.asks);
     if (!asks.has_value()) {
         return std::unexpected(asks.error());

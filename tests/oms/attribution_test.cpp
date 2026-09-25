@@ -9,8 +9,7 @@
 namespace raikiri::oms {
 namespace {
 
-constexpr InstrumentId k_instrument =
-    InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});
+constexpr InstrumentId k_instrument = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});
 
 OrderCmd make_cmd(ClientOrderId cid, std::int64_t qty) {
     OrderCmd cmd{};

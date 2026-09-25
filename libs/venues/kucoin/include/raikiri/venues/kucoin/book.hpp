@@ -30,8 +30,7 @@ struct WireBbo {
     std::uint64_t ts_ns{0};
 };
 
-[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame,
-                                                          MarketType market);
+[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType market);
 
 // one level per frame, "price,side,size"; size 0 deletes the level
 struct WireBookChange {
@@ -80,8 +79,7 @@ struct WireUtaBook {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame,
-                                                                   LevelBuffer& storage);
+[[nodiscard]] std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, LevelBuffer& storage);
 
 // ts here is nanoseconds; other kucoin timestamps are milliseconds
 struct WireOrderBook {
@@ -117,8 +115,7 @@ public:
     [[nodiscard]] bool live() const noexcept { return live_; }
 
     // nothing while the chain is broken
-    [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event,
-                                                       UnixNanos ts_init) const;
+    [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
 
     [[nodiscard]] std::optional<Bbo> bbo(UnixNanos ts_event, UnixNanos ts_init) const;
 

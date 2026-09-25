@@ -102,8 +102,7 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     return perp;
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = steps_of(wire.price, base.tick_size);
     const auto qty = steps_of(wire.size, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -119,10 +118,8 @@ map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) 
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(const WireMarketStats& wire,
-                                         const InstrumentBase& base,
-                                         std::uint64_t frame_ms,
-                                         UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding(const WireMarketStats& wire, const InstrumentBase& base, std::uint64_t frame_ms, UnixNanos ts_init) {
     if (wire.current_funding_rate.empty()) {
         return std::nullopt;
     }
@@ -150,10 +147,8 @@ std::optional<FundingUpdate> map_funding(const WireMarketStats& wire,
     return out;
 }
 
-std::optional<TickerStats> map_ticker_stats(const WireMarketStats& wire,
-                                            const InstrumentBase& base,
-                                            std::uint64_t frame_ms,
-                                            UnixNanos ts_init) {
+std::optional<TickerStats>
+map_ticker_stats(const WireMarketStats& wire, const InstrumentBase& base, std::uint64_t frame_ms, UnixNanos ts_init) {
     // Go-encoded floats (89.40990000000001): an exact read would refuse them.
     const auto volume = parse_amount_e9(wire.base_volume);
     const auto turnover = parse_turnover_e6(wire.quote_volume);

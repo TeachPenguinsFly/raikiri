@@ -48,8 +48,8 @@ template <typename Level> struct LevelBuffer {
     std::array<Level, k_max_levels> asks{};
 };
 
-[[nodiscard]] std::expected<WireBook<WireRealLevel>, WireError>
-parse_real_book(std::string_view frame, LevelBuffer<WireRealLevel>& storage);
+[[nodiscard]] std::expected<WireBook<WireRealLevel>, WireError> parse_real_book(std::string_view frame,
+                                                                                LevelBuffer<WireRealLevel>& storage);
 
 [[nodiscard]] std::expected<WireBook<WireScaledLevel>, WireError>
 parse_scaled_book(std::string_view frame, LevelBuffer<WireScaledLevel>& storage);

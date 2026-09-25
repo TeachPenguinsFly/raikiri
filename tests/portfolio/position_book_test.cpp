@@ -17,11 +17,8 @@ InstrumentBase btcusdt(VenueId venue) {
     return base;
 }
 
-OrderEvent fill(const InstrumentBase& base,
-                std::uint16_t strategy,
-                Side side,
-                std::int64_t lots,
-                std::string_view price) {
+OrderEvent
+fill(const InstrumentBase& base, std::uint16_t strategy, Side side, std::int64_t lots, std::string_view price) {
     OrderEvent event{};
     event.type = OrderEventType::Filled;
     event.side = side;
@@ -38,10 +35,8 @@ TEST(PositionBook, TwoStrategiesOnOneInstrumentKeepSeparateBooks) {
     const auto base = btcusdt(VenueId::Binance);
     PositionBook book;
 
-    ASSERT_TRUE(
-        book.on_fill(base, fill(base, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
-    ASSERT_TRUE(
-        book.on_fill(base, fill(base, 2, Side::Sell, 400, "50000"), QtyLots::from_raw(400)));
+    ASSERT_TRUE(book.on_fill(base, fill(base, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
+    ASSERT_TRUE(book.on_fill(base, fill(base, 2, Side::Sell, 400, "50000"), QtyLots::from_raw(400)));
 
     EXPECT_EQ(book.size(), 2U);
     EXPECT_EQ(book.find({1, base.id})->qty().raw, 1000);
@@ -54,10 +49,8 @@ TEST(PositionBook, SameSymbolOnTwoVenuesIsTwoPositions) {
     const auto bybit = btcusdt(VenueId::Bybit);
     PositionBook book;
 
-    ASSERT_TRUE(
-        book.on_fill(binance, fill(binance, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
-    ASSERT_TRUE(
-        book.on_fill(bybit, fill(bybit, 1, Side::Sell, 1000, "50010"), QtyLots::from_raw(1000)));
+    ASSERT_TRUE(book.on_fill(binance, fill(binance, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
+    ASSERT_TRUE(book.on_fill(bybit, fill(bybit, 1, Side::Sell, 1000, "50010"), QtyLots::from_raw(1000)));
 
     EXPECT_EQ(book.size(), 2U);
     EXPECT_EQ(book.find({1, binance.id})->qty().raw, 1000);
@@ -69,8 +62,7 @@ TEST(PositionBook, RepeatedFillsLandInOnePosition) {
     PositionBook book;
 
     for (int i = 0; i < 5; ++i) {
-        ASSERT_TRUE(
-            book.on_fill(base, fill(base, 1, Side::Buy, 100, "50000"), QtyLots::from_raw(100)));
+        ASSERT_TRUE(book.on_fill(base, fill(base, 1, Side::Buy, 100, "50000"), QtyLots::from_raw(100)));
     }
     EXPECT_EQ(book.size(), 1U);
     EXPECT_EQ(book.find({1, base.id})->qty().raw, 500);
@@ -81,10 +73,8 @@ TEST(PositionBook, ClosedPositionStaysInTheBook) {
     const auto base = btcusdt(VenueId::Binance);
     PositionBook book;
 
-    ASSERT_TRUE(
-        book.on_fill(base, fill(base, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
-    ASSERT_TRUE(
-        book.on_fill(base, fill(base, 1, Side::Sell, 1000, "51000"), QtyLots::from_raw(1000)));
+    ASSERT_TRUE(book.on_fill(base, fill(base, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
+    ASSERT_TRUE(book.on_fill(base, fill(base, 1, Side::Sell, 1000, "51000"), QtyLots::from_raw(1000)));
 
     const auto* p = book.find({1, base.id});
     ASSERT_NE(p, nullptr);
@@ -98,13 +88,11 @@ TEST(PositionBook, PointersSurviveLaterInserts) {
     const auto base = btcusdt(VenueId::Binance);
     PositionBook book{4};
 
-    ASSERT_TRUE(
-        book.on_fill(base, fill(base, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
+    ASSERT_TRUE(book.on_fill(base, fill(base, 1, Side::Buy, 1000, "50000"), QtyLots::from_raw(1000)));
     const auto* first = book.find({1, base.id});
 
     for (std::uint16_t s = 2; s <= 4; ++s) {
-        ASSERT_TRUE(
-            book.on_fill(base, fill(base, s, Side::Buy, 100, "50000"), QtyLots::from_raw(100)));
+        ASSERT_TRUE(book.on_fill(base, fill(base, s, Side::Buy, 100, "50000"), QtyLots::from_raw(100)));
     }
     EXPECT_EQ(first, book.find({1, base.id}));
     EXPECT_EQ(first->qty().raw, 1000);
@@ -133,10 +121,8 @@ TEST(PositionBook, ARestoredPositionIsIndistinguishableFromATradedOne) {
     const auto base = btcusdt(VenueId::Bybit);
 
     PositionBook traded;
-    ASSERT_TRUE(traded.on_fill(base, fill(base, 1, Side::Buy, 4, "60000"), QtyLots::from_raw(4))
-                    .has_value());
-    ASSERT_TRUE(traded.on_fill(base, fill(base, 1, Side::Sell, 1, "61000"), QtyLots::from_raw(1))
-                    .has_value());
+    ASSERT_TRUE(traded.on_fill(base, fill(base, 1, Side::Buy, 4, "60000"), QtyLots::from_raw(4)).has_value());
+    ASSERT_TRUE(traded.on_fill(base, fill(base, 1, Side::Sell, 1, "61000"), QtyLots::from_raw(1)).has_value());
     const auto* original = traded.find({1, base.id});
     ASSERT_NE(original, nullptr);
 
@@ -158,8 +144,7 @@ TEST(PositionBook, ARestoredPositionIsIndistinguishableFromATradedOne) {
     EXPECT_EQ(restored->fill_count(), original->fill_count());
     EXPECT_EQ(restored->avg_entry_price(base).raw, original->avg_entry_price(base).raw);
 
-    ASSERT_TRUE(rebuilt.on_fill(base, fill(base, 1, Side::Sell, 3, "62000"), QtyLots::from_raw(3))
-                    .has_value());
+    ASSERT_TRUE(rebuilt.on_fill(base, fill(base, 1, Side::Sell, 3, "62000"), QtyLots::from_raw(3)).has_value());
     EXPECT_TRUE(rebuilt.find({1, base.id})->flat());
 }
 

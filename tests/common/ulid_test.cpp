@@ -15,9 +15,7 @@ TEST(Ulid, ShapeAndAlphabet) {
     const auto id = gen.next(k_t0);
     EXPECT_EQ(id.len, 26);
     for (const char c : id.view()) {
-        EXPECT_NE(std::string_view{"0123456789ABCDEFGHJKMNPQRSTVWXYZ"}.find(c),
-                  std::string_view::npos)
-            << c;
+        EXPECT_NE(std::string_view{"0123456789ABCDEFGHJKMNPQRSTVWXYZ"}.find(c), std::string_view::npos) << c;
     }
 }
 

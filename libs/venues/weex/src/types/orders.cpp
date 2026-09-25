@@ -95,8 +95,7 @@ WireOrderStatus order_status_from(std::string_view text) noexcept {
     return WireOrderStatus::Unknown;
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                  OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
     return guarded([&] { return read_array<WireOrder>(body, storage.orders, read_order); });
 }
 
@@ -153,8 +152,7 @@ bool is_benign_cancel_error(std::string_view error_code) noexcept {
     return error_code == k_error_order_not_found;
 }
 
-std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
-                                                                FillBuffer& storage) {
+std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body, FillBuffer& storage) {
     return guarded([&] { return read_array<WireFill>(body, storage.fills, read_fill); });
 }
 

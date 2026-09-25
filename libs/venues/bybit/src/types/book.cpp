@@ -8,8 +8,7 @@ namespace {
 using wire::guarded;
 namespace ondemand = wire::ondemand;
 
-std::expected<std::size_t, WireError>
-read_levels(ondemand::array levels, WireLevel* out, std::size_t capacity) {
+std::expected<std::size_t, WireError> read_levels(ondemand::array levels, WireLevel* out, std::size_t capacity) {
     std::size_t count = 0;
     for (auto entry : levels) {
         if (count == capacity) {
@@ -47,8 +46,7 @@ read_levels(ondemand::array levels, WireLevel* out, std::size_t capacity) {
 
 } // namespace
 
-std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
-                                                        OrderbookBuffer& storage) {
+std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame, OrderbookBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderbook, WireError> {
         auto& session = wire::session();
         auto root = session.open_object(frame);
@@ -147,8 +145,7 @@ bool BookSync::apply_side(std::span<const WireLevel> levels, book::Ladder& side)
 SyncResult BookSync::apply(const WireOrderbook& update) {
     if (update.is_snapshot) {
         ladders_.clear();
-        if (!apply_side(update.bids, ladders_.bids()) ||
-            !apply_side(update.asks, ladders_.asks())) {
+        if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
             invalidate();
             return SyncResult::BadLevel;
         }

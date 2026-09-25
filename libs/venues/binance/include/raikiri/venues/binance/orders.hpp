@@ -28,7 +28,7 @@ struct WireOrderUpdate {
     std::string_view commission;        // n — absent unless this frame is a fill
     std::string_view commission_asset;  // N
     std::uint64_t order_id{0};          // i
-    std::uint64_t trade_id{0}; // t
+    std::uint64_t trade_id{0};          // t
     std::uint64_t trade_ms{0};          // T inside o
     std::uint64_t event_ms{0};          // E at the top level
     bool is_maker{false};               // m
@@ -58,8 +58,8 @@ struct OrderBuffer {
     std::array<WireOrder, k_max_orders> orders{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
+                                                                                OrderBuffer& storage);
 
 // the account's own fill from /fapi/v1/userTrades
 struct WireTrade {
@@ -80,7 +80,7 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_user_trades(std::string_view body, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::string_view body,
+                                                                                     TradeBuffer& storage);
 
 } // namespace raikiri::venues::binance

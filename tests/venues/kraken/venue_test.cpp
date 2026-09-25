@@ -67,8 +67,7 @@ TEST(KrakenVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Kraken);
     EXPECT_NE(adapter->data, nullptr);
@@ -79,8 +78,7 @@ TEST(KrakenVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
@@ -105,8 +103,7 @@ TEST(KrakenVenue, PullsWithoutCredentialsAnswerAuthFailureNotTerminal) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto started = adapter->execution->start();
@@ -178,8 +175,7 @@ TEST(KrakenWire, MalformedFrameIsAnErrorNotAPartlyFilledStruct) {
     EXPECT_FALSE(parse_event("").has_value());
     EXPECT_FALSE(parse_ticker(R"({"feed":"ticker"})").has_value());
     // a string bid must not read as a zero touch
-    EXPECT_FALSE(
-        parse_ticker(R"({"feed":"ticker","product_id":"PF_XBTUSD","bid":"1"})").has_value());
+    EXPECT_FALSE(parse_ticker(R"({"feed":"ticker","product_id":"PF_XBTUSD","bid":"1"})").has_value());
 }
 
 TEST(KrakenWire, TickerCarriesTouchAndFundingInOneFrame) {
@@ -448,7 +444,7 @@ TEST(KrakenMap, TurnoverKeepsTheBaseColumnEmptyOnAnInverseContract) {
     ASSERT_TRUE(linear.has_value());
     const auto linear_stats = map_ticker_stats(*linear, table, now);
     ASSERT_TRUE(linear_stats.has_value());
-    EXPECT_EQ(linear_stats->volume_24h_base.raw, 5'279'687'700'000LL);        // 5279.6877 XBT
+    EXPECT_EQ(linear_stats->volume_24h_base.raw, 5'279'687'700'000LL);    // 5279.6877 XBT
     EXPECT_EQ(linear_stats->volume_24h_quote.raw, 341'115'306'336'500LL); // 341115306.3365 USD
     EXPECT_EQ(linear_stats->ts_event.ns, 1786395177000ULL * 1'000'000ULL);
     EXPECT_EQ(linear_stats->ts_init.ns, now.ns);
@@ -611,12 +607,12 @@ TEST(KrakenBook, SnapshotAndDeltasMakeABookSharedMemoryCanTake) {
     EXPECT_EQ(out->ts_event.ns, 7ULL);
     EXPECT_EQ(out->ts_init.ns, 9ULL);
 
-    const auto at_ask = std::ranges::find_if(
-        book.asks(), [](const Book::Level& level) { return level.price.raw == 64'133; });
+    const auto at_ask = std::ranges::find_if(book.asks(),
+                                             [](const Book::Level& level) { return level.price.raw == 64'133; });
     ASSERT_NE(at_ask, book.asks().end());
     EXPECT_EQ(at_ask->qty.raw, 28'971);
-    const auto at_bid = std::ranges::find_if(
-        book.bids(), [](const Book::Level& level) { return level.price.raw == 64'100; });
+    const auto at_bid = std::ranges::find_if(book.bids(),
+                                             [](const Book::Level& level) { return level.price.raw == 64'100; });
     ASSERT_NE(at_bid, book.bids().end());
     EXPECT_EQ(at_bid->qty.raw, 2475);
 }
@@ -747,10 +743,8 @@ TEST(KrakenWs, TheWholeLiveCatalogueSubscribesInFewerFramesThanTheSendQueueHolds
             continue;
         }
         ++perps;
-        for (const auto kind : {exec::SubKind::Bbo,
-                                exec::SubKind::Trades,
-                                exec::SubKind::Depth,
-                                exec::SubKind::Funding}) {
+        for (const auto kind :
+             {exec::SubKind::Bbo, exec::SubKind::Trades, exec::SubKind::Depth, exec::SubKind::Funding}) {
             add_subscription(set, feed_for(kind), row.symbol);
         }
     }
@@ -766,9 +760,8 @@ TEST(KrakenWs, TheWholeLiveCatalogueSubscribesInFewerFramesThanTheSendQueueHolds
     std::size_t frames = 0;
     std::size_t tickers = 0;
     while (sent < views.size()) {
-        const auto frame =
-            protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
-                sent, std::min<std::size_t>(64, views.size() - sent)));
+        const auto frame = protocol.subscribe_frame(
+            std::span<const Subscription>{views}.subspan(sent, std::min<std::size_t>(64, views.size() - sent)));
         ASSERT_TRUE(frame.has_value());
         if (views[sent].feed == "ticker") {
             tickers += frame->consumed;
@@ -783,20 +776,17 @@ TEST(KrakenWs, TheWholeLiveCatalogueSubscribesInFewerFramesThanTheSendQueueHolds
 
 TEST(KrakenWs, SubscribeFrameNamesOneFeedAndManyProducts) {
     Protocol protocol;
-    const std::array<Subscription, 3> mixed{
-        Subscription{.feed = "ticker", .product_id = "PF_XBTUSD"},
-        Subscription{.feed = "ticker", .product_id = "PI_XBTUSD"},
-        Subscription{.feed = "trade", .product_id = "PF_XBTUSD"}};
+    const std::array<Subscription, 3> mixed{Subscription{.feed = "ticker", .product_id = "PF_XBTUSD"},
+                                            Subscription{.feed = "ticker", .product_id = "PI_XBTUSD"},
+                                            Subscription{.feed = "trade", .product_id = "PF_XBTUSD"}};
 
     // one feed per frame with an array of products; the caller resumes from consumed
     const auto first = protocol.subscribe_frame(mixed);
     ASSERT_TRUE(first.has_value());
     EXPECT_EQ(first->consumed, 2U);
-    EXPECT_EQ(first->text,
-              R"({"event":"subscribe","feed":"ticker","product_ids":["PF_XBTUSD","PI_XBTUSD"]})");
+    EXPECT_EQ(first->text, R"({"event":"subscribe","feed":"ticker","product_ids":["PF_XBTUSD","PI_XBTUSD"]})");
 
-    const auto second =
-        protocol.subscribe_frame(std::span<const Subscription>{mixed}.subspan(first->consumed));
+    const auto second = protocol.subscribe_frame(std::span<const Subscription>{mixed}.subspan(first->consumed));
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->consumed, 1U);
     EXPECT_EQ(second->text, R"({"event":"subscribe","feed":"trade","product_ids":["PF_XBTUSD"]})");
@@ -817,18 +807,17 @@ TEST(KrakenRest, TargetsMatchTheEndpointsTheFixturesCameFrom) {
     EXPECT_EQ(builder.instruments().target, "/derivatives/api/v3/instruments");
     // symbol is a path segment on tickers and a query parameter on orderbook
     EXPECT_EQ(builder.ticker("PF_XBTUSD").target, "/derivatives/api/v3/tickers/PF_XBTUSD");
-    EXPECT_EQ(builder.orderbook("PI_XBTUSD").target,
-              "/derivatives/api/v3/orderbook?symbol=PI_XBTUSD");
+    EXPECT_EQ(builder.orderbook("PI_XBTUSD").target, "/derivatives/api/v3/orderbook?symbol=PI_XBTUSD");
     EXPECT_EQ(builder.instruments().method, net::HttpMethod::Get);
 }
 
 // 64 bytes 0x00..0x3f, base64-encoded, so the decoded key is inspectable
-constexpr std::string_view k_test_secret =
-    "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw==";
+constexpr std::string_view
+    k_test_secret = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw==";
 
 // the message every signed request in this file reduces to
-constexpr std::string_view k_send_message =
-    "orderType=lmt&symbol=PI_XBTUSD&side=buy&size=1&limitPrice=94001690000000000/api/v3/sendorder";
+constexpr std::string_view
+    k_send_message = "orderType=lmt&symbol=PI_XBTUSD&side=buy&size=1&limitPrice=94001690000000000/api/v3/sendorder";
 
 TEST(KrakenSign, TheSecretIsBase64DecodedBeforeItKeysTheHmac) {
     // computed independently in python: b64decode, sha256, hmac-sha512, b64encode
@@ -840,8 +829,7 @@ TEST(KrakenSign, TheSecretIsBase64DecodedBeforeItKeysTheHmac) {
     EXPECT_EQ(signature.size(), k_authent_bytes);
 
     // the ws challenge runs the same chain over the uuid alone
-    const auto signed_challenge =
-        authent(k_test_secret, "226aee50-88fc-4618-a42a-34f7709570b2", out);
+    const auto signed_challenge = authent(k_test_secret, "226aee50-88fc-4618-a42a-34f7709570b2", out);
     EXPECT_EQ(signed_challenge,
               "uI506uuxHesOy5ARmPf7tntMqCAGiAf+W4q69I/S6UeO0gQTVLJHuIgfkxI5pUYpP5fqWE9mqu3ix8ov"
               "2uHO9w==");
@@ -947,8 +935,7 @@ TEST(KrakenRest, OrderTypeAndTimeInForceAreOneField) {
     cmd.flags = OrderFlags::ReduceOnly;
     const auto market = builder.create_order(cmd, table, k_now);
     ASSERT_TRUE(market.has_value());
-    EXPECT_EQ(market->body, "orderType=mkt&symbol=PI_XBTUSD&side=buy&size=1&reduceOnly=true")
-        << market->body;
+    EXPECT_EQ(market->body, "orderType=mkt&symbol=PI_XBTUSD&side=buy&size=1&reduceOnly=true") << market->body;
 }
 
 TEST(KrakenRest, CancelSpellsTheTargetOrderIdOneWayAndEditSpellsItTheOther) {
@@ -1012,8 +999,7 @@ TEST(KrakenRest, GetsCarryTheirParametersInTheQueryAndSignTheSameText) {
     ASSERT_TRUE(paged.has_value());
     EXPECT_EQ(paged->target, "/derivatives/api/v3/fills?lastFillTime=2020-07-21T12:41:52.790Z");
     EXPECT_TRUE(paged->body.empty());
-    EXPECT_EQ(builder.last_sign_message(),
-              "lastFillTime=2020-07-21T12:41:52.790Z1690000000003/api/v3/fills");
+    EXPECT_EQ(builder.last_sign_message(), "lastFillTime=2020-07-21T12:41:52.790Z1690000000003/api/v3/fills");
 }
 
 TEST(KrakenRest, MarketRefusalIsNamedBeforeTheInstrumentTableIsEverRead) {
@@ -1023,10 +1009,9 @@ TEST(KrakenRest, MarketRefusalIsNamedBeforeTheInstrumentTableIsEverRead) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
 
-    for (const auto [market, expected] :
-         {std::pair{MarketType::Spot, BuildError::SpotUnsupported},
-          std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported},
-          std::pair{MarketType::Option, BuildError::OptionsUnsupported}}) {
+    for (const auto [market, expected] : {std::pair{MarketType::Spot, BuildError::SpotUnsupported},
+                                          std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported},
+                                          std::pair{MarketType::Option, BuildError::OptionsUnsupported}}) {
         OrderCmd cmd{};
         cmd.instrument = InstrumentId::make(VenueId::Kraken, market, SymbolId{3});
         EXPECT_EQ(builder.create_order(cmd, empty, k_now).error(), expected);
@@ -1168,8 +1153,7 @@ TEST(KrakenMap, ADeltaReasonIsTheWholeVerdict) {
     EXPECT_EQ(effect_of("dead_man_switch", true), DeltaEffect::Canceled);
     EXPECT_EQ(effect_of("liquidation", true), DeltaEffect::Canceled);
     EXPECT_EQ(effect_of("post_order_failed_because_it_would_filled", true), DeltaEffect::Rejected);
-    EXPECT_EQ(effect_of("ioc_order_failed_because_it_would_not_be_executed", true),
-              DeltaEffect::Rejected);
+    EXPECT_EQ(effect_of("ioc_order_failed_because_it_would_not_be_executed", true), DeltaEffect::Rejected);
     EXPECT_EQ(effect_of("would_execute_self", true), DeltaEffect::Rejected);
     EXPECT_EQ(effect_of("not_enough_margin", true), DeltaEffect::Rejected);
     // the fills feed owns every fill
@@ -1273,8 +1257,7 @@ TEST(KrakenWs, ThePrivateSubscribeCarriesTheSignedChallengeAndNeverAnEmptyOne) {
     ASSERT_TRUE(ask.has_value());
     EXPECT_EQ(ask->text, R"({"event":"challenge","api_key":"k-public"})");
 
-    const auto subscribe =
-        protocol.private_subscribe_frame(k_feed_open_orders, "k-public", challenge->message, "sig");
+    const auto subscribe = protocol.private_subscribe_frame(k_feed_open_orders, "k-public", challenge->message, "sig");
     ASSERT_TRUE(subscribe.has_value());
     EXPECT_EQ(subscribe->text,
               R"({"event":"subscribe","feed":"open_orders","api_key":"k-public",)"

@@ -94,8 +94,7 @@ exec::InstrumentTable load_table() {
     return table;
 }
 
-[[nodiscard]] const InstrumentBase& listed(const exec::InstrumentTable& table,
-                                           std::string_view symbol) {
+[[nodiscard]] const InstrumentBase& listed(const exec::InstrumentTable& table, std::string_view symbol) {
     const auto* instrument = table.find(symbol);
     EXPECT_NE(instrument, nullptr) << symbol;
     return base_of(*instrument);
@@ -105,8 +104,7 @@ TEST(WeexVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Weex);
     EXPECT_NE(adapter->data, nullptr);
@@ -159,16 +157,14 @@ TEST(WeexVenue, TwoOfThreeCredentialsIsRefusedAtStartupRatherThanPerOrder) {
     ASSERT_FALSE(refused.has_value());
     EXPECT_EQ(refused.error(), exec::MakeError::PassphraseRequired);
 
-    EXPECT_TRUE(exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock)
-                    .has_value());
+    EXPECT_TRUE(exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock).has_value());
 }
 
 TEST(WeexVenue, WithNoCredentialEveryCommandIsRefusedLocallyRatherThanLeftOpen) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -201,8 +197,7 @@ TEST(WeexVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
         const auto loaded = adapter->instruments->fetch_all(market);
@@ -232,8 +227,7 @@ TEST(WeexWire, TheSnapshotIsADIFFERENTKINDFromTheDeltaOnTheSameChannel) {
     ASSERT_TRUE(snapshot.has_value());
     ASSERT_TRUE(delta.has_value());
     EXPECT_NE(snapshot->kind, delta->kind);
-    EXPECT_NE(parse_event(fixture("ws_trade_snapshot.json"))->kind,
-              parse_event(fixture("ws_trade_buy.json"))->kind);
+    EXPECT_NE(parse_event(fixture("ws_trade_snapshot.json"))->kind, parse_event(fixture("ws_trade_buy.json"))->kind);
 }
 
 TEST(WeexWire, AnAcknowledgementAndARefusalAreOneBooleanApart) {
@@ -287,9 +281,8 @@ TEST(WeexBook, TheEventAndTheDispositionMustAgree) {
 
     // edited: no live frame disagrees with itself
     auto crossed = fixture("ws_depth_snapshot.json");
-    crossed.replace(crossed.find(R"("e":"depthSnapshot")"),
-                    std::string_view{R"("e":"depthSnapshot")"}.size(),
-                    R"("e":"depth")");
+    crossed.replace(
+        crossed.find(R"("e":"depthSnapshot")"), std::string_view{R"("e":"depthSnapshot")"}.size(), R"("e":"depth")");
     EXPECT_FALSE(parse_depth(crossed, storage).has_value());
 }
 
@@ -316,8 +309,7 @@ TEST(WeexBook, ASnapshotSeedsAndTheDeltasChainOntoIt) {
     DepthBook book{btc.id, btc.tick_size, btc.lot_size};
 
     static thread_local LevelBuffer storage;
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
     EXPECT_TRUE(book.live());
     EXPECT_EQ(book.bids().size(), 15U);
     EXPECT_EQ(book.asks().size(), 15U);
@@ -327,8 +319,7 @@ TEST(WeexBook, ASnapshotSeedsAndTheDeltasChainOntoIt) {
     EXPECT_EQ(book.bids().front().qty.raw, 28'363);
     EXPECT_EQ(book.asks().front().price.raw, 793'499);
 
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)), BookResult::Applied);
     EXPECT_EQ(book.bids().front().qty.raw, 24'486);
     EXPECT_EQ(book.asks().front().qty.raw, 27'253);
     EXPECT_EQ(book.gaps(), 0U);
@@ -340,21 +331,16 @@ TEST(WeexBook, QuantityZeroDeletesALevelAndTheWindowStaysFifteen) {
     DepthBook book{btc.id, btc.tick_size, btc.lot_size};
 
     static thread_local LevelBuffer storage;
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)), BookResult::Applied);
     // the next frame sends 79346.5 at "0"
     const auto before = book.bids();
-    EXPECT_NE(std::ranges::find_if(
-                  before, [](const book::Level& level) { return level.price.raw == 793'465; }),
+    EXPECT_NE(std::ranges::find_if(before, [](const book::Level& level) { return level.price.raw == 793'465; }),
               before.end());
 
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)), BookResult::Applied);
     const auto after = book.bids();
-    EXPECT_EQ(std::ranges::find_if(
-                  after, [](const book::Level& level) { return level.price.raw == 793'465; }),
+    EXPECT_EQ(std::ranges::find_if(after, [](const book::Level& level) { return level.price.raw == 793'465; }),
               after.end());
     EXPECT_EQ(after.size(), 15U);
     EXPECT_EQ(book.asks().size(), 15U);
@@ -372,8 +358,7 @@ TEST(WeexBook, TheTwoHundredLevelChannelPublishesTheTopHundred) {
     EXPECT_EQ(seed->bids.size(), 200U);
     EXPECT_EQ(seed->asks.size(), 200U);
     ASSERT_EQ(book.apply(*seed), BookResult::Applied);
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth200_update.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth200_update.json"), storage)), BookResult::Applied);
     EXPECT_EQ(book.dropped_levels(), 0U);
     EXPECT_GE(book.bids().size(), k_book_levels);
     EXPECT_GE(book.asks().size(), k_book_levels);
@@ -395,8 +380,7 @@ TEST(WeexBook, TheTopOfBookIsTheOnlyQuoteThisVenueHas) {
 
     EXPECT_FALSE(book.touch(k_ingest, k_ingest).has_value());
 
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
     const auto bbo = book.touch(k_ingest, k_ingest);
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->instrument.packed, btc.id.packed);
@@ -413,8 +397,7 @@ TEST(WeexBook, ADeltaBeforeTheChannelsOwnSnapshotIsDroppedNotGuessed) {
     DepthBook book{btc.id, btc.tick_size, btc.lot_size};
     static thread_local LevelBuffer storage;
 
-    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)),
-              BookResult::Unseeded);
+    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)), BookResult::Unseeded);
     EXPECT_FALSE(book.live());
     EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
 }
@@ -427,18 +410,15 @@ TEST(WeexBook, AGappedBookIsReseededOncePerGap) {
     constexpr std::uint64_t s = 1'000'000'000ULL;
     BookWatch watch{.instrument = btc.id};
 
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
     watch.seen_ns = 1'000 * s;
     EXPECT_EQ(due_for_reseed(watch, 1'010 * s), Reseed::None);
-    watch.gapped = book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)) ==
-                   BookResult::Gap;
+    watch.gapped = book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)) == BookResult::Gap;
     ASSERT_TRUE(watch.gapped);
     EXPECT_EQ(due_for_reseed(watch, 1'011 * s), Reseed::Gap);
     EXPECT_EQ(due_for_reseed(watch, 1'012 * s), Reseed::None) << "one resubscribe, not one per frame";
     watch.gapped = true;
-    EXPECT_EQ(due_for_reseed(watch, 1'100 * s), Reseed::None)
-        << "the snapshot gets its silence to arrive";
+    EXPECT_EQ(due_for_reseed(watch, 1'100 * s), Reseed::None) << "the snapshot gets its silence to arrive";
     EXPECT_EQ(due_for_reseed(watch, 1'011 * s + k_book_silence_ns), Reseed::Gap);
 
     Protocol protocol;
@@ -453,8 +433,7 @@ TEST(WeexBook, AQuietBookBacksOffWhileItsSnapshotIsUnchanged) {
     const auto& btc = listed(table, "BTCUSDT");
     DepthBook book{btc.id, btc.tick_size, btc.lot_size};
     static thread_local LevelBuffer storage;
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
     constexpr std::uint64_t s = 1'000'000'000ULL;
     constexpr std::uint64_t min = 60 * s;
     const auto still = book_digest(book);
@@ -488,8 +467,7 @@ TEST(WeexBook, AQuietBookBacksOffWhileItsSnapshotIsUnchanged) {
     EXPECT_EQ(watch.silence_ns, k_book_silence_ns);
     EXPECT_EQ(due_for_reseed(watch, now + 3 * k_book_silence_ns), Reseed::Silent);
     watch.gapped = true;
-    EXPECT_EQ(due_for_reseed(watch, now + 4 * k_book_silence_ns), Reseed::Gap)
-        << "a gap never waits out the backoff";
+    EXPECT_EQ(due_for_reseed(watch, now + 4 * k_book_silence_ns), Reseed::Gap) << "a gap never waits out the backoff";
 
     Protocol protocol;
     const std::array<std::string_view, 1> one{"BTCUSDT@depth200"};
@@ -504,17 +482,14 @@ TEST(WeexBook, ABrokenChainInvalidatesRatherThanServingAStaleBook) {
     DepthBook book{btc.id, btc.tick_size, btc.lot_size};
     static thread_local LevelBuffer storage;
 
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
-    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)),
-              BookResult::Gap);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
+    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)), BookResult::Gap);
     EXPECT_EQ(book.gaps(), 1U);
     EXPECT_FALSE(book.live());
     EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
     EXPECT_FALSE(book.touch(k_ingest, k_ingest).has_value());
 
-    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
+    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
     EXPECT_TRUE(book.live());
 }
 
@@ -524,12 +499,9 @@ TEST(WeexBook, AFrameAlreadyAppliedIsStaleRatherThanAGap) {
     DepthBook book{btc.id, btc.tick_size, btc.lot_size};
     static thread_local LevelBuffer storage;
 
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Applied);
-    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)),
-              BookResult::Applied);
-    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)),
-              BookResult::Stale);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)), BookResult::Applied);
+    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_update.json"), storage)), BookResult::Stale);
     EXPECT_EQ(book.gaps(), 0U); // a repeat must not read as a break
     EXPECT_TRUE(book.live());
 }
@@ -541,8 +513,7 @@ TEST(WeexBook, ALevelThatDoesNotDivideByTheTickIsDroppedNeverRounded) {
     DepthBook book{btc.id, FixedE9::from_raw(1'000'000'000), btc.lot_size};
     static thread_local LevelBuffer storage;
 
-    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
-              BookResult::Unseeded);
+    EXPECT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)), BookResult::Unseeded);
     // 79348.0 is the one whole-unit bid; the one-sided remainder publishes nothing
     EXPECT_EQ(book.dropped_levels(), 29U);
     EXPECT_FALSE(book.live());
@@ -760,8 +731,7 @@ TEST(WeexCatalogue, EveryRowIsolatesOneMapperDecision) {
         const auto& base = base_of(*mapped);
         EXPECT_EQ(base.tick_size.raw, want.tick) << want.symbol;
         EXPECT_EQ(base.lot_size.raw, want.lot) << want.symbol;
-        EXPECT_EQ(std::get<PerpInstrument>(*mapped).funding_interval_s, want.interval_s)
-            << want.symbol;
+        EXPECT_EQ(std::get<PerpInstrument>(*mapped).funding_interval_s, want.interval_s) << want.symbol;
     }
 }
 
@@ -856,8 +826,7 @@ TEST(WeexWs, ASubscribeFrameBatchesAndReportsWhatItConsumed) {
     const auto frame = protocol.subscribe_frame(two);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
-    EXPECT_EQ(frame->text,
-              R"({"method":"SUBSCRIBE","params":["BTCUSDT@depth15","BTCUSDT@trade"],"id":1})");
+    EXPECT_EQ(frame->text, R"({"method":"SUBSCRIBE","params":["BTCUSDT@depth15","BTCUSDT@trade"],"id":1})");
 
     std::vector<std::string_view> many(30, "BTCUSDT@trade");
     const auto batched = protocol.subscribe_frame(many);
@@ -931,8 +900,7 @@ TEST(WeexSign, TheSignedMessageIsTimestampMethodPathQueryBody) {
     const auto get = builder.open_orders(MarketType::Perp, k_signed_at);
     ASSERT_TRUE(get.has_value());
     EXPECT_EQ(builder.last_sign_message(),
-              std::string{k_signed_at_ms} + "GET" + std::string{ep::k_open_orders} +
-                  "?limit=100&page=0");
+              std::string{k_signed_at_ms} + "GET" + std::string{ep::k_open_orders} + "?limit=100&page=0");
     // "?" appears once, in the message and the target
     EXPECT_EQ(get->target, std::string{ep::k_open_orders} + "?limit=100&page=0");
 
@@ -940,9 +908,7 @@ TEST(WeexSign, TheSignedMessageIsTimestampMethodPathQueryBody) {
     const auto post = builder.create_order(limit_order(table), table, k_signed_at);
     ASSERT_TRUE(post.has_value());
     const auto message = std::string{builder.last_sign_message()};
-    EXPECT_EQ(message,
-              std::string{k_signed_at_ms} + "POST" + std::string{ep::k_order} +
-                  std::string{post->body});
+    EXPECT_EQ(message, std::string{k_signed_at_ms} + "POST" + std::string{ep::k_order} + std::string{post->body});
     // an empty query takes no "?"
     EXPECT_EQ(message.find('?'), std::string::npos);
 }
@@ -955,8 +921,7 @@ TEST(WeexSign, TheHeaderCarriesABase64DigestOfExactlyThatMessage) {
     ASSERT_TRUE(request.has_value());
 
     std::array<char, net::k_base64_bytes> expected{};
-    const auto digest =
-        net::hmac_sha256_base64("weex-test-secret", builder.last_sign_message(), expected);
+    const auto digest = net::hmac_sha256_base64("weex-test-secret", builder.last_sign_message(), expected);
     EXPECT_EQ(header_of(*request, "ACCESS-SIGN"), digest);
     // base64: 32 digest bytes become 44 characters
     EXPECT_EQ(digest.size(), net::k_base64_bytes);
@@ -1018,8 +983,7 @@ TEST(WeexOrders, TheUlidTravelsUnchangedAndFitsTheVenuesField) {
 
     const auto request = builder.create_order(limit_order(table), table, k_signed_at);
     ASSERT_TRUE(request.has_value());
-    EXPECT_NE(request->body.find(R"("newClientOrderId":"01JQ8ZK9F4M2N7P5R3T1V6W8XA")"),
-              std::string_view::npos)
+    EXPECT_NE(request->body.find(R"("newClientOrderId":"01JQ8ZK9F4M2N7P5R3T1V6W8XA")"), std::string_view::npos)
         << request->body;
     EXPECT_LE(k_ulid.size(), k_max_client_order_id);
 }
@@ -1042,8 +1006,7 @@ TEST(WeexOrders, ARequiredFieldTheVenueWouldRefuseIsRefusedHere) {
     no_id.exchange_client_order_id = {};
     EXPECT_EQ(builder.create_order(no_id, table, k_signed_at).error(), BuildError::NoOrderTarget);
 
-    EXPECT_EQ(builder.positions(MarketType::Spot, k_signed_at).error(),
-              BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.positions(MarketType::Spot, k_signed_at).error(), BuildError::UnsupportedMarket);
 }
 
 TEST(WeexOrders, AReduceOnlyOrderFacesThePositionItCloses) {
@@ -1061,17 +1024,12 @@ TEST(WeexOrders, AReduceOnlyOrderFacesThePositionItCloses) {
         return std::string{request.has_value() ? request->body : std::string_view{}};
     };
 
-    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::None).find(R"("positionSide":"LONG")"),
-              std::string::npos);
-    EXPECT_NE(side_in_body(Side::Sell, OrderFlags::None).find(R"("positionSide":"SHORT")"),
-              std::string::npos);
-    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::ReduceOnly).find(R"("positionSide":"SHORT")"),
-              std::string::npos);
-    EXPECT_NE(side_in_body(Side::Sell, OrderFlags::ReduceOnly).find(R"("positionSide":"LONG")"),
-              std::string::npos);
+    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::None).find(R"("positionSide":"LONG")"), std::string::npos);
+    EXPECT_NE(side_in_body(Side::Sell, OrderFlags::None).find(R"("positionSide":"SHORT")"), std::string::npos);
+    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::ReduceOnly).find(R"("positionSide":"SHORT")"), std::string::npos);
+    EXPECT_NE(side_in_body(Side::Sell, OrderFlags::ReduceOnly).find(R"("positionSide":"LONG")"), std::string::npos);
     // reduceOnly still travels; positionSide alone does not stop an opposite open
-    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::ReduceOnly).find(R"("reduceOnly":true)"),
-              std::string::npos);
+    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::ReduceOnly).find(R"("reduceOnly":true)"), std::string::npos);
 }
 
 TEST(WeexOrders, PostOnlyIsATimeInForceAndAMarketOrderCarriesNone) {
@@ -1113,8 +1071,7 @@ TEST(WeexOrders, ACancelNamesTheVenuesOwnIdWhereItHasOneAndTheUlidOtherwise) {
     const auto client = builder.cancel_order(by_ulid, k_signed_at);
     ASSERT_TRUE(client.has_value());
     EXPECT_EQ(client->method, net::HttpMethod::Delete);
-    EXPECT_EQ(client->target,
-              std::string{ep::k_order} + "?origClientOrderId=" + std::string{k_ulid});
+    EXPECT_EQ(client->target, std::string{ep::k_order} + "?origClientOrderId=" + std::string{k_ulid});
 
     auto by_venue_id = by_ulid;
     by_venue_id.target_exchange_order_id = *ExchangeOrderId::from("702345678901234567");
@@ -1150,8 +1107,7 @@ TEST(WeexOrders, ABatchCancelNamesEveryOrderAndStopsAtTheVenuesTen) {
     }
     // a DELETE signs its body; empty query, no "?"
     EXPECT_EQ(builder.last_sign_message(),
-              std::string{k_signed_at_ms} + "DELETE" + std::string{ep::k_batch_orders} +
-                  std::string{request->body});
+              std::string{k_signed_at_ms} + "DELETE" + std::string{ep::k_batch_orders} + std::string{request->body});
 
     // weex would cancel the first ten and ignore the rest
     batch.push_back(batch.front());
@@ -1271,8 +1227,7 @@ TEST(WeexWire, AnOrderStatingNoFilledQuantityLeavesTheRemainderUndef) {
 TEST(WeexWire, AWordThisAdapterDoesNotKnowFallsBackToTheQuantities) {
     // an unknown status word is read by its quantities
     const auto table = load_table();
-    const auto edited =
-        replacing(fixture("rest_open_orders.json"), R"("status":"NEW")", R"("status":"WHATEVER")");
+    const auto edited = replacing(fixture("rest_open_orders.json"), R"("status":"NEW")", R"("status":"WHATEVER")");
     static thread_local OrderBuffer storage;
     const auto orders = parse_orders(edited, storage);
     ASSERT_TRUE(orders.has_value());
@@ -1360,8 +1315,7 @@ TEST(WeexWire, ABalanceStatesEachColumnOrLeavesItUndef) {
     EXPECT_EQ(report->ts_venue, k_ingest);
 
     // an omitted column is undef
-    const auto edited =
-        without(fixture("rest_balance.json"), R"("availableBalance":"5413.06877369",)");
+    const auto edited = without(fixture("rest_balance.json"), R"("availableBalance":"5413.06877369",)");
     const auto thin = parse_balances(edited, storage);
     ASSERT_TRUE(thin.has_value());
     const auto partial = map_balance((*thin)[0], k_ingest);
@@ -1427,10 +1381,9 @@ TEST(WeexWire, TheServerClockIsReadBecauseASignatureExpires) {
 
 TEST(WeexBook, ReadsFieldsInAnyOrder) {
     static thread_local LevelBuffer storage;
-    const auto wire = parse_depth(
-        R"({"a":[["2","1"]],"b":[["1","3"],["0.5","1"]],"u":12,"x":[1,[2]],"d":"CHANGED",)"
-        R"("U":11,"s":"ETHUSDT","e":"depth","E":7})",
-        storage);
+    const auto wire = parse_depth(R"({"a":[["2","1"]],"b":[["1","3"],["0.5","1"]],"u":12,"x":[1,[2]],"d":"CHANGED",)"
+                                  R"("U":11,"s":"ETHUSDT","e":"depth","E":7})",
+                                  storage);
     ASSERT_TRUE(wire.has_value());
     EXPECT_FALSE(wire->is_snapshot);
     EXPECT_EQ(wire->symbol, "ETHUSDT");
@@ -1441,13 +1394,11 @@ TEST(WeexBook, ReadsFieldsInAnyOrder) {
     ASSERT_EQ(wire->bids.size(), 2U);
     EXPECT_EQ(wire->bids[1].price, "0.5");
     ASSERT_EQ(wire->asks.size(), 1U);
-    EXPECT_FALSE(parse_depth(R"({"a":[],"b":[],"u":2,"d":"CHANGED","U":1,"e":"depth"})", storage)
-                     .has_value())
+    EXPECT_FALSE(parse_depth(R"({"a":[],"b":[],"u":2,"d":"CHANGED","U":1,"e":"depth"})", storage).has_value())
         << "no symbol";
 
     PrintBuffer prints;
-    const auto trades =
-        parse_trades(R"({"d":[{"m":true,"q":"0.5","x":{},"p":"2","T":3}],"e":"trade"})", prints);
+    const auto trades = parse_trades(R"({"d":[{"m":true,"q":"0.5","x":{},"p":"2","T":3}],"e":"trade"})", prints);
     ASSERT_TRUE(trades.has_value());
     ASSERT_EQ(trades->size(), 1U);
     EXPECT_EQ((*trades)[0].price, "2");

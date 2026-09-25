@@ -55,7 +55,7 @@ struct TradeBuffer {
 };
 
 // reads trade and trade_snapshot through one path
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 } // namespace raikiri::venues::kraken

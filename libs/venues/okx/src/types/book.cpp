@@ -64,10 +64,8 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
 }
 
 // an empty side is real on an illiquid contract
-std::expected<void, WireError> read_top(wire::ondemand::object& obj,
-                                        std::string_view key,
-                                        std::string_view& price,
-                                        std::string_view& qty) {
+std::expected<void, WireError>
+read_top(wire::ondemand::object& obj, std::string_view key, std::string_view& price, std::string_view& qty) {
     auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -100,27 +98,24 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
         if (!inst_id.has_value()) {
             return std::unexpected(inst_id.error());
         }
-        return with_first_data(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
-                WireBbo out{};
-                out.inst_id = *inst_id;
-                if (const auto ok = read_top(obj, "bids", out.bid_price, out.bid_qty);
-                    !ok.has_value()) {
-                    return std::unexpected(ok.error());
-                }
-                if (const auto ok = read_top(obj, "asks", out.ask_price, out.ask_qty);
-                    !ok.has_value()) {
-                    return std::unexpected(ok.error());
-                }
-                const auto ts = wire::opt_ms(obj, "ts");
-                const auto seq = wire::opt_i64(obj, "seqId");
-                if (!ts.has_value() || !seq.has_value()) {
-                    return std::unexpected(WireError::WrongType);
-                }
-                out.ts_ms = *ts;
-                out.seq_id = *seq;
-                return out;
-            });
+        return with_first_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
+            WireBbo out{};
+            out.inst_id = *inst_id;
+            if (const auto ok = read_top(obj, "bids", out.bid_price, out.bid_qty); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            if (const auto ok = read_top(obj, "asks", out.ask_price, out.ask_qty); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            const auto ts = wire::opt_ms(obj, "ts");
+            const auto seq = wire::opt_i64(obj, "seqId");
+            if (!ts.has_value() || !seq.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.ts_ms = *ts;
+            out.seq_id = *seq;
+            return out;
+        });
     });
 }
 
@@ -140,32 +135,31 @@ std::expected<WireBooks, WireError> parse_books(std::string_view frame, LevelBuf
             return std::unexpected(action.error());
         }
         const bool snapshot = *action == "snapshot";
-        return with_first_data(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBooks, WireError> {
-                WireBooks out{};
-                out.inst_id = *inst_id;
-                out.snapshot = snapshot;
-                const auto bids = read_levels(obj, "bids", storage.bids);
-                if (!bids.has_value()) {
-                    return std::unexpected(bids.error());
-                }
-                const auto asks = read_levels(obj, "asks", storage.asks);
-                if (!asks.has_value()) {
-                    return std::unexpected(asks.error());
-                }
-                const auto ts = wire::opt_ms(obj, "ts");
-                const auto seq = wire::opt_i64(obj, "seqId");
-                const auto prev = wire::opt_i64(obj, "prevSeqId");
-                if (!ts.has_value() || !seq.has_value() || !prev.has_value()) {
-                    return std::unexpected(WireError::WrongType);
-                }
-                out.ts_ms = *ts;
-                out.seq_id = *seq;
-                out.prev_seq_id = *prev;
-                out.bids = {storage.bids.data(), *bids};
-                out.asks = {storage.asks.data(), *asks};
-                return out;
-            });
+        return with_first_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBooks, WireError> {
+            WireBooks out{};
+            out.inst_id = *inst_id;
+            out.snapshot = snapshot;
+            const auto bids = read_levels(obj, "bids", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            const auto asks = read_levels(obj, "asks", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            const auto ts = wire::opt_ms(obj, "ts");
+            const auto seq = wire::opt_i64(obj, "seqId");
+            const auto prev = wire::opt_i64(obj, "prevSeqId");
+            if (!ts.has_value() || !seq.has_value() || !prev.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.ts_ms = *ts;
+            out.seq_id = *seq;
+            out.prev_seq_id = *prev;
+            out.bids = {storage.bids.data(), *bids};
+            out.asks = {storage.asks.data(), *asks};
+            return out;
+        });
     });
 }
 
@@ -219,8 +213,7 @@ bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
 BookResult Book::apply(const WireBooks& update) {
     if (update.snapshot) {
         ladders_.clear();
-        if (!apply_side(update.bids, ladders_.bids()) ||
-            !apply_side(update.asks, ladders_.asks())) {
+        if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
             invalidate();
             broken_ = true;
             return BookResult::BadLevel;
@@ -257,8 +250,7 @@ std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init
     if (!synced_) {
         return std::nullopt;
     }
-    return ladders_.snapshot(
-        instrument_, static_cast<std::uint64_t>(last_seq_id_), ts_event, ts_init);
+    return ladders_.snapshot(instrument_, static_cast<std::uint64_t>(last_seq_id_), ts_event, ts_init);
 }
 
 } // namespace raikiri::venues::okx

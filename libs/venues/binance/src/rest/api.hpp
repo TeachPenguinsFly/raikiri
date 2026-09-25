@@ -36,8 +36,7 @@ class RestApi {
 public:
     explicit RestApi(VenueState& state)
         : state_{&state},
-          rest_{state.io,
-                net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}} {}
+          rest_{state.io, net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}} {}
 
     void start() { rest_.start(); }
 
@@ -53,10 +52,8 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-
     // binance meters weight across every endpoint, so every call spends Shared
-    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target,
-                                                              exec::RateClass cls) noexcept {
+    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target, exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited
         }
@@ -64,10 +61,10 @@ public:
         if (taken.has_value()) {
             return {};
         }
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::RateLimited,
-            static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
-            "local rate budget spent; retry after the stated milliseconds")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::RateLimited,
+                                   static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
+                                   "local rate budget spent; retry after the stated milliseconds")};
     }
 
     void penalize() const noexcept {
@@ -78,16 +75,14 @@ public:
     }
 
     // cold path only: reconciliation reads and listen-key calls
-    [[nodiscard]] std::expected<std::string, exec::VenueError>
-    pull(const net::RestRequest& request, std::uint64_t timeout_ms = 10'000) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError> pull(const net::RestRequest& request,
+                                                                    std::uint64_t timeout_ms = 10'000) {
         return usable_body(await_response(*state_, rest_, request, timeout_ms));
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType) {
         const auto request = builder().open_orders(state_->venue_now());
-        if (const auto allowed = spend(ep::k_open_orders, exec::RateClass::Poll);
-            !allowed.has_value()) {
+        if (const auto allowed = spend(ep::k_open_orders, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         if (!request.has_value()) {
@@ -101,30 +96,26 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_orders(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<exec::OrderStatusReport> out;
         out.reserve(wire->size());
         for (const auto& entry : *wire) {
-            if (const auto report = map_open_order(entry, state_->instruments);
-                report.has_value()) {
+            if (const auto report = map_open_order(entry, state_->instruments); report.has_value()) {
                 out.push_back(*report);
             }
         }
         return out;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType) {
-        if (const auto allowed = spend(ep::k_order, exec::RateClass::Poll);
-            !allowed.has_value()) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id, MarketType) {
+        if (const auto allowed = spend(ep::k_order, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         const auto* instrument = first_known_instrument();
         if (instrument == nullptr) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "query needs a loaded catalogue")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "query needs a loaded catalogue")};
         }
         const auto request = builder().query_order(
             base_of(*instrument).exchange_symbol.view(), id, state_->venue_now());
@@ -137,21 +128,17 @@ public:
         }
         const auto wire = parse_order(*body);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         const auto report = map_open_order(*wire, state_->instruments);
         if (!report.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unmappable order")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unmappable order")};
         }
         return *report;
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType,
-                                                                                UnixNanos since) {
-        if (const auto allowed = spend(ep::k_user_trades, exec::RateClass::Poll);
-            !allowed.has_value()) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType, UnixNanos since) {
+        if (const auto allowed = spend(ep::k_user_trades, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         // the whole account; the endpoint takes no symbol
@@ -167,14 +154,12 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_user_trades(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<exec::FillReport> out;
         out.reserve(wire->size());
         for (const auto& entry : *wire) {
-            if (const auto report = map_user_trade(entry, state_->instruments);
-                report.has_value()) {
+            if (const auto report = map_user_trade(entry, state_->instruments); report.has_value()) {
                 out.push_back(*report);
             }
         }
@@ -182,8 +167,7 @@ public:
     }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
-        if (const auto allowed = spend(ep::k_account, exec::RateClass::Poll);
-            !allowed.has_value()) {
+        if (const auto allowed = spend(ep::k_account, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         if (market != MarketType::Perp) {
@@ -203,25 +187,21 @@ public:
         const auto wire = parse_account(*body, storage);
         if (!wire.has_value()) {
             // an unreadable account is refused, since an empty vector reads as holding nothing
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<BalanceReport> out;
         out.reserve(wire->assets.size());
         for (const auto& entry : wire->assets) {
             // binance names every collateral asset it accepts, held or not
-            if (const auto report = map_balance(entry, wire->multi_assets_margin);
-                report.has_value()) {
+            if (const auto report = map_balance(entry, wire->multi_assets_margin); report.has_value()) {
                 out.push_back(*report);
             }
         }
         return out;
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType,
-                                                                              UnixNanos since) {
-        if (const auto allowed = spend(ep::k_income, exec::RateClass::Poll);
-            !allowed.has_value()) {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType, UnixNanos since) {
+        if (const auto allowed = spend(ep::k_income, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         const auto request = builder().funding_income(since, state_->venue_now());
@@ -237,8 +217,7 @@ public:
         const auto rows = parse_income(*body, storage);
         if (!rows.has_value()) {
             // an unreadable body is an error; an empty ledger would book zero funding
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable income ledger")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable income ledger")};
         }
         std::vector<LedgerEntry> charges;
         charges.reserve(rows->size());
@@ -266,12 +245,10 @@ public:
             charge.kind = kind;
             charge.settled_at = UnixNanos{row.time_ms * 1'000'000};
             char buf[32];
-            const auto id_for_reference =
-                kind == LedgerKind::Fee && row.trade_id != 0 ? row.trade_id : row.tran_id;
+            const auto id_for_reference = kind == LedgerKind::Fee && row.trade_id != 0 ? row.trade_id : row.tran_id;
             const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, id_for_reference);
             if (ec == std::errc{}) {
-                if (auto id =
-                        ExecId::from(std::string_view{buf, static_cast<std::size_t>(end - buf)});
+                if (auto id = ExecId::from(std::string_view{buf, static_cast<std::size_t>(end - buf)});
                     id.has_value()) {
                     charge.reference = *id;
                 }
@@ -282,10 +259,8 @@ public:
         return charges;
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType) {
-        if (const auto allowed = spend(ep::k_position_risk, exec::RateClass::Poll);
-            !allowed.has_value()) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType) {
+        if (const auto allowed = spend(ep::k_position_risk, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         const auto request = builder().position_risk(state_->venue_now());
@@ -299,8 +274,7 @@ public:
         std::array<WirePositionRisk, 512> storage{};
         const auto wire = parse_position_risk(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<exec::PositionReport> out;
         out.reserve(wire->size());
@@ -321,15 +295,13 @@ private:
     [[nodiscard]] std::expected<std::string, exec::VenueError>
     usable_body(const std::optional<net::RestResponse>& response) const {
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        if (const auto err = parse_rest_error(response->body);
-            err.has_value() && err->code != k_ok) {
+        if (const auto err = parse_rest_error(response->body); err.has_value() && err->code != k_ok) {
             const auto cls = classify(err->code);
             if (cls == exec::ErrorClass::RateLimited) {
                 penalize();

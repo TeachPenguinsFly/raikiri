@@ -115,13 +115,11 @@ std::expected<std::string_view, WireError> num_of(wire::ondemand::value value) {
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj, std::string_view key) {
     return find_scalar(obj, key, [](wire::ondemand::value v) { return num_of(v); });
 }
 
-std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_num(obj, key);
     if (text.has_value() && text->empty()) {
         return std::unexpected(WireError::MissingField);
@@ -139,8 +137,7 @@ std::uint64_t token_to_u64(std::string_view s) noexcept {
     return (ec == std::errc{} && stop == end) ? out : 0;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
-                                               std::string_view key) {
+std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj, std::string_view key) {
     const auto token = opt_num(obj, key);
     if (!token.has_value()) {
         return std::unexpected(token.error());

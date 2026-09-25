@@ -19,8 +19,8 @@ struct FilterWanted {
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(std::string_view body,
+                                                                              InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -50,8 +50,7 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             const auto status = wire::opt_str(obj, "status");
             const auto base_asset = wire::opt_str(obj, "baseAsset");
             const auto quote_asset = wire::opt_str(obj, "quoteAsset");
-            if (!contract.has_value() || !status.has_value() || !base_asset.has_value() ||
-                !quote_asset.has_value()) {
+            if (!contract.has_value() || !status.has_value() || !base_asset.has_value() || !quote_asset.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.contract_type = *contract;
@@ -75,8 +74,7 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             }};
             for (auto filter_entry : *filters) {
                 wire::ondemand::object filter;
-                if (const auto ec = filter_entry.get_object().get(filter);
-                    ec != simdjson::SUCCESS) {
+                if (const auto ec = filter_entry.get_object().get(filter); ec != simdjson::SUCCESS) {
                     return std::unexpected(wire::map_error(ec));
                 }
                 const auto type = wire::opt_str(filter, "filterType");
@@ -101,8 +99,8 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireFundingInfo>, WireError>
-parse_funding_info(std::string_view body, FundingInfoBuffer& storage) {
+std::expected<std::span<const WireFundingInfo>, WireError> parse_funding_info(std::string_view body,
+                                                                              FundingInfoBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFundingInfo>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {
@@ -124,8 +122,7 @@ parse_funding_info(std::string_view body, FundingInfoBuffer& storage) {
             }
             out.symbol = *symbol;
             // a json number; a missing value leaves 0
-            out.interval_hours =
-                static_cast<std::uint32_t>(wire::opt_u64(obj, "fundingIntervalHours").value_or(0));
+            out.interval_hours = static_cast<std::uint32_t>(wire::opt_u64(obj, "fundingIntervalHours").value_or(0));
             // absent when unadjusted; lands undef
             out.cap = wire::opt_str(obj, "adjustedFundingRateCap").value_or(std::string_view{});
             out.floor = wire::opt_str(obj, "adjustedFundingRateFloor").value_or(std::string_view{});

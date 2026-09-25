@@ -30,8 +30,7 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, std::string_view>
-    subscribe_frame(std::span<const std::string_view> streams);
+    [[nodiscard]] std::expected<Frame, std::string_view> subscribe_frame(std::span<const std::string_view> streams);
 
 private:
     std::array<char, 4096> frame_{};

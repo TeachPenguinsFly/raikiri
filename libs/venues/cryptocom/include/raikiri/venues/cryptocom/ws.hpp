@@ -43,8 +43,7 @@ public:
     };
 
     // packs channels under ep::k_max_frame_bytes; without the book mode a book channel gets the venue default
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const std::string_view> channels);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const std::string_view> channels);
 
     [[nodiscard]] std::string_view heartbeat_reply(std::int64_t id);
 

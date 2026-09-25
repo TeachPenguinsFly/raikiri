@@ -26,8 +26,7 @@ void handle_order_frame(VenueState& state, std::string_view frame, UnixNanos rec
         if (const auto fill = map_order_fill(wire, state.instruments, received); fill.has_value()) {
             state.sink->on_order_event(*fill);
         }
-        if (const auto event = map_order_event(wire, state.instruments, received);
-            event.has_value()) {
+        if (const auto event = map_order_event(wire, state.instruments, received); event.has_value()) {
             state.sink->on_order_event(*event);
         }
     }
@@ -42,9 +41,8 @@ public:
         const auto login = state_->private_protocol.login_frame(
             state_->signer, state_->passphrase.view(), state_->venue_now());
         if (!login.has_value() || !client_->send(*login)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = 1,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = 1, .ts = state_->clock->wall()});
             return;
         }
         // subscribing before the login answer is refused with 60011
@@ -62,10 +60,10 @@ public:
             if (!authenticated) {
                 state_->last_error_code = ack.has_value() ? ack->code : 0;
             }
-            state_->sink->on_connectivity({.state = authenticated ? exec::ConnState::Resubscribed
-                                                                  : exec::ConnState::AuthFailed,
-                                           .stream_id = 1,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = authenticated ? exec::ConnState::Resubscribed : exec::ConnState::AuthFailed,
+                 .stream_id = 1,
+                 .ts = state_->clock->wall()});
             if (authenticated) {
                 subscribe_orders();
             }
@@ -105,18 +103,15 @@ private:
         std::array<Subscription, 2> args{};
         std::size_t count = 0;
         if (state_->spot_enabled) {
-            args[count++] = {.channel = k_orders_channel,
-                             .inst_type = inst_type_of(MarketType::Spot)};
+            args[count++] = {.channel = k_orders_channel, .inst_type = inst_type_of(MarketType::Spot)};
         }
         if (state_->perp_enabled) {
-            args[count++] = {.channel = k_orders_channel,
-                             .inst_type = inst_type_of(MarketType::Perp)};
+            args[count++] = {.channel = k_orders_channel, .inst_type = inst_type_of(MarketType::Perp)};
         }
         if (count == 0) {
             return;
         }
-        const auto frame = state_->private_protocol.subscribe_frame(
-            std::span<const Subscription>{args.data(), count});
+        const auto frame = state_->private_protocol.subscribe_frame(std::span<const Subscription>{args.data(), count});
         if (frame.has_value()) {
             (void)client_->send(frame->text);
         }

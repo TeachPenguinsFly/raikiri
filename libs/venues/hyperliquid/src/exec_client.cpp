@@ -29,23 +29,21 @@ inline constexpr std::size_t k_max_unanswered = 512;
 // table tracks requests with no reply
 class HyperliquidExec final : public exec::ExecutionClient {
 public:
-    explicit HyperliquidExec(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, api_{*state_} {}
+    explicit HyperliquidExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
         if (state_->address.empty()) {
             return std::unexpected{no_address()};
         }
         if (state_->address.size() != k_address_chars) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::AuthFailure, 0, "hyperliquid: account is not an address")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, "hyperliquid: account is not an address")};
         }
         // warn when the signing key's address differs from the account;
         // an api wallet differs by design
         if (state_->wallet.loaded() && !same_address(state_->wallet.address(), state_->address)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_exchange_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_exchange_stream_id, .ts = state_->clock->wall()});
         }
         api_.start();
         started_ = true;
@@ -71,13 +69,10 @@ public:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -104,23 +99,22 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
@@ -137,12 +131,10 @@ private:
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto asset = asset_of(cmd.instrument);
         const auto nonce = state_->nonces.next(state_->clock->wall());
-        const auto request =
-            kind == Kind::Create
-                ? api_.builder().create_order(cmd, state_->instruments, asset, nonce)
-            : kind == Kind::Cancel
-                ? api_.builder().cancel_order(cmd, asset, nonce)
-                : api_.builder().modify_order(cmd, state_->instruments, asset, nonce);
+        const auto request = kind == Kind::Create ? api_.builder().create_order(cmd, state_->instruments, asset, nonce)
+                             : kind == Kind::Cancel
+                                 ? api_.builder().cancel_order(cmd, asset, nonce)
+                                 : api_.builder().modify_order(cmd, state_->instruments, asset, nonce);
         if (!request.has_value()) {
             refuse(cmd, kind, to_string(request.error()));
             return;
@@ -170,13 +162,12 @@ private:
         }
         if (response.transport_failed()) {
             // the request may have reached the matcher, so this is not a rejection
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         static thread_local const auto storage_owner = std::make_unique<ExchangeStatusBuffer>();
@@ -251,8 +242,7 @@ private:
         emit(cmd, accepted_type(kind), status.oid, cmd.qty);
 
         // clamped at zero so an overfill cannot leave a negative remainder
-        const auto leaves =
-            QtyLots::from_raw(filled->raw >= cmd.qty.raw ? 0 : cmd.qty.raw - filled->raw);
+        const auto leaves = QtyLots::from_raw(filled->raw >= cmd.qty.raw ? 0 : cmd.qty.raw - filled->raw);
         OrderEvent fill{};
         populate(fill, cmd);
         fill.type = OrderEventType::Filled;
@@ -263,15 +253,13 @@ private:
         }
         fill.qty = *filled;
         fill.leaves_qty = leaves;
-        fill.liquidity =
-            has_flag(cmd.flags, OrderFlags::PostOnly) ? Liquidity::Maker : Liquidity::Taker;
+        fill.liquidity = has_flag(cmd.flags, OrderFlags::PostOnly) ? Liquidity::Maker : Liquidity::Taker;
         fill.ts_event = state_->clock->wall();
         fill.ts_init = fill.ts_event;
         state_->sink->on_order_event(fill);
 
         // an ioc remainder is cancelled without a further message
-        if (leaves.raw > 0 &&
-            (cmd.tif == TimeInForce::Ioc || cmd.order_type == OrderType::Market)) {
+        if (leaves.raw > 0 && (cmd.tif == TimeInForce::Ioc || cmd.order_type == OrderType::Market)) {
             emit(cmd, OrderEventType::Expired, status.oid, QtyLots::from_raw(0));
         }
     }
@@ -306,8 +294,7 @@ private:
         event.qty = cmd.qty;
     }
 
-    void
-    emit(const OrderCmd& cmd, OrderEventType type, std::uint64_t oid, QtyLots leaves) noexcept {
+    void emit(const OrderCmd& cmd, OrderEventType type, std::uint64_t oid, QtyLots leaves) noexcept {
         OrderEvent event{};
         populate(event, cmd);
         event.type = type;
@@ -320,8 +307,7 @@ private:
 
     // reported through the sink since rest failures push nothing
     void refuse(const OrderCmd& cmd, Kind kind, std::string_view reason) noexcept {
-        state_->sink->on_order_error(cmd.client_order_id,
-                                     exec::VenueError::make(classify_reason(reason), 0, reason));
+        state_->sink->on_order_error(cmd.client_order_id, exec::VenueError::make(classify_reason(reason), 0, reason));
         OrderEvent event{};
         populate(event, cmd);
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
@@ -336,9 +322,8 @@ private:
         // a wrong signature names a random address each attempt; nothing
         // will be accepted until it is fixed
         if (classify_reason(reason) == exec::ErrorClass::AuthFailure) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_exchange_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_exchange_stream_id, .ts = state_->clock->wall()});
         }
     }
 

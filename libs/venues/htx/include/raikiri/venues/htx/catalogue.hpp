@@ -36,8 +36,8 @@ struct ContractBuffer {
     std::array<WireContract, k_max_instruments> contracts{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_contracts(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
+                                                                                      ContractBuffer& storage);
 
 // precisions are digit counts (step 10^-n); api-trading gates key access apart from state
 struct WireSpotSymbol {
@@ -55,7 +55,7 @@ struct SpotSymbolBuffer {
     std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                                           SpotSymbolBuffer& storage);
 
 } // namespace raikiri::venues::htx

@@ -75,11 +75,8 @@ std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init
     return ladders_.snapshot(instrument_, seq_, ts_event, ts_init);
 }
 
-std::optional<Bbo> map_top(const WireBook& frame,
-                           InstrumentId instrument,
-                           FixedE9 tick_size,
-                           FixedE9 lot_size,
-                           UnixNanos ts_init) {
+std::optional<Bbo>
+map_top(const WireBook& frame, InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size, UnixNanos ts_init) {
     if (frame.bids.empty() || frame.asks.empty()) {
         return std::nullopt;
     }
@@ -87,8 +84,8 @@ std::optional<Bbo> map_top(const WireBook& frame,
     const auto bid_qty = steps_of(frame.bids.front().size, lot_size);
     const auto ask = steps_of(frame.asks.front().price, tick_size);
     const auto ask_qty = steps_of(frame.asks.front().size, lot_size);
-    if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() || !ask_qty.has_value() ||
-        *bid_qty == 0 || *ask_qty == 0) {
+    if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() || !ask_qty.has_value() || *bid_qty == 0 ||
+        *ask_qty == 0) {
         return std::nullopt;
     }
     return Bbo{.instrument = instrument,

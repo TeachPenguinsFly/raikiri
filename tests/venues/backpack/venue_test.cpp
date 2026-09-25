@@ -343,8 +343,7 @@ TEST(BackpackMap, ARestingSizeFinerThanTheStepReadsAsWhatTheStepCanTake) {
     print.qty = "9.09";
     EXPECT_FALSE(map_trade(print, table, k_ingest).has_value());
 
-    const std::array<WireLevel, 2> bids{
-        {{.price = "2.2", .qty = "0.54"}, {.price = "2.25", .qty = "9.09"}}};
+    const std::array<WireLevel, 2> bids{{{.price = "2.2", .qty = "0.54"}, {.price = "2.25", .qty = "9.09"}}};
     const std::array<WireLevel, 1> asks{{{.price = "2.2501", .qty = "3"}}};
     WireDepthSnapshot snapshot{.last_update_id = 10, .timestamp_us = 1, .bids = bids, .asks = asks};
     DepthBook book{base.id, base.tick_size, base.lot_size};
@@ -454,8 +453,7 @@ TEST(BackpackWire, StreamsAreTypeDotSymbolAndDepthIsTheAggregate) {
     const auto frame = protocol.subscribe_frame(streams);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
-    EXPECT_EQ(frame->text,
-              R"({"method":"SUBSCRIBE","params":["bookTicker.SOL_USDC","trade.SOL_USDC"],"id":1})");
+    EXPECT_EQ(frame->text, R"({"method":"SUBSCRIBE","params":["bookTicker.SOL_USDC","trade.SOL_USDC"],"id":1})");
 }
 
 TEST(BackpackWire, ARestRefusalNamesItsCodeInWords) {

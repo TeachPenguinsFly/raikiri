@@ -13,8 +13,7 @@ namespace raikiri::venues::pacifica::internal {
 
 namespace {
 
-constexpr std::string_view k_why =
-    "pacifica order entry needs an Ed25519 request signer, which is not built";
+constexpr std::string_view k_why = "pacifica order entry needs an Ed25519 request signer, which is not built";
 
 [[nodiscard]] exec::VenueError refusal() noexcept {
     return exec::VenueError::make(exec::ErrorClass::Terminal, 0, k_why);
@@ -30,30 +29,24 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return false; }
 
-    void submit(const OrderCmd& cmd) noexcept override {
-        emit_reject(cmd, OrderEventType::Rejected);
-    }
+    void submit(const OrderCmd& cmd) noexcept override { emit_reject(cmd, OrderEventType::Rejected); }
 
-    void cancel(const OrderCmd& cmd) noexcept override {
-        emit_reject(cmd, OrderEventType::CancelRejected);
-    }
+    void cancel(const OrderCmd& cmd) noexcept override { emit_reject(cmd, OrderEventType::CancelRejected); }
 
-    void amend(const OrderCmd& cmd) noexcept override {
-        emit_reject(cmd, OrderEventType::ModifyRejected);
-    }
+    void amend(const OrderCmd& cmd) noexcept override { emit_reject(cmd, OrderEventType::ModifyRejected); }
 
     [[nodiscard]] std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType) override {
         return std::unexpected{refusal()};
     }
 
-    [[nodiscard]] std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId&, MarketType) override {
+    [[nodiscard]] std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId&,
+                                                                                       MarketType) override {
         return std::unexpected{refusal()};
     }
 
-    [[nodiscard]] std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType, UnixNanos) override {
+    [[nodiscard]] std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType,
+                                                                                              UnixNanos) override {
         return std::unexpected{refusal()};
     }
 

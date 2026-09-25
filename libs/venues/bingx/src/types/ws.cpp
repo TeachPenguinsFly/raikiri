@@ -120,8 +120,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::st
 }
 
 // no symbol: "spot.executionReport" is the whole dataType
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_channel(std::string_view data_type) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_channel(std::string_view data_type) {
     return request("sub", data_type, {});
 }
 

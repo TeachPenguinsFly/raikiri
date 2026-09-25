@@ -10,8 +10,8 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                            InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

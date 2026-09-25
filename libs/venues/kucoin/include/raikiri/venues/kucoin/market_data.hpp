@@ -23,8 +23,7 @@ struct WireTrade {
     std::uint64_t ts_ns{0};
 };
 
-[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame,
-                                                              MarketType market);
+[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketType market);
 
 [[nodiscard]] std::expected<WireTrade, WireError> parse_uta_trade(std::string_view frame);
 
@@ -50,8 +49,7 @@ struct WireFundingRate {
 [[nodiscard]] std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view frame);
 
 // seeds funding at subscribe; the only source of the next settlement time
-[[nodiscard]] std::expected<WireFundingRate, WireError>
-parse_funding_current(std::string_view body);
+[[nodiscard]] std::expected<WireFundingRate, WireError> parse_funding_current(std::string_view body);
 
 // funding.rate and mark.index.price arrive separately and the shm cell is written whole, so both are kept and merged
 struct FundingMemo {

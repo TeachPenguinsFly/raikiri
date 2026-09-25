@@ -35,13 +35,9 @@ public:
 
     [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
 
-    [[nodiscard]] std::span<const book::Level> bids() const noexcept {
-        return ladders_.bids().levels();
-    }
+    [[nodiscard]] std::span<const book::Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const book::Level> asks() const noexcept {
-        return ladders_.asks().levels();
-    }
+    [[nodiscard]] std::span<const book::Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
     [[nodiscard]] bool apply_side(std::span<const WireLevel> levels, book::Ladder& side) const;
@@ -56,10 +52,7 @@ private:
 
 // The top of a depth=1 frame, which is a one-level snapshot. Nullopt when a
 // side is empty or off the grid.
-[[nodiscard]] std::optional<Bbo> map_top(const WireBook& frame,
-                                         InstrumentId instrument,
-                                         FixedE9 tick_size,
-                                         FixedE9 lot_size,
-                                         UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo>
+map_top(const WireBook& frame, InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size, UnixNanos ts_init);
 
 } // namespace raikiri::venues::extended

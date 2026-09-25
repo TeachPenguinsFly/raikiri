@@ -45,10 +45,8 @@ std::expected<WireMarket, WireError> read_market(wire::ondemand::object& obj) {
     return out;
 }
 
-std::expected<std::size_t, WireError> read_array(wire::ondemand::object& root,
-                                                 std::string_view key,
-                                                 MarketBuffer& storage,
-                                                 std::size_t count) {
+std::expected<std::size_t, WireError>
+read_array(wire::ondemand::object& root, std::string_view key, MarketBuffer& storage, std::size_t count) {
     auto rows = wire::req_array(root, key);
     if (!rows.has_value()) {
         return std::unexpected(rows.error());
@@ -73,8 +71,8 @@ std::expected<std::size_t, WireError> read_array(wire::ondemand::object& root,
 
 } // namespace
 
-std::expected<std::span<const WireMarket>, WireError>
-parse_order_book_details(std::string_view body, MarketBuffer& storage) {
+std::expected<std::span<const WireMarket>, WireError> parse_order_book_details(std::string_view body,
+                                                                               MarketBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireMarket>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

@@ -29,8 +29,8 @@ struct MarketBuffer {
     std::array<WireMarket, k_max_markets> markets{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireMarket>, WireError>
-parse_markets(std::string_view body, MarketBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body,
+                                                                                  MarketBuffer& storage);
 
 enum class Channel : std::uint8_t { Unknown = 0, Book, Bbo, Trades, Prices, Pong, Subscribed, Error };
 
@@ -57,8 +57,7 @@ struct WireBook {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
-                                                            LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffer& storage);
 
 struct WireBbo {
     std::string_view symbol;
@@ -87,8 +86,8 @@ struct PrintBuffer {
     std::array<WirePrint, k_max_prints> prints{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePrint>, WireError>
-parse_trades(std::string_view frame, PrintBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
+                                                                                PrintBuffer& storage);
 
 // a row of the `prices` stream and of GET /api/v1/info/prices
 struct WirePrice {
@@ -106,7 +105,7 @@ struct PriceBuffer {
     std::array<WirePrice, k_max_prices> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePrice>, WireError>
-parse_prices(std::string_view frame, PriceBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePrice>, WireError> parse_prices(std::string_view frame,
+                                                                                PriceBuffer& storage);
 
 } // namespace raikiri::venues::pacifica

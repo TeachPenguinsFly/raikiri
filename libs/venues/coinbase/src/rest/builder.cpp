@@ -38,16 +38,13 @@ public:
 
     void put(std::uint32_t value) noexcept {
         std::array<char, 16> num{};
-        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value);
-            ec == std::errc{}) {
+        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value); ec == std::errc{}) {
             put(std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
         }
     }
 
     [[nodiscard]] net::RestRequest get() const noexcept {
-        return {.method = net::HttpMethod::Get,
-                .target = std::string_view{into_.data(), len_},
-                .body = {}};
+        return {.method = net::HttpMethod::Get, .target = std::string_view{into_.data(), len_}, .body = {}};
     }
 
 private:
@@ -139,8 +136,7 @@ private:
 
 } // namespace
 
-std::optional<std::array<char, k_uuid_len>>
-client_oid_of(const ExchangeClientOrderId& id) noexcept {
+std::optional<std::array<char, k_uuid_len>> client_oid_of(const ExchangeClientOrderId& id) noexcept {
     const auto text = id.view();
     if (text.size() != k_ulid_len) {
         return std::nullopt;
@@ -233,10 +229,8 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     return BuildError::OptionsNotListed;
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::HttpMethod method,
-                                                                       std::string_view target,
-                                                                       std::string_view body,
-                                                                       UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::sign(net::HttpMethod method, std::string_view target, std::string_view body, UnixNanos now) {
     if (target.empty()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -272,8 +266,8 @@ std::string_view SignedRequestBuilder::last_prehash() const noexcept {
     return {prehash_.data(), prehash_len_};
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -322,8 +316,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     return sign(net::HttpMethod::Post, "/orders", json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -334,9 +328,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     } else {
         const auto client_oid = client_oid_of(cmd.exchange_client_order_id);
         if (!client_oid.has_value()) {
-            return std::unexpected{cmd.exchange_client_order_id.empty()
-                                       ? BuildError::NoOrderTarget
-                                       : BuildError::ClientOrderIdNotAUlid};
+            return std::unexpected{cmd.exchange_client_order_id.empty() ? BuildError::NoOrderTarget
+                                                                        : BuildError::ClientOrderIdNotAUlid};
         }
         // the client: prefix marks the id as ours; the bare form is read as a venue id
         target << "client:" << std::string_view{client_oid->data(), client_oid->size()};
@@ -351,8 +344,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     return sign(net::HttpMethod::Delete, target.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     (void)table;
     (void)now;
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
@@ -361,8 +354,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     return std::unexpected{BuildError::AmendUnsupported};
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(MarketType market,
-                                                                              UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(MarketType market, UnixNanos now) {
     if (const auto refusal = market_refusal(market); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -375,15 +367,14 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(Ma
     return sign(net::HttpMethod::Get, target.view(), {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
-    const ExchangeClientOrderId& id, MarketType market, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::query_order(const ExchangeClientOrderId& id, MarketType market, UnixNanos now) {
     if (const auto refusal = market_refusal(market); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
     const auto client_oid = client_oid_of(id);
     if (!client_oid.has_value()) {
-        return std::unexpected{id.empty() ? BuildError::NoOrderTarget
-                                          : BuildError::ClientOrderIdNotAUlid};
+        return std::unexpected{id.empty() ? BuildError::NoOrderTarget : BuildError::ClientOrderIdNotAUlid};
     }
     Appender target{target_};
     target << "/orders/client:" << std::string_view{client_oid->data(), client_oid->size()};

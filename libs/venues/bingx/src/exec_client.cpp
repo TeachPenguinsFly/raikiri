@@ -55,8 +55,7 @@ public:
         state_->private_poll = nullptr;
         // best effort before the pool closes; an open key holds a venue socket slot for an hour
         if (started_ && !key_.empty()) {
-            if (const auto request = api_.builder().listen_key_close(key_, state_->venue_now());
-                request.has_value()) {
+            if (const auto request = api_.builder().listen_key_close(key_, state_->venue_now()); request.has_value()) {
                 (void)api_.send(*request, [](net::RestResponse&&) {});
                 state_->io.poll();
             }
@@ -92,13 +91,10 @@ public:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -132,28 +128,26 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
-    std::expected<std::vector<BalanceReport>, exec::VenueError>
-    balance_reports(MarketType market) override {
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
         return api_.balance_reports(market);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
@@ -162,33 +156,25 @@ private:
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
-        const auto request =
-            kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
-                                   : api_.builder().amend_order(cmd, state_->instruments, now);
+        const auto request = kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
+                             : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
+                                                    : api_.builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            emit_reject(
-                cmd,
-                kind,
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         // creates on api-closed contracts are refused locally; cancels are always sent
-        if (kind == Kind::Create &&
-            !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Terminal,
-                                               0,
-                                               "bingx has this contract closed to API orders"));
+        if (kind == Kind::Create && !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
+            emit_reject(
+                cmd,
+                kind,
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bingx has this contract closed to API orders"));
             return;
         }
         if (!api_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded before the callback that may never run
@@ -208,13 +194,12 @@ private:
         }
         if (response.transport_failed()) {
             // the request may have reached the matcher, so report an error only
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
@@ -229,21 +214,15 @@ private:
             }
             return; // the user stream carries the lifecycle
         }
-        if (kind == Kind::Cancel && envelope.has_value() &&
-            is_benign_cancel_failure(envelope->code)) {
+        if (kind == Kind::Cancel && envelope.has_value() && is_benign_cancel_failure(envelope->code)) {
             return; // the order already finished; reconciliation settles it
         }
         if (!envelope.has_value()) {
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(
-                            exec::ErrorClass::Terminal, response.status, "unparseable envelope"));
+            emit_reject(
+                cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, response.status, "unparseable envelope"));
             return;
         }
-        emit_reject(
-            cmd,
-            kind,
-            exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg));
+        emit_reject(cmd, kind, exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg));
     }
 
     // every refusal carries the venue's verdict to the sink
@@ -317,8 +296,7 @@ private:
             return; // no credentials: nothing to retry with
         }
         key_in_flight_ = true;
-        if (!api_.send(*request,
-                       [this](net::RestResponse&& response) { on_key(std::move(response)); })) {
+        if (!api_.send(*request, [this](net::RestResponse&& response) { on_key(std::move(response)); })) {
             key_in_flight_ = false;
         }
     }
@@ -391,8 +369,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state,
-                                                             MarketType market) {
+std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state, MarketType market) {
     return std::make_unique<BingxExec>(std::move(state), market);
 }
 

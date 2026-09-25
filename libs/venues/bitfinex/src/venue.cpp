@@ -25,15 +25,14 @@
 
 namespace raikiri::venues::bitfinex {
 
-using internal::VenueState;
 using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
+using internal::VenueState;
 
 namespace {
 
-exec::VenueAdapter
-make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;

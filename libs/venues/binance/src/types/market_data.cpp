@@ -31,8 +31,7 @@ std::expected<WirePrint, WireError> parse_trade(std::string_view data) {
         const auto single_id = wire::opt_u64(*root, "t");
         const auto trade_ms = wire::opt_u64(*root, "T");
         const auto maker = wire::opt_bool(*root, "m");
-        if (!aggregate_id.has_value() || !single_id.has_value() || !trade_ms.has_value() ||
-            !maker.has_value()) {
+        if (!aggregate_id.has_value() || !single_id.has_value() || !trade_ms.has_value() || !maker.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         out.trade_id = *aggregate_id != 0 ? *aggregate_id : *single_id;
@@ -74,8 +73,8 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data) 
     });
 }
 
-std::expected<std::span<const WireMarkPrice>, WireError>
-parse_premium_index(std::string_view body, PremiumBuffer& storage) {
+std::expected<std::span<const WireMarkPrice>, WireError> parse_premium_index(std::string_view body,
+                                                                             PremiumBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireMarkPrice>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {
@@ -108,8 +107,8 @@ parse_premium_index(std::string_view body, PremiumBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireTicker24h>, WireError>
-parse_ticker_24h(std::string_view body, Ticker24hBuffer& storage) {
+std::expected<std::span<const WireTicker24h>, WireError> parse_ticker_24h(std::string_view body,
+                                                                          Ticker24hBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTicker24h>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {

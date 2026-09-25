@@ -21,8 +21,7 @@ struct WireTrade {
     std::uint64_t ts_ms{0};
 };
 
-[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame,
-                                                              MarketType market);
+[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketType market);
 
 struct WireMarkPrice {
     std::string_view symbol;
@@ -41,8 +40,7 @@ struct WireTicker {
     std::uint64_t ts_ms{0};
 };
 
-[[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame,
-                                                                MarketType market);
+[[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame, MarketType market);
 
 // no funding channel exists, so this is polled from /public/q/funding-rate; interval_h (collectionInternal) is in hours
 struct WireFundingRate {

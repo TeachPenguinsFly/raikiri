@@ -75,8 +75,7 @@ public:
                                            bool post_only,
                                            TimeInForce tif = TimeInForce::Gtc);
 
-    [[nodiscard]] MatchResult
-    submit_market(std::uint64_t id, std::uint32_t owner, Side side, QtyLots qty);
+    [[nodiscard]] MatchResult submit_market(std::uint64_t id, std::uint32_t owner, Side side, QtyLots qty);
 
     bool cancel(std::uint64_t id);
 

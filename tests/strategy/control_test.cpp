@@ -3,7 +3,6 @@
 #include <gtest/gtest.h>
 
 #include <glaze/glaze.hpp>
-
 #include <memory>
 #include <string>
 
@@ -15,18 +14,25 @@ public:
     std::expected<ClientOrderId, RejectReason> submit(const NewOrder&) noexcept override {
         return std::unexpected{RejectReason::VenueDown};
     }
+
     bool cancel(ClientOrderId) noexcept override { return false; }
+
     void cancel_all(InstrumentId) noexcept override {}
+
     std::optional<Bbo> bbo(InstrumentId) const noexcept override { return std::nullopt; }
+
     const Instrument* instrument(InstrumentId) const noexcept override { return nullptr; }
+
     const portfolio::Position* position(InstrumentId) const noexcept override { return nullptr; }
-    FixedE9 unrealized(InstrumentId, PriceTicks) const noexcept override {
-        return FixedE9::from_raw(0);
-    }
+
+    FixedE9 unrealized(InstrumentId, PriceTicks) const noexcept override { return FixedE9::from_raw(0); }
+
     std::optional<ClientOrderId> set_target(const portfolio::PortfolioTarget&) noexcept override {
         return std::nullopt;
     }
+
     void set_timer(std::uint32_t, std::uint64_t) noexcept override {}
+
     const Clock& clock() const noexcept override { return clock_; }
 
 private:
@@ -112,8 +118,7 @@ TEST(StrategyControl, ItNamesNoStrategyTypeOfItsOwn) {
 TEST(StrategyControl, ACreateAnswers201AndDoesNotStartIt) {
     Harness h;
     const auto route = h.router();
-    const auto made = route(post("/v1/strategies",
-                                 R"({"name":"one","type":"quiet","config":"","strategy_id":9})"));
+    const auto made = route(post("/v1/strategies", R"({"name":"one","type":"quiet","config":"","strategy_id":9})"));
     ASSERT_EQ(made.status, 201) << made.body;
     EXPECT_NE(made.body.find("\"phase\":\"created\""), std::string::npos) << made.body;
     EXPECT_EQ(h.live->running(), 0U);
@@ -122,9 +127,7 @@ TEST(StrategyControl, ACreateAnswers201AndDoesNotStartIt) {
 TEST(StrategyControl, StartAndStopMoveThePhaseAndSayWhatTheStopPulled) {
     Harness h;
     const auto route = h.router();
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"one","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"one","type":"quiet","strategy_id":9})")).status, 201);
 
     const auto started = route(post("/v1/strategies/9/start"));
     ASSERT_EQ(started.status, 200) << started.body;
@@ -140,9 +143,7 @@ TEST(StrategyControl, AnIllegalTransitionIsAConflictAndAMissingOneIsNotFound) {
     Harness h;
     const auto route = h.router();
     EXPECT_EQ(route(post("/v1/strategies/9/start")).status, 404);
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"one","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"one","type":"quiet","strategy_id":9})")).status, 201);
     EXPECT_EQ(route(post("/v1/strategies/9/stop")).status, 409);
     ASSERT_EQ(route(post("/v1/strategies/9/start")).status, 200);
     EXPECT_EQ(route(post("/v1/strategies/9/start")).status, 409);
@@ -154,25 +155,13 @@ TEST(StrategyControl, EveryRefusalOfACreateCarriesTheStatusItDeserves) {
     Harness h;
     const auto route = h.router();
     EXPECT_EQ(route(post("/v1/strategies", "not json")).status, 400);
-    EXPECT_EQ(
-        route(post("/v1/strategies", R"({"name":"x","type":"nope","strategy_id":9})")).status,
-        422);
-    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":0})"))
-                  .status,
-              422);
-    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":1})"))
-                  .status,
-              422);
+    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"nope","strategy_id":9})")).status, 422);
+    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":0})")).status, 422);
+    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":1})")).status, 422);
     // strategy_id is 16 bits in a ClientOrderId
-    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":70000})"))
-                  .status,
-              422);
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
-    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"y","type":"quiet","strategy_id":9})"))
-                  .status,
-              409);
+    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":70000})")).status, 422);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})")).status, 201);
+    EXPECT_EQ(route(post("/v1/strategies", R"({"name":"y","type":"quiet","strategy_id":9})")).status, 409);
 }
 
 TEST(StrategyControl, ACreateNamesTheFieldItIsMissing) {
@@ -198,12 +187,8 @@ TEST(StrategyControl, ARefusalIsRfc9457) {
 TEST(StrategyControl, PositionsAndPnlAreServedPerStrategyAndNothingElseLeaksIn) {
     Harness h;
     const auto route = h.router();
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"mine","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"theirs","type":"quiet","strategy_id":8})"))
-                  .status,
-              201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"mine","type":"quiet","strategy_id":9})")).status, 201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"theirs","type":"quiet","strategy_id":8})")).status, 201);
     h.fill(9, 1);
     h.fill(8, 2);
 
@@ -216,8 +201,7 @@ TEST(StrategyControl, PositionsAndPnlAreServedPerStrategyAndNothingElseLeaksIn) 
         << "another strategy's position was served: " << mine.body;
 
     // the id is a digit string; the venue sits at bit 56
-    EXPECT_NE(mine.body.find("\"" + std::to_string(ours.packed) + "\""), std::string::npos)
-        << mine.body;
+    EXPECT_NE(mine.body.find("\"" + std::to_string(ours.packed) + "\""), std::string::npos) << mine.body;
 
     const auto pnl = route(get("/v1/strategies/9/pnl"));
     ASSERT_EQ(pnl.status, 200) << pnl.body;
@@ -239,9 +223,7 @@ TEST(StrategyControl, PositionsForAStrategyThisProcessDoesNotRunIsNotAnEmptyPage
 TEST(StrategyControl, AListingCountsWhatEachStrategyHolds) {
     Harness h;
     const auto route = h.router();
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"mine","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"mine","type":"quiet","strategy_id":9})")).status, 201);
     h.fill(9, 1);
     const auto listed = route(get("/v1/strategies"));
     ASSERT_EQ(listed.status, 200) << listed.body;
@@ -262,9 +244,7 @@ TEST(StrategyControl, AWriteMethodOnAReadPathIsRefusedAndAnUnknownPathIsNotFound
     const auto route = h.router();
     EXPECT_EQ(route({.method = "DELETE", .path = "/v1/strategies"}).status, 405);
     EXPECT_EQ(route(get("/v1/nothing-here")).status, 404);
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})")).status, 201);
     EXPECT_EQ(route(post("/v1/strategies/9/flatten")).status, 404)
         << "a stop does not flatten, and neither does anything else here";
 }
@@ -277,9 +257,7 @@ TEST(StrategyControl, HealthCountsInstancesRunningAndTypes) {
     EXPECT_NE(empty.body.find("\"instances\":0"), std::string::npos) << empty.body;
     EXPECT_NE(empty.body.find("\"types\":1"), std::string::npos) << empty.body;
 
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})")).status, 201);
     ASSERT_EQ(route(post("/v1/strategies/9/start")).status, 200);
     const auto busy = route(get("/v1/health"));
     EXPECT_NE(busy.body.find("\"instances\":1"), std::string::npos) << busy.body;
@@ -289,9 +267,7 @@ TEST(StrategyControl, HealthCountsInstancesRunningAndTypes) {
 TEST(StrategyControl, AStrategyStartedHereIsStoppedByTheProcessStopSignal) {
     Harness h;
     const auto route = h.router();
-    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})"))
-                  .status,
-              201);
+    ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})")).status, 201);
     ASSERT_EQ(route(post("/v1/strategies/9/start")).status, 200);
     h.shutdown.request_stop();
     EXPECT_EQ(h.live->poll(), 1U);

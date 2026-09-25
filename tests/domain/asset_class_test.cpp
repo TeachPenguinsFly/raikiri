@@ -63,8 +63,7 @@ TEST(AssetClass, AStatingVenuesSilenceStaysUnknown) {
 }
 
 TEST(AssetClass, AnUnderlyingTooLongToKeyIsNotPaired) {
-    const auto long_name =
-        classified(VenueId::Okx, "X-USDT-SWAP", "ABCDEFGHIJKLMNOPQ/USDT", AssetClass::Equity);
+    const auto long_name = classified(VenueId::Okx, "X-USDT-SWAP", "ABCDEFGHIJKLMNOPQ/USDT", AssetClass::Equity);
     EXPECT_EQ(long_name.asset_class, AssetClass::Unknown);
 }
 
@@ -99,8 +98,7 @@ TEST(AssetClass, NoFixtureSymbolNamedLikeAStatedUnderlyingDefaultsToCrypto) {
             known.emplace(row.underlying);
         }
     }
-    const std::regex field{
-        R"re("(symbol|contractName|ticker|instrument_name|instrument|name)"\s*:\s*"([^"]+)")re"};
+    const std::regex field{R"re("(symbol|contractName|ticker|instrument_name|instrument|name)"\s*:\s*"([^"]+)")re"};
     const auto venues_dir = std::filesystem::path{__FILE__}.parent_path().parent_path() / "venues";
     std::size_t checked = 0;
     for (std::size_t v = 1; v < k_venue_count; ++v) {
@@ -117,21 +115,17 @@ TEST(AssetClass, NoFixtureSymbolNamedLikeAStatedUnderlyingDefaultsToCrypto) {
             }
             std::ifstream in{entry.path()};
             const std::string text{std::istreambuf_iterator<char>{in}, {}};
-            for (auto it = std::sregex_iterator{text.begin(), text.end(), field};
-                 it != std::sregex_iterator{};
-                 ++it) {
+            for (auto it = std::sregex_iterator{text.begin(), text.end(), field}; it != std::sregex_iterator{}; ++it) {
                 const auto symbol = (*it)[2].str();
-                if (symbol.find(':') != std::string::npos ||
-                    !known.contains(base_of_symbol(symbol))) {
+                if (symbol.find(':') != std::string::npos || !known.contains(base_of_symbol(symbol))) {
                     continue;
                 }
                 ++checked;
                 const bool explicit_row = std::ranges::any_of(curated_rows(), [&](const CuratedRow& row) {
-                    return row.venue == venue &&
-                           (row.symbol == symbol || row.symbol == undashed(symbol));
+                    return row.venue == venue && (row.symbol == symbol || row.symbol == undashed(symbol));
                 });
-                EXPECT_TRUE(explicit_row) << to_string(venue) << " " << symbol << " in " << name
-                                          << " would default to crypto";
+                EXPECT_TRUE(explicit_row)
+                    << to_string(venue) << " " << symbol << " in " << name << " would default to crypto";
             }
         }
     }

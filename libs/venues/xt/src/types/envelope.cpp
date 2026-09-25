@@ -45,8 +45,7 @@ PrivateTopic topic_of(std::string_view topic) noexcept {
 
 } // namespace
 
-std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj,
-                                               std::string_view key) {
+std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj, std::string_view key) {
     std::int64_t out = 0;
     if (const auto ec = wire::find(obj, key).get_int64().get(out); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -62,8 +61,7 @@ std::expected<bool, WireError> req_bool(wire::ondemand::object& obj, std::string
     return out;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
-                                               std::string_view key) {
+std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj, std::string_view key) {
     std::uint64_t out = 0;
     const auto ec = wire::find(obj, key).get_uint64().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -75,8 +73,7 @@ std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
     return out;
 }
 
-std::expected<std::uint64_t, WireError> req_digits(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::uint64_t, WireError> req_digits(wire::ondemand::object& obj, std::string_view key) {
     const auto text = wire::req_str(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -106,8 +103,7 @@ std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
-                                                      std::string_view key) {
+std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -139,8 +135,7 @@ opt_i64(wire::ondemand::object& obj, std::string_view key, std::int64_t fallback
     return out;
 }
 
-std::expected<bool, WireError>
-opt_bool_or(wire::ondemand::object& obj, std::string_view key, bool fallback) {
+std::expected<bool, WireError> opt_bool_or(wire::ondemand::object& obj, std::string_view key, bool fallback) {
     auto field = wire::find(obj, key);
     if (field.error() == simdjson::NO_SUCH_FIELD) {
         return fallback;
@@ -157,8 +152,7 @@ opt_bool_or(wire::ondemand::object& obj, std::string_view key, bool fallback) {
 }
 
 // result is an array on unpaged reads and an object with items on paged ones; the wrong shape reads empty
-std::expected<wire::ondemand::array, WireError> rows_of(wire::ondemand::object& root,
-                                                          std::string_view key) {
+std::expected<wire::ondemand::array, WireError> rows_of(wire::ondemand::object& root, std::string_view key) {
     wire::ondemand::value result;
     if (const auto ec = wire::find(root, "result").get(result); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -197,21 +191,18 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         EventInfo info{};
         if (topic->empty()) {
             const auto code = req_i64(*root, "code");
-            info.kind = !code.has_value() ? EventKind::Unknown
-                        : *code == k_ok   ? EventKind::Ack
-                                          : EventKind::Error;
+            info.kind = !code.has_value() ? EventKind::Unknown : *code == k_ok ? EventKind::Ack : EventKind::Error;
             return info;
         }
         info.kind = kind_from_topic(*topic);
-        return with_data(
-            *root, [&](wire::ondemand::object& data) -> std::expected<EventInfo, WireError> {
-                const auto symbol = wire::req_str(data, "s");
-                if (!symbol.has_value()) {
-                    return std::unexpected(symbol.error());
-                }
-                info.symbol = *symbol;
-                return info;
-            });
+        return with_data(*root, [&](wire::ondemand::object& data) -> std::expected<EventInfo, WireError> {
+            const auto symbol = wire::req_str(data, "s");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            info.symbol = *symbol;
+            return info;
+        });
     });
 }
 
@@ -397,9 +388,8 @@ std::expected<PrivateFrame, WireError> parse_private_frame(std::string_view fram
         if (!msg.has_value()) {
             return std::unexpected(msg.error());
         }
-        return PrivateFrame{.topic = *code == k_ok ? PrivateTopic::Ack : PrivateTopic::Refusal,
-                            .code = *code,
-                            .msg = *msg};
+        return PrivateFrame{
+            .topic = *code == k_ok ? PrivateTopic::Ack : PrivateTopic::Refusal, .code = *code, .msg = *msg};
     });
 }
 

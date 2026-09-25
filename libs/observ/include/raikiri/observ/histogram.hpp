@@ -53,7 +53,6 @@ public:
         }
     }
 
-
     [[nodiscard]] HistogramSnapshot snapshot() const noexcept {
         HistogramSnapshot snap{};
         snap.count = count_;

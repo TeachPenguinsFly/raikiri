@@ -21,7 +21,7 @@ struct WireInstrument {
     // base units on linear; usd on inverse, whatever the docs say
     std::string_view contract_value;
     std::string_view tick_size;
-    std::string_view lot_size; // in contracts
+    std::string_view lot_size;    // in contracts
     std::string_view asset_class; // Crypto | Stocks | Commodities | Indices
 };
 
@@ -31,7 +31,7 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                                          InstrumentBuffer& storage);
 
 } // namespace raikiri::venues::blofin

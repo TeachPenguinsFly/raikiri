@@ -1,6 +1,6 @@
-#include <raikiri/log/log.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -29,10 +29,8 @@ namespace {
 class MexcInstruments final : public exec::InstrumentSource {
 public:
     explicit MexcInstruments(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          spot_rest_{state_->io,
-                     net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}} {
+        : state_{std::move(state)}, rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+          spot_rest_{state_->io, net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
         spot_rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
@@ -44,14 +42,12 @@ public:
         case MarketType::Spot:
             return load_spot();
         case MarketType::Future:
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "mexc lists no dated futures")};
-        case MarketType::Option:
             return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "mexc lists no options")};
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "mexc lists no dated futures")};
+        case MarketType::Option:
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "mexc lists no options")};
         }
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "mexc: unknown market")};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "mexc: unknown market")};
     }
 
 private:
@@ -59,24 +55,20 @@ private:
         rest_.start();
         sync_clock(*state_, rest_);
 
-        const auto response =
-            await_response(*state_, rest_, state_->builder.contract_detail(), 20'000);
+        const auto response = await_response(*state_, rest_, state_->builder.contract_detail(), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         const auto envelope = parse_rest_envelope(response->body);
         if (!envelope.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
         }
         if (!envelope->success || envelope->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
+            return std::unexpected{exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
         }
 
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
@@ -84,8 +76,7 @@ private:
         auto& storage = *storage_owner;
         const auto wire = parse_instruments(response->body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         // before interning, so the schedule is in the instrument from the first read
         const auto schedule = load_schedule();
@@ -95,8 +86,7 @@ private:
                 return instrument;
             }
             if (auto* perp = std::get_if<PerpInstrument>(&*instrument); perp != nullptr) {
-                if (const auto found = schedule.find(std::string{row.symbol});
-                    found != schedule.end()) {
+                if (const auto found = schedule.find(std::string{row.symbol}); found != schedule.end()) {
                     perp->funding_interval_s = found->second.interval_s;
                     perp->funding_cap = found->second.cap;
                     perp->funding_floor = found->second.floor;
@@ -116,8 +106,7 @@ private:
     // since the views die with the response body
     std::unordered_map<std::string, Schedule> load_schedule() {
         std::unordered_map<std::string, Schedule> out;
-        const auto funding =
-            await_response(*state_, rest_, state_->builder.funding_rates(), 20'000);
+        const auto funding = await_response(*state_, rest_, state_->builder.funding_rates(), 20'000);
         if (!funding.has_value() || funding->transport_failed()) {
             RLOG_WARN("mexc: no funding schedule — every interval reads unstated");
             return out;
@@ -153,15 +142,13 @@ private:
         spot_rest_.start();
         sync_spot_clock(*state_, spot_rest_);
 
-        const auto response =
-            await_response(*state_, spot_rest_, state_->builder.exchange_info(), 20'000);
+        const auto response = await_response(*state_, spot_rest_, state_->builder.exchange_info(), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status < 200 || response->status >= 300) {
             return std::unexpected{rest_failure(response->body, MarketType::Spot)};
@@ -172,14 +159,12 @@ private:
         auto& storage = *storage_owner;
         const auto wire = parse_spot_symbols(response->body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         return intern(*wire, map_spot_instrument);
     }
 
-    template <typename Row, typename Map>
-    std::vector<Instrument> intern(std::span<const Row> rows, Map&& map) {
+    template <typename Row, typename Map> std::vector<Instrument> intern(std::span<const Row> rows, Map&& map) {
         std::vector<Instrument> loaded;
         loaded.reserve(rows.size());
         state_->instruments.reserve(state_->instruments.size() + rows.size());

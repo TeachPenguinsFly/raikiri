@@ -143,8 +143,7 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
-std::optional<Bbo>
-map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -169,8 +168,7 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -193,10 +191,8 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 }
 
 // fields nobody has stated stay undef
-[[nodiscard]] FundingUpdate merged(const Instrument& instrument,
-                                   const FundingMemo& memo,
-                                   UnixNanos ts_event,
-                                   UnixNanos ts_init) {
+[[nodiscard]] FundingUpdate
+merged(const Instrument& instrument, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
     FundingUpdate out{};
     out.instrument = base_of(instrument).id;
     out.rate = memo.rate;
@@ -209,10 +205,8 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
-                                         const exec::InstrumentTable& table,
-                                         FundingMemo& memo,
-                                         UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -228,16 +222,13 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
     }
     memo.next_funding = ms_to_unix(wire.funding_ms, UnixNanos{0});
     if (wire.next_funding_ms > wire.funding_ms && wire.funding_ms != 0) {
-        memo.interval_s =
-            static_cast<std::uint32_t>((wire.next_funding_ms - wire.funding_ms) / 1000);
+        memo.interval_s = static_cast<std::uint32_t>((wire.next_funding_ms - wire.funding_ms) / 1000);
     }
     return merged(*instrument, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
 }
 
-std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
-                                            const exec::InstrumentTable& table,
-                                            FundingMemo& memo,
-                                            UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -296,8 +287,7 @@ Side side_from(std::string_view text) noexcept {
     return text == "sell" ? Side::Sell : Side::Buy;
 }
 
-std::optional<OrderEvent>
-map_order_fill(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<OrderEvent> map_order_fill(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.trade_id.empty()) {
         return std::nullopt; // no trade in this update; see map.hpp
     }
@@ -359,9 +349,8 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         case WireOrderState::Canceled:
         case WireOrderState::MmpCanceled:
             // cancelSource 13 is a fok that could not fill whole and 14 an ioc remainder
-            type = (wire.cancel_source == "13" || wire.cancel_source == "14")
-                       ? OrderEventType::Expired
-                       : OrderEventType::Canceled;
+            type = (wire.cancel_source == "13" || wire.cancel_source == "14") ? OrderEventType::Expired
+                                                                              : OrderEventType::Canceled;
             break;
         case WireOrderState::PartiallyFilled:
         case WireOrderState::Filled:
@@ -393,8 +382,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -463,8 +451,7 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -478,9 +465,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
     exec::PositionReport out{};
     out.instrument = base.id;
     // net mode signs pos; long/short mode returns one unsigned row a side
-    out.net_qty = wire.pos_side == "short"
-                      ? QtyLots::from_raw(size->raw < 0 ? size->raw : -size->raw)
-                      : *size;
+    out.net_qty = wire.pos_side == "short" ? QtyLots::from_raw(size->raw < 0 ? size->raw : -size->raw) : *size;
     if (const auto avg = to_ticks(wire.avg_px, base); avg.has_value()) {
         out.avg_entry = *avg;
     }
@@ -488,8 +473,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
     return out;
 }
 
-std::optional<BalanceReport>
-map_balance(const WireCurrencyBalance& wire, AccountMode mode, UnixNanos fallback) {
+std::optional<BalanceReport> map_balance(const WireCurrencyBalance& wire, AccountMode mode, UnixNanos fallback) {
     const auto asset = to_asset_code(wire.ccy);
     if (!asset.has_value() || asset->empty()) {
         return std::nullopt;

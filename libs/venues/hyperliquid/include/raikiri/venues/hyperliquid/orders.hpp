@@ -16,7 +16,7 @@ namespace raikiri::venues::hyperliquid {
 struct WireOpenOrder {
     std::string_view coin;
     std::string_view price;      // limitPx
-    std::string_view qty; // sz, remaining
+    std::string_view qty;        // sz, remaining
     std::string_view orig_qty;   // origSz
     std::string_view cloid;      // absent entirely on an order placed without one
     std::string_view order_type; // frontend only: "Limit", "Stop Market", ...
@@ -34,8 +34,8 @@ struct OpenOrderBuffer {
     std::array<WireOpenOrder, k_max_open_orders> orders{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireOpenOrder>, WireError>
-parse_open_orders(std::string_view body, OpenOrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOpenOrder>, WireError> parse_open_orders(std::string_view body,
+                                                                                         OpenOrderBuffer& storage);
 
 // `crossed` true means taker; `fee` is negative on a maker rebate
 struct WireFill {
@@ -103,7 +103,7 @@ struct WireExchangeReply {
     std::span<const WireExchangeStatus> statuses;
 };
 
-[[nodiscard]] std::expected<WireExchangeReply, WireError>
-parse_exchange_reply(std::string_view body, ExchangeStatusBuffer& storage);
+[[nodiscard]] std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_view body,
+                                                                               ExchangeStatusBuffer& storage);
 
 } // namespace raikiri::venues::hyperliquid

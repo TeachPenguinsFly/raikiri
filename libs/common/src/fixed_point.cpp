@@ -64,8 +64,7 @@ std::expected<FixedE9, ParseError> parse_decimal_e9(std::string_view text) noexc
     }
 
     std::int64_t out{};
-    if (__builtin_mul_overflow(int_part, k_e9, &out) ||
-        __builtin_add_overflow(out, frac_e9, &out)) {
+    if (__builtin_mul_overflow(int_part, k_e9, &out) || __builtin_add_overflow(out, frac_e9, &out)) {
         return std::unexpected{ParseError::OutOfRange};
     }
     if (negative) {
@@ -80,8 +79,7 @@ std::string_view format_e9(FixedE9 value, char* buf, std::size_t buf_len) noexce
     }
     char* p = buf;
     std::int64_t raw = value.raw;
-    std::uint64_t mag =
-        raw < 0 ? static_cast<std::uint64_t>(-(raw + 1)) + 1U : static_cast<std::uint64_t>(raw);
+    std::uint64_t mag = raw < 0 ? static_cast<std::uint64_t>(-(raw + 1)) + 1U : static_cast<std::uint64_t>(raw);
     if (raw < 0) {
         *p++ = '-';
     }

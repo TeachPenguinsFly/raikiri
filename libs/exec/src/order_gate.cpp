@@ -24,8 +24,7 @@ void RateLimiter::refill(MonoNanos now) noexcept {
     last_refill_ns_ += (earned * window_ns_) / capacity_;
 }
 
-std::expected<void, RateDenied>
-RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
+std::expected<void, RateDenied> RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
     refill(now);
     if (now.ns < blocked_until_ns_) {
         ++denials_;
@@ -41,8 +40,8 @@ RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
     if (tokens_ < floor + cost) {
         ++denials_;
         const auto missing = floor + cost - tokens_;
-        return std::unexpected{RateDenied{
-            .retry_after_ns = (static_cast<std::uint64_t>(missing) * window_ns_) / capacity_}};
+        return std::unexpected{
+            RateDenied{.retry_after_ns = (static_cast<std::uint64_t>(missing) * window_ns_) / capacity_}};
     }
     // and the window ceiling, which the bucket does not enforce
     if (window_ns_ != 0) {
@@ -52,8 +51,7 @@ RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
         }
         if (static_cast<std::uint64_t>(window_spent_) + cost > capacity_) {
             ++denials_;
-            return std::unexpected{
-                RateDenied{.retry_after_ns = window_ns_ - (now.ns - window_start_ns_)}};
+            return std::unexpected{RateDenied{.retry_after_ns = window_ns_ - (now.ns - window_start_ns_)}};
         }
         window_spent_ += cost;
     }
@@ -86,9 +84,8 @@ bool InFlightTable::add(const InFlight& request) noexcept {
 }
 
 bool InFlightTable::resolve(ClientOrderId id) noexcept {
-    const auto it = std::find_if(entries_.begin(), entries_.end(), [id](const InFlight& entry) {
-        return entry.client_order_id.raw == id.raw;
-    });
+    const auto it = std::find_if(
+        entries_.begin(), entries_.end(), [id](const InFlight& entry) { return entry.client_order_id.raw == id.raw; });
     if (it == entries_.end()) {
         return false;
     }

@@ -34,10 +34,7 @@ struct Market {
 };
 
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref,
-               const Clock& clock_ref,
-               bool testnet_flag,
-               exec::RateBudget* budget_ptr)
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag, exec::RateBudget* budget_ptr)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag}, budget{budget_ptr} {}
 
     exec::GatewaySink* sink;

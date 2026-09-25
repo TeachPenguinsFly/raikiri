@@ -59,7 +59,7 @@ struct BalanceBuffer {
     std::array<WireCurrencyBalance, k_max_currencies> currencies{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireCurrencyBalance>, WireError>
-parse_balances(std::string_view body, BalanceBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireCurrencyBalance>, WireError> parse_balances(std::string_view body,
+                                                                                            BalanceBuffer& storage);
 
 } // namespace raikiri::venues::okx

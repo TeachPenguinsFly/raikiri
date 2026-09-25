@@ -411,8 +411,7 @@ TEST(BlofinEnvelope, TheRestCodeIsAString) {
     const auto ok = parse_rest_envelope(fixture("rest_mark_price.json"));
     ASSERT_TRUE(ok.has_value());
     EXPECT_EQ(ok->code, k_ok);
-    const auto refused =
-        parse_rest_envelope(R"({"code":"152002","msg":"Parameter instId error."})");
+    const auto refused = parse_rest_envelope(R"({"code":"152002","msg":"Parameter instId error."})");
     ASSERT_TRUE(refused.has_value());
     EXPECT_EQ(refused->code, 152'002);
     EXPECT_FALSE(parse_rest_envelope(R"({"code":"","msg":""})").has_value());

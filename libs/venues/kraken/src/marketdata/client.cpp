@@ -43,8 +43,7 @@ void handle_book(VenueState& state, std::string_view frame, UnixNanos received) 
     if (result != BookResult::Applied && result != BookResult::Resynced) {
         return; // unsynced, redelivered or dropped: silence, never a guess
     }
-    if (const auto depth = book.snapshot(ms_to_unix(wire->timestamp_ms, received), received);
-        depth.has_value()) {
+    if (const auto depth = book.snapshot(ms_to_unix(wire->timestamp_ms, received), received); depth.has_value()) {
         state.sink->on_depth(*depth);
     }
 }
@@ -64,12 +63,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -81,8 +78,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -110,9 +106,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
 }
 
 // returns how many entries went out; the rest wait for the next flush or reconnect
-std::size_t send_subscriptions(VenueState& state,
-                               net::WsClient& client,
-                               std::span<const OwnedSubscription> entries) {
+std::size_t send_subscriptions(VenueState& state, net::WsClient& client, std::span<const OwnedSubscription> entries) {
     std::vector<Subscription> views;
     views.reserve(entries.size());
     for (const auto& entry : entries) {
@@ -164,20 +158,19 @@ private:
 class KrakenData final : public exec::DataClient {
 public:
     explicit KrakenData(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, handler_{*state_},
-          client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host()},
-                                .port = std::string{stream_port()},
-                                .target = std::string{stream_path()},
-                                .max_message_bytes = k_max_message_bytes},
-                  handler_} {
+        : state_{std::move(state)}, handler_{*state_}, client_{state_->io,
+                                                               net::WsConfig{.host = std::string{stream_host()},
+                                                                             .port = std::string{stream_port()},
+                                                                             .target = std::string{stream_path()},
+                                                                             .max_message_bytes = k_max_message_bytes},
+                                                               handler_} {
         handler_.attach(client_);
     }
 
     std::expected<void, exec::VenueError> start() override {
         if (state_->testnet) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "kraken futures has no demo environment")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kraken futures has no demo environment")};
         }
         client_.start();
         started_ = true;
@@ -191,21 +184,17 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return client_.connected(); }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto feed = feed_for(kind);
         if (feed.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (const auto cap = net::process_ws_limits().streams_per_socket;
-            cap != 0 && state_->desired.size() >= cap) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "subscription limit reached")};
+        if (const auto cap = net::process_ws_limits().streams_per_socket; cap != 0 && state_->desired.size() >= cap) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "subscription limit reached")};
         }
         const auto before = state_->desired.size();
         state_->add_subscription(feed, symbol);

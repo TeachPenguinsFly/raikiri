@@ -33,5 +33,4 @@ inline constexpr std::string_view k_book_rate = "@500";
 inline constexpr std::string_view k_ticker_stream = "v1.ticker.s";
 inline constexpr std::string_view k_ticker_rate = "@5000";
 
-
 } // namespace raikiri::venues::grvt::ep

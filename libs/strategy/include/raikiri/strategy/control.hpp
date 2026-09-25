@@ -13,9 +13,7 @@
 namespace raikiri::strategy {
 
 // `live`, `types` and `book` must outlive the handler; `stop` is the process's stop signal
-[[nodiscard]] http::Handler make_control(Registry& live,
-                                         const Factory& types,
-                                         const portfolio::PositionBook& book,
-                                         std::stop_token stop);
+[[nodiscard]] http::Handler
+make_control(Registry& live, const Factory& types, const portfolio::PositionBook& book, std::stop_token stop);
 
 } // namespace raikiri::strategy

@@ -97,8 +97,7 @@ WireOrderStatus order_status_of(std::string_view text) noexcept {
     return WireOrderStatus::Unknown;
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                  OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

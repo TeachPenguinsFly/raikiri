@@ -40,8 +40,7 @@ bool BookSync::apply_side(std::span<const WireLevel> levels, book::Ladder& side)
 SyncResult BookSync::apply(const WireOrderbook& update) {
     if (update.is_snapshot) {
         ladders_.clear();
-        if (!apply_side(update.bids, ladders_.bids()) ||
-            !apply_side(update.asks, ladders_.asks())) {
+        if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
             invalidate();
             return SyncResult::BadLevel;
         }

@@ -80,8 +80,7 @@ TEST(BingxVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bingx);
     EXPECT_NE(adapter->data, nullptr);
@@ -93,8 +92,7 @@ TEST(BingxVenue, AnOrderWithNoCredentialsIsRefusedLoudly) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -121,8 +119,7 @@ TEST(BingxVenue, RefusesAnOptionOrderWithoutBlamingTheCatalogue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -144,8 +141,7 @@ TEST(BingxVenue, PullsSayWhyTheyCannotAnswer) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto orders = adapter->execution->open_order_reports(MarketType::Perp);
@@ -167,20 +163,18 @@ TEST(BingxVenue, EachSocketRefusesTheOtherMarketsInstruments) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
-    const auto spot = adapter->data->subscribe(
-        exec::SubKind::Bbo, InstrumentId::make(VenueId::Bingx, MarketType::Spot, SymbolId{0}));
+    const auto spot = adapter->data->subscribe(exec::SubKind::Bbo,
+                                               InstrumentId::make(VenueId::Bingx, MarketType::Spot, SymbolId{0}));
     ASSERT_FALSE(spot.has_value());
     EXPECT_EQ(spot.error().cls, exec::ErrorClass::Terminal);
 
-    auto spot_adapter =
-        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Spot}, sink, clock);
+    auto spot_adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(spot_adapter.has_value());
-    const auto perp = spot_adapter->data->subscribe(
-        exec::SubKind::Bbo, InstrumentId::make(VenueId::Bingx, MarketType::Perp, SymbolId{0}));
+    const auto perp = spot_adapter->data->subscribe(exec::SubKind::Bbo,
+                                                    InstrumentId::make(VenueId::Bingx, MarketType::Perp, SymbolId{0}));
     ASSERT_FALSE(perp.has_value());
     EXPECT_EQ(perp.error().cls, exec::ErrorClass::Terminal);
 }
@@ -383,7 +377,7 @@ TEST(BingxMap, TurnoverResolvesAgainstTheSocketsOwnMarket) {
 
     const auto stats = map_ticker_stats(*wire, table, MarketType::Perp, UnixNanos{99});
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_base.raw, 21'355'740'000'000LL);         // 21355.7400 BTC
+    EXPECT_EQ(stats->volume_24h_base.raw, 21'355'740'000'000LL);     // 21355.7400 BTC
     EXPECT_EQ(stats->volume_24h_quote.raw, 1'723'468'750'410'000LL); // 1723468750.41 USDT
     EXPECT_EQ(stats->ts_event.ns, 1788532398984ULL * 1'000'000ULL);
     EXPECT_EQ(stats->ts_init.ns, 99U);
@@ -437,11 +431,10 @@ TEST(BingxWire, AnOnlineContractCanStillBeClosedToTheApi) {
 TEST(BingxWire, ARowStatingNeitherApiStateIsLeftTradable) {
     // absent api state fields leave the contract tradable
     static thread_local ContractBuffer storage;
-    const auto rows = parse_contracts(
-        R"({"code":0,"msg":"","data":[{"symbol":"X-USDT","status":1,"pricePrecision":2,)"
-        R"("quantityPrecision":1,"size":"0.1","tradeMinQuantity":"0.1",)"
-        R"("tradeMinUSDT":"2"}]})",
-        storage);
+    const auto rows = parse_contracts(R"({"code":0,"msg":"","data":[{"symbol":"X-USDT","status":1,"pricePrecision":2,)"
+                                      R"("quantityPrecision":1,"size":"0.1","tradeMinQuantity":"0.1",)"
+                                      R"("tradeMinUSDT":"2"}]})",
+                                      storage);
     ASSERT_TRUE(rows.has_value());
     ASSERT_EQ(rows->size(), 1U);
     EXPECT_TRUE((*rows)[0].api_open);
@@ -739,18 +732,15 @@ TEST(BingxMap, MapsFundingFromThePremiumIndexPoll) {
 
 TEST(BingxWs, BuildsSubscriptionFrames) {
     Protocol protocol;
-    const auto first = protocol.subscribe_frame(
-        "BTC-USDT", data_type_suffix(exec::SubKind::Bbo, MarketType::Perp));
+    const auto first = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Bbo, MarketType::Perp));
     ASSERT_TRUE(first.has_value());
     EXPECT_EQ(first->text, R"({"id":"1","reqType":"sub","dataType":"BTC-USDT@depth100@100ms"})");
 
-    const auto second = protocol.subscribe_frame(
-        "ETH-USDT", data_type_suffix(exec::SubKind::Trades, MarketType::Perp));
+    const auto second = protocol.subscribe_frame("ETH-USDT", data_type_suffix(exec::SubKind::Trades, MarketType::Perp));
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->text, R"({"id":"2","reqType":"sub","dataType":"ETH-USDT@trade"})");
 
-    const auto depth = protocol.subscribe_frame(
-        "BTC-USDT", data_type_suffix(exec::SubKind::Depth, MarketType::Perp));
+    const auto depth = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Depth, MarketType::Perp));
     ASSERT_TRUE(depth.has_value());
     EXPECT_EQ(depth->text, R"({"id":"3","reqType":"sub","dataType":"BTC-USDT@depth100@100ms"})");
 
@@ -783,10 +773,8 @@ TEST(BingxRest, BuildsUnauthenticatedReads) {
     RequestBuilder builder;
     EXPECT_EQ(builder.contracts().target, "/openApi/swap/v2/quote/contracts");
     EXPECT_EQ(builder.server_time().target, "/openApi/swap/v2/server/time");
-    EXPECT_EQ(builder.premium_index("BTC-USDT").target,
-              "/openApi/swap/v2/quote/premiumIndex?symbol=BTC-USDT");
-    EXPECT_EQ(builder.depth("BTC-USDT", 5).target,
-              "/openApi/swap/v2/quote/depth?symbol=BTC-USDT&limit=5");
+    EXPECT_EQ(builder.premium_index("BTC-USDT").target, "/openApi/swap/v2/quote/premiumIndex?symbol=BTC-USDT");
+    EXPECT_EQ(builder.depth("BTC-USDT", 5).target, "/openApi/swap/v2/quote/depth?symbol=BTC-USDT&limit=5");
     EXPECT_EQ(builder.ticker("ETH-USDT").target, "/openApi/swap/v2/quote/ticker?symbol=ETH-USDT");
     EXPECT_EQ(builder.contracts().method, net::HttpMethod::Get);
 }
@@ -915,10 +903,7 @@ TEST(BingxSpotMap, ASpotFrameResolvesAgainstTheSpotCatalogue) {
     EXPECT_LT(bbo->bid.raw, bbo->ask.raw);
 }
 
-OrderCmd limit_buy(const exec::InstrumentTable& table,
-                   std::string_view symbol,
-                   std::int64_t ticks,
-                   std::int64_t lots) {
+OrderCmd limit_buy(const exec::InstrumentTable& table, std::string_view symbol, std::int64_t ticks, std::int64_t lots) {
     OrderCmd cmd{};
     cmd.kind = CmdKind::Create;
     cmd.side = Side::Buy;
@@ -954,8 +939,7 @@ std::vector<std::string_view> keys_of(std::string_view canonical) {
 TEST(BingxSign, ReproducesAnIndependentlyComputedVector) {
     // bingx's documented example; the digest came from openssl
     std::array<char, net::k_hex_bytes> out{};
-    const auto hex = net::hmac_sha256_hex(
-        "SECRET_KEY", "recvWindow=0&symbol=BTC-USDT&timestamp=1696751141337", out);
+    const auto hex = net::hmac_sha256_hex("SECRET_KEY", "recvWindow=0&symbol=BTC-USDT&timestamp=1696751141337", out);
     EXPECT_EQ(hex, "fe041f159118c90ac13eab4d32f9e2d75b80ca6fe17ca8acd290aba864753ce2");
 }
 
@@ -965,14 +949,13 @@ TEST(BingxSign, PerpetualCreateSignsTheStringItSends) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
 
-    const auto request =
-        builder.create_order(limit_buy(table, "BTC-USDT", 444'596, 30), table, k_now);
+    const auto request = builder.create_order(limit_buy(table, "BTC-USDT", 444'596, 30), table, k_now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
 
-    constexpr std::string_view k_canonical =
-        "clientOrderID=01JD7Q0M9WKE6Q3N2F4H8ZT5XR&clientOrderId=01JD7Q0M9WKE6Q3N2F4H8ZT5XR"
-        "&positionSide=BOTH&price=44459.6&quantity=0.003&recvWindow=5000&side=BUY"
-        "&symbol=BTC-USDT&timeInForce=GTC&timestamp=1699999999500&type=LIMIT";
+    constexpr std::string_view
+        k_canonical = "clientOrderID=01JD7Q0M9WKE6Q3N2F4H8ZT5XR&clientOrderId=01JD7Q0M9WKE6Q3N2F4H8ZT5XR"
+                      "&positionSide=BOTH&price=44459.6&quantity=0.003&recvWindow=5000&side=BUY"
+                      "&symbol=BTC-USDT&timeInForce=GTC&timestamp=1699999999500&type=LIMIT";
     EXPECT_EQ(builder.last_sign_message(), k_canonical);
     EXPECT_EQ(query_of(request->target).substr(0, k_canonical.size()), k_canonical);
     EXPECT_EQ(request->target,
@@ -991,14 +974,12 @@ TEST(BingxSign, SpotCreateSignsItsOwnCanonicalString) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
 
-    const auto request =
-        builder.create_order(limit_buy(table, "BTC-USDT", 4'445'960, 3'000), table, k_now);
+    const auto request = builder.create_order(limit_buy(table, "BTC-USDT", 4'445'960, 3'000), table, k_now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
 
-    constexpr std::string_view k_canonical =
-        "newClientOrderId=01JD7Q0M9WKE6Q3N2F4H8ZT5XR&price=44459.6&quantity=0.003"
-        "&recvWindow=5000&side=BUY&symbol=BTC-USDT&timeInForce=GTC"
-        "&timestamp=1699999999500&type=LIMIT";
+    constexpr std::string_view k_canonical = "newClientOrderId=01JD7Q0M9WKE6Q3N2F4H8ZT5XR&price=44459.6&quantity=0.003"
+                                             "&recvWindow=5000&side=BUY&symbol=BTC-USDT&timeInForce=GTC"
+                                             "&timestamp=1699999999500&type=LIMIT";
     EXPECT_EQ(builder.last_sign_message(), k_canonical);
     EXPECT_EQ(request->target,
               std::string{"/openApi/spot/v1/trade/order?"} + std::string{k_canonical} +
@@ -1086,12 +1067,9 @@ TEST(BingxSign, RoutesEachMarketToItsOwnTree) {
     EXPECT_EQ(builder.last_sign_message().find("clientOrderId=01JD"), std::string_view::npos);
 
     ASSERT_TRUE(builder.open_orders(MarketType::Spot, k_now).has_value());
-    EXPECT_TRUE(builder.open_orders(MarketType::Spot, k_now)
-                    ->target.starts_with("/openApi/spot/v1/trade/openOrders?"));
-    EXPECT_TRUE(builder.open_orders(MarketType::Perp, k_now)
-                    ->target.starts_with("/openApi/swap/v2/trade/openOrders?"));
-    EXPECT_TRUE(builder.positions(MarketType::Perp, k_now)
-                    ->target.starts_with("/openApi/swap/v2/user/positions?"));
+    EXPECT_TRUE(builder.open_orders(MarketType::Spot, k_now)->target.starts_with("/openApi/spot/v1/trade/openOrders?"));
+    EXPECT_TRUE(builder.open_orders(MarketType::Perp, k_now)->target.starts_with("/openApi/swap/v2/trade/openOrders?"));
+    EXPECT_TRUE(builder.positions(MarketType::Perp, k_now)->target.starts_with("/openApi/swap/v2/user/positions?"));
 }
 
 TEST(BingxSign, CancelsByVenueIdWhenItHasOne) {
@@ -1104,8 +1082,7 @@ TEST(BingxSign, CancelsByVenueIdWhenItHasOne) {
     cmd.kind = CmdKind::Cancel;
     cmd.target_exchange_order_id = *ExchangeOrderId::from("1585839271162413056");
     ASSERT_TRUE(builder.cancel_order(cmd, table, k_now).has_value());
-    EXPECT_NE(builder.last_sign_message().find("orderId=1585839271162413056"),
-              std::string_view::npos);
+    EXPECT_NE(builder.last_sign_message().find("orderId=1585839271162413056"), std::string_view::npos);
     EXPECT_EQ(builder.last_sign_message().find("clientOrderId="), std::string_view::npos);
 
     cmd.target_exchange_order_id = {};
@@ -1177,8 +1154,7 @@ TEST(BingxSign, RefusesUnservedMarketsBeforeReadingTheTable) {
     cmd.instrument = InstrumentId::make(VenueId::Bingx, MarketType::Future, SymbolId{0});
     EXPECT_EQ(builder.create_order(cmd, table, k_now).error(), BuildError::DatedFuturesUnsupported);
     EXPECT_EQ(builder.positions(MarketType::Option, k_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.positions(MarketType::Spot, k_now).error(),
-              BuildError::SpotPositionsUnsupported);
+    EXPECT_EQ(builder.positions(MarketType::Spot, k_now).error(), BuildError::SpotPositionsUnsupported);
 }
 
 TEST(BingxSign, RefusesAnAmendItCannotExpress) {
@@ -1225,8 +1201,7 @@ TEST(BingxSign, RefusesWhatItCannotSignHonestly) {
     cmd.price = PriceTicks::from_raw(0);
     EXPECT_EQ(builder.create_order(cmd, table, k_now).error(), BuildError::BadPrice);
 
-    EXPECT_EQ(builder.listen_key_keepalive("abc&symbol=ETH-USDT", k_now).error(),
-              BuildError::UnsafeParameter);
+    EXPECT_EQ(builder.listen_key_keepalive("abc&symbol=ETH-USDT", k_now).error(), BuildError::UnsafeParameter);
 }
 
 TEST(BingxSign, ManagesTheListenKeyOverThreeVerbs) {
@@ -1441,8 +1416,7 @@ TEST(BingxMap, MapsThePerpetualLifecycle) {
     const auto fill_body = load("ws_order_update_perp_fill.json");
     const auto fill_wire = parse_order_update(fill_body);
     ASSERT_TRUE(fill_wire.has_value());
-    const auto fill = map_order_update(
-        *fill_wire, table, MarketType::Perp, ExchangeClientOrderId{}, UnixNanos{7});
+    const auto fill = map_order_update(*fill_wire, table, MarketType::Perp, ExchangeClientOrderId{}, UnixNanos{7});
     ASSERT_TRUE(fill.has_value());
     EXPECT_EQ(fill->type, OrderEventType::Filled);
     // the fill's own size and price: 0.0012 at 44459.6 of 0.0030
@@ -1452,13 +1426,12 @@ TEST(BingxMap, MapsThePerpetualLifecycle) {
     // "-0.02667576" on the wire is a charge
     EXPECT_EQ(fill->fee.raw, 26'675'760);
     EXPECT_EQ(fill->liquidity, Liquidity::Unknown); // the push does not say
-    EXPECT_TRUE(fill->exec_id.empty()); // no trade id
+    EXPECT_TRUE(fill->exec_id.empty());             // no trade id
 
     const auto cancel_body = load("ws_order_update_perp_cancel.json");
     const auto cancel_wire = parse_order_update(cancel_body);
     ASSERT_TRUE(cancel_wire.has_value());
-    const auto cancel = map_order_update(
-        *cancel_wire, table, MarketType::Perp, ExchangeClientOrderId{}, UnixNanos{7});
+    const auto cancel = map_order_update(*cancel_wire, table, MarketType::Perp, ExchangeClientOrderId{}, UnixNanos{7});
     ASSERT_TRUE(cancel.has_value());
     EXPECT_EQ(cancel->type, OrderEventType::Canceled);
     EXPECT_EQ(cancel->leaves_qty.raw, 18);
@@ -1470,8 +1443,7 @@ TEST(BingxMap, MapsASpotFillThroughTheMemo) {
     const auto wire = parse_order_update(body);
     ASSERT_TRUE(wire.has_value());
 
-    const auto orphan =
-        map_order_update(*wire, table, MarketType::Spot, ExchangeClientOrderId{}, UnixNanos{7});
+    const auto orphan = map_order_update(*wire, table, MarketType::Spot, ExchangeClientOrderId{}, UnixNanos{7});
     ASSERT_TRUE(orphan.has_value());
     EXPECT_TRUE(orphan->exchange_client_order_id.empty());
 
@@ -1616,11 +1588,10 @@ TEST(BingxErrors, ClassifiesTheHttpStatusWhenThereIsNoEnvelope) {
 
 TEST(BingxWire, ReadsFieldsInAnyOrder) {
     LevelBuffer levels;
-    const auto depth =
-        parse_depth(R"({"data":{"asks":[["2","1"]],"x":[[1]],"bids":[["1","3"]]},"timestamp":5,)"
-                    R"("dataType":"ETH-USDT@depth5"})",
-                    levels,
-                    MarketType::Perp);
+    const auto depth = parse_depth(R"({"data":{"asks":[["2","1"]],"x":[[1]],"bids":[["1","3"]]},"timestamp":5,)"
+                                   R"("dataType":"ETH-USDT@depth5"})",
+                                   levels,
+                                   MarketType::Perp);
     ASSERT_TRUE(depth.has_value());
     EXPECT_EQ(depth->symbol, "ETH-USDT");
     EXPECT_EQ(depth->ts_ms, 5U) << "no ts, so the spot stamp";
@@ -1629,18 +1600,15 @@ TEST(BingxWire, ReadsFieldsInAnyOrder) {
     EXPECT_EQ(depth->asks[0].price, "2");
 
     TradeBuffer trades;
-    const auto trade = parse_trades(
-        R"({"data":{"m":true,"T":4,"s":"ETH-USDT","q":"1","p":"2"},"code":0})", trades);
+    const auto trade = parse_trades(R"({"data":{"m":true,"T":4,"s":"ETH-USDT","q":"1","p":"2"},"code":0})", trades);
     ASSERT_TRUE(trade.has_value());
     ASSERT_EQ(trade->size(), 1U);
     EXPECT_EQ((*trade)[0].symbol, "ETH-USDT");
     EXPECT_EQ((*trade)[0].trade_ms, 4U);
     EXPECT_TRUE((*trade)[0].buyer_is_maker);
-    EXPECT_FALSE(parse_trades(R"({"data":[{"p":"2","q":"1","T":4}]})", trades).has_value())
-        << "no symbol";
+    EXPECT_FALSE(parse_trades(R"({"data":[{"p":"2","q":"1","T":4}]})", trades).has_value()) << "no symbol";
 
-    const auto top = parse_book_ticker(
-        R"({"data":{"A":"4","a":"3","B":"2","b":"1","s":"ETH-USDT","E":7,"u":6}})");
+    const auto top = parse_book_ticker(R"({"data":{"A":"4","a":"3","B":"2","b":"1","s":"ETH-USDT","E":7,"u":6}})");
     ASSERT_TRUE(top.has_value());
     EXPECT_EQ(top->ask_qty, "4");
     EXPECT_EQ(top->update_id, 6U);

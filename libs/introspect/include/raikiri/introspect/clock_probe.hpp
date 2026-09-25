@@ -37,16 +37,13 @@ public:
     // uniform in [lo, hi]
     using Jitter = std::function<std::uint64_t(std::uint64_t lo, std::uint64_t hi)>;
 
-    ProbeClock(ServerTimeSource& source,
-               MonoClock now,
-               Admit admit,
-               Jitter jitter,
-               ProbeSchedule schedule = {});
+    ProbeClock(ServerTimeSource& source, MonoClock now, Admit admit, Jitter jitter, ProbeSchedule schedule = {});
 
     // probes when due; returns the monotonic time of the next attempt
     std::uint64_t tick();
 
     [[nodiscard]] ClockEstimate estimate() const noexcept { return estimator_.estimate(); }
+
     [[nodiscard]] std::uint64_t failures() const noexcept { return failures_; }
 
 private:

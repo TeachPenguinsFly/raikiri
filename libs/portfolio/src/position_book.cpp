@@ -5,14 +5,12 @@
 namespace raikiri::portfolio {
 
 Position* PositionBook::find(PositionKey key) noexcept {
-    const auto it =
-        std::ranges::find_if(positions_, [key](const Position& p) { return p.key() == key; });
+    const auto it = std::ranges::find_if(positions_, [key](const Position& p) { return p.key() == key; });
     return it == positions_.end() ? nullptr : &*it;
 }
 
 const Position* PositionBook::find(PositionKey key) const noexcept {
-    const auto it =
-        std::ranges::find_if(positions_, [key](const Position& p) { return p.key() == key; });
+    const auto it = std::ranges::find_if(positions_, [key](const Position& p) { return p.key() == key; });
     return it == positions_.end() ? nullptr : &*it;
 }
 

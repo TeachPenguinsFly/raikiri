@@ -87,8 +87,7 @@ TEST(Segment, StaleOwnerTakenOver) {
         auto owner = SegmentOwner::create(path, 1 << 20, 1, 1000);
         ASSERT_TRUE(owner.has_value());
         owner->publish();
-        const auto rival =
-            SegmentOwner::create(path, 1 << 20, 2, /*now_ns=*/1000 + k_owner_stale_ns + 1);
+        const auto rival = SegmentOwner::create(path, 1 << 20, 2, /*now_ns=*/1000 + k_owner_stale_ns + 1);
         ASSERT_FALSE(rival.has_value()); // alive pid + stale beat = hung, not dead
         EXPECT_EQ(rival.error(), SegError::AlreadyRunning);
     }

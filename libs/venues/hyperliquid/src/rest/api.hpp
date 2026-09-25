@@ -35,16 +35,14 @@ inline std::optional<exec::VenueError> refuse_market(MarketType market) noexcept
 // the account is never defaulted to the signer's address, since an
 // api wallet signs for another account
 inline exec::VenueError no_address() noexcept {
-    return exec::VenueError::make(
-        exec::ErrorClass::AuthFailure, 0, "hyperliquid: no account address configured");
+    return exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, "hyperliquid: no account address configured");
 }
 
 class RestApi {
 public:
     explicit RestApi(VenueState& state)
         : state_{&state},
-          rest_{state.io,
-                net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}},
+          rest_{state.io, net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}},
           builder_{state.wallet, !state.testnet} {}
 
     void start() { rest_.start(); }
@@ -60,8 +58,7 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType market) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -69,8 +66,7 @@ public:
             return std::unexpected{no_address()};
         }
         // frontendOpenOrders carries `isTrigger`, which openOrders omits
-        const auto body =
-            read_info(*state_, rest_, requests_.frontend_open_orders(state_->address));
+        const auto body = read_info(*state_, rest_, requests_.frontend_open_orders(state_->address));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -94,8 +90,8 @@ public:
         return reports;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -105,8 +101,8 @@ public:
         std::array<char, k_cloid_chars> buf{};
         const auto cloid = cloid_text(id, buf);
         if (cloid.empty()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "hyperliquid: client order id is not a ULID")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "hyperliquid: client order id is not a ULID")};
         }
         const auto body = read_info(*state_, rest_, requests_.order_status(state_->address, cloid));
         if (!body.has_value()) {
@@ -119,19 +115,17 @@ public:
         }
         if (!status->found) {
             // "unknownOid" covers both forgotten and never-minted ids
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "hyperliquid: order unknown to the venue")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "hyperliquid: order unknown to the venue")};
         }
         const auto report = map_order_status(*status, state_->instruments);
         if (!report.has_value() || report->instrument.market() != market) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
         }
         return *report;
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
-                                                                                UnixNanos since) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -140,9 +134,8 @@ public:
         }
         // `startTime` is inclusive ms, and zero does not mean from the beginning
         const auto since_ms = since.ns / 1'000'000ULL;
-        const auto request = since_ms == 0
-                                 ? requests_.user_fills(state_->address)
-                                 : requests_.user_fills_by_time(state_->address, since_ms);
+        const auto request = since_ms == 0 ? requests_.user_fills(state_->address)
+                                           : requests_.user_fills_by_time(state_->address, since_ms);
         const auto body = read_info(*state_, rest_, request);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
@@ -166,8 +159,7 @@ public:
         return reports;
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
-                                                                              UnixNanos since) {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -180,8 +172,7 @@ public:
         }
         // an inclusive start returns the cursor's row again and the caller
         // drops it by stamp; 500 rows per page
-        const auto body = read_info(
-            *state_, rest_, requests_.user_funding(state_->address, since.ns / 1'000'000ULL));
+        const auto body = read_info(*state_, rest_, requests_.user_funding(state_->address, since.ns / 1'000'000ULL));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -198,16 +189,14 @@ public:
         std::vector<LedgerEntry> charges;
         charges.reserve(rows->size());
         for (const auto& wire : *rows) {
-            if (const auto charge = map_funding_charge(wire, state_->instruments, received);
-                charge.has_value()) {
+            if (const auto charge = map_funding_charge(wire, state_->instruments, received); charge.has_value()) {
                 charges.push_back(*charge);
             }
         }
         return charges;
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }

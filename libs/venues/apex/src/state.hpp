@@ -3,8 +3,8 @@
 // internal namespace: an anonymous one in a header is a distinct type per file
 
 #include <raikiri/exec/events.hpp>
-#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/venues/apex/book.hpp>
 #include <raikiri/venues/apex/map.hpp>

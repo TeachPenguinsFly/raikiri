@@ -78,8 +78,7 @@ std::expected<void, Error> Session::start(std::string_view frame) {
     origin_ = frame.data();
     origin_size_ = frame.size();
 
-    const simdjson::padded_string_view view{
-        scratch_.data(), frame.size(), frame.size() + simdjson::SIMDJSON_PADDING};
+    const simdjson::padded_string_view view{scratch_.data(), frame.size(), frame.size() + simdjson::SIMDJSON_PADDING};
     if (const auto ec = parser_.iterate(view).get(doc_); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }

@@ -33,8 +33,8 @@ std::expected<void, WireError> read_record(wire::ondemand::object& obj, WireFund
 
 } // namespace
 
-std::expected<std::span<const WireFundingRecord>, WireError>
-parse_funding_records(std::string_view body, FundingRecordBuffer& storage) {
+std::expected<std::span<const WireFundingRecord>, WireError> parse_funding_records(std::string_view body,
+                                                                                   FundingRecordBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFundingRecord>, WireError> {
         auto root = wire::session().open_object(body);
         if (!root.has_value()) {

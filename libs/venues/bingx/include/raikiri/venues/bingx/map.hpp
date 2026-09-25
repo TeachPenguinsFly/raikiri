@@ -26,21 +26,15 @@ namespace raikiri::venues::bingx {
 // exact integer power of ten; refuses precision past 9
 [[nodiscard]] std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept;
 
-[[nodiscard]] std::optional<Bbo> map_bbo(const WireBookTicker& wire,
-                                         const exec::InstrumentTable& table,
-                                         MarketType market,
-                                         UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo>
+map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<TradeTick> map_trade(const WireTrade& wire,
-                                                 const exec::InstrumentTable& table,
-                                                 MarketType market,
-                                                 UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick>
+map_trade(const WireTrade& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init);
 
 // a complete snapshot; venue_seq stays zero
-[[nodiscard]] std::optional<BookSnapshot> map_book(const WireDepth& wire,
-                                                   const exec::InstrumentTable& table,
-                                                   MarketType market,
-                                                   UnixNanos ts_init);
+[[nodiscard]] std::optional<BookSnapshot>
+map_book(const WireDepth& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init);
 
 // top level of each side; the swap bookTicker is silent
 [[nodiscard]] std::optional<Bbo> touch_of(const BookSnapshot& book) noexcept;
@@ -50,10 +44,8 @@ namespace raikiri::venues::bingx {
 map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // nullopt when neither column is set or the symbol is not in this market
-[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
-                                                          const exec::InstrumentTable& table,
-                                                          MarketType market,
-                                                          UnixNanos ts_init);
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, MarketType market, UnixNanos ts_init);
 
 // nullopt for rows not online, in another market, or without a usable step
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
@@ -66,12 +58,11 @@ map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, Un
 map_open_order(const WireOrder& wire, const exec::InstrumentTable& table, MarketType market);
 
 // the spot push has no client id, so the memo's id is used
-[[nodiscard]] std::optional<OrderEvent>
-map_order_update(const WireOrderUpdate& wire,
-                 const exec::InstrumentTable& table,
-                 MarketType market,
-                 const ExchangeClientOrderId& fallback_client_id,
-                 UnixNanos ts_init);
+[[nodiscard]] std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
+                                                         const exec::InstrumentTable& table,
+                                                         MarketType market,
+                                                         const ExchangeClientOrderId& fallback_client_id,
+                                                         UnixNanos ts_init);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);

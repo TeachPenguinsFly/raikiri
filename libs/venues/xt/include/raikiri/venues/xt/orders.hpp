@@ -35,7 +35,7 @@ struct WireFuturesOrder {
     std::string_view order_id;
     std::string_view client_order_id;
     std::string_view price;
-    std::string_view orig_qty; // contracts
+    std::string_view orig_qty;     // contracts
     std::string_view executed_qty; // contracts
     std::string_view avg_price;
     std::string_view order_side;    // BUY | SELL
@@ -125,13 +125,13 @@ struct SpotTradeBuffer {
 };
 
 // result as an array (open-order) or result.items (history/trade)
-[[nodiscard]] std::expected<std::span<const WireSpotOrder>, WireError>
-parse_spot_orders(std::string_view body, SpotOrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotOrder>, WireError> parse_spot_orders(std::string_view body,
+                                                                                         SpotOrderBuffer& storage);
 
 [[nodiscard]] std::expected<WireSpotOrder, WireError> parse_spot_order(std::string_view body);
 
-[[nodiscard]] std::expected<std::span<const WireSpotTrade>, WireError>
-parse_spot_trades(std::string_view body, SpotTradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotTrade>, WireError> parse_spot_trades(std::string_view body,
+                                                                                         SpotTradeBuffer& storage);
 
 // socket pushes use the two-letter keys
 [[nodiscard]] std::expected<WireSpotOrder, WireError> parse_spot_order_push(std::string_view frame);

@@ -296,8 +296,7 @@ TEST(BybitMapFunding, AFieldNeverSeenStaysUndefRatherThanZero) {
     mark_only.mark_price = "17217.30";
     const auto first = map_funding(mark_only, table, memo, k_ingest);
     ASSERT_TRUE(first.has_value());
-    EXPECT_TRUE(first->rate.is_undef())
-        << "no rate has ever been stated; zero would be a rate we invented";
+    EXPECT_TRUE(first->rate.is_undef()) << "no rate has ever been stated; zero would be a rate we invented";
     EXPECT_EQ(first->next_funding_time.ns, 0U);
 }
 
@@ -478,9 +477,7 @@ TEST(BybitMapIds, OversizedIdentifiersAreRefusedNotTruncated) {
 }
 
 TEST(BybitMapInstrument, SymbolTypeSetsTheAssetClass) {
-    const auto classified = [](std::string_view symbol,
-                               std::string_view base_coin,
-                               std::string_view symbol_type) {
+    const auto classified = [](std::string_view symbol, std::string_view base_coin, std::string_view symbol_type) {
         WireInstrument wire{};
         wire.symbol = symbol;
         wire.base_coin = base_coin;

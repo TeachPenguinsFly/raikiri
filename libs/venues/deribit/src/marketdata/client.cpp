@@ -88,12 +88,10 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::array<char, k_max_channel_len> buffer{};
         const auto channel = channel_for(kind, symbol, buffer);
@@ -107,8 +105,8 @@ public:
         }
         const std::array<std::string, 1> one{key_of(channel)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "deribit: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "deribit: connection pool is full")};
         }
         state_->channels_requested = pool_.key_count();
         return {};
@@ -137,9 +135,8 @@ private:
         for (const auto& key : keys) {
             views.push_back({.channel = key});
         }
-        std::ranges::stable_partition(views, [](const Subscription& one) {
-            return one.channel.find(".none.1.") != std::string_view::npos;
-        });
+        std::ranges::stable_partition(
+            views, [](const Subscription& one) { return one.channel.find(".none.1.") != std::string_view::npos; });
 
         // set_heartbeat is per session, so every opened socket sends it
         std::vector<std::string> frames;

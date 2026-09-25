@@ -24,8 +24,7 @@ struct FundingShare {
 };
 
 // shares sum to `amount` exactly; empty for a zero or undefined charge
-[[nodiscard]] std::vector<FundingShare> split_funding(std::span<const FundingHolder> holders,
-                                                      FixedE9 amount,
-                                                      std::uint16_t unheld_strategy_id);
+[[nodiscard]] std::vector<FundingShare>
+split_funding(std::span<const FundingHolder> holders, FixedE9 amount, std::uint16_t unheld_strategy_id);
 
 } // namespace raikiri::oms

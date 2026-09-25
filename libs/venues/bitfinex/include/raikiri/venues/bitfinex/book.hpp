@@ -42,8 +42,7 @@ struct WireBook {
     std::span<const WireLevel> levels;
 };
 
-[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
-                                                            LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // levels applied onto the book we hold

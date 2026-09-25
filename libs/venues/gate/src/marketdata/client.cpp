@@ -55,14 +55,12 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
         if (target.seed(*wire) != BookResult::Applied) {
             return;
         }
-        if (const auto seeded = target.snapshot(s_to_unix(wire->update_s), response.received);
-            seeded.has_value()) {
+        if (const auto seeded = target.snapshot(s_to_unix(wire->update_s), response.received); seeded.has_value()) {
             owner->sink->on_depth(*seeded);
         }
     };
-    if (state.depth_rest.send(
-            state.builder.order_book(k_settle_usdt, base.exchange_symbol.view(), k_depth_limit),
-            handled)) {
+    if (state.depth_rest.send(state.builder.order_book(k_settle_usdt, base.exchange_symbol.view(), k_depth_limit),
+                              handled)) {
         book.seed_requested();
     }
 }
@@ -78,8 +76,7 @@ void handle_book_update(VenueState& state, std::string_view frame, UnixNanos rec
         return;
     }
     const auto& base = base_of(*instrument);
-    const auto entry =
-        state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
+    const auto entry = state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
     auto& book = entry->second;
     // asked before the delta is offered so the triggering frame buffers behind it
     if (book.wants_seed()) {
@@ -92,8 +89,7 @@ void handle_book_update(VenueState& state, std::string_view frame, UnixNanos rec
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
-    if (const auto snapshot = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
-        snapshot.has_value()) {
+    if (const auto snapshot = book.snapshot(ms_to_unix(wire->ts_ms, received), received); snapshot.has_value()) {
         state.sink->on_depth(*snapshot);
     }
 }
@@ -135,8 +131,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -147,13 +142,11 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.funding_seed_due.erase(funding->instrument.packed);
             state.sink->on_funding(*funding);
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -256,20 +249,16 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
             // gate spells a spot pair and its perp identically, so one socket serves one market
             return std::unexpected{exec::not_implemented("gate: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto channel = channel_for(kind, state_->market);
         if (channel.empty()) {
@@ -283,8 +272,8 @@ public:
         // the pool places it, opening another socket when needed
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "gate: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate: connection pool is full")};
         }
         return {};
     }
@@ -322,8 +311,7 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto entry = state_->books.find(base_of(*instrument).id.packed);
-                entry != state_->books.end()) {
+            if (const auto entry = state_->books.find(base_of(*instrument).id.packed); entry != state_->books.end()) {
                 entry->second.invalidate();
             }
         }
@@ -337,11 +325,9 @@ private:
             if (!one.has_value() || (one->channel != quote && one->channel != funding)) {
                 continue;
             }
-            if (const auto* instrument = state_->instruments.find(one->contract);
-                instrument != nullptr) {
+            if (const auto* instrument = state_->instruments.find(one->contract); instrument != nullptr) {
                 const auto packed = base_of(*instrument).id.packed;
-                (one->channel == quote ? state_->quote_seed_due : state_->funding_seed_due)
-                    .insert(packed);
+                (one->channel == quote ? state_->quote_seed_due : state_->funding_seed_due).insert(packed);
             }
         }
     }
@@ -399,8 +385,7 @@ private:
         }
         for (const auto& row : *rows) {
             const auto funding = map_funding(row, state_->instruments, response.received);
-            if (funding.has_value() &&
-                state_->funding_seed_due.erase(funding->instrument.packed) > 0) {
+            if (funding.has_value() && state_->funding_seed_due.erase(funding->instrument.packed) > 0) {
                 state_->sink->on_funding(*funding);
             }
         }
@@ -416,8 +401,8 @@ private:
                 views.push_back(*one);
             }
         }
-        std::ranges::stable_partition(
-            views, [](const Subscription& one) { return one.channel.ends_with("book_ticker"); });
+        std::ranges::stable_partition(views,
+                                      [](const Subscription& one) { return one.channel.ends_with("book_ticker"); });
 
         std::vector<std::string> frames;
         const auto now_s = state_->now_s();

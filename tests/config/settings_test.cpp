@@ -17,8 +17,7 @@ namespace raikiri::config {
 namespace {
 
 std::string write_temp(std::string_view body) {
-    std::string path =
-        (std::filesystem::temp_directory_path() / "raikiri-settings-XXXXXX").string();
+    std::string path = (std::filesystem::temp_directory_path() / "raikiri-settings-XXXXXX").string();
     const int fd = ::mkstemp(path.data());
     if (fd >= 0) {
         ::close(fd);
@@ -109,11 +108,10 @@ TEST(Settings, LighterHoldsOneSocketUnderTheIpsTwoHundredAMinute) {
 TEST(Settings, EveryPooledVenueSizesItsSocketsFromTheTable) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
-    for (const auto& name : {"binance", "aster",   "bybit",  "gate",     "kucoin",    "xt",
-                             "htx",     "weex",    "bingx",  "bitget",   "backpack",  "cryptocom",
-                             "apex",    "blofin",  "grvt",   "edgex",    "dydx",      "phemex",
-                             "coinbase", "pacifica", "okx",  "mexc",     "hyperliquid", "deribit",
-                             "lighter"}) {
+    for (const auto& name :
+         {"binance",  "aster",    "bybit",     "gate", "kucoin",      "xt",      "htx",    "weex", "bingx",
+          "bitget",   "backpack", "cryptocom", "apex", "blofin",      "grvt",    "edgex",  "dydx", "phemex",
+          "coinbase", "pacifica", "okx",       "mexc", "hyperliquid", "deribit", "lighter"}) {
         ASSERT_TRUE(file->venues.contains(name)) << name;
         const auto& venue = file->venues.at(name);
         EXPECT_NE(find_limit(venue, "ws_streams"), nullptr) << name;
@@ -135,8 +133,7 @@ TEST(Settings, TheMovedSocketNumbersKeepWhatWasMeasured) {
         const auto* limit = find_limit(file->venues.at(venue), kind, scope);
         return limit == nullptr ? 0U : limit->max;
     };
-    EXPECT_GE(max("weex", "ws_streams") * max("weex", "ws_sockets"), 1020U * 3U)
-        << "the pool covers weex's catalogue";
+    EXPECT_GE(max("weex", "ws_streams") * max("weex", "ws_sockets"), 1020U * 3U) << "the pool covers weex's catalogue";
     EXPECT_LT(max("weex", "ws_sockets"), 20U) << "and stays under its 20 sockets an IP";
     EXPECT_LE(max("edgex", "ws_streams"), 3601U) << "what one socket carried without a refusal";
     EXPECT_GE(max("edgex", "ws_streams") * max("edgex", "ws_sockets"), 2U * 180U + 1U);
@@ -153,18 +150,28 @@ TEST(Settings, TheMovedSocketNumbersKeepWhatWasMeasured) {
 TEST(Settings, AFrameLimitIsACountOfSubscriptions) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
-    const std::array<std::pair<const char*, std::uint32_t>, 14> frames{
-        {{"aster", 32U}, {"deribit", 256U}, {"okx", 64U}, {"kraken", 64U}, {"grvt", 50U},
-         {"binance", 32U}, {"bybit", 10U}, {"gate", 64U}, {"xt", 32U}, {"bitget", 50U},
-         {"backpack", 50U}, {"weex", 25U}, {"coinbase", 64U}, {"apex", 4U}}};
+    const std::array<std::pair<const char*, std::uint32_t>, 14> frames{{{"aster", 32U},
+                                                                        {"deribit", 256U},
+                                                                        {"okx", 64U},
+                                                                        {"kraken", 64U},
+                                                                        {"grvt", 50U},
+                                                                        {"binance", 32U},
+                                                                        {"bybit", 10U},
+                                                                        {"gate", 64U},
+                                                                        {"xt", 32U},
+                                                                        {"bitget", 50U},
+                                                                        {"backpack", 50U},
+                                                                        {"weex", 25U},
+                                                                        {"coinbase", 64U},
+                                                                        {"apex", 4U}}};
     for (const auto& [venue, per_frame] : frames) {
         const auto* frame = find_limit(file->venues.at(venue), "ws_frame");
         ASSERT_NE(frame, nullptr) << venue;
         EXPECT_EQ(frame->max, per_frame) << venue;
     }
     const auto load = [](std::string_view limit) {
-        return load_venues(write_temp(std::string{"venues:\n  okx:\n    limits:\n      - "} +
-                                      std::string{limit} + "\n"));
+        return load_venues(
+            write_temp(std::string{"venues:\n  okx:\n    limits:\n      - "} + std::string{limit} + "\n"));
     };
     EXPECT_TRUE(load("{ name: f, kind: ws_frame, max: 64 }").has_value());
     EXPECT_FALSE(load("{ name: f, kind: ws_frame, max: 64, window_ms: 1000 }").has_value());
@@ -183,13 +190,12 @@ TEST(Settings, HyperliquidCapsChannelsPerIpNotOnlyPerSocket) {
 
 TEST(Settings, ABadLimitIsRefusedNamingTheVenueAndTheLimit) {
     const auto load = [](std::string_view limit) {
-        return load_venues(write_temp(std::string{"venues:\n  okx:\n    limits:\n      - "} +
-                                      std::string{limit} + "\n"));
+        return load_venues(
+            write_temp(std::string{"venues:\n  okx:\n    limits:\n      - "} + std::string{limit} + "\n"));
     };
     const auto zero_window = load("{ name: market, window_ms: 0, max: 18 }");
     ASSERT_FALSE(zero_window.has_value());
-    EXPECT_NE(zero_window.error().find("okx limit 'market'"), std::string::npos)
-        << zero_window.error();
+    EXPECT_NE(zero_window.error().find("okx limit 'market'"), std::string::npos) << zero_window.error();
     EXPECT_FALSE(load("{ name: m, window_ms: 1000, max: 5, reserve: 5 }").has_value());
     EXPECT_FALSE(load("{ name: m, kind: ws_bogus, max: 5 }").has_value());
     EXPECT_FALSE(load("{ name: m, kind: ws_streams, max: 5, window_ms: 1000 }").has_value());
@@ -203,8 +209,8 @@ TEST(Settings, TheDatabaseFileNamesTheSecretRatherThanHoldingIt) {
     ASSERT_TRUE(file.has_value()) << file.error();
     const auto& dsn = file->database.dsn;
     ASSERT_FALSE(dsn.empty());
-    const bool is_reference = dsn.starts_with("env:") || dsn.starts_with("file:") ||
-                              dsn.starts_with("exec:") || dsn.starts_with("op://");
+    const bool is_reference = dsn.starts_with("env:") || dsn.starts_with("file:") || dsn.starts_with("exec:") ||
+                              dsn.starts_with("op://");
     EXPECT_TRUE(is_reference) << "a committed DSN must be a reference, got: " << dsn;
     EXPECT_EQ(dsn.find("password"), std::string::npos);
     EXPECT_EQ(dsn.find("://raikiri:"), std::string::npos) << "that is a literal credential";

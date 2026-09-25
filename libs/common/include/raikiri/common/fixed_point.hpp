@@ -63,9 +63,7 @@ template <typename Tag> struct Scaled64 {
         return {detail::checked_sub(a.raw, b.raw)};
     }
 
-    [[nodiscard]] Scaled64 scaled_by(std::int64_t n) const noexcept {
-        return {detail::checked_mul(raw, n)};
-    }
+    [[nodiscard]] Scaled64 scaled_by(std::int64_t n) const noexcept { return {detail::checked_mul(raw, n)}; }
 };
 
 struct PriceTag {};
@@ -107,8 +105,7 @@ struct Notional128 {
 }
 
 // a*b/d through a 128-bit product, truncating toward zero; aborts on a zero divisor or i64 overflow
-[[nodiscard]] constexpr std::int64_t
-mul_div(std::int64_t a, std::int64_t b, std::int64_t d) noexcept {
+[[nodiscard]] constexpr std::int64_t mul_div(std::int64_t a, std::int64_t b, std::int64_t d) noexcept {
     if (d == 0) [[unlikely]] {
         std::abort();
     }
@@ -126,8 +123,7 @@ mul_div(std::int64_t a, std::int64_t b, std::int64_t d) noexcept {
         return FixedE9::undef();
     }
     const int128_t product = (static_cast<int128_t>(qty.raw) * price.raw) / k_e9;
-    if (product > std::numeric_limits<std::int64_t>::max() ||
-        product <= std::numeric_limits<std::int64_t>::min()) {
+    if (product > std::numeric_limits<std::int64_t>::max() || product <= std::numeric_limits<std::int64_t>::min()) {
         return FixedE9::undef();
     }
     return FixedE9::from_raw(static_cast<std::int64_t>(product));
@@ -138,8 +134,7 @@ mul_div(std::int64_t a, std::int64_t b, std::int64_t d) noexcept {
         return FixedE6::undef();
     }
     const int128_t product = (static_cast<int128_t>(qty.raw) * price.raw) / (k_e9 * (k_e9 / k_e6));
-    if (product > std::numeric_limits<std::int64_t>::max() ||
-        product <= std::numeric_limits<std::int64_t>::min()) {
+    if (product > std::numeric_limits<std::int64_t>::max() || product <= std::numeric_limits<std::int64_t>::min()) {
         return FixedE6::undef();
     }
     return FixedE6::from_raw(static_cast<std::int64_t>(product));

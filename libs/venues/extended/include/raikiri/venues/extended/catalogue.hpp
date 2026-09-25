@@ -38,7 +38,7 @@ struct MarketBuffer {
     std::array<WireMarket, k_max_markets> markets{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireMarket>, WireError>
-parse_markets(std::string_view body, MarketBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body,
+                                                                                  MarketBuffer& storage);
 
 } // namespace raikiri::venues::extended

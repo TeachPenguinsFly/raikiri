@@ -37,8 +37,7 @@ struct WireBook {
 };
 
 // the envelope's channel says which shape the frame is
-[[nodiscard]] std::expected<WireBook, WireError>
-parse_book(std::string_view data, bool snapshot, LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view data, bool snapshot, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,

@@ -36,8 +36,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
             drop("an ORDER_TRADE_UPDATE whose body would not parse");
             return;
         }
-        if (const auto order_event = map_order_event(*wire, state.instruments, received);
-            order_event.has_value()) {
+        if (const auto order_event = map_order_event(*wire, state.instruments, received); order_event.has_value()) {
             state.sink->on_order_event(*order_event);
         } else {
             drop("an order update naming an instrument this catalogue does not hold");
@@ -80,12 +79,11 @@ private:
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, std::string_view key)
-        : handler_{state},
-          ws_{state.io,
-              net::WsConfig{.host = std::string{stream_host(state.testnet)},
-                            .port = "443",
-                            .target = std::string{ep::k_ws_user_prefix} + std::string{key}},
-              handler_} {}
+        : handler_{state}, ws_{state.io,
+                               net::WsConfig{.host = std::string{stream_host(state.testnet)},
+                                             .port = "443",
+                                             .target = std::string{ep::k_ws_user_prefix} + std::string{key}},
+                               handler_} {}
 
     void start() { ws_.start(); }
 

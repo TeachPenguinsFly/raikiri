@@ -49,8 +49,7 @@ struct WireBooks {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,     // delta chained onto the book we hold

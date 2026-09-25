@@ -39,8 +39,7 @@ public:
     [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest ticker_24h() noexcept;
     [[nodiscard]] net::RestRequest server_time() noexcept;
-    [[nodiscard]] net::RestRequest depth_snapshot(std::string_view symbol,
-                                                  std::uint32_t limit) noexcept;
+    [[nodiscard]] net::RestRequest depth_snapshot(std::string_view symbol, std::uint32_t limit) noexcept;
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     create_order(const OrderCmd& cmd, const InstrumentBase& instrument, UnixNanos now);
@@ -60,8 +59,7 @@ public:
     user_trades(std::string_view symbol, UnixNanos since, UnixNanos now);
 
     // funding settlements from the income ledger; pairs with VenueCaps::funding_charge
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> funding_income(UnixNanos since,
-                                                                             UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> funding_income(UnixNanos since, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> position_risk(UnixNanos now);
 
@@ -80,8 +78,7 @@ private:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     finish(net::HttpMethod method, std::string_view path, std::size_t query_len);
 
-    [[nodiscard]] net::RestRequest header_only(net::HttpMethod method,
-                                               std::string_view path) noexcept;
+    [[nodiscard]] net::RestRequest header_only(net::HttpMethod method, std::string_view path) noexcept;
 
     std::array<char, 512> query_{};
     std::array<char, 768> target_{};

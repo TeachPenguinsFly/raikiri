@@ -68,8 +68,8 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
     });
 }
 
-std::expected<std::span<const std::string_view>, WireError>
-parse_subscriptions(std::string_view frame, AckBuffer& storage) {
+std::expected<std::span<const std::string_view>, WireError> parse_subscriptions(std::string_view frame,
+                                                                                AckBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const std::string_view>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {

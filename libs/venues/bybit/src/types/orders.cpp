@@ -70,20 +70,18 @@ WireOrderStatus order_status_from(std::string_view text) noexcept {
     return WireOrderStatus::Unknown;
 }
 
-std::expected<std::span<const WireOrderUpdate>, WireError>
-parse_order_updates(std::string_view frame, OrderUpdateBuffer& storage) {
+std::expected<std::span<const WireOrderUpdate>, WireError> parse_order_updates(std::string_view frame,
+                                                                               OrderUpdateBuffer& storage) {
     return guarded([&] {
         return read_list<WireOrderUpdate>(
-            frame,
-            "data",
-            storage.updates,
-            k_max_updates,
-            [](ondemand::object& obj, WireOrderUpdate& out) { return read_order(obj, out); });
+            frame, "data", storage.updates, k_max_updates, [](ondemand::object& obj, WireOrderUpdate& out) {
+                return read_order(obj, out);
+            });
     });
 }
 
-std::expected<std::span<const WireExecution>, WireError>
-parse_executions(std::string_view frame, ExecutionBuffer& storage) {
+std::expected<std::span<const WireExecution>, WireError> parse_executions(std::string_view frame,
+                                                                          ExecutionBuffer& storage) {
     return guarded([&] {
         return read_list<WireExecution>(
             frame,
@@ -117,15 +115,13 @@ parse_executions(std::string_view frame, ExecutionBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireOpenOrder>, WireError>
-parse_open_orders(std::string_view result, OrderUpdateBuffer& storage) {
+std::expected<std::span<const WireOpenOrder>, WireError> parse_open_orders(std::string_view result,
+                                                                           OrderUpdateBuffer& storage) {
     return guarded([&] {
         return read_list<WireOpenOrder>(
-            result,
-            "list",
-            storage.updates,
-            k_max_updates,
-            [](ondemand::object& obj, WireOpenOrder& out) { return read_order(obj, out); });
+            result, "list", storage.updates, k_max_updates, [](ondemand::object& obj, WireOpenOrder& out) {
+                return read_order(obj, out);
+            });
     });
 }
 

@@ -54,8 +54,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
 [[nodiscard]] std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire);
 
 // callers cache this per venue order id: a user-trade frame carries the fill but not the leaves
-[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
-                                                  const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::InstrumentTable& table);
 
 // lifecycle only; fills come from the user-trade channel, which has the exec id and fee
 [[nodiscard]] std::optional<OrderEvent>
@@ -68,8 +67,8 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
                                                        const ExchangeClientOrderId& known_client_id,
                                                        UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                                    const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);

@@ -32,15 +32,12 @@ public:
 
     void put(std::uint64_t value) noexcept {
         std::array<char, 24> num{};
-        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value);
-            ec == std::errc{}) {
+        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value); ec == std::errc{}) {
             put(std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
         }
     }
 
-    [[nodiscard]] std::string_view view() const noexcept {
-        return std::string_view{into_.data(), len_};
-    }
+    [[nodiscard]] std::string_view view() const noexcept { return std::string_view{into_.data(), len_}; }
 
     [[nodiscard]] net::RestRequest get() const noexcept {
         return {.method = net::HttpMethod::Get, .target = view(), .body = {}};
@@ -76,8 +73,7 @@ private:
 };
 
 // okx has no timeInForce: post-only, ioc and fok are order types
-[[nodiscard]] std::string_view
-ord_type_text(OrderType type, TimeInForce tif, OrderFlags flags) noexcept {
+[[nodiscard]] std::string_view ord_type_text(OrderType type, TimeInForce tif, OrderFlags flags) noexcept {
     switch (type) {
     case OrderType::Market:
         // market is already ioc, and okx has no post-only market order
@@ -239,8 +235,7 @@ std::string_view RequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
 
-std::vector<net::HttpHeader> RequestBuilder::headers(std::string_view timestamp,
-                                                     std::string_view signature) const {
+std::vector<net::HttpHeader> RequestBuilder::headers(std::string_view timestamp, std::string_view signature) const {
     std::vector<net::HttpHeader> out{{k_hdr_key, signer_->api_key()},
                                      {k_hdr_sign, signature},
                                      {k_hdr_ts, timestamp},
@@ -315,8 +310,8 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
     const auto td_mode = td_mode_of(market);
     if (!td_mode.has_value()) {
@@ -371,8 +366,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     return signed_post(ep::k_order_create, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     // a cancel needs no trade mode
     const auto symbol = table.exchange_symbol(cmd.instrument);
     if (symbol.empty()) {
@@ -394,8 +389,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
     return signed_post(ep::k_order_cancel, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -427,8 +422,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
     return signed_post(ep::k_order_amend, json.view(), now);
 }
 
-std::expected<RequestBuilder::Batch, BuildError> RequestBuilder::cancel_batch(
-    std::span<const OrderCmd> cmds, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<RequestBuilder::Batch, BuildError>
+RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds, const exec::InstrumentTable& table, UnixNanos now) {
     if (cmds.empty()) {
         return std::unexpected{BuildError::NothingToSend};
     }
@@ -470,8 +465,7 @@ std::expected<RequestBuilder::Batch, BuildError> RequestBuilder::cancel_batch(
     return Batch{.request = *request, .consumed = consumed};
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market,
-                                                                        UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market, UnixNanos now) {
     Appender query{body_}; // reuse the body buffer: a GET sends none
     query << "instType=" << inst_type_of(market);
     if (!query.ok()) {
@@ -480,14 +474,12 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketTy
     return signed_get(ep::k_orders_pending, query.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
     std::array<char, 24> since_text{};
     std::string_view begin;
     if (since.ns != 0) {
         const auto ms = since.ns / 1'000'000ULL;
-        if (const auto [stop, ec] =
-                std::to_chars(since_text.data(), since_text.data() + since_text.size(), ms);
+        if (const auto [stop, ec] = std::to_chars(since_text.data(), since_text.data() + since_text.size(), ms);
             ec == std::errc{}) {
             begin = {since_text.data(), static_cast<std::size_t>(stop - since_text.data())};
         }
@@ -509,8 +501,7 @@ RequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos now) 
     std::string_view begin;
     if (since.ns != 0) {
         const auto ms = since.ns / 1'000'000ULL;
-        if (const auto [stop, ec] =
-                std::to_chars(since_text.data(), since_text.data() + since_text.size(), ms);
+        if (const auto [stop, ec] = std::to_chars(since_text.data(), since_text.data() + since_text.size(), ms);
             ec == std::errc{}) {
             begin = {since_text.data(), static_cast<std::size_t>(stop - since_text.data())};
         }
@@ -534,8 +525,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::account_config(UnixN
     return signed_get(ep::k_account_config, {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
-                                                                      UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market, UnixNanos now) {
     Appender query{body_};
     query << "instType=" << inst_type_of(market);
     if (!query.ok()) {

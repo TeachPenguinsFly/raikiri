@@ -9,8 +9,7 @@ using wire::guarded;
 using wire::session;
 
 // wire::opt_u64 refuses the null every spot row sends
-std::expected<std::uint64_t, WireError> nullable_u64(wire::ondemand::object& obj,
-                                                     std::string_view key) {
+std::expected<std::uint64_t, WireError> nullable_u64(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -41,8 +40,7 @@ nested_str(wire::ondemand::object& filters, std::string_view group, std::string_
 
 } // namespace
 
-std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body,
-                                                                    MarketBuffer& storage) {
+std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body, MarketBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireMarket>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {
@@ -68,8 +66,8 @@ std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_
             const auto kind = wire::opt_str(obj, "marketType");
             const auto state = wire::opt_str(obj, "orderBookState");
             const auto rwa = wire::opt_str(obj, "rwaMarketType");
-            if (!base.has_value() || !quote.has_value() || !kind.has_value() ||
-                !state.has_value() || !rwa.has_value()) {
+            if (!base.has_value() || !quote.has_value() || !kind.has_value() || !state.has_value() ||
+                !rwa.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.rwa_market_type = *rwa;

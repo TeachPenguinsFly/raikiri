@@ -11,8 +11,8 @@ namespace ondemand = wire::ondemand;
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view result, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view result,
+                                                                            InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto& session = wire::session();
         auto root = session.open_object(result);
@@ -52,40 +52,32 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
             out.status = field("status");
 
             entry.reset();
-            if (auto price_filter = wire::req_object(entry, "priceFilter");
-                price_filter.has_value()) {
+            if (auto price_filter = wire::req_object(entry, "priceFilter"); price_filter.has_value()) {
                 auto filter = *price_filter;
                 out.tick_size = wire::opt_str(filter, "tickSize").value_or(std::string_view{});
             }
             entry.reset();
-            if (auto lot_filter = wire::req_object(entry, "lotSizeFilter");
-                lot_filter.has_value()) {
+            if (auto lot_filter = wire::req_object(entry, "lotSizeFilter"); lot_filter.has_value()) {
                 auto filter = *lot_filter;
                 // spot spells these basePrecision and minOrderAmt
                 out.qty_step = wire::opt_str(filter, "qtyStep").value_or(std::string_view{});
                 if (out.qty_step.empty()) {
                     filter.reset();
-                    out.qty_step =
-                        wire::opt_str(filter, "basePrecision").value_or(std::string_view{});
+                    out.qty_step = wire::opt_str(filter, "basePrecision").value_or(std::string_view{});
                 }
                 filter.reset();
-                out.min_order_qty =
-                    wire::opt_str(filter, "minOrderQty").value_or(std::string_view{});
+                out.min_order_qty = wire::opt_str(filter, "minOrderQty").value_or(std::string_view{});
                 filter.reset();
-                out.min_notional =
-                    wire::opt_str(filter, "minNotionalValue").value_or(std::string_view{});
+                out.min_notional = wire::opt_str(filter, "minNotionalValue").value_or(std::string_view{});
                 if (out.min_notional.empty()) {
                     filter.reset();
-                    out.min_notional =
-                        wire::opt_str(filter, "minOrderAmt").value_or(std::string_view{});
+                    out.min_notional = wire::opt_str(filter, "minOrderAmt").value_or(std::string_view{});
                 }
             }
             entry.reset();
             out.funding_interval_min = wire::opt_u64(entry, "fundingInterval").value_or(0);
-            out.funding_cap =
-                wire::opt_str(entry, "upperFundingRate").value_or(std::string_view{});
-            out.funding_floor =
-                wire::opt_str(entry, "lowerFundingRate").value_or(std::string_view{});
+            out.funding_cap = wire::opt_str(entry, "upperFundingRate").value_or(std::string_view{});
+            out.funding_floor = wire::opt_str(entry, "lowerFundingRate").value_or(std::string_view{});
             storage.instruments[count++] = out;
         }
         return std::span<const WireInstrument>{storage.instruments.data(), count};

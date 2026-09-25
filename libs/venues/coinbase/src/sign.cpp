@@ -8,8 +8,7 @@ namespace raikiri::venues::coinbase {
 
 namespace {
 
-constexpr std::string_view k_alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+constexpr std::string_view k_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 [[nodiscard]] int sextet(char c) noexcept {
     const auto at = k_alphabet.find(c);
@@ -58,8 +57,7 @@ private:
 
 } // namespace
 
-std::optional<std::size_t> decode_secret(std::string_view base64_secret,
-                                         std::span<char> out) noexcept {
+std::optional<std::size_t> decode_secret(std::string_view base64_secret, std::span<char> out) noexcept {
     if (base64_secret.empty() || base64_secret.size() % 4 != 0) {
         return std::nullopt;
     }

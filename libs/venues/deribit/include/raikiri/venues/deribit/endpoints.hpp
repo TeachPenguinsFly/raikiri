@@ -29,12 +29,9 @@ inline constexpr std::string_view k_order_edit = "/api/v2/private/edit";
 // works only while exactly one open order carries the label
 inline constexpr std::string_view k_order_edit_by_label = "/api/v2/private/edit_by_label";
 
-inline constexpr std::string_view k_open_orders_by_currency =
-    "/api/v2/private/get_open_orders_by_currency";
-inline constexpr std::string_view k_order_state_by_label =
-    "/api/v2/private/get_order_state_by_label";
-inline constexpr std::string_view k_user_trades_by_currency =
-    "/api/v2/private/get_user_trades_by_currency";
+inline constexpr std::string_view k_open_orders_by_currency = "/api/v2/private/get_open_orders_by_currency";
+inline constexpr std::string_view k_order_state_by_label = "/api/v2/private/get_order_state_by_label";
+inline constexpr std::string_view k_user_trades_by_currency = "/api/v2/private/get_user_trades_by_currency";
 inline constexpr std::string_view k_positions = "/api/v2/private/get_positions";
 
 inline constexpr std::string_view k_instruments = "/api/v2/public/get_instruments";

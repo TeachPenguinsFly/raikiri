@@ -19,7 +19,7 @@ struct WireOrder {
     std::string_view client_oid; // the UUID derived from our ULID; see rest.hpp
     std::string_view product_id;
     std::string_view status;        // open, pending, active, rejected, done
-    std::string_view done_reason; // filled, canceled; only on a done order
+    std::string_view done_reason;   // filled, canceled; only on a done order
     std::string_view reject_reason; // why the engine refused it
     std::string_view price;         // absent on a market order
     std::string_view size;
@@ -40,7 +40,7 @@ struct OrderBuffer {
 [[nodiscard]] std::expected<WireOrder, WireError> parse_order(std::string_view body);
 
 // GET /orders answers with an array
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
+                                                                                OrderBuffer& storage);
 
 } // namespace raikiri::venues::coinbase

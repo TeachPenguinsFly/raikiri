@@ -15,9 +15,7 @@ struct UnixNanos {
 
     friend constexpr auto operator<=>(UnixNanos, UnixNanos) noexcept = default;
 
-    [[nodiscard]] friend constexpr UnixNanos operator+(UnixNanos t, std::uint64_t d) noexcept {
-        return {t.ns + d};
-    }
+    [[nodiscard]] friend constexpr UnixNanos operator+(UnixNanos t, std::uint64_t d) noexcept { return {t.ns + d}; }
 };
 
 struct MonoNanos {
@@ -25,9 +23,7 @@ struct MonoNanos {
 
     friend constexpr auto operator<=>(MonoNanos, MonoNanos) noexcept = default;
 
-    [[nodiscard]] friend constexpr MonoNanos operator+(MonoNanos t, std::uint64_t d) noexcept {
-        return {t.ns + d};
-    }
+    [[nodiscard]] friend constexpr MonoNanos operator+(MonoNanos t, std::uint64_t d) noexcept { return {t.ns + d}; }
 };
 
 class Clock {
@@ -46,8 +42,7 @@ public:
     [[nodiscard]] UnixNanos wall() const noexcept override {
         timespec ts{};
         clock_gettime(CLOCK_REALTIME, &ts);
-        return {static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000U +
-                static_cast<std::uint64_t>(ts.tv_nsec)};
+        return {static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000U + static_cast<std::uint64_t>(ts.tv_nsec)};
     }
 
     [[nodiscard]] MonoNanos mono() const noexcept override {
@@ -56,8 +51,7 @@ public:
 #else
         timespec ts{};
         clock_gettime(CLOCK_MONOTONIC, &ts);
-        return {static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000U +
-                static_cast<std::uint64_t>(ts.tv_nsec)};
+        return {static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000U + static_cast<std::uint64_t>(ts.tv_nsec)};
 #endif
     }
 };
@@ -67,13 +61,9 @@ public:
     explicit TestClock(UnixNanos start_wall = {}, MonoNanos start_mono = {}) noexcept
         : wall_ns_{start_wall.ns}, mono_ns_{start_mono.ns} {}
 
-    [[nodiscard]] UnixNanos wall() const noexcept override {
-        return {wall_ns_.load(std::memory_order_relaxed)};
-    }
+    [[nodiscard]] UnixNanos wall() const noexcept override { return {wall_ns_.load(std::memory_order_relaxed)}; }
 
-    [[nodiscard]] MonoNanos mono() const noexcept override {
-        return {mono_ns_.load(std::memory_order_relaxed)};
-    }
+    [[nodiscard]] MonoNanos mono() const noexcept override { return {mono_ns_.load(std::memory_order_relaxed)}; }
 
     void advance(std::uint64_t delta_ns) noexcept {
         wall_ns_.fetch_add(delta_ns, std::memory_order_relaxed);

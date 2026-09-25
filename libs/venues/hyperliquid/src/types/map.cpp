@@ -75,8 +75,7 @@ std::optional<FixedE9> step_from_decimals(std::int64_t decimals) noexcept {
     return FixedE9::from_raw(raw);
 }
 
-std::optional<Bbo>
-map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.coin);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -101,8 +100,7 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.coin);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -264,8 +262,7 @@ std::string_view dex_ticker(std::string_view name) noexcept {
 
 } // namespace
 
-AssetClass dex_asset_class(std::string_view name,
-                           std::span<const WireCategory> categories) noexcept {
+AssetClass dex_asset_class(std::string_view name, std::span<const WireCategory> categories) noexcept {
     const auto ticker = dex_ticker(name);
     if (ticker.empty()) {
         return AssetClass::Unknown;
@@ -282,8 +279,7 @@ AssetClass dex_asset_class(std::string_view name,
     return fallback;
 }
 
-std::optional<BookSnapshot>
-map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<BookSnapshot> map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.coin);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -295,8 +291,7 @@ map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
 
-    const auto fill = [&](std::span<const WireLevel> src,
-                          std::array<BookLevel, k_book_levels>& dst) {
+    const auto fill = [&](std::span<const WireLevel> src, std::array<BookLevel, k_book_levels>& dst) {
         std::uint32_t n = 0;
         for (const auto& level : src) {
             if (n == k_book_levels) {
@@ -373,8 +368,7 @@ template <typename Id> [[nodiscard]] std::optional<Id> id_from(std::uint64_t val
     if (ec != std::errc{}) {
         return std::nullopt;
     }
-    const auto text =
-        std::string_view{digits.data(), static_cast<std::size_t>(stop - digits.data())};
+    const auto text = std::string_view{digits.data(), static_cast<std::size_t>(stop - digits.data())};
     const auto id = Id::from(text);
     return id.has_value() ? std::optional{*id} : std::nullopt;
 }
@@ -399,8 +393,7 @@ std::optional<OrderStatus> status_from(std::string_view text, bool partial) noex
     return std::nullopt;
 }
 
-std::optional<exec::OrderStatusReport> read_order(const WireOpenOrder& wire,
-                                                  const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> read_order(const WireOpenOrder& wire, const exec::InstrumentTable& table) {
     // a trigger order is dormant and not in the book; only frontendOpenOrders flags it
     if (wire.is_trigger) {
         return std::nullopt;
@@ -513,8 +506,7 @@ std::optional<Instrument> map_spot_instrument(const WireSpotAsset& wire) {
     }
     // local name uses both tokens since one base trades against several quotes
     std::array<char, sizeof(SymbolText::data)> local{};
-    if (wire.base.empty() || wire.quote.empty() ||
-        wire.base.size() + 1 + wire.quote.size() > local.size()) {
+    if (wire.base.empty() || wire.quote.empty() || wire.base.size() + 1 + wire.quote.size() > local.size()) {
         return std::nullopt;
     }
     std::size_t at = 0;
@@ -595,8 +587,7 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table) {
     return read_order(wire, table);
 }
 
@@ -622,9 +613,8 @@ std::optional<exec::OrderStatusReport> map_order_status(const WireOrderStatus& w
     return out;
 }
 
-std::optional<LedgerEntry> map_funding_charge(const WireFundingCharge& wire,
-                                              const exec::InstrumentTable& table,
-                                              UnixNanos ts_init) {
+std::optional<LedgerEntry>
+map_funding_charge(const WireFundingCharge& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.type != "funding") {
         return std::nullopt;
     }
@@ -648,8 +638,7 @@ std::optional<LedgerEntry> map_funding_charge(const WireFundingCharge& wire,
     if (wire.coin.size() + 2 <= key.size()) {
         auto* cursor = std::copy(wire.coin.begin(), wire.coin.end(), key.data());
         *cursor++ = ':';
-        if (const auto [stop, ec] = std::to_chars(cursor, key.data() + key.size(), wire.time_ms);
-            ec == std::errc{}) {
+        if (const auto [stop, ec] = std::to_chars(cursor, key.data() + key.size(), wire.time_ms); ec == std::errc{}) {
             const std::string_view text{key.data(), static_cast<std::size_t>(stop - key.data())};
             if (const auto id = ExecId::from(text); id.has_value()) {
                 charge.reference = *id;

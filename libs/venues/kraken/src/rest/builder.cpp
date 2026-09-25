@@ -28,9 +28,7 @@ public:
     }
 
     [[nodiscard]] net::RestRequest get() const noexcept {
-        return {.method = net::HttpMethod::Get,
-                .target = std::string_view{into_.data(), len_},
-                .body = {}};
+        return {.method = net::HttpMethod::Get, .target = std::string_view{into_.data(), len_}, .body = {}};
     }
 
 private:
@@ -77,9 +75,8 @@ private:
 
 [[nodiscard]] std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     const auto [stop, ec] = std::to_chars(out.data(), out.data() + out.size(), value);
-    return ec == std::errc{}
-               ? std::string_view{out.data(), static_cast<std::size_t>(stop - out.data())}
-               : std::string_view{};
+    return ec == std::errc{} ? std::string_view{out.data(), static_cast<std::size_t>(stop - out.data())}
+                             : std::string_view{};
 }
 
 // order type and tif share one field; post-only wins over ioc
@@ -101,8 +98,7 @@ private:
     return "lmt";
 }
 
-[[nodiscard]] std::optional<FixedE9> order_qty(const OrderCmd& cmd,
-                                               const InstrumentBase& base) noexcept {
+[[nodiscard]] std::optional<FixedE9> order_qty(const OrderCmd& cmd, const InstrumentBase& base) noexcept {
     const auto qty = base.lots_to_qty(cmd.qty);
     if (qty.is_undef() || qty.raw <= 0) {
         return std::nullopt;
@@ -110,8 +106,7 @@ private:
     return qty;
 }
 
-[[nodiscard]] std::optional<FixedE9> order_price(const OrderCmd& cmd,
-                                                 const InstrumentBase& base) noexcept {
+[[nodiscard]] std::optional<FixedE9> order_price(const OrderCmd& cmd, const InstrumentBase& base) noexcept {
     const auto price = base.ticks_to_price(cmd.price);
     if (price.is_undef() || price.raw <= 0) {
         return std::nullopt;
@@ -246,14 +241,13 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::finish(net::Ht
     request.method = method;
     request.target = target.view();
     request.body = method == net::HttpMethod::Post ? post_data : std::string_view{};
-    request.headers = {
-        {k_hdr_key, signer_->api_key()}, {k_hdr_nonce, nonce}, {k_hdr_authent, signature}};
+    request.headers = {{k_hdr_key, signer_->api_key()}, {k_hdr_nonce, nonce}, {k_hdr_authent, signature}};
     request.content_type = k_form_content_type;
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::signed_post(
-    std::string_view endpoint, std::string_view post_data, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::signed_post(std::string_view endpoint, std::string_view post_data, UnixNanos now) {
     return finish(net::HttpMethod::Post, endpoint, post_data, now);
 }
 
@@ -262,8 +256,8 @@ SignedRequestBuilder::signed_get(std::string_view endpoint, std::string_view que
     return finish(net::HttpMethod::Get, endpoint, query, now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -301,8 +295,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     return signed_post(ep::k_send_order, params.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -324,8 +318,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     return signed_post(ep::k_cancel_order, params.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -365,8 +359,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(Un
     return signed_get(ep::k_open_orders, {}, now);
 }
 
-std::expected<net::RestRequest, BuildError>
-SignedRequestBuilder::fills(std::string_view last_fill_time, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::fills(std::string_view last_fill_time,
+                                                                        UnixNanos now) {
     if (last_fill_time.empty()) {
         return signed_get(ep::k_fills, {}, now);
     }

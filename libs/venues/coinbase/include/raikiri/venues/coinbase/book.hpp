@@ -41,8 +41,7 @@ struct WireL2Snapshot {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view frame,
-                                                                         LevelBuffer& storage);
+[[nodiscard]] std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view frame, LevelBuffer& storage);
 
 // ["buy"|"sell","price","size"]; the side is a word and the size absolute
 struct WireChange {
@@ -65,8 +64,7 @@ struct WireL2Update {
     std::span<const WireChange> changes;
 };
 
-[[nodiscard]] std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame,
-                                                                     ChangeBuffer& storage);
+[[nodiscard]] std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame, ChangeBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // changes applied onto the book we hold

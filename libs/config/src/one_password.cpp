@@ -63,11 +63,10 @@ struct Captured {
 
     std::size_t filled = 0;
     // one deadline across the whole read so a slow writer is still cut off
-    const auto expires_at =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds{k_op_timeout_ms};
+    const auto expires_at = std::chrono::steady_clock::now() + std::chrono::milliseconds{k_op_timeout_ms};
     while (filled < into.size()) {
-        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              expires_at - std::chrono::steady_clock::now())
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(expires_at -
+                                                                                std::chrono::steady_clock::now())
                               .count();
         if (left <= 0) {
             out.timed_out = true;
@@ -108,9 +107,7 @@ struct Captured {
 [[nodiscard]] Captured run_probe(const char* command) {
     std::array<char, k_probe_bytes> buf{};
     const auto ran = run_bounded(command, std::span{buf}.first(buf.size() - 1));
-    Captured out{.text = std::string{buf.data(), ran.bytes},
-                 .exit_code = ran.exit_code,
-                 .timed_out = ran.timed_out};
+    Captured out{.text = std::string{buf.data(), ran.bytes}, .exit_code = ran.exit_code, .timed_out = ran.timed_out};
     while (!out.text.empty() && (out.text.back() == '\n' || out.text.back() == '\r')) {
         out.text.pop_back();
     }
@@ -161,8 +158,7 @@ bool is_valid_op_reference(std::string_view reference) noexcept {
     if (segments < 3 || segments > 4) {
         return false;
     }
-    return reference.front() != '/' && reference.back() != '/' &&
-           reference.find("//") == std::string_view::npos;
+    return reference.front() != '/' && reference.back() != '/' && reference.find("//") == std::string_view::npos;
 }
 
 OpStatus probe_one_password() {
@@ -210,8 +206,7 @@ OpStatus probe_one_password() {
     return status;
 }
 
-std::expected<void, SecretError>
-resolve_one_password(std::string_view reference, const OpStatus& status, Secret& out) {
+std::expected<void, SecretError> resolve_one_password(std::string_view reference, const OpStatus& status, Secret& out) {
     if (!is_valid_op_reference(reference)) {
         return std::unexpected{SecretError::BadReference};
     }

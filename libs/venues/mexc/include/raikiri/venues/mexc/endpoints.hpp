@@ -20,8 +20,7 @@ inline constexpr std::string_view k_ws_spot = "/ws";
 inline constexpr std::string_view k_futures_order_create = "/api/v1/private/order/create";
 // takes an array of venue ids; the next path cancels one order by client id
 inline constexpr std::string_view k_futures_order_cancel = "/api/v1/private/order/cancel";
-inline constexpr std::string_view k_futures_order_cancel_by_client_id =
-    "/api/v1/private/order/cancel_with_external";
+inline constexpr std::string_view k_futures_order_cancel_by_client_id = "/api/v1/private/order/cancel_with_external";
 // post places, delete cancels, get reads
 inline constexpr std::string_view k_spot_order = "/api/v3/order";
 
@@ -32,8 +31,7 @@ inline constexpr std::string_view k_futures_order_by_client_id = "/api/v1/privat
 inline constexpr std::string_view k_futures_order_deals = "/api/v1/private/order/list/order_deals";
 inline constexpr std::string_view k_futures_positions = "/api/v1/private/position/open_positions";
 // `symbol` is optional here
-inline constexpr std::string_view k_futures_funding_records =
-    "/api/v1/private/position/funding_records";
+inline constexpr std::string_view k_futures_funding_records = "/api/v1/private/position/funding_records";
 inline constexpr std::string_view k_spot_open_orders = "/api/v3/openOrders";
 inline constexpr std::string_view k_spot_my_trades = "/api/v3/myTrades";
 

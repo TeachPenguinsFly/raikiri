@@ -32,27 +32,26 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Spot) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "coinbase exchange lists spot only")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "coinbase exchange lists spot only")};
         }
         rest_.start();
         sync_clock(*state_, rest_);
 
         const auto response = await_response(*state_, rest_, state_->builder.products(), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status != 200) {
             const auto message = parse_rest_error(response->body);
-            return std::unexpected{exec::VenueError::make(
-                classify_http(response->status),
-                0,
-                message.has_value() ? *message : std::string_view{"catalogue request refused"})};
+            return std::unexpected{
+                exec::VenueError::make(classify_http(response->status),
+                                       0,
+                                       message.has_value() ? *message : std::string_view{"catalogue request refused"})};
         }
 
         static thread_local const auto storage_owner = std::make_unique<ProductBuffer>();
@@ -60,8 +59,7 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_products(response->body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;

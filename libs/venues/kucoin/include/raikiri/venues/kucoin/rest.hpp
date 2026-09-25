@@ -32,7 +32,8 @@ enum class BuildError : std::uint8_t {
 // empty for a market kucoin does not serve
 [[nodiscard]] std::string_view rest_host(MarketType market) noexcept;
 
-// the futures wallet defaults to XBT when currency is omitted; widening this means widening map_instrument's FFWCSX guard
+// the futures wallet defaults to XBT when currency is omitted; widening this means widening map_instrument's FFWCSX
+// guard
 inline constexpr std::string_view k_settle_currency = "USDT";
 
 // clientOid length limit; the oms's 26-char ulid fits
@@ -73,13 +74,9 @@ public:
     // run after the secret is loaded; the digest is keyed by it
     [[nodiscard]] bool seal_passphrase(std::string_view raw) noexcept;
 
-    [[nodiscard]] std::string_view sealed_passphrase() const noexcept {
-        return {passphrase_.data(), passphrase_len_};
-    }
+    [[nodiscard]] std::string_view sealed_passphrase() const noexcept { return {passphrase_.data(), passphrase_len_}; }
 
-    [[nodiscard]] bool complete() const noexcept {
-        return signer_.has_credentials() && passphrase_len_ != 0;
-    }
+    [[nodiscard]] bool complete() const noexcept { return signer_.has_credentials() && passphrase_len_ != 0; }
 
 private:
     net::Signer signer_;
@@ -90,8 +87,7 @@ private:
 // one scratch buffer set: send each request before building the next
 class OrderRequestBuilder {
 public:
-    explicit OrderRequestBuilder(const Credentials& credentials) noexcept
-        : credentials_{&credentials} {}
+    explicit OrderRequestBuilder(const Credentials& credentials) noexcept : credentials_{&credentials} {}
 
     OrderRequestBuilder(const OrderRequestBuilder&) = delete;
     OrderRequestBuilder& operator=(const OrderRequestBuilder&) = delete;
@@ -110,22 +106,17 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     open_orders(MarketType market, std::string_view symbol, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> active_symbols(MarketType market,
-                                                                             UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> active_symbols(MarketType market, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    fills(MarketType market, UnixNanos since, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(MarketType market, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // futures wallet only; the spot accounts list is a different shape
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> account_overview(MarketType market,
-                                                                               UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> account_overview(MarketType market, UnixNanos now);
 
     // the private handshake is a signed post
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> bullet_private(MarketType market,
-                                                                             UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> bullet_private(MarketType market, UnixNanos now);
 
     // exposed for tests: the exact bytes that go into the hmac
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

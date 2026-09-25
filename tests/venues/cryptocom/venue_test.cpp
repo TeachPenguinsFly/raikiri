@@ -216,8 +216,7 @@ TEST(CryptoComEnvelope, HeartbeatIsRecognisedAndAnsweredWithItsOwnId) {
     EXPECT_EQ(hb.event.kind, EventKind::Heartbeat);
     EXPECT_EQ(hb.event.id, 1790281754596);
     Protocol protocol;
-    EXPECT_EQ(protocol.heartbeat_reply(hb.event.id),
-              R"({"id":1790281754596,"method":"public/respond-heartbeat"})");
+    EXPECT_EQ(protocol.heartbeat_reply(hb.event.id), R"({"id":1790281754596,"method":"public/respond-heartbeat"})");
 }
 
 TEST(CryptoComEnvelope, AcksAndRefusalsAreToldApart) {
@@ -344,11 +343,9 @@ TEST(CryptoComBook, AZeroSizeDeletesTheLevel) {
     Book book{base.id, base.tick_size, base.lot_size};
     const std::array<WireLevel, 2> bids{{{"100.0", "1.0000"}, {"99.9", "2.0000"}}};
     const std::array<WireLevel, 1> asks{{{"100.1", "1.0000"}}};
-    ASSERT_EQ(book.apply({.snapshot = true, .seq = 10, .bids = bids, .asks = asks}),
-              BookResult::Resynced);
+    ASSERT_EQ(book.apply({.snapshot = true, .seq = 10, .bids = bids, .asks = asks}), BookResult::Resynced);
     const std::array<WireLevel, 1> removal{{{"100.0", "0"}}};
-    ASSERT_EQ(book.apply({.snapshot = false, .seq = 11, .prev_seq = 10, .bids = removal}),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply({.snapshot = false, .seq = 11, .prev_seq = 10, .bids = removal}), BookResult::Applied);
     const auto bbo = book.bbo(k_ingest, k_ingest);
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->bid.raw, 999);
@@ -360,8 +357,7 @@ TEST(CryptoComBook, AnOffStepLevelInvalidatesRatherThanRounds) {
     Book book{base.id, base.tick_size, base.lot_size};
     const std::array<WireLevel, 1> bids{{{"100.05", "1.0000"}}};
     const std::array<WireLevel, 1> asks{{{"100.1", "1.0000"}}};
-    EXPECT_EQ(book.apply({.snapshot = true, .seq = 10, .bids = bids, .asks = asks}),
-              BookResult::BadLevel);
+    EXPECT_EQ(book.apply({.snapshot = true, .seq = 10, .bids = bids, .asks = asks}), BookResult::BadLevel);
     EXPECT_FALSE(book.synced());
 }
 
@@ -480,13 +476,11 @@ TEST(CryptoComProtocol, FramesStayUnderTheSizeTheVenueSilentlyDrops) {
     std::size_t built = 0;
     std::size_t frames = 0;
     while (built < channels.size()) {
-        const auto frame =
-            protocol.subscribe_frame(std::span<const std::string_view>{channels}.subspan(built));
+        const auto frame = protocol.subscribe_frame(std::span<const std::string_view>{channels}.subspan(built));
         ASSERT_TRUE(frame.has_value());
         ASSERT_GT(frame->consumed, 0U);
         EXPECT_LE(frame->text.size(), ep::k_max_frame_bytes);
-        EXPECT_NE(frame->text.find(R"("book_subscription_type":"SNAPSHOT_AND_UPDATE")"),
-                  std::string_view::npos);
+        EXPECT_NE(frame->text.find(R"("book_subscription_type":"SNAPSHOT_AND_UPDATE")"), std::string_view::npos);
         EXPECT_TRUE(frame->text.ends_with(R"("book_update_frequency":100}})"));
         built += frame->consumed;
         ++frames;
@@ -501,10 +495,9 @@ TEST(CryptoComProtocol, OneFrameReadsAsTheVenueExpects) {
     const auto frame = protocol.subscribe_frame(channels);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
-    EXPECT_EQ(
-        frame->text,
-        R"({"id":1,"method":"subscribe","params":{"channels":["book.BTC_USD.50","trade.BTC_USD"],)"
-        R"("book_subscription_type":"SNAPSHOT_AND_UPDATE","book_update_frequency":100}})");
+    EXPECT_EQ(frame->text,
+              R"({"id":1,"method":"subscribe","params":{"channels":["book.BTC_USD.50","trade.BTC_USD"],)"
+              R"("book_subscription_type":"SNAPSHOT_AND_UPDATE","book_update_frequency":100}})");
 }
 
 TEST(CryptoComProtocol, ChannelNamesRoundTrip) {

@@ -31,8 +31,8 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 // fundingTime is the settlement the current rate applies to; nextFundingTime is the one after
 struct WireFundingRate {

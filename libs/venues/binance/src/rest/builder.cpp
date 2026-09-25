@@ -43,8 +43,7 @@ public:
         for (const char c : text) {
             const auto byte = static_cast<unsigned char>(c);
             const bool plain = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
-                               (byte >= '0' && byte <= '9') || byte == '-' || byte == '.' ||
-                               byte == '_' || byte == '~';
+                               (byte >= '0' && byte <= '9') || byte == '-' || byte == '.' || byte == '_' || byte == '~';
             if (plain) {
                 *this << std::string_view{&c, 1};
                 continue;
@@ -147,14 +146,11 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
-net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol,
-                                                std::uint32_t limit) noexcept {
+net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol, std::uint32_t limit) noexcept {
     Appender target{target_};
     target << ep::k_depth << "?symbol=";
     target.encoded(symbol) << "&limit=" << std::uint64_t{limit};
-    return {.method = net::HttpMethod::Get,
-            .target = target.ok() ? target.view() : std::string_view{},
-            .body = {}};
+    return {.method = net::HttpMethod::Get, .target = target.ok() ? target.view() : std::string_view{}, .body = {}};
 }
 
 std::string_view RequestBuilder::last_sign_message() const noexcept {
@@ -187,8 +183,7 @@ RequestBuilder::finish(net::HttpMethod method, std::string_view path, std::size_
     return request;
 }
 
-net::RestRequest RequestBuilder::header_only(net::HttpMethod method,
-                                             std::string_view path) noexcept {
+net::RestRequest RequestBuilder::header_only(net::HttpMethod method, std::string_view path) noexcept {
     net::RestRequest request{};
     request.method = method;
     request.target = path;
@@ -300,8 +295,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(UnixNano
     return finish(net::HttpMethod::Get, ep::k_open_orders, q.size());
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
-    std::string_view symbol, const ExchangeClientOrderId& id, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::query_order(std::string_view symbol, const ExchangeClientOrderId& id, UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
@@ -316,8 +311,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
 }
 
 // settlements and commissions; realized pnl rows are dropped by the caller
-std::expected<net::RestRequest, BuildError> RequestBuilder::funding_income(UnixNanos since,
-                                                                           UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::funding_income(UnixNanos since, UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }

@@ -119,8 +119,7 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
     std::string reject_class;
     std::int32_t reject_code = 0;
     if (has_reason) {
-        reject_class =
-            enum_name(m.rejectClass(), +[](std::uint8_t v) { return reject_class_name(v); });
+        reject_class = enum_name(m.rejectClass(), +[](std::uint8_t v) { return reject_class_name(v); });
         reject_code = m.rejectCode().value();
     }
 
@@ -148,8 +147,7 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
         .instrument_id = m.instrument().value(),
         .side = enum_name(
             m.side(), +[](std::uint8_t v) { return side_name(v); }),
-        .order_type =
-            m.orderType() == raikiri_journal::types::orderTypeEnum::Market ? "market" : "limit",
+        .order_type = m.orderType() == raikiri_journal::types::orderTypeEnum::Market ? "market" : "limit",
         .tif = m.tif() == raikiri_journal::types::tifEnum::Ioc   ? "ioc"
                : m.tif() == raikiri_journal::types::tifEnum::Fok ? "fok"
                                                                  : "gtc",
@@ -166,9 +164,8 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
 
     if (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Filled) {
         // derived from journaled fields so a replay reproduces the same key
-        const auto identity = fill_identity(ClientOrderId{m.clientOrderIdField().value()},
-                                            QtyLots::from_raw(m.leavesQty().value()),
-                                            exec_id);
+        const auto identity = fill_identity(
+            ClientOrderId{m.clientOrderIdField().value()}, QtyLots::from_raw(m.leavesQty().value()), exec_id);
         batch.executions.push_back({
             .venue = venue_of(m.instrument().value()),
             .exec_id = std::string{identity.view()},
@@ -200,8 +197,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
         batch.pnl_increments.push_back({
             .source_id = std::string{kind} + ":" + venue + ":" + exec_id,
             .kind = std::string{kind},
-            .settle_side =
-                m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base" : "quote",
+            .settle_side = m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base" : "quote",
             .strategy_id = m.strategyId().value(),
             .venue = venue,
             .exchange_symbol = trim_fixed(m.symbol()),
@@ -221,8 +217,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             .cost_e9 = m.cost().value(),
             .realized_e9 = m.realized().value(),
             .fees_e9 = m.fees().value(),
-            .settle_side =
-                m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base" : "quote",
+            .settle_side = m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base" : "quote",
             .fill_count = m.fillCount().value(),
             .ts_opened = m.tsOpened().value(),
             .ts_updated = m.tsUpdated().value(),
@@ -268,8 +263,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             std::string asset_class{"unknown"};
             std::string underlying;
             if (frame.schema_version >= 5) {
-                asset_class = std::string{
-                    to_string(static_cast<AssetClass>(sbepp::to_underlying(m.assetClass())))};
+                asset_class = std::string{to_string(static_cast<AssetClass>(sbepp::to_underlying(m.assetClass())))};
                 underlying = trim_fixed(m.underlying());
             }
             batch.instruments.push_back({
@@ -287,8 +281,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
                 .tick_size_e9 = m.tickSize().value(),
                 .lot_size_e9 = m.lotSize().value(),
                 .min_notional_e9 = std::max<std::int64_t>(m.minNotional().value(), 0),
-                .contract_value_e9 =
-                    m.contractValue().value() > 0 ? m.contractValue().value() : 1'000'000'000,
+                .contract_value_e9 = m.contractValue().value() > 0 ? m.contractValue().value() : 1'000'000'000,
                 .valid_from = m.tsLoaded().value(),
             });
         }

@@ -69,36 +69,28 @@ std::string_view private_order_topic(MarketType market) noexcept {
 
 std::expected<StreamEndpoint, WsBuildError>
 make_endpoint(std::string_view endpoint_url, std::string_view token, std::string_view connect_id) {
-    if (!endpoint_url.starts_with(k_scheme) || !safe_in_query(token) ||
-        !safe_in_query(connect_id)) {
+    if (!endpoint_url.starts_with(k_scheme) || !safe_in_query(token) || !safe_in_query(connect_id)) {
         return std::unexpected{WsBuildError::BadEndpoint};
     }
     const auto authority_and_path = endpoint_url.substr(k_scheme.size());
     const auto slash = authority_and_path.find('/');
-    const auto authority =
-        slash == std::string_view::npos ? authority_and_path : authority_and_path.substr(0, slash);
-    const auto path =
-        slash == std::string_view::npos ? std::string_view{"/"} : authority_and_path.substr(slash);
+    const auto authority = slash == std::string_view::npos ? authority_and_path : authority_and_path.substr(0, slash);
+    const auto path = slash == std::string_view::npos ? std::string_view{"/"} : authority_and_path.substr(slash);
     if (authority.empty()) {
         return std::unexpected{WsBuildError::BadEndpoint};
     }
 
     StreamEndpoint out{};
     const auto colon = authority.find(':');
-    out.host = std::string{
-        authority.substr(0, colon == std::string_view::npos ? authority.size() : colon)};
+    out.host = std::string{authority.substr(0, colon == std::string_view::npos ? authority.size() : colon)};
     out.port = colon == std::string_view::npos ? "443" : std::string{authority.substr(colon + 1)};
     out.target.reserve(path.size() + token.size() + connect_id.size() + 24);
-    out.target.append(path)
-        .append("?token=")
-        .append(token)
-        .append("&connectId=")
-        .append(connect_id);
+    out.target.append(path).append("?token=").append(token).append("&connectId=").append(connect_id);
     return out;
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::op_frame(std::string_view type, std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view type,
+                                                                std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -107,8 +99,7 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
     std::size_t batch = 0;
-    while (batch < subscriptions.size() && batch < k_max_symbols_per_topic &&
-           subscriptions[batch].topic == topic) {
+    while (batch < subscriptions.size() && batch < k_max_symbols_per_topic && subscriptions[batch].topic == topic) {
         if (subscriptions[batch].symbol.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }
@@ -148,13 +139,11 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
     return Frame{.text = {frame_.data(), len}, .consumed = batch};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("subscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("unsubscribe", subscriptions);
 }
 
@@ -201,8 +190,7 @@ Protocol::uta_subscribe_frame(std::span<const Subscription> subscriptions) {
     return Frame{.text = std::string_view{frame_.data(), len}, .consumed = 1};
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::private_subscribe_frame(std::string_view topic) {
+std::expected<std::string_view, WsBuildError> Protocol::private_subscribe_frame(std::string_view topic) {
     if (topic.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }

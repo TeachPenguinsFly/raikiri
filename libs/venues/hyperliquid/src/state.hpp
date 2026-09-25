@@ -94,24 +94,23 @@ inline std::expected<std::string, exec::VenueError> read_info(VenueState& state,
                                                               std::uint64_t timeout_ms = 10'000) {
     if (request.body.empty()) {
         // an empty body means the builder overflowed
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::Terminal, 0, "hyperliquid: request body did not fit")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "hyperliquid: request body did not fit")};
     }
     const auto response = await_response(state, rest, request, timeout_ms);
     if (!response.has_value()) {
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::Connectivity, 0, "hyperliquid: no response before deadline")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "hyperliquid: no response before deadline")};
     }
     if (response->transport_failed()) {
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
     }
     const bool ok_status = response->status >= 200 && response->status < 300;
     if (!ok_status || is_null_body(response->body)) {
         const auto reason = is_null_body(response->body) ? std::string_view{"/info answered null"}
                                                          : std::string_view{response->body};
-        return std::unexpected{exec::VenueError::make(
-            classify(response->status, response->body), response->status, reason)};
+        return std::unexpected{
+            exec::VenueError::make(classify(response->status, response->body), response->status, reason)};
     }
     return response->body;
 }

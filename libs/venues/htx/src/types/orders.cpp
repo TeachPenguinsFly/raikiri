@@ -65,8 +65,7 @@ bool is_maker(std::string_view role) noexcept {
         return false;
     }
     for (std::size_t i = 0; i < role.size(); ++i) {
-        const char c =
-            role[i] >= 'A' && role[i] <= 'Z' ? static_cast<char>(role[i] - 'A' + 'a') : role[i];
+        const char c = role[i] >= 'A' && role[i] <= 'Z' ? static_cast<char>(role[i] - 'A' + 'a') : role[i];
         if (c != k_maker[i]) {
             return false;
         }
@@ -78,8 +77,7 @@ bool spot_sells(std::string_view type) noexcept {
     return type.starts_with("sell");
 }
 
-std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& obj,
-                                                      std::span<WireFill> into) {
+std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& obj, std::span<WireFill> into) {
     if (into.empty()) {
         return std::size_t{0}; // a caller that asked for no fills wants none
     }
@@ -102,8 +100,8 @@ std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& ob
         const auto fee = num_of(trade, "trade_fee");
         const auto role = wire::opt_str(trade, "role");
         const auto created = wire::opt_u64(trade, "created_at");
-        if (!id.has_value() || !price.has_value() || !qty.has_value() || !fee.has_value() ||
-            !role.has_value() || !created.has_value()) {
+        if (!id.has_value() || !price.has_value() || !qty.has_value() || !fee.has_value() || !role.has_value() ||
+            !created.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         auto& out = into[count];
@@ -126,8 +124,7 @@ std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& ob
     return count;
 }
 
-std::expected<WireOrder, WireError> read_swap_order(wire::ondemand::object& obj,
-                                                    std::span<WireFill> fills) {
+std::expected<WireOrder, WireError> read_swap_order(wire::ondemand::object& obj, std::span<WireFill> fills) {
     WireOrder out{};
     const auto code = wire::req_str(obj, "contract_code");
     const auto order_id = order_id_of(obj);
@@ -139,10 +136,9 @@ std::expected<WireOrder, WireError> read_swap_order(wire::ondemand::object& obj,
     const auto price_type = wire::opt_str(obj, "order_price_type");
     const auto status = wire::opt_i64(obj, "status");
     const auto created = wire::opt_u64(obj, "created_at");
-    if (!code.has_value() || !order_id.has_value() || !client_id.has_value() ||
-        !price.has_value() || !volume.has_value() || !traded.has_value() ||
-        !direction.has_value() || !price_type.has_value() || !status.has_value() ||
-        !created.has_value()) {
+    if (!code.has_value() || !order_id.has_value() || !client_id.has_value() || !price.has_value() ||
+        !volume.has_value() || !traded.has_value() || !direction.has_value() || !price_type.has_value() ||
+        !status.has_value() || !created.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.contract_code = *code;
@@ -190,12 +186,10 @@ std::expected<WireOrder, WireError> read_spot_order(wire::ondemand::object& obj)
     const auto ws_status = wire::opt_str(obj, "orderStatus");
     const auto rest_status = wire::opt_str(obj, "state");
     const auto event = wire::opt_str(obj, "eventType");
-    if (!ws_order_id.has_value() || !rest_order_id.has_value() || !ws_client.has_value() ||
-        !rest_client.has_value() || !ws_price.has_value() || !rest_price.has_value() ||
-        !ws_size.has_value() || !rest_size.has_value() || !left.has_value() ||
-        !ws_exec.has_value() || !rest_exec.has_value() || !legacy_exec.has_value() ||
-        !type.has_value() || !ws_status.has_value() || !rest_status.has_value() ||
-        !event.has_value()) {
+    if (!ws_order_id.has_value() || !rest_order_id.has_value() || !ws_client.has_value() || !rest_client.has_value() ||
+        !ws_price.has_value() || !rest_price.has_value() || !ws_size.has_value() || !rest_size.has_value() ||
+        !left.has_value() || !ws_exec.has_value() || !rest_exec.has_value() || !legacy_exec.has_value() ||
+        !type.has_value() || !ws_status.has_value() || !rest_status.has_value() || !event.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.order_id = ws_order_id->empty() ? *rest_order_id : *ws_order_id;
@@ -221,8 +215,7 @@ std::expected<WireOrder, WireError> read_spot_order(wire::ondemand::object& obj)
     const auto acted = wire::opt_u64(obj, "lastActTime");
     const auto traded = wire::opt_u64(obj, "tradeTime");
     const auto rest_created = wire::opt_u64(obj, "created-at");
-    if (!created.has_value() || !acted.has_value() || !traded.has_value() ||
-        !rest_created.has_value()) {
+    if (!created.has_value() || !acted.has_value() || !traded.has_value() || !rest_created.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     for (const auto candidate : {*traded, *acted, *created, *rest_created}) {
@@ -269,8 +262,7 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body, Ma
     });
 }
 
-std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_view body,
-                                                                 MarketType market) {
+std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_view body, MarketType market) {
     return guarded([&]() -> std::expected<WireCancelOutcome, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -292,8 +284,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
                     return std::unexpected(wire::map_error(ec));
                 }
                 return WireCancelOutcome{.accepted = state != 0,
-                                         .code = state == 0 ? k_client_id_not_found
-                                                            : std::string_view{}};
+                                         .code = state == 0 ? k_client_id_not_found : std::string_view{}};
             }
             return WireCancelOutcome{.accepted = true, .code = {}};
         }
@@ -303,8 +294,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
         }
         // status is ok either way; the verdict is in errors, and successes is a comma-joined string
         std::string_view first_error;
-        if (wire::ondemand::array errors;
-            wire::find(obj, "errors").get_array().get(errors) == simdjson::SUCCESS) {
+        if (wire::ondemand::array errors; wire::find(obj, "errors").get_array().get(errors) == simdjson::SUCCESS) {
             for (auto entry : errors) {
                 wire::ondemand::object row;
                 if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
@@ -322,13 +312,11 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
         if (!successes.has_value()) {
             return std::unexpected(successes.error());
         }
-        return WireCancelOutcome{.accepted = first_error.empty() && !successes->empty(),
-                                 .code = first_error};
+        return WireCancelOutcome{.accepted = first_error.empty() && !successes->empty(), .code = first_error};
     });
 }
 
-std::expected<WireOrder, WireError> parse_swap_order_push(std::string_view frame,
-                                                          OrderBuffer& storage) {
+std::expected<WireOrder, WireError> parse_swap_order_push(std::string_view frame, OrderBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrder, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -376,10 +364,9 @@ std::expected<WireUserTrade, WireError> parse_spot_trade_push(std::string_view f
         const auto ts = wire::opt_u64(*data, "tradeTime");
         // aggressor is a boolean taker flag here
         const auto aggressor = wire::opt_bool(*data, "aggressor");
-        if (!symbol.has_value() || !order_id.has_value() || !client_id.has_value() ||
-            !price.has_value() || !qty.has_value() || !trade_id.has_value() || !fee.has_value() ||
-            !side.has_value() || !type.has_value() || !left.has_value() || !ts.has_value() ||
-            !aggressor.has_value()) {
+        if (!symbol.has_value() || !order_id.has_value() || !client_id.has_value() || !price.has_value() ||
+            !qty.has_value() || !trade_id.has_value() || !fee.has_value() || !side.has_value() || !type.has_value() ||
+            !left.has_value() || !ts.has_value() || !aggressor.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         WireUserTrade out{};
@@ -388,12 +375,8 @@ std::expected<WireUserTrade, WireError> parse_spot_trade_push(std::string_view f
         out.client_order_id = *client_id;
         out.sell = side->empty() ? spot_sells(*type) : *side == "sell";
         out.left_qty = *left;
-        out.fill = {.exec_id = *trade_id,
-                    .price = *price,
-                    .qty = *qty,
-                    .fee = *fee,
-                    .maker = !*aggressor,
-                    .ts_ms = *ts};
+        out.fill = {
+            .exec_id = *trade_id, .price = *price, .qty = *qty, .fee = *fee, .maker = !*aggressor, .ts_ms = *ts};
         return out;
     });
 }
@@ -406,8 +389,7 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
             return std::unexpected(root.error());
         }
         std::size_t count = 0;
-        const auto read_rows = [&](wire::ondemand::array rows)
-            -> std::expected<std::span<const WireOrder>, WireError> {
+        const auto read_rows = [&](wire::ondemand::array rows) -> std::expected<std::span<const WireOrder>, WireError> {
             for (auto entry : rows) {
                 if (count == k_max_orders) {
                     return std::unexpected(WireError::TooManyEntries);
@@ -416,9 +398,8 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
                 if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
                     return std::unexpected(wire::map_error(ec));
                 }
-                const auto order = market == MarketType::Spot
-                                       ? read_spot_order(obj)
-                                       : read_swap_order(obj, std::span<WireFill>{});
+                const auto order = market == MarketType::Spot ? read_spot_order(obj)
+                                                              : read_swap_order(obj, std::span<WireFill>{});
                 if (!order.has_value()) {
                     return std::unexpected(order.error());
                 }

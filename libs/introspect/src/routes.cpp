@@ -1,10 +1,10 @@
-#include "json_mapping.hpp"
-
 #include <raikiri/introspect/routes.hpp>
 
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "json_mapping.hpp"
 
 namespace raikiri::introspect {
 
@@ -58,8 +58,7 @@ LatencyDto to_latency(GatewayView view) {
                       .latency = std::move(view.stats.latency)};
 }
 
-[[nodiscard]] std::optional<std::string_view> account_under(std::string_view path,
-                                                            std::string_view prefix) {
+[[nodiscard]] std::optional<std::string_view> account_under(std::string_view path, std::string_view prefix) {
     if (path.starts_with(prefix) && path.size() > prefix.size() + 1 && path[prefix.size()] == '/') {
         return path.substr(prefix.size() + 1);
     }
@@ -95,9 +94,8 @@ std::optional<http::Response> CacheRoutes::operator()(const http::Request& req) 
     static constexpr std::string_view k_stats = "/cache/stats";
     if (req.path == k_stats) {
         auto machine = (*machine_)();
-        MachineDto dto{.taken_ns = std::to_string(machine.taken_ns),
-                       .gateways = {},
-                       .rollup = std::move(machine.rollup)};
+        MachineDto dto{
+            .taken_ns = std::to_string(machine.taken_ns), .gateways = {}, .rollup = std::move(machine.rollup)};
         dto.gateways.reserve(machine.gateways.size());
         for (auto& view : machine.gateways) {
             dto.gateways.push_back(to_dto(std::move(view)));

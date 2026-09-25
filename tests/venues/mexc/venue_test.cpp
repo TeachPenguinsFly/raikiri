@@ -93,8 +93,7 @@ TEST(MexcVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Mexc);
     EXPECT_NE(adapter->data, nullptr);
@@ -107,8 +106,7 @@ TEST(MexcVenue, AnUnbuildableCommandIsRefusedLocally) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -129,8 +127,7 @@ TEST(MexcVenue, SubscribingAnUnknownInstrumentIsRefused) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto unknown = InstrumentId::make(VenueId::Mexc, MarketType::Perp, SymbolId{7});
     const auto result = adapter->data->subscribe(exec::SubKind::Bbo, unknown);
@@ -336,8 +333,8 @@ TEST(MexcWire, RestEnvelopeSeparatesSuccessFromFailure) {
     EXPECT_TRUE(ok->success);
     EXPECT_EQ(ok->code, k_ok);
 
-    for (const auto& [file, code] : {std::pair{"rest_error_bad_contract.json", 1001},
-                                     std::pair{"rest_error_bad_parameter.json", 600}}) {
+    for (const auto& [file, code] :
+         {std::pair{"rest_error_bad_contract.json", 1001}, std::pair{"rest_error_bad_parameter.json", 600}}) {
         const auto body = fixture(file);
         const auto bad = parse_rest_envelope(body);
         ASSERT_TRUE(bad.has_value()) << file;
@@ -732,7 +729,7 @@ TEST(MexcMap, CoinMarginedContractIsInverseAndTurnsOverInDollars) {
     const auto stats = map_ticker_stats(*ticker, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote.raw, 7'599'700'000'000LL); // 75997 contracts of $100
-    EXPECT_EQ(stats->volume_24h_base.raw, 90'676'765'443LL); // amount24 is btc here
+    EXPECT_EQ(stats->volume_24h_base.raw, 90'676'765'443LL);     // amount24 is btc here
 
     const auto linear = catalogue();
     EXPECT_EQ(base_of(*linear.find("BTC_USDT")).kind, ContractKind::Linear);
@@ -780,8 +777,7 @@ TEST(MexcWs, DepthFullCarriesItsLevelCountInTheSubscription) {
         Subscription{.channel = "depth.full", .symbol = "BTC_USDT", .limit = k_book_depth}};
     const auto frame = protocol.subscribe_frame(one);
     ASSERT_TRUE(frame.has_value());
-    EXPECT_EQ(frame->text,
-              R"({"method":"sub.depth.full","param":{"symbol":"BTC_USDT","limit":50}})");
+    EXPECT_EQ(frame->text, R"({"method":"sub.depth.full","param":{"symbol":"BTC_USDT","limit":50}})");
 }
 
 TEST(MexcWs, UnsubscribeReusesTheChannelStem) {
@@ -895,12 +891,10 @@ TEST(MexcRest, TheFundingReadIsAccountWideAndCarriesTheCursorItWasGiven) {
     // a zero cursor sends no window; the venue's default page applies
     const auto from_zero = builder.funding_records(MarketType::Perp, UnixNanos{0}, now);
     ASSERT_TRUE(from_zero.has_value());
-    EXPECT_EQ(from_zero->target,
-              "/api/v1/private/position/funding_records?page_num=1&page_size=100");
+    EXPECT_EQ(from_zero->target, "/api/v1/private/position/funding_records?page_num=1&page_size=100");
 
     // spot has no funding ledger
-    EXPECT_EQ(builder.funding_records(MarketType::Spot, since, now).error(),
-              BuildError::SpotFundingUnsupported);
+    EXPECT_EQ(builder.funding_records(MarketType::Spot, since, now).error(), BuildError::SpotFundingUnsupported);
 }
 
 exec::InstrumentTable spot_catalogue() {

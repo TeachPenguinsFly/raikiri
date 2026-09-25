@@ -46,37 +46,31 @@ bool path_matches(std::string_view rule, std::string_view target) noexcept {
     return true;
 }
 
-RateBudget::RateBudget(std::vector<RateLimit> limits,
-                       std::vector<RateCost> costs,
-                       std::uint32_t default_cost)
+RateBudget::RateBudget(std::vector<RateLimit> limits, std::vector<RateCost> costs, std::uint32_t default_cost)
     : costs_{std::move(costs)}, default_cost_{default_cost} {
     slots_.reserve(limits.size());
     for (auto& limit : limits) {
         SlidingLog log{limit.max, limit.window_ns, limit.reserve};
-        slots_.push_back(
-            Slot{.spec = std::move(limit), .log = std::move(log), .calls = 0, .denied = 0});
+        slots_.push_back(Slot{.spec = std::move(limit), .log = std::move(log), .calls = 0, .denied = 0});
     }
 }
 
 bool RateBudget::meters(const RateLimit& limit, std::string_view target) noexcept {
-    return limit.match.empty() || std::ranges::any_of(limit.match, [target](const auto& rule) {
-               return path_matches(rule, target);
-           });
+    return limit.match.empty() ||
+           std::ranges::any_of(limit.match, [target](const auto& rule) { return path_matches(rule, target); });
 }
 
 std::uint32_t RateBudget::cost(std::string_view target) const noexcept {
     const RateCost* best = nullptr;
     for (const auto& rule : costs_) {
-        if (path_matches(rule.match, target) &&
-            (best == nullptr || rule.match.size() > best->match.size())) {
+        if (path_matches(rule.match, target) && (best == nullptr || rule.match.size() > best->match.size())) {
             best = &rule;
         }
     }
     return best != nullptr ? best->cost : default_cost_;
 }
 
-std::expected<void, RateDenied>
-RateBudget::take(std::string_view target, MonoNanos now, RateClass cls) noexcept {
+std::expected<void, RateDenied> RateBudget::take(std::string_view target, MonoNanos now, RateClass cls) noexcept {
     const auto units = cost(target);
     if (units == 0 || slots_.empty()) {
         return {};

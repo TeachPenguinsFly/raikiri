@@ -65,9 +65,8 @@ inline constexpr std::int64_t k_min_millihertz = 100;
 [[nodiscard]] std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept;
 
 // requests above k_max_millihertz are clamped; sequenced feeds have no cadence
-[[nodiscard]] std::int64_t negotiate_millihertz(Feed feed,
-                                                std::size_t instruments,
-                                                std::optional<std::int64_t> asked) noexcept;
+[[nodiscard]] std::int64_t
+negotiate_millihertz(Feed feed, std::size_t instruments, std::optional<std::int64_t> asked) noexcept;
 
 [[nodiscard]] std::uint64_t period_ns(std::int64_t millihertz) noexcept;
 
@@ -95,16 +94,14 @@ struct Target {
 };
 
 // unresolved ids are appended to `unknown`
-[[nodiscard]] std::vector<Target> resolve_targets(const Registry& registry,
-                                                  std::span<const InstrumentId> ids,
-                                                  std::vector<std::string>& unknown);
+[[nodiscard]] std::vector<Target>
+resolve_targets(const Registry& registry, std::span<const InstrumentId> ids, std::vector<std::string>& unknown);
 
 // nullopt until both sides are set
 [[nodiscard]] std::optional<Quote> quote_of(const Bbo& bbo, const InstrumentBase& base);
 
 // `levels` caps each side, clamped to what the snapshot holds
-[[nodiscard]] Book
-book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size_t levels);
+[[nodiscard]] Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size_t levels);
 
 inline constexpr std::size_t k_default_levels = 25;
 [[nodiscard]] Greeks greeks_of(const OptionGreeks& greeks);
@@ -114,30 +111,21 @@ inline constexpr std::size_t k_default_levels = 25;
 inline constexpr std::uint64_t k_position_stale_ns = 90ULL * 1'000'000'000ULL;
 
 // a cell older than the staleness window gives a null `venue_qty`; null is not flat
-[[nodiscard]] Position
-position_of(const shm::PositionCell& cell, const InstrumentBase& base, UnixNanos now);
+[[nodiscard]] Position position_of(const shm::PositionCell& cell, const InstrumentBase& base, UnixNanos now);
 
 [[nodiscard]] std::string ack_frame(std::string_view id, std::optional<std::int64_t> millihertz);
-[[nodiscard]] std::string
-quotes_frame(std::string_view id, UnixNanos ts, std::span<const Quote> quotes);
+[[nodiscard]] std::string quotes_frame(std::string_view id, UnixNanos ts, std::span<const Quote> quotes);
 [[nodiscard]] std::string book_frame(std::string_view id, UnixNanos ts, const Book& book);
-[[nodiscard]] std::string
-greeks_frame(std::string_view id, UnixNanos ts, std::span<const Greeks> greeks);
-[[nodiscard]] std::string
-funding_frame(std::string_view id, UnixNanos ts, std::span<const Funding> funding);
-[[nodiscard]] std::string
-positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> positions);
+[[nodiscard]] std::string greeks_frame(std::string_view id, UnixNanos ts, std::span<const Greeks> greeks);
+[[nodiscard]] std::string funding_frame(std::string_view id, UnixNanos ts, std::span<const Funding> funding);
+[[nodiscard]] std::string positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> positions);
 [[nodiscard]] std::string health_frame(std::string_view id, UnixNanos ts, const Health& health);
 
 // a fill is the Filled order event rendered as a Fill
-[[nodiscard]] std::string order_event_frame(std::string_view id,
-                                            std::uint64_t seq,
-                                            const raikiri::OrderEvent& event,
-                                            const InstrumentBase& base);
-[[nodiscard]] std::string fill_frame(std::string_view id,
-                                     std::uint64_t seq,
-                                     const raikiri::OrderEvent& event,
-                                     const InstrumentBase& base);
+[[nodiscard]] std::string
+order_event_frame(std::string_view id, std::uint64_t seq, const raikiri::OrderEvent& event, const InstrumentBase& base);
+[[nodiscard]] std::string
+fill_frame(std::string_view id, std::uint64_t seq, const raikiri::OrderEvent& event, const InstrumentBase& base);
 
 [[nodiscard]] std::string gap_frame(std::string_view id, std::uint64_t missed);
 [[nodiscard]] std::string problem_frame(std::string_view id, const Problem& problem);
@@ -146,11 +134,7 @@ positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> pos
 class Stream {
 public:
     Stream(const Registry& registry, const Clock& clock, std::string address, std::uint16_t port);
-    Stream(net::IoContext& io,
-           const Registry& registry,
-           const Clock& clock,
-           std::string address,
-           std::uint16_t port);
+    Stream(net::IoContext& io, const Registry& registry, const Clock& clock, std::string address, std::uint16_t port);
     ~Stream();
     Stream(const Stream&) = delete;
     Stream& operator=(const Stream&) = delete;

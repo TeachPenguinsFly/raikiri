@@ -60,10 +60,10 @@ struct PackColumns {
 struct WirePackRow {
     std::string_view symbol;
     std::string_view mark;
-    std::string_view rate;      // per the contract's own interval, not per 8 h
+    std::string_view rate; // per the contract's own interval, not per 8 h
     std::string_view predicted;
-    std::string_view volume;    // base
-    std::string_view turnover;  // quote
+    std::string_view volume;   // base
+    std::string_view turnover; // quote
 };
 
 inline constexpr std::size_t k_max_pack_rows = 2048;
@@ -87,13 +87,12 @@ struct WireInverseTicker {
     std::optional<std::int64_t> rate_er;
     std::optional<std::int64_t> predicted_er;
     std::optional<std::int64_t> mark_ep;
-    std::optional<std::int64_t> volume; // contracts
+    std::optional<std::int64_t> volume;      // contracts
     std::optional<std::int64_t> turnover_ev; // the settle coin
     std::uint64_t ts_ns{0};
 };
 
-[[nodiscard]] std::expected<WireInverseTicker, WireError>
-parse_inverse_ticker(std::string_view frame);
+[[nodiscard]] std::expected<WireInverseTicker, WireError> parse_inverse_ticker(std::string_view frame);
 
 // spot_market24h, one pair per frame.
 struct WireSpotTicker {

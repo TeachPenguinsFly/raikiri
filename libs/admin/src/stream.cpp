@@ -98,8 +98,7 @@ void append_ts(std::string& out, UnixNanos ts) {
 
 // the frame's `type` matches its payload field in every state variant
 template <typename T>
-std::string
-list_frame(std::string_view type, std::string_view id, UnixNanos ts, std::span<const T> rows) {
+std::string list_frame(std::string_view type, std::string_view id, UnixNanos ts, std::span<const T> rows) {
     auto out = frame_head(type, id);
     append_ts(out, ts);
     out += ",\"";
@@ -116,8 +115,7 @@ list_frame(std::string_view type, std::string_view id, UnixNanos ts, std::span<c
     return out;
 }
 
-template <typename T>
-std::string object_frame(std::string_view type, std::string_view id, UnixNanos ts, const T& row) {
+template <typename T> std::string object_frame(std::string_view type, std::string_view id, UnixNanos ts, const T& row) {
     auto out = frame_head(type, id);
     append_ts(out, ts);
     out += ",\"";
@@ -167,16 +165,14 @@ std::optional<std::int64_t> read_hz(std::string_view text) noexcept {
 
 std::expected<std::vector<InstrumentId>, Problem> read_ids(const std::vector<std::string>& text) {
     if (text.size() > k_max_instruments) {
-        return std::unexpected(
-            Problem{.title = "too many instruments in one subscription", .status = 400});
+        return std::unexpected(Problem{.title = "too many instruments in one subscription", .status = 400});
     }
     std::vector<InstrumentId> out;
     out.reserve(text.size());
     for (const auto& one : text) {
         const auto id = read_id(one);
         if (!id.has_value()) {
-            return std::unexpected(
-                Problem{.title = "instrument id must be digits", .status = 400, .detail = one});
+            return std::unexpected(Problem{.title = "instrument id must be digits", .status = 400, .detail = one});
         }
         out.push_back(*id);
     }
@@ -228,12 +224,10 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     } else if (wire.op == "unsubscribe") {
         out.op = Op::Unsubscribe;
     } else {
-        return std::unexpected(
-            Problem{.title = "op must be subscribe or unsubscribe", .status = 400});
+        return std::unexpected(Problem{.title = "op must be subscribe or unsubscribe", .status = 400});
     }
     if (wire.id.empty() || wire.id.size() > k_max_id_bytes) {
-        return std::unexpected(
-            Problem{.title = "subscription id must be 1 to 64 characters", .status = 400});
+        return std::unexpected(Problem{.title = "subscription id must be 1 to 64 characters", .status = 400});
     }
     out.id = wire.id;
     if (out.op == Op::Unsubscribe) {
@@ -263,31 +257,28 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     if (!wire.book.empty()) {
         out.book = read_id(wire.book);
         if (!out.book.has_value()) {
-            return std::unexpected(Problem{
-                .title = "instrument id must be digits", .status = 400, .detail = wire.book});
+            return std::unexpected(
+                Problem{.title = "instrument id must be digits", .status = 400, .detail = wire.book});
         }
     }
     for (const auto& name : wire.events) {
         const auto kind = read_event(name);
         if (!kind.has_value()) {
-            return std::unexpected(
-                Problem{.title = "unknown event kind", .status = 400, .detail = name});
+            return std::unexpected(Problem{.title = "unknown event kind", .status = 400, .detail = name});
         }
         out.events.push_back(*kind);
     }
     if (wire.hz.has_value()) {
         out.millihertz = read_hz(wire.hz->str);
         if (!out.millihertz.has_value()) {
-            return std::unexpected(
-                Problem{.title = "hz must be a number", .status = 400, .detail = wire.hz->str});
+            return std::unexpected(Problem{.title = "hz must be a number", .status = 400, .detail = wire.hz->str});
         }
     }
     if (wire.levels.has_value()) {
         const auto asked = read_id(wire.levels->str);
         if (!asked.has_value() || asked->packed == 0) {
-            return std::unexpected(Problem{.title = "levels must be a positive whole number",
-                                           .status = 400,
-                                           .detail = wire.levels->str});
+            return std::unexpected(
+                Problem{.title = "levels must be a positive whole number", .status = 400, .detail = wire.levels->str});
         }
         out.levels = static_cast<std::size_t>(asked->packed);
     }
@@ -300,16 +291,14 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     channels += out.ticker.empty() ? 0 : 1;
     channels += out.events.empty() ? 0 : 1;
     if (channels == 0) {
-        return std::unexpected(
-            Problem{.title = "subscribe named no channel",
-                    .status = 400,
-                    .detail = "one of quotes, book, greeks, funding, ticker, events"});
+        return std::unexpected(Problem{.title = "subscribe named no channel",
+                                       .status = 400,
+                                       .detail = "one of quotes, book, greeks, funding, ticker, events"});
     }
     if (channels > 1) {
         // one cadence per ack, so one channel per handle
-        return std::unexpected(Problem{.title = "one channel per subscription",
-                                       .status = 400,
-                                       .detail = "the ack states one cadence"});
+        return std::unexpected(
+            Problem{.title = "one channel per subscription", .status = 400, .detail = "the ack states one cadence"});
     }
     return out;
 }
@@ -336,9 +325,7 @@ std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept {
     return 1'000;
 }
 
-std::int64_t negotiate_millihertz(Feed feed,
-                                  std::size_t instruments,
-                                  std::optional<std::int64_t> asked) noexcept {
+std::int64_t negotiate_millihertz(Feed feed, std::size_t instruments, std::optional<std::int64_t> asked) noexcept {
     if (sequenced(feed)) {
         return 0;
     }
@@ -366,8 +353,7 @@ void ChangeGate::accept(std::size_t slot, std::uint32_t version) noexcept {
 }
 
 std::optional<Quote> quote_of(const Bbo& bbo, const InstrumentBase& base) {
-    if (bbo.bid.is_undef() || bbo.ask.is_undef() || bbo.bid_qty.is_undef() ||
-        bbo.ask_qty.is_undef()) {
+    if (bbo.bid.is_undef() || bbo.ask.is_undef() || bbo.bid_qty.is_undef() || bbo.ask_qty.is_undef()) {
         return std::nullopt;
     }
     return Quote{.instrument_id = digits(bbo.instrument),
@@ -389,12 +375,10 @@ Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size
     out.bids.reserve(bids);
     out.asks.reserve(asks);
     for (std::size_t i = 0; i < bids; ++i) {
-        out.bids.push_back({.price = price(snapshot.bids[i].price, base),
-                            .size = size(snapshot.bids[i].qty, base)});
+        out.bids.push_back({.price = price(snapshot.bids[i].price, base), .size = size(snapshot.bids[i].qty, base)});
     }
     for (std::size_t i = 0; i < asks; ++i) {
-        out.asks.push_back({.price = price(snapshot.asks[i].price, base),
-                            .size = size(snapshot.asks[i].qty, base)});
+        out.asks.push_back({.price = price(snapshot.asks[i].price, base), .size = size(snapshot.asks[i].qty, base)});
     }
     return out;
 }
@@ -491,8 +475,7 @@ std::string funding_frame(std::string_view id, UnixNanos ts, std::span<const Fun
     return list_frame("funding", id, ts, funding);
 }
 
-std::string
-positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> positions) {
+std::string positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> positions) {
     return list_frame("positions", id, ts, positions);
 }
 
@@ -522,10 +505,8 @@ std::string order_event_frame(std::string_view id,
     return out;
 }
 
-std::string fill_frame(std::string_view id,
-                       std::uint64_t seq,
-                       const raikiri::OrderEvent& event,
-                       const InstrumentBase& base) {
+std::string
+fill_frame(std::string_view id, std::uint64_t seq, const raikiri::OrderEvent& event, const InstrumentBase& base) {
     const stream_wire::FillRow row{.venue = std::string{to_string(event.instrument.venue())},
                                    .exec_id = std::string{event.exec_id.view()},
                                    .client_order_id = digits(event.client_order_id.raw),
@@ -566,9 +547,8 @@ std::string problem_frame(std::string_view id, const Problem& problem) {
     return out;
 }
 
-std::vector<Target> resolve_targets(const Registry& registry,
-                                    std::span<const InstrumentId> ids,
-                                    std::vector<std::string>& unknown) {
+std::vector<Target>
+resolve_targets(const Registry& registry, std::span<const InstrumentId> ids, std::vector<std::string>& unknown) {
     std::vector<Target> out;
     out.reserve(ids.size());
     for (const auto id : ids) {
@@ -647,10 +627,8 @@ public:
         // read the upgrade request first; the path is part of the contract
         request_ = std::make_unique<http::request_parser<http::empty_body>>();
         auto self = shared_from_this();
-        http::async_read(ws_.next_layer(),
-                         buffer_,
-                         *request_,
-                         [self](beast::error_code ec, std::size_t) { self->on_request(ec); });
+        http::async_read(
+            ws_.next_layer(), buffer_, *request_, [self](beast::error_code ec, std::size_t) { self->on_request(ec); });
     }
 
     // returns frames sent, so an idle caller may sleep
@@ -768,8 +746,7 @@ private:
     }
 
     // every catalogued instrument with a position cell; positions follow the account
-    [[nodiscard]] static std::vector<Target>
-    position_targets(const std::vector<const Gateway*>& gateways) {
+    [[nodiscard]] static std::vector<Target> position_targets(const std::vector<const Gateway*>& gateways) {
         std::vector<Target> out;
         for (const auto* gateway : gateways) {
             for (const auto& listed : gateway->channels.catalogue->all()) {
@@ -782,8 +759,7 @@ private:
         return out;
     }
 
-    [[nodiscard]] static std::vector<EventSource>
-    exec_sources(const std::vector<const Gateway*>& gateways) {
+    [[nodiscard]] static std::vector<EventSource> exec_sources(const std::vector<const Gateway*>& gateways) {
         std::vector<EventSource> out;
         out.reserve(gateways.size());
         for (const auto* gateway : gateways) {
@@ -871,17 +847,14 @@ private:
         feed.id = message.id;
         feed.kind = kind;
         // clamped to the snapshot depth, not refused
-        feed.levels =
-            std::min<std::size_t>(message.levels.value_or(k_default_levels), k_book_levels);
+        feed.levels = std::min<std::size_t>(message.levels.value_or(k_default_levels), k_book_levels);
         feed.asked.assign(ids.begin(), ids.end());
         std::vector<std::string> unknown;
         feed.targets = resolve_targets(*registry_, ids, unknown);
         if (!unknown.empty()) {
             // unresolved ids get a problem frame
-            enqueue(problem_frame(message.id,
-                                  {.title = "no gateway holds these instruments",
-                                   .status = 404,
-                                   .detail = join(unknown)}));
+            enqueue(problem_frame(
+                message.id, {.title = "no gateway holds these instruments", .status = 404, .detail = join(unknown)}));
         }
         if (feed.targets.empty()) {
             return;
@@ -903,11 +876,10 @@ private:
             switch (kind) {
             case Feed::Recon:
                 // no gateway channel carries recon verdicts, so refuse
-                enqueue(problem_frame(
-                    message.id,
-                    {.title = "no live channel for reconciliation breaks",
-                     .status = 501,
-                     .detail = "reconciliation is written by strategyd; read /v1/recon-breaks"}));
+                enqueue(problem_frame(message.id,
+                                      {.title = "no live channel for reconciliation breaks",
+                                       .status = 501,
+                                       .detail = "reconciliation is written by strategyd; read /v1/recon-breaks"}));
                 continue;
             case Feed::Orders:
             case Feed::Fills: {
@@ -925,8 +897,7 @@ private:
                 feed.kind = kind;
                 feed.targets = position_targets(gateways);
                 feed.gate = ChangeGate{feed.targets.size()};
-                feed.millihertz =
-                    negotiate_millihertz(kind, feed.targets.size(), message.millihertz);
+                feed.millihertz = negotiate_millihertz(kind, feed.targets.size(), message.millihertz);
                 feed.period = period_ns(feed.millihertz);
                 feed.due = clock_->mono();
                 acked = feed.millihertz;
@@ -999,8 +970,8 @@ private:
 
     // probe the version, copy only if moved, return the copy's version
     template <typename Record, typename Table>
-    [[nodiscard]] std::vector<Changed<Record>>
-    changed(const FeedState& feed, Table* shm::GatewayChannels::* channel) const {
+    [[nodiscard]] std::vector<Changed<Record>> changed(const FeedState& feed,
+                                                       Table* shm::GatewayChannels::*channel) const {
         std::vector<Changed<Record>> out;
         for (std::size_t slot = 0; slot < feed.targets.size(); ++slot) {
             const auto& target = feed.targets[slot];
@@ -1019,8 +990,7 @@ private:
     }
 
     // recorded only once the frame reached the socket
-    static void remember(FeedState& feed,
-                         const std::vector<std::pair<std::size_t, std::uint32_t>>& taken) {
+    static void remember(FeedState& feed, const std::vector<std::pair<std::size_t, std::uint32_t>>& taken) {
         for (const auto& [slot, version] : taken) {
             feed.gate.accept(slot, version);
         }
@@ -1159,16 +1129,14 @@ private:
                     if (feed.kind == Feed::Fills && record.event.type != OrderEventType::Filled) {
                         break; // not this subscription's event, and nothing was lost
                     }
-                    const auto* listed =
-                        source.gateway->channels.catalogue->find(record.event.instrument);
+                    const auto* listed = source.gateway->channels.catalogue->find(record.event.instrument);
                     if (listed == nullptr) {
                         break; // a price without its instrument is not a price
                     }
                     ++feed.seq;
                     const auto& base = base_of(*listed);
-                    enqueue(feed.kind == Feed::Fills
-                                ? fill_frame(feed.id, feed.seq, record.event, base)
-                                : order_event_frame(feed.id, feed.seq, record.event, base));
+                    enqueue(feed.kind == Feed::Fills ? fill_frame(feed.id, feed.seq, record.event, base)
+                                                     : order_event_frame(feed.id, feed.seq, record.event, base));
                     ++sent;
                     break;
                 }
@@ -1235,8 +1203,8 @@ private:
 struct Stream::Impl {
     Impl(void* shared, const Registry& reg, const Clock& clk, std::string addr, std::uint16_t p)
         : owned{shared == nullptr ? std::make_unique<asio::io_context>(1) : nullptr},
-          ioc{shared == nullptr ? *owned : *static_cast<asio::io_context*>(shared)},
-          registry{reg}, clock{clk}, address{std::move(addr)}, port{p}, acceptor{ioc} {}
+          ioc{shared == nullptr ? *owned : *static_cast<asio::io_context*>(shared)}, registry{reg}, clock{clk},
+          address{std::move(addr)}, port{p}, acceptor{ioc} {}
 
     void accept() {
         acceptor.async_accept([this](beast::error_code ec, tcp::socket socket) {
@@ -1262,17 +1230,11 @@ struct Stream::Impl {
     bool running{false};
 };
 
-Stream::Stream(const Registry& registry,
-               const Clock& clock,
-               std::string address,
-               std::uint16_t port)
+Stream::Stream(const Registry& registry, const Clock& clock, std::string address, std::uint16_t port)
     : impl_{std::make_unique<Impl>(nullptr, registry, clock, std::move(address), port)} {}
 
-Stream::Stream(net::IoContext& io,
-               const Registry& registry,
-               const Clock& clock,
-               std::string address,
-               std::uint16_t port)
+Stream::Stream(
+    net::IoContext& io, const Registry& registry, const Clock& clock, std::string address, std::uint16_t port)
     : impl_{std::make_unique<Impl>(io.native(), registry, clock, std::move(address), port)} {}
 
 Stream::~Stream() = default;
@@ -1312,8 +1274,7 @@ std::size_t Stream::poll() noexcept {
         for (const auto& session : impl_->sessions) {
             work += session->tick(mono, wall);
         }
-        std::erase_if(impl_->sessions,
-                      [](const std::shared_ptr<Session>& session) { return session->closed(); });
+        std::erase_if(impl_->sessions, [](const std::shared_ptr<Session>& session) { return session->closed(); });
         if (impl_->ioc.stopped()) {
             impl_->ioc.restart();
         }

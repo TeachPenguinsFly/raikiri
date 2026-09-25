@@ -26,11 +26,8 @@ inline constexpr std::uint64_t k_ping_interval_ns = 10ULL * 1'000'000'000ULL;
 
 // "orderbook_p:BTCUSDT", or the bare channel for the all-symbol feeds. Empty
 // for a kind this venue does not stream.
-[[nodiscard]] std::string_view channel_key(exec::SubKind kind,
-                                           MarketType market,
-                                           Encoding encoding,
-                                           std::string_view symbol,
-                                           std::span<char> out) noexcept;
+[[nodiscard]] std::string_view channel_key(
+    exec::SubKind kind, MarketType market, Encoding encoding, std::string_view symbol, std::span<char> out) noexcept;
 
 // "orderbook_p:BTCUSDT" -> "BTCUSDT"; empty for a key naming no symbol.
 [[nodiscard]] std::string_view key_symbol(std::string_view key) noexcept;

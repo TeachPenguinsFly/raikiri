@@ -1,7 +1,6 @@
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
-
-#include <raikiri/log/log.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -25,13 +24,8 @@ public:
     using OnClose = std::function<void(WsCloseReason)>;
 
     // `current` is set only while forwarding on_message, which makes reply() unambiguous
-    ConnHandler(WsHandler& shared,
-                OnOpen opened,
-                OnClose closed,
-                WsClient** current,
-                std::string_view host)
-        : shared_{&shared}, opened_{std::move(opened)}, closed_{std::move(closed)},
-          current_{current}, host_{host} {}
+    ConnHandler(WsHandler& shared, OnOpen opened, OnClose closed, WsClient** current, std::string_view host)
+        : shared_{&shared}, opened_{std::move(opened)}, closed_{std::move(closed)}, current_{current}, host_{host} {}
 
     void speaks_for(WsClient& client) noexcept { self_ = &client; }
 
@@ -86,8 +80,8 @@ struct WsPool::Impl {
          WsPoolConfig pool,
          BuildFrames build,
          OnConnectionOpen opened)
-        : io{&io_ref}, config{std::move(cfg)}, handler{&shared}, settings{pool},
-          build_frames{std::move(build)}, on_open{std::move(opened)} {
+        : io{&io_ref}, config{std::move(cfg)}, handler{&shared}, settings{pool}, build_frames{std::move(build)},
+          on_open{std::move(opened)} {
         const auto& limits = process_ws_limits();
         if (!limits.configured) {
             return;
@@ -129,14 +123,9 @@ struct WsPool::Impl {
     WsClient* dispatching{nullptr};
 };
 
-WsPool::WsPool(IoContext& io,
-               WsConfig config,
-               WsHandler& handler,
-               WsPoolConfig pool,
-               BuildFrames build,
-               OnConnectionOpen opened)
-    : impl_{std::make_unique<Impl>(
-          io, std::move(config), handler, pool, std::move(build), std::move(opened))} {
+WsPool::WsPool(
+    IoContext& io, WsConfig config, WsHandler& handler, WsPoolConfig pool, BuildFrames build, OnConnectionOpen opened)
+    : impl_{std::make_unique<Impl>(io, std::move(config), handler, pool, std::move(build), std::move(opened))} {
     const std::lock_guard lock{g_pools_mu};
     g_pools.push_back(this);
 }
@@ -265,9 +254,8 @@ bool WsPool::requeue(std::string_view key, std::vector<std::string> frames) {
         if (std::ranges::find(conn->keys, key) == conn->keys.end()) {
             continue;
         }
-        conn->pending.insert(conn->pending.begin(),
-                             std::make_move_iterator(frames.begin()),
-                             std::make_move_iterator(frames.end()));
+        conn->pending.insert(
+            conn->pending.begin(), std::make_move_iterator(frames.begin()), std::make_move_iterator(frames.end()));
         return true;
     }
     return false;
@@ -296,8 +284,7 @@ void WsPool::poll(UnixNanos now) noexcept {
 }
 
 bool WsPool::connected() const noexcept {
-    return std::ranges::any_of(impl_->conns,
-                               [](const auto& conn) { return conn->client->connected(); });
+    return std::ranges::any_of(impl_->conns, [](const auto& conn) { return conn->client->connected(); });
 }
 
 std::size_t WsPool::connection_count() const noexcept {

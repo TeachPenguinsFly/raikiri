@@ -26,8 +26,7 @@ class RestApi {
 public:
     explicit RestApi(VenueState& state)
         : state_{&state},
-          rest_{state.io,
-                net::RestConfig{.host = std::string{ep::rest_host(state.testnet)}, .port = "443"}},
+          rest_{state.io, net::RestConfig{.host = std::string{ep::rest_host(state.testnet)}, .port = "443"}},
           builder_{state.signer} {}
 
     void start() { rest_.start(); }
@@ -51,9 +50,7 @@ public:
         }
     }
 
-
-    [[nodiscard]] std::expected<void, exec::VenueError>
-    spend(std::string_view target, exec::RateClass cls) noexcept {
+    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target, exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited, not closed
         }
@@ -61,30 +58,27 @@ public:
         if (taken.has_value()) {
             return {};
         }
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::RateLimited,
-            static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
-            "local rate budget spent; retry after the stated milliseconds")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::RateLimited,
+                                   static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
+                                   "local rate budget spent; retry after the stated milliseconds")};
     }
 
     // the envelope's fields view into `body`, which the caller owns
-    [[nodiscard]] std::expected<WireRestEnvelope, exec::VenueError>
-    fetch(const net::RestRequest& request,
-          std::string& body) {
+    [[nodiscard]] std::expected<WireRestEnvelope, exec::VenueError> fetch(const net::RestRequest& request,
+                                                                          std::string& body) {
         // poll class, refused before the socket so the venue never has to refuse
         if (const auto allowed = spend(request.target, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         auto response = await_response(*state_, rest_, request);
         if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
         body = std::move(response->body);
         const auto envelope = parse_envelope(body);
         if (!envelope.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope")};
         }
         if (envelope->ret_code != k_ret_ok) {
             const auto cls = classify(envelope->ret_code);
@@ -92,18 +86,15 @@ public:
                 // the venue refused: drain the meter so the next pass waits
                 penalize(request.target);
             }
-            return std::unexpected{
-                exec::VenueError::make(cls, envelope->ret_code, envelope->ret_msg)};
+            return std::unexpected{exec::VenueError::make(cls, envelope->ret_code, envelope->ret_msg)};
         }
         return *envelope;
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType market) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         const auto request = builder_.open_orders(market, state_->venue_now());
         if (!request.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
         const auto envelope = fetch(*request, body);
@@ -114,8 +105,7 @@ public:
         auto& storage = *storage_owner;
         const auto orders = parse_open_orders(envelope->result, storage);
         if (!orders.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
         }
         std::vector<exec::OrderStatusReport> reports;
         reports.reserve(orders->size());
@@ -127,8 +117,8 @@ public:
         return reports;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) {
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
             return std::unexpected{reports.error()};
@@ -138,16 +128,13 @@ public:
                 return report;
             }
         }
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
-                                                                                UnixNanos since) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
         const auto request = builder_.executions(market, since, state_->venue_now());
         if (!request.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
         const auto envelope = fetch(*request, body);
@@ -183,12 +170,10 @@ public:
         return reports;
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         const auto request = builder_.positions(market, state_->venue_now());
         if (!request.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
         const auto envelope = fetch(*request, body);
@@ -200,8 +185,7 @@ public:
         const auto positions = parse_position_list(envelope->result, storage);
         if (!positions.has_value()) {
             // an unreadable body is an error; an empty vector would read as flat
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable position list")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable position list")};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());
@@ -213,12 +197,10 @@ public:
         return reports;
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
-                                                                              UnixNanos since) {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
         const auto request = builder_.funding_charges(market, since, state_->venue_now());
         if (!request.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
         const auto envelope = fetch(*request, body);
@@ -230,8 +212,7 @@ public:
         const auto rows = parse_funding_charges(envelope->result, storage);
         if (!rows.has_value()) {
             // an unreadable body is an error, not an empty ledger
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "unreadable transaction log")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable transaction log")};
         }
         std::vector<LedgerEntry> charges;
         charges.reserve(rows->size());
@@ -268,8 +249,7 @@ public:
         (void)market;
         const auto request = builder_.wallet_balance(state_->venue_now());
         if (!request.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
         const auto envelope = fetch(*request, body);
@@ -281,8 +261,7 @@ public:
         const auto coins = parse_wallet_balance(envelope->result, storage);
         if (!coins.has_value()) {
             // an unreadable wallet is an error, not an empty account
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(coins.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(coins.error()))};
         }
         const auto ts = ms_to_unix(envelope->time_ms, state_->clock->wall());
         std::vector<BalanceReport> reports;

@@ -11,8 +11,7 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -27,20 +26,19 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             Text qty{std::unexpected(WireError::MissingField)};
             std::expected<std::uint64_t, WireError> trade_ms{0};
             std::expected<bool, WireError> maker{false};
-            const auto walked = wire::for_each_field(
-                obj, [&](std::string_view key, wire::ondemand::value& value) {
-                    if (key == "s") {
-                        symbol = wire::str_of(value);
-                    } else if (key == "p") {
-                        price = wire::str_of(value);
-                    } else if (key == "q") {
-                        qty = wire::str_of(value);
-                    } else if (key == "T") {
-                        trade_ms = wire::u64_of(value);
-                    } else if (key == "m") {
-                        maker = wire::bool_of(value);
-                    }
-                });
+            const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
+                if (key == "s") {
+                    symbol = wire::str_of(value);
+                } else if (key == "p") {
+                    price = wire::str_of(value);
+                } else if (key == "q") {
+                    qty = wire::str_of(value);
+                } else if (key == "T") {
+                    trade_ms = wire::u64_of(value);
+                } else if (key == "m") {
+                    maker = wire::bool_of(value);
+                }
+            });
             if (!walked.has_value()) {
                 return std::unexpected(walked.error());
             }
@@ -65,9 +63,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         // swap sends an array and spot one object; type() peeks without consuming
         bool seen = false;
         const auto walked = wire::for_each_field(
-            *root,
-            [&](std::string_view key,
-                wire::ondemand::value& value) -> std::expected<void, WireError> {
+            *root, [&](std::string_view key, wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key != "data" || seen) {
                     return {};
                 }

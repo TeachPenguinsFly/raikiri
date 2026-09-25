@@ -43,7 +43,7 @@ struct PositionBuffer {
 
 [[nodiscard]] std::expected<WirePosition, WireError> parse_position(std::string_view frame);
 
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view body, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
+                                                                                      PositionBuffer& storage);
 
 } // namespace raikiri::venues::bitfinex

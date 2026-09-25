@@ -53,16 +53,13 @@ public:
 
     // newest 2000 fills; `startTime` is inclusive, in ms
     [[nodiscard]] net::RestRequest user_fills(std::string_view user) noexcept;
-    [[nodiscard]] net::RestRequest user_fills_by_time(std::string_view user,
-                                                      std::uint64_t start_ms) noexcept;
+    [[nodiscard]] net::RestRequest user_fills_by_time(std::string_view user, std::uint64_t start_ms) noexcept;
 
     // `startTime` is required and the answer capped at 500 rows, so the caller walks forward
-    [[nodiscard]] net::RestRequest user_funding(std::string_view user,
-                                                std::uint64_t start_ms) noexcept;
+    [[nodiscard]] net::RestRequest user_funding(std::string_view user, std::uint64_t start_ms) noexcept;
 
     [[nodiscard]] net::RestRequest order_status(std::string_view user, std::uint64_t oid) noexcept;
-    [[nodiscard]] net::RestRequest order_status(std::string_view user,
-                                                std::string_view cloid) noexcept;
+    [[nodiscard]] net::RestRequest order_status(std::string_view user, std::string_view cloid) noexcept;
 
 private:
     [[nodiscard]] net::RestRequest simple(std::string_view type, std::string_view user) noexcept;

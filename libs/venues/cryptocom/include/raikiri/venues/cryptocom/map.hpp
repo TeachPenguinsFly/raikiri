@@ -18,27 +18,21 @@ inline constexpr std::uint32_t k_funding_interval_s = 3600;
 
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
-[[nodiscard]] std::optional<TradeTick>
-map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 // each publishes the merged memo, and none publishes before a rate is known
-[[nodiscard]] std::optional<FundingUpdate> map_funding_rate(const WireValue& wire,
-                                                            const InstrumentBase& base,
-                                                            FundingMemo& memo,
-                                                            UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_funding_rate(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<FundingUpdate> map_estimated_rate(const WireValue& wire,
-                                                              const InstrumentBase& base,
-                                                              FundingMemo& memo,
-                                                              UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_estimated_rate(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<FundingUpdate>
 map_mark(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
-                                                       MarketType market);
+[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 } // namespace raikiri::venues::cryptocom

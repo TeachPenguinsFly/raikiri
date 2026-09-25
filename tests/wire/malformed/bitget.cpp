@@ -69,10 +69,8 @@ TEST(Malformed, Bitget) {
                     static LevelBuffer storage;
                     (void)parse_rest_orderbook(f, storage);
                 }},
-               {"rest_current_fund_rate.json",
-                [](std::string_view f) { (void)parse_current_fund_rate(f); }},
-               {"rest_error_unknown_symbol.json",
-                [](std::string_view f) { (void)parse_rest_envelope(f); }},
+               {"rest_current_fund_rate.json", [](std::string_view f) { (void)parse_current_fund_rate(f); }},
+               {"rest_error_unknown_symbol.json", [](std::string_view f) { (void)parse_rest_envelope(f); }},
                {"rest_mix_account_bill.json",
                 [](std::string_view f) {
                     static BillBuffer storage;

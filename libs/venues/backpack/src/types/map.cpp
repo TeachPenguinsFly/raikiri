@@ -54,8 +54,7 @@ UnixNanos us_to_unix(std::uint64_t us, UnixNanos fallback) noexcept {
     return us == 0 ? fallback : UnixNanos{us * 1'000ULL};
 }
 
-std::optional<Bbo>
-map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -79,8 +78,7 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
-std::optional<Bbo>
-map_touch(const WireDepthSnapshot& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<Bbo> map_touch(const WireDepthSnapshot& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto best = [&](std::span<const WireLevel> side, bool highest) -> std::optional<Level> {
         std::optional<Level> out;
         for (const auto& level : side) {
@@ -89,8 +87,7 @@ map_touch(const WireDepthSnapshot& wire, const InstrumentBase& base, UnixNanos t
             if (!price.has_value() || !qty.has_value()) {
                 return std::nullopt; // off-grid: no touch rather than a wrong one
             }
-            if (!out.has_value() ||
-                (highest ? price->raw > out->price.raw : price->raw < out->price.raw)) {
+            if (!out.has_value() || (highest ? price->raw > out->price.raw : price->raw < out->price.raw)) {
                 out = Level{.price = *price, .qty = *qty};
             }
         }
@@ -112,8 +109,7 @@ map_touch(const WireDepthSnapshot& wire, const InstrumentBase& base, UnixNanos t
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -156,8 +152,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
-    out.next_funding_time =
-        wire.next_funding_ms == 0 ? UnixNanos{0} : UnixNanos{wire.next_funding_ms * 1'000'000ULL};
+    out.next_funding_time = wire.next_funding_ms == 0 ? UnixNanos{0} : UnixNanos{wire.next_funding_ms * 1'000'000ULL};
     out.interval_s = interval_of(*instrument);
     out.ts_event = us_to_unix(wire.event_us, ts_init);
     out.ts_init = ts_init;
@@ -244,8 +239,7 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
         return SpotInstrument{base};
     }
     // a non-whole-second interval stays 0; caps stay undef since the venue's bounds state no unit
-    const auto interval_s =
-        wire.funding_interval_ms % 1000 == 0 ? wire.funding_interval_ms / 1000 : 0;
+    const auto interval_s = wire.funding_interval_ms % 1000 == 0 ? wire.funding_interval_ms / 1000 : 0;
     PerpInstrument out{};
     out.base = base;
     out.funding_interval_s = static_cast<std::uint32_t>(interval_s);

@@ -15,8 +15,8 @@ namespace raikiri::admin {
 namespace {
 
 // statuses that can still fill; matches the partial index in sql/migrations/0001_init.sql
-constexpr std::string_view k_open_statuses =
-    "('submitted','accepted','partially_filled','pending_update','pending_cancel','triggered')";
+constexpr std::string_view
+    k_open_statuses = "('submitted','accepted','partially_filled','pending_update','pending_cancel','triggered')";
 
 // persisterd's detail text for the unknown verdict (libs/persist/src/mapper.cpp)
 constexpr std::string_view k_unknown_detail = "venue could not report";
@@ -72,8 +72,7 @@ constexpr char k_cursor_separator = '\x1F';
 class Where {
 public:
     // `expr op $n`, or `expr op ($n,$n+1,…)` for a row-value comparison.
-    template <typename... Values>
-    void add(std::string_view expr, std::string_view op, Values&&... values) {
+    template <typename... Values> void add(std::string_view expr, std::string_view op, Values&&... values) {
         static_assert(sizeof...(Values) >= 1);
         begin();
         sql_ += expr;
@@ -209,14 +208,11 @@ private:
         return found;
     }
     const auto id = opt_int(instrument);
-    return id.has_value() ? found.or_from(live(InstrumentId{static_cast<std::uint64_t>(*id)}))
-                          : found;
+    return id.has_value() ? found.or_from(live(InstrumentId{static_cast<std::uint64_t>(*id)})) : found;
 }
 
 [[nodiscard]] Scales scales_of(pqxx::row_ref row, const ScaleLookup& live) {
-    return complete(scales_of(row.at("tick_size_e9"), row.at("lot_size_e9")),
-                    row.at("instrument_id"),
-                    live);
+    return complete(scales_of(row.at("tick_size_e9"), row.at("lot_size_e9")), row.at("instrument_id"), live);
 }
 
 [[nodiscard]] Order read_order(pqxx::row_ref row, const ScaleLookup& live) {
@@ -278,8 +274,7 @@ private:
 }
 
 [[nodiscard]] Position read_position(pqxx::row_ref row, const ScaleLookup& live) {
-    const auto scales =
-        complete({.lot_size = scale_of(row.at("lot_size_e9"))}, row.at("instrument_id"), live);
+    const auto scales = complete({.lot_size = scale_of(row.at("lot_size_e9"))}, row.at("instrument_id"), live);
     Position out{};
     out.instrument_id = opt_id(row.at("instrument_id")).value_or(std::string{});
     out.strategy_id = int_of(row.at("strategy_id"));
@@ -303,8 +298,7 @@ private:
 }
 
 [[nodiscard]] FundingObservation read_funding(pqxx::row_ref row, const ScaleLookup& live) {
-    const auto scales =
-        complete({.tick_size = scale_of(row.at("tick_size_e9"))}, row.at("instrument_id"), live);
+    const auto scales = complete({.tick_size = scale_of(row.at("tick_size_e9"))}, row.at("instrument_id"), live);
     // the journal writes zero where the venue said nothing
     const auto next = int_of(row.at("next_funding_ts"));
     const auto interval = int_of(row.at("interval_s"));
@@ -313,8 +307,7 @@ private:
         .rate = opt_amount(row.at("rate_e9")).value_or(std::string{}),
         .predicted_rate = opt_amount(row.at("predicted_e9")),
         .mark_price = scales.price(ticks_of(row.at("mark_ticks"))),
-        .next_funding_time =
-            next > 0 ? std::optional{digits(static_cast<std::uint64_t>(next))} : std::nullopt,
+        .next_funding_time = next > 0 ? std::optional{digits(static_cast<std::uint64_t>(next))} : std::nullopt,
         .interval_seconds = interval > 0 ? std::optional{interval} : std::nullopt,
         .accrual = opt_text(row.at("accrual")),
         .ts_event = digits_of(row.at("ts_event")),
@@ -348,11 +341,8 @@ private:
 }
 
 template <typename T, typename Read>
-[[nodiscard]] Page<T> fetch(pqxx::connection& conn,
-                            const std::string& sql,
-                            const pqxx::params& params,
-                            std::size_t limit,
-                            Read read) {
+[[nodiscard]] Page<T>
+fetch(pqxx::connection& conn, const std::string& sql, const pqxx::params& params, std::size_t limit, Read read) {
     pqxx::read_transaction tx{conn};
     const auto rows = tx.exec(sql, params);
     tx.commit();
@@ -521,7 +511,9 @@ struct History::Impl {
 
 History::History(std::string dsn) : impl_{std::make_unique<Impl>(std::move(dsn))} {}
 
-void History::set_catalogue(ScaleLookup lookup) { impl_->catalogue = std::move(lookup); }
+void History::set_catalogue(ScaleLookup lookup) {
+    impl_->catalogue = std::move(lookup);
+}
 
 History::~History() = default;
 
@@ -551,25 +543,22 @@ namespace {
 [[nodiscard]] std::string instrument_at(std::string_view id, std::string_view ts) {
     return std::string{" LEFT JOIN LATERAL (SELECT tick_size_e9, lot_size_e9"
                        " FROM raikiri.instruments w WHERE w.instrument_id = "} +
-           std::string{id} + " AND w.valid_from <= " + std::string{ts} +
-           " AND (w.valid_to IS NULL OR " + std::string{ts} +
-           " < w.valid_to) ORDER BY w.valid_from DESC LIMIT 1) i ON TRUE";
+           std::string{id} + " AND w.valid_from <= " + std::string{ts} + " AND (w.valid_to IS NULL OR " +
+           std::string{ts} + " < w.valid_to) ORDER BY w.valid_from DESC LIMIT 1) i ON TRUE";
 }
 
-const std::string k_order_select =
-    "SELECT o.client_order_id, o.exchange_client_order_id, o.exchange_order_id,"
-    " o.instrument_id, o.side, o.order_type, o.tif, o.flags, o.price_ticks, o.qty_lots,"
-    " o.leaves_lots, o.status, o.reject_class, o.reject_code,"
-    " o.ts_created, o.ts_updated, i.tick_size_e9, i.lot_size_e9"
-    " FROM raikiri.orders o" +
-    instrument_at("o.instrument_id", "o.ts_created");
+const std::string k_order_select = "SELECT o.client_order_id, o.exchange_client_order_id, o.exchange_order_id,"
+                                   " o.instrument_id, o.side, o.order_type, o.tif, o.flags, o.price_ticks, o.qty_lots,"
+                                   " o.leaves_lots, o.status, o.reject_class, o.reject_code,"
+                                   " o.ts_created, o.ts_updated, i.tick_size_e9, i.lot_size_e9"
+                                   " FROM raikiri.orders o" +
+                                   instrument_at("o.instrument_id", "o.ts_created");
 
-const std::string k_fill_select =
-    "SELECT x.venue, x.exec_id, x.exchange_order_id, x.client_order_id, x.instrument_id,"
-    " x.side, x.price_ticks, x.qty_lots, x.fee_e9, x.liquidity, x.ts_event,"
-    " i.tick_size_e9, i.lot_size_e9"
-    " FROM raikiri.executions x" +
-    instrument_at("x.instrument_id", "x.ts_event");
+const std::string k_fill_select = "SELECT x.venue, x.exec_id, x.exchange_order_id, x.client_order_id, x.instrument_id,"
+                                  " x.side, x.price_ticks, x.qty_lots, x.fee_e9, x.liquidity, x.ts_event,"
+                                  " i.tick_size_e9, i.lot_size_e9"
+                                  " FROM raikiri.executions x" +
+                                  instrument_at("x.instrument_id", "x.ts_event");
 
 } // namespace
 
@@ -586,8 +575,7 @@ OrderPage History::orders(const PageQuery& query, std::optional<bool> open) cons
         where.add("o.ts_created", ">=", static_cast<std::int64_t>(query.since->ns));
     }
     if (open.has_value()) {
-        where.raw(std::string{*open ? "o.status IN " : "o.status NOT IN "} +
-                  std::string{k_open_statuses});
+        where.raw(std::string{*open ? "o.status IN " : "o.status NOT IN "} + std::string{k_open_statuses});
     }
     if (query.cursor.has_value()) {
         const auto key = as_unsigned(query.cursor->key);
@@ -604,9 +592,8 @@ OrderPage History::orders(const PageQuery& query, std::optional<bool> open) cons
     const auto sql = std::string{k_order_select} + where.text() +
                      " ORDER BY o.ts_created DESC, o.client_order_id DESC" + limit_clause(limit);
     return impl_->read(OrderPage{}, [&](pqxx::connection& conn) {
-        return fetch<Order>(conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
-            return read_order(row, impl_->catalogue);
-        });
+        return fetch<Order>(
+            conn, sql, where.params(), limit, [&](pqxx::row_ref row) { return read_order(row, impl_->catalogue); });
     });
 }
 
@@ -624,15 +611,14 @@ std::optional<Order> History::order(ClientOrderId id) const {
 
 std::vector<OrderEvent> History::order_events(ClientOrderId id) const {
     // (journal, journal_seq) orders events that share a nanosecond
-    const auto sql =
-        "SELECT e.client_order_id, e.instrument_id, e.event_type, e.price_ticks, e.qty_lots,"
-        " e.leaves_lots, e.fee_e9, e.exec_id, e.ts_event, i.tick_size_e9, i.lot_size_e9"
-        " FROM raikiri.order_events e" +
-        instrument_at("e.instrument_id", "e.ts_event") +
-        " WHERE e.client_order_id = $1"
-        " ORDER BY e.ts_event, e.journal, e.journal_seq"
-        " LIMIT " +
-        digits(k_max_page);
+    const auto sql = "SELECT e.client_order_id, e.instrument_id, e.event_type, e.price_ticks, e.qty_lots,"
+                     " e.leaves_lots, e.fee_e9, e.exec_id, e.ts_event, i.tick_size_e9, i.lot_size_e9"
+                     " FROM raikiri.order_events e" +
+                     instrument_at("e.instrument_id", "e.ts_event") +
+                     " WHERE e.client_order_id = $1"
+                     " ORDER BY e.ts_event, e.journal, e.journal_seq"
+                     " LIMIT " +
+                     digits(k_max_page);
     pqxx::params params;
     params.append(static_cast<std::int64_t>(id.raw));
     return impl_->read(std::vector<OrderEvent>{}, [&](pqxx::connection& conn) {
@@ -669,12 +655,10 @@ FillPage History::fills(const PageQuery& query) const {
     }
 
     const auto sql = std::string{k_fill_select} + where.text() +
-                     " ORDER BY x.ts_event DESC, x.venue DESC, x.exec_id DESC" +
-                     limit_clause(limit);
+                     " ORDER BY x.ts_event DESC, x.venue DESC, x.exec_id DESC" + limit_clause(limit);
     return impl_->read(FillPage{}, [&](pqxx::connection& conn) {
-        return fetch<Fill>(conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
-            return read_fill(row, impl_->catalogue);
-        });
+        return fetch<Fill>(
+            conn, sql, where.params(), limit, [&](pqxx::row_ref row) { return read_fill(row, impl_->catalogue); });
     });
 }
 
@@ -722,17 +706,13 @@ PnlPage History::pnl(const PageQuery& query, std::optional<PnlKind> kind) const 
         where.add("p.ts_event", ">=", static_cast<std::int64_t>(query.since->ns));
     }
     if (query.cursor.has_value()) {
-        where.add("(p.ts_event, p.source_id)",
-                  "<",
-                  static_cast<std::int64_t>(query.cursor->ts),
-                  query.cursor->key);
+        where.add("(p.ts_event, p.source_id)", "<", static_cast<std::int64_t>(query.cursor->ts), query.cursor->key);
     }
 
     const auto sql = "SELECT p.source_id, p.account_id, p.kind, p.amount_e9, p.ts_event,"
                      " p.strategy_id, p.instrument_id"
                      " FROM raikiri.pnl_increments p" +
-                     where.text() + " ORDER BY p.ts_event DESC, p.source_id DESC" +
-                     limit_clause(limit);
+                     where.text() + " ORDER BY p.ts_event DESC, p.source_id DESC" + limit_clause(limit);
     return impl_->read(PnlPage{}, [&](pqxx::connection& conn) {
         return fetch<PnlIncrement>(conn, sql, where.params(), limit, read_pnl);
     });
@@ -768,9 +748,7 @@ FundingPage History::funding(const PageQuery& query) const {
                      " ORDER BY f.ts_event DESC, f.instrument_id DESC" + limit_clause(limit);
     return impl_->read(FundingPage{}, [&](pqxx::connection& conn) {
         return fetch<FundingObservation>(
-            conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
-                return read_funding(row, impl_->catalogue);
-            });
+            conn, sql, where.params(), limit, [&](pqxx::row_ref row) { return read_funding(row, impl_->catalogue); });
     });
 }
 
@@ -792,19 +770,18 @@ ReconBreakPage History::recon_breaks(const PageQuery& query) const {
                   query.cursor->key2);
     }
 
-    const auto sql =
-        "SELECT b.venue, b.exchange_symbol, b.ts_seen, b.local_qty_lots, b.venue_qty_lots,"
-        " b.detail, m.instrument_id, m.lot_size_e9, m.matches"
-        " FROM raikiri.recon_breaks b"
-        " LEFT JOIN LATERAL (SELECT MIN(i.instrument_id) AS instrument_id,"
-        "                           MIN(i.lot_size_e9) AS lot_size_e9, COUNT(*) AS matches"
-        "                      FROM raikiri.instruments i"
-        "                     WHERE i.venue = b.venue"
-        "                       AND i.exchange_symbol = b.exchange_symbol"
-        "                       AND i.valid_from <= b.ts_seen"
-        "                       AND (i.valid_to IS NULL OR b.ts_seen < i.valid_to)) m ON TRUE" +
-        where.text() + " ORDER BY b.ts_seen DESC, b.venue DESC, b.exchange_symbol DESC" +
-        limit_clause(limit);
+    const auto sql = "SELECT b.venue, b.exchange_symbol, b.ts_seen, b.local_qty_lots, b.venue_qty_lots,"
+                     " b.detail, m.instrument_id, m.lot_size_e9, m.matches"
+                     " FROM raikiri.recon_breaks b"
+                     " LEFT JOIN LATERAL (SELECT MIN(i.instrument_id) AS instrument_id,"
+                     "                           MIN(i.lot_size_e9) AS lot_size_e9, COUNT(*) AS matches"
+                     "                      FROM raikiri.instruments i"
+                     "                     WHERE i.venue = b.venue"
+                     "                       AND i.exchange_symbol = b.exchange_symbol"
+                     "                       AND i.valid_from <= b.ts_seen"
+                     "                       AND (i.valid_to IS NULL OR b.ts_seen < i.valid_to)) m ON TRUE" +
+                     where.text() + " ORDER BY b.ts_seen DESC, b.venue DESC, b.exchange_symbol DESC" +
+                     limit_clause(limit);
     return impl_->read(ReconBreakPage{}, [&](pqxx::connection& conn) {
         return fetch<ReconBreak>(conn, sql, where.params(), limit, read_recon_break);
     });

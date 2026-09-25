@@ -62,8 +62,8 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
     return {};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::op_frame(std::string_view op, std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view op,
+                                                                std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -115,13 +115,11 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     return Frame{.text = {frame_.data(), len}, .consumed = batch};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("subscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("unsubscribe", subscriptions);
 }
 
@@ -136,13 +134,11 @@ Protocol::login_frame(const net::Signer& signer, std::string_view passphrase, Un
     }
     std::array<char, 24> seconds_text{};
     const auto seconds = now.ns / 1'000'000'000ULL;
-    const auto [stop, ec] =
-        std::to_chars(seconds_text.data(), seconds_text.data() + seconds_text.size(), seconds);
+    const auto [stop, ec] = std::to_chars(seconds_text.data(), seconds_text.data() + seconds_text.size(), seconds);
     if (ec != std::errc{}) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
-    const std::string_view timestamp{seconds_text.data(),
-                                     static_cast<std::size_t>(stop - seconds_text.data())};
+    const std::string_view timestamp{seconds_text.data(), static_cast<std::size_t>(stop - seconds_text.data())};
 
     std::size_t len = 0;
     const auto append = [&](std::string_view text) {
@@ -158,8 +154,7 @@ Protocol::login_frame(const net::Signer& signer, std::string_view passphrase, Un
     }
     login_msg_len_ = len;
 
-    const auto signature =
-        signer.sign(last_login_message(), net::Signer::Encoding::Base64, signature_);
+    const auto signature = signer.sign(last_login_message(), net::Signer::Encoding::Base64, signature_);
     if (signature.empty()) {
         return std::unexpected{WsBuildError::NotSigned};
     }

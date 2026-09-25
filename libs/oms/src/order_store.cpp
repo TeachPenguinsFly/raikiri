@@ -18,11 +18,9 @@ OrderStore::OrderStore(std::size_t capacity) : slots_(capacity) {
     by_exchange_.reserve(capacity);
 }
 
-std::expected<Order*, StoreError>
-OrderStore::create(const OrderCmd& cmd,
-                   const ExchangeClientOrderId& exchange_client_order_id) noexcept {
-    if (by_client_.contains(cmd.client_order_id) ||
-        by_exchange_client_.contains(exchange_client_order_id)) {
+std::expected<Order*, StoreError> OrderStore::create(const OrderCmd& cmd,
+                                                     const ExchangeClientOrderId& exchange_client_order_id) noexcept {
+    if (by_client_.contains(cmd.client_order_id) || by_exchange_client_.contains(exchange_client_order_id)) {
         return std::unexpected{StoreError::Duplicate};
     }
     if (free_.empty()) {

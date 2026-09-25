@@ -16,18 +16,25 @@ public:
     std::expected<ClientOrderId, RejectReason> submit(const NewOrder&) noexcept override {
         return std::unexpected{RejectReason::VenueDown};
     }
+
     bool cancel(ClientOrderId) noexcept override { return false; }
+
     void cancel_all(InstrumentId) noexcept override {}
+
     std::optional<Bbo> bbo(InstrumentId) const noexcept override { return std::nullopt; }
+
     const Instrument* instrument(InstrumentId) const noexcept override { return nullptr; }
+
     const portfolio::Position* position(InstrumentId) const noexcept override { return nullptr; }
-    FixedE9 unrealized(InstrumentId, PriceTicks) const noexcept override {
-        return FixedE9::from_raw(0);
-    }
+
+    FixedE9 unrealized(InstrumentId, PriceTicks) const noexcept override { return FixedE9::from_raw(0); }
+
     std::optional<ClientOrderId> set_target(const portfolio::PortfolioTarget&) noexcept override {
         return std::nullopt;
     }
+
     void set_timer(std::uint32_t, std::uint64_t) noexcept override {}
+
     const Clock& clock() const noexcept override { return clock_; }
 
 private:
@@ -44,15 +51,17 @@ public:
     explicit Recorder(std::string tag) : tag_{std::move(tag)} {}
 
     void on_start(Context&) override { journal().push_back(tag_ + ":start"); }
+
     void on_stop(Context&) override { journal().push_back(tag_ + ":stop"); }
+
     void on_bbo(Context&, const Bbo&) override { journal().push_back(tag_ + ":bbo"); }
+
     void on_trade(Context&, const TradeTick&) override { journal().push_back(tag_ + ":trade"); }
-    void on_funding(Context&, const FundingUpdate&) override {
-        journal().push_back(tag_ + ":funding");
-    }
-    void on_order_event(Context&, const OrderEvent&) override {
-        journal().push_back(tag_ + ":order");
-    }
+
+    void on_funding(Context&, const FundingUpdate&) override { journal().push_back(tag_ + ":funding"); }
+
+    void on_order_event(Context&, const OrderEvent&) override { journal().push_back(tag_ + ":order"); }
+
     void on_timer(Context&, std::uint32_t) override { journal().push_back(tag_ + ":timer"); }
 
 private:
@@ -63,8 +72,7 @@ class Picky final : public Strategy {
 public:
     static MakeResult make(const Params& params) {
         if (params.config != "good") {
-            return std::unexpected{"config must be exactly \"good\", got: " +
-                                   std::string{params.config}};
+            return std::unexpected{"config must be exactly \"good\", got: " + std::string{params.config}};
         }
         return std::make_unique<Picky>();
     }
@@ -138,7 +146,8 @@ TEST(StrategyFactory, AConstructorReturningNothingBecomesAReasonRatherThanACrash
 }
 
 TEST(StrategyFactory, TheStrategiesLibraryRegistersByACallAndNotByAStaticInitializer) {
-    // a static registrar in an unreferenced translation unit is dropped by the linker; register_all is the explicit call
+    // a static registrar in an unreferenced translation unit is dropped by the linker; register_all is the explicit
+    // call
     Factory types;
     EXPECT_EQ(raikiri::strategies::register_all(types), 1U);
     EXPECT_TRUE(types.contains("demo-maker"));
@@ -158,9 +167,7 @@ TEST(StrategyFactory, TypesComeBackSortedSoAListingCanBeDiffed) {
 TEST(StrategyRegistry, TheManualDeskIdIsNeverHandedToAStrategy) {
     Harness h;
     Registry live{h.kernel()};
-    const auto made =
-        live.create({.name = "impostor", .type = "quiet", .strategy_id = k_manual_strategy_id},
-                    h.types);
+    const auto made = live.create({.name = "impostor", .type = "quiet", .strategy_id = k_manual_strategy_id}, h.types);
     ASSERT_FALSE(made.has_value());
     EXPECT_EQ(made.error().error, CreateError::IdReserved);
 }
@@ -211,8 +218,7 @@ TEST(StrategyRegistry, AKernelWithNoWindowRefusesRatherThanRunningBlind) {
 TEST(StrategyRegistry, AConfigTheStrategyRefusesComesBackInItsOwnWords) {
     Harness h;
     Registry live{h.kernel()};
-    const auto made = live.create(
-        {.name = "p", .type = "picky", .config = "rubbish", .strategy_id = 6}, h.types);
+    const auto made = live.create({.name = "p", .type = "picky", .config = "rubbish", .strategy_id = 6}, h.types);
     ASSERT_FALSE(made.has_value());
     EXPECT_EQ(made.error().error, CreateError::Refused);
     EXPECT_NE(made.error().detail.find("rubbish"), std::string::npos) << made.error().detail;
@@ -224,11 +230,9 @@ TEST(StrategyRegistry, ItRefusesToGrowPastItsCapacity) {
     Harness h;
     Registry live{h.kernel()};
     for (std::uint16_t id = 2; id < 2 + Registry::k_max_instances; ++id) {
-        ASSERT_TRUE(live.create({.name = "q", .type = "quiet", .strategy_id = id}, h.types))
-            << "id " << id;
+        ASSERT_TRUE(live.create({.name = "q", .type = "quiet", .strategy_id = id}, h.types)) << "id " << id;
     }
-    const auto over = live.create({.name = "one-too-many", .type = "quiet", .strategy_id = 900},
-                                  h.types);
+    const auto over = live.create({.name = "one-too-many", .type = "quiet", .strategy_id = 900}, h.types);
     ASSERT_FALSE(over.has_value());
     EXPECT_EQ(over.error().error, CreateError::Full);
     EXPECT_EQ(live.size(), Registry::k_max_instances);
@@ -257,8 +261,7 @@ TEST(StrategyRegistry, StopReversesStartExactly) {
     ASSERT_TRUE(live.stop(3));
     live.on_bbo({});
 
-    EXPECT_EQ(journal(),
-              (std::vector<std::string>{"s3:start", "s3:bbo", "s3:stop", "cancel:3"}));
+    EXPECT_EQ(journal(), (std::vector<std::string>{"s3:start", "s3:bbo", "s3:stop", "cancel:3"}));
 }
 
 TEST(StrategyRegistry, AStopPullsWorkingOrdersAndReportsHowMany) {
@@ -332,12 +335,7 @@ TEST(StrategyRegistry, MarketDataReachesEveryRunningInstance) {
     live.on_trade({});
     live.on_funding({});
     EXPECT_EQ(journal(),
-              (std::vector<std::string>{"s3:bbo",
-                                        "s4:bbo",
-                                        "s3:trade",
-                                        "s4:trade",
-                                        "s3:funding",
-                                        "s4:funding"}));
+              (std::vector<std::string>{"s3:bbo", "s4:bbo", "s3:trade", "s4:trade", "s3:funding", "s4:funding"}));
 }
 
 TEST(StrategyRegistry, AnOrderEventReachesOnlyTheStrategyThatPlacedIt) {

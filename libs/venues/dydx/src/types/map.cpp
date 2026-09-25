@@ -105,8 +105,7 @@ std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) noe
 
 std::optional<FixedE9> quantum_tick(const WireMarket& wire) noexcept {
     return scaled(wire.subticks_per_tick,
-                  wire.quantum_conversion_exponent - wire.atomic_resolution + k_quote_resolution +
-                      9);
+                  wire.quantum_conversion_exponent - wire.atomic_resolution + k_quote_resolution + 9);
 }
 
 std::optional<FixedE9> quantum_lot(const WireMarket& wire) noexcept {
@@ -124,8 +123,7 @@ std::expected<Instrument, Refusal> map_instrument(const WireMarket& wire) {
     }
     const auto stated_tick = parse_decimal_e9(wire.tick_size);
     const auto stated_lot = parse_decimal_e9(wire.step_size);
-    if (!stated_tick.has_value() || !stated_lot.has_value() || *stated_tick != *tick ||
-        *stated_lot != *lot) {
+    if (!stated_tick.has_value() || !stated_lot.has_value() || *stated_tick != *tick || *stated_lot != *lot) {
         return std::unexpected(Refusal::Disagrees);
     }
     if (!wire.ticker.ends_with(k_ticker_suffix)) {
@@ -149,8 +147,7 @@ std::expected<Instrument, Refusal> map_instrument(const WireMarket& wire) {
     return PerpInstrument{base, k_funding_interval_s};
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = exact_steps(wire.price, base.tick_size);
     const auto qty = exact_steps(wire.size, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -189,12 +186,10 @@ UnixNanos next_hour(UnixNanos now) noexcept {
     return UnixNanos{(now.ns / interval + 1) * interval};
 }
 
-std::optional<FundingUpdate>
-map_funding(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<FundingUpdate> map_funding(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
     // parse_rate_e9, not the exact reader: the rate is a mean of hourly samples
     // and runs to 20 decimals ("0.00002770535714285714").
-    const auto rate =
-        wire.next_funding_rate.empty() ? std::nullopt : parse_rate_e9(wire.next_funding_rate);
+    const auto rate = wire.next_funding_rate.empty() ? std::nullopt : parse_rate_e9(wire.next_funding_rate);
     if (!rate.has_value()) {
         return std::nullopt;
     }
@@ -212,8 +207,7 @@ map_funding(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_ini
     return out;
 }
 
-std::optional<TickerStats>
-map_ticker_stats(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TickerStats> map_ticker_stats(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto turnover = parse_turnover_e6(wire.volume_24h);
     if (!turnover.has_value()) {
         return std::nullopt;
@@ -228,8 +222,8 @@ map_ticker_stats(const WireMarket& wire, const InstrumentBase& base, UnixNanos t
 
 std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
     constexpr std::size_t head = 19; // YYYY-MM-DDTHH:MM:SS
-    if (text.size() < head + 1 || text.back() != 'Z' || text[4] != '-' || text[7] != '-' ||
-        text[10] != 'T' || text[13] != ':' || text[16] != ':') {
+    if (text.size() < head + 1 || text.back() != 'Z' || text[4] != '-' || text[7] != '-' || text[10] != 'T' ||
+        text[13] != ':' || text[16] != ':') {
         return std::nullopt;
     }
     const auto year = digits_at(text, 0, 4);
@@ -238,8 +232,8 @@ std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
     const auto hour = digits_at(text, 11, 2);
     const auto minute = digits_at(text, 14, 2);
     const auto second = digits_at(text, 17, 2);
-    if (!year || !month || !day || !hour || !minute || !second || *year < 1970 || *month < 1 ||
-        *month > 12 || *day < 1 || *day > 31 || *hour > 23 || *minute > 59 || *second > 59) {
+    if (!year || !month || !day || !hour || !minute || !second || *year < 1970 || *month < 1 || *month > 12 ||
+        *day < 1 || *day > 31 || *hour > 23 || *minute > 59 || *second > 59) {
         return std::nullopt;
     }
     std::uint64_t frac_ns = 0;

@@ -29,8 +29,7 @@ FixedE9 amount_or_undef(std::string_view text) {
     return parse_amount_e9(text).value_or(FixedE9::undef());
 }
 
-FundingUpdate
-merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
+FundingUpdate merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = memo.rate;
@@ -43,10 +42,8 @@ merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, 
     return out;
 }
 
-std::optional<FundingUpdate> publish_if_rated(const InstrumentBase& base,
-                                              const FundingMemo& memo,
-                                              std::uint64_t ms,
-                                              UnixNanos ts_init) {
+std::optional<FundingUpdate>
+publish_if_rated(const InstrumentBase& base, const FundingMemo& memo, std::uint64_t ms, UnixNanos ts_init) {
     if (memo.rate.is_undef()) {
         return std::nullopt;
     }
@@ -66,8 +63,7 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = exact_steps(wire.price, base.tick_size);
     const auto qty = exact_steps(wire.qty, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -89,8 +85,7 @@ map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init) 
     return out;
 }
 
-std::optional<TickerStats>
-map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
     TickerStats out{};
     out.instrument = base.id;
     out.volume_24h_base = amount_or_undef(wire.volume);
@@ -103,10 +98,8 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
     return out;
 }
 
-std::optional<FundingUpdate> map_funding_rate(const WireValue& wire,
-                                              const InstrumentBase& base,
-                                              FundingMemo& memo,
-                                              UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding_rate(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init) {
     const auto rate = parse_rate_e9(wire.value);
     if (!rate.has_value()) {
         return std::nullopt;
@@ -116,10 +109,8 @@ std::optional<FundingUpdate> map_funding_rate(const WireValue& wire,
     return publish_if_rated(base, memo, wire.ts_ms, ts_init);
 }
 
-std::optional<FundingUpdate> map_estimated_rate(const WireValue& wire,
-                                                const InstrumentBase& base,
-                                                FundingMemo& memo,
-                                                UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_estimated_rate(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init) {
     const auto rate = parse_rate_e9(wire.value);
     if (!rate.has_value()) {
         return std::nullopt;

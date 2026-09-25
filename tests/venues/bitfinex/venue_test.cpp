@@ -60,12 +60,10 @@ public:
 // built through the real mapper so the table carries the derived 1e-8 grid
 exec::InstrumentTable table_with_btc() {
     exec::InstrumentTable table;
-    const auto spot =
-        map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Spot);
+    const auto spot = map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Spot);
     EXPECT_TRUE(spot.has_value());
     EXPECT_TRUE(table.add(*spot).has_value());
-    const auto perp =
-        map_instrument({.pair = "BTCF0:USTF0", .min_order_size = "0.00004"}, MarketType::Perp);
+    const auto perp = map_instrument({.pair = "BTCF0:USTF0", .min_order_size = "0.00004"}, MarketType::Perp);
     EXPECT_TRUE(perp.has_value());
     EXPECT_TRUE(table.add(*perp).has_value());
     return table;
@@ -77,8 +75,7 @@ TEST(BitfinexVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bitfinex);
     EXPECT_NE(adapter->data, nullptr);
@@ -88,8 +85,7 @@ TEST(BitfinexVenue, AnUnbuildableOrderComesBackAsARejectedEvent) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -112,8 +108,7 @@ TEST(BitfinexVenue, UnservedMarketsRefuseWithTheirOwnName) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto options = adapter->execution->open_order_reports(MarketType::Option);
@@ -144,8 +139,7 @@ TEST(BitfinexVenue, PullsWithoutCredentialsAnswerAuthFailure) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto& pull : {adapter->execution->open_order_reports(MarketType::Perp)}) {
@@ -212,12 +206,10 @@ TEST(BitfinexWire, SubscribeAckIsTheOnlyBindingOfIdToInstrument) {
         const char* symbol;
     };
 
-    for (const auto& e :
-         {Expected{"ws_subscribed_ticker.json", 862367, ChannelKind::Ticker, "tBTCUSD"},
-          Expected{"ws_subscribed_trades.json", 694830, ChannelKind::Trades, "tBTCUSD"},
-          Expected{"ws_subscribed_book.json", 722232, ChannelKind::Book, "tBTCUSD"},
-          Expected{
-              "ws_subscribed_ticker_perp.json", 840202, ChannelKind::Ticker, "tBTCF0:USTF0"}}) {
+    for (const auto& e : {Expected{"ws_subscribed_ticker.json", 862367, ChannelKind::Ticker, "tBTCUSD"},
+                          Expected{"ws_subscribed_trades.json", 694830, ChannelKind::Trades, "tBTCUSD"},
+                          Expected{"ws_subscribed_book.json", 722232, ChannelKind::Book, "tBTCUSD"},
+                          Expected{"ws_subscribed_ticker_perp.json", 840202, ChannelKind::Ticker, "tBTCF0:USTF0"}}) {
         const auto frame = fixture(e.file);
         const auto ack = parse_subscribed(frame);
         ASSERT_TRUE(ack.has_value()) << e.file;
@@ -534,10 +526,9 @@ TEST(BitfinexBook, ACountOfZeroDeletesOnTheSideItsSignNames) {
     ASSERT_TRUE(both.has_value());
     expect_coherent(*both);
     EXPECT_EQ(both->ask_count, 24U);
-    const auto gone =
-        std::find_if(both->asks.begin(),
-                     both->asks.begin() + both->ask_count,
-                     [](const BookLevel& level) { return level.price.raw == 6'396'300'000'000; });
+    const auto gone = std::find_if(both->asks.begin(),
+                                   both->asks.begin() + both->ask_count,
+                                   [](const BookLevel& level) { return level.price.raw == 6'396'300'000'000; });
     EXPECT_EQ(gone, both->asks.begin() + both->ask_count);
 }
 
@@ -586,8 +577,7 @@ TEST(BitfinexBook, ALevelOffTheGridInvalidatesTheWholeBook) {
     EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot.json")), BookResult::Resynced);
 
     // a ninth decimal, off the 1e-8 grid
-    const std::array<WireLevel, 1> off_grid{
-        WireLevel{.price = "63950.000000005", .amount = "0.0002", .count = 1}};
+    const std::array<WireLevel, 1> off_grid{WireLevel{.price = "63950.000000005", .amount = "0.0002", .count = 1}};
     WireBook bad{};
     bad.levels = off_grid;
     EXPECT_EQ(book.apply(bad), BookResult::BadLevel);
@@ -704,8 +694,7 @@ TEST(BitfinexMap, TimestampedTickerCarriesTheVenueClock) {
     const auto info = parse_frame(frame);
     const auto wire = parse_ticker(frame);
     ASSERT_TRUE(info.has_value() && wire.has_value());
-    const auto bbo =
-        map_bbo(*wire, "tBTCUSD", table, ms_to_unix(info->ts_ms, UnixNanos{0}), k_ingest);
+    const auto bbo = map_bbo(*wire, "tBTCUSD", table, ms_to_unix(info->ts_ms, UnixNanos{0}), k_ingest);
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->ts_event.ns, 1'786'431'364'643ULL * 1'000'000ULL);
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
@@ -775,11 +764,9 @@ TEST(BitfinexWire, PairInfoArityDiffersBetweenMarkets) {
 
 TEST(BitfinexMap, PaperTradingPairsAreRefused) {
     EXPECT_FALSE(
-        map_instrument({.pair = "TESTBTC:TESTUSD", .min_order_size = "0.00004"}, MarketType::Spot)
-            .has_value());
-    EXPECT_FALSE(map_instrument({.pair = "TESTBTCF0:TESTUSDTF0", .min_order_size = "0.00004"},
-                                MarketType::Perp)
-                     .has_value());
+        map_instrument({.pair = "TESTBTC:TESTUSD", .min_order_size = "0.00004"}, MarketType::Spot).has_value());
+    EXPECT_FALSE(
+        map_instrument({.pair = "TESTBTCF0:TESTUSDTF0", .min_order_size = "0.00004"}, MarketType::Perp).has_value());
 }
 
 TEST(BitfinexMap, CatalogueLoadsBothMarketsAndDropsThePaperRows) {
@@ -802,18 +789,13 @@ TEST(BitfinexMap, CatalogueLoadsBothMarketsAndDropsThePaperRows) {
 }
 
 TEST(BitfinexMap, MarketIsDecidedByTheSymbolShape) {
-    EXPECT_FALSE(
-        map_instrument({.pair = "BTCF0:USTF0", .min_order_size = "0.00004"}, MarketType::Spot)
-            .has_value());
-    EXPECT_FALSE(map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Perp)
-                     .has_value());
-    EXPECT_FALSE(map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Future)
-                     .has_value());
+    EXPECT_FALSE(map_instrument({.pair = "BTCF0:USTF0", .min_order_size = "0.00004"}, MarketType::Spot).has_value());
+    EXPECT_FALSE(map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Perp).has_value());
+    EXPECT_FALSE(map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Future).has_value());
 }
 
 TEST(BitfinexMap, EveryInstrumentCarriesTheSameDerivedGrid) {
-    const auto spot =
-        map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Spot);
+    const auto spot = map_instrument({.pair = "BTCUSD", .min_order_size = "0.00004"}, MarketType::Spot);
     ASSERT_TRUE(spot.has_value());
     const auto& base = base_of(*spot);
     EXPECT_EQ(base.tick_size.raw, k_step_e9);
@@ -822,20 +804,16 @@ TEST(BitfinexMap, EveryInstrumentCarriesTheSameDerivedGrid) {
     EXPECT_TRUE(base.min_notional.is_undef());
     EXPECT_EQ(base.exchange_symbol.view(), "tBTCUSD");
 
-    const auto perp =
-        map_instrument({.pair = "BTCF0:USTF0", .min_order_size = "0.00004"}, MarketType::Perp);
+    const auto perp = map_instrument({.pair = "BTCF0:USTF0", .min_order_size = "0.00004"}, MarketType::Perp);
     ASSERT_TRUE(perp.has_value());
     EXPECT_EQ(base_of(*perp).tick_size.raw, k_step_e9);
     EXPECT_EQ(std::get<PerpInstrument>(*perp).funding_interval_s, k_funding_interval_s);
 }
 
 TEST(BitfinexMap, RowWhoseOnlyNumberWillNotReadIsRefused) {
-    EXPECT_FALSE(
-        map_instrument({.pair = "BTCUSD", .min_order_size = ""}, MarketType::Spot).has_value());
-    EXPECT_FALSE(
-        map_instrument({.pair = "BTCUSD", .min_order_size = "0"}, MarketType::Spot).has_value());
-    EXPECT_FALSE(
-        map_instrument({.pair = "BTCUSD", .min_order_size = "abc"}, MarketType::Spot).has_value());
+    EXPECT_FALSE(map_instrument({.pair = "BTCUSD", .min_order_size = ""}, MarketType::Spot).has_value());
+    EXPECT_FALSE(map_instrument({.pair = "BTCUSD", .min_order_size = "0"}, MarketType::Spot).has_value());
+    EXPECT_FALSE(map_instrument({.pair = "BTCUSD", .min_order_size = "abc"}, MarketType::Spot).has_value());
 }
 
 TEST(BitfinexWire, PlatformStatusGatesTheCatalogue) {
@@ -873,14 +851,8 @@ TEST(BitfinexMap, PriceFinerThanTheGridIsDroppedNotRounded) {
 
 TEST(BitfinexMap, EveryPriceTheVenueActuallySendsDividesExactly) {
     const auto table = table_with_btc();
-    for (const auto* token : {"63947",
-                              "1873.7",
-                              "0.18767",
-                              "1.0052",
-                              "0.070163",
-                              "0.00000449",
-                              "0.00070516",
-                              "411.17199071"}) {
+    for (const auto* token :
+         {"63947", "1873.7", "0.18767", "1.0052", "0.070163", "0.00000449", "0.00070516", "411.17199071"}) {
         EXPECT_TRUE(parse_number_e9(token).has_value()) << token;
         EXPECT_EQ(parse_number_e9(token)->raw % k_step_e9, 0) << token;
     }
@@ -889,27 +861,22 @@ TEST(BitfinexMap, EveryPriceTheVenueActuallySendsDividesExactly) {
 
 TEST(BitfinexWs, EachChannelTakesItsOwnKeys) {
     Protocol protocol;
-    const auto ticker =
-        protocol.subscribe_frame({.kind = ChannelKind::Ticker, .symbol = "tBTCUSD"});
+    const auto ticker = protocol.subscribe_frame({.kind = ChannelKind::Ticker, .symbol = "tBTCUSD"});
     ASSERT_TRUE(ticker.has_value());
     EXPECT_EQ(ticker->text, R"({"event":"subscribe","channel":"ticker","symbol":"tBTCUSD"})");
 
-    const auto trades =
-        protocol.subscribe_frame({.kind = ChannelKind::Trades, .symbol = "tBTCUSD"});
+    const auto trades = protocol.subscribe_frame({.kind = ChannelKind::Trades, .symbol = "tBTCUSD"});
     ASSERT_TRUE(trades.has_value());
     EXPECT_EQ(trades->text, R"({"event":"subscribe","channel":"trades","symbol":"tBTCUSD"})");
 
     const auto book = protocol.subscribe_frame({.kind = ChannelKind::Book, .symbol = "tBTCUSD"});
     ASSERT_TRUE(book.has_value());
-    EXPECT_EQ(
-        book->text,
-        R"({"event":"subscribe","channel":"book","symbol":"tBTCUSD","prec":"P0","freq":"F0","len":"100"})");
+    EXPECT_EQ(book->text,
+              R"({"event":"subscribe","channel":"book","symbol":"tBTCUSD","prec":"P0","freq":"F0","len":"100"})");
 
-    const auto status =
-        protocol.subscribe_frame({.kind = ChannelKind::DerivStatus, .symbol = "tBTCF0:USTF0"});
+    const auto status = protocol.subscribe_frame({.kind = ChannelKind::DerivStatus, .symbol = "tBTCF0:USTF0"});
     ASSERT_TRUE(status.has_value());
-    EXPECT_EQ(status->text,
-              R"({"event":"subscribe","channel":"status","key":"deriv:tBTCF0:USTF0"})");
+    EXPECT_EQ(status->text, R"({"event":"subscribe","channel":"status","key":"deriv:tBTCF0:USTF0"})");
 }
 
 TEST(BitfinexWs, UnsubscribeIsByChannelIdBecauseThatIsTheIdentity) {
@@ -929,8 +896,7 @@ TEST(BitfinexWs, SubscriptionIntentsResolveToChannels) {
     EXPECT_EQ(kind_for(exec::SubKind::Kline), ChannelKind::Unknown);
 
     Protocol protocol;
-    EXPECT_FALSE(
-        protocol.subscribe_frame({.kind = ChannelKind::Unknown, .symbol = "tBTCUSD"}).has_value());
+    EXPECT_FALSE(protocol.subscribe_frame({.kind = ChannelKind::Unknown, .symbol = "tBTCUSD"}).has_value());
     EXPECT_FALSE(protocol.subscribe_frame({.kind = ChannelKind::Ticker, .symbol = {}}).has_value());
 }
 
@@ -1054,8 +1020,7 @@ TEST(BitfinexSign, TheRestDigestCoversAPrefixThatIsNotSent) {
     EXPECT_EQ(header_of(*request, "bfx-nonce"), k_nonce);
     EXPECT_EQ(header_of(*request, "bfx-apikey"), k_api_key);
 
-    const std::string message =
-        std::string{"/api/v2/auth/r/orders"} + std::string{k_nonce} + std::string{"{}"};
+    const std::string message = std::string{"/api/v2/auth/r/orders"} + std::string{k_nonce} + std::string{"{}"};
     EXPECT_EQ(builder.last_sign_message(), message);
     EXPECT_EQ(header_of(*request, "bfx-signature"), digest_of(message));
 }
@@ -1114,14 +1079,12 @@ TEST(BitfinexRest, ASellIsANegativeAmountAndNothingElse) {
     ASSERT_TRUE(secret.assign(k_api_secret).has_value());
     SignedRequestBuilder builder{k_api_key, secret};
 
-    const auto buy =
-        builder.create_order(order_for(table, "tBTCUSD", Side::Buy), table, k_sign_now);
+    const auto buy = builder.create_order(order_for(table, "tBTCUSD", Side::Buy), table, k_sign_now);
     ASSERT_TRUE(buy.has_value()) << to_string(buy.error());
     EXPECT_EQ(buy->target, "/v2/auth/w/order/submit");
     EXPECT_NE(std::string{buy->body}.find(R"("amount":"0.1")"), std::string::npos) << buy->body;
 
-    const auto sell =
-        builder.create_order(order_for(table, "tBTCUSD", Side::Sell), table, k_sign_now);
+    const auto sell = builder.create_order(order_for(table, "tBTCUSD", Side::Sell), table, k_sign_now);
     ASSERT_TRUE(sell.has_value());
     EXPECT_NE(std::string{sell->body}.find(R"("amount":"-0.1")"), std::string::npos) << sell->body;
 }
@@ -1154,8 +1117,7 @@ TEST(BitfinexRest, TheWholeCreateBodyRidesTheSignature) {
               std::string{R"({"type":"LIMIT","symbol":"tBTCF0:USTF0","amount":"-0.1",)"
                           R"("price":"63947","cid":)"} +
                   std::to_string(cid) + R"(,"flags":4096})");
-    EXPECT_NE(std::string{builder.last_sign_message()}.find(std::string{request->body}),
-              std::string::npos);
+    EXPECT_NE(std::string{builder.last_sign_message()}.find(std::string{request->body}), std::string::npos);
 }
 
 TEST(BitfinexRest, CancelAndAmendNeedTheVenueOrderId) {
@@ -1342,8 +1304,7 @@ TEST(BitfinexMap, AFillTakesItsSideAndItsCostFromTheExecution) {
     const auto tu = parse_execution(fixture("ws_exec_tu.json"));
     ASSERT_TRUE(tu.has_value());
 
-    const OrderContext context{.client_order_id =
-                                   *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+    const OrderContext context{.client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
                                .leaves = QtyLots::from_raw(5'000'000)};
     const auto fill = map_execution(*tu, table, context, k_ingest);
     ASSERT_TRUE(fill.has_value());

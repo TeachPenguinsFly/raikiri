@@ -7,8 +7,7 @@ namespace raikiri::venues::cryptocom {
 
 namespace {
 
-template <typename Out, typename Fn>
-std::expected<Out, WireError> first_row(std::string_view data, Fn&& read) {
+template <typename Out, typename Fn> std::expected<Out, WireError> first_row(std::string_view data, Fn&& read) {
     auto array = wire::session().open_array(data);
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -29,8 +28,7 @@ std::expected<Out, WireError> first_row(std::string_view data, Fn&& read) {
 
 } // namespace
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view data,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view data, TradeBuffer& storage) {
     return wire::guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto array = wire::session().open_array(data);
         if (!array.has_value()) {
@@ -46,25 +44,24 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
                 return std::unexpected(wire::map_error(ec));
             }
             WireTrade out{};
-            const auto read =
-                each_field(row, [&](std::string_view key, ondemand::value& value) -> FieldResult {
-                    if (key == "d") {
-                        return text_into(value, out.trade_id);
-                    }
-                    if (key == "t") {
-                        return u64_into(value, out.trade_ms);
-                    }
-                    if (key == "p") {
-                        return text_into(value, out.price);
-                    }
-                    if (key == "q") {
-                        return text_into(value, out.qty);
-                    }
-                    if (key == "s") {
-                        return text_into(value, out.side);
-                    }
-                    return {};
-                });
+            const auto read = each_field(row, [&](std::string_view key, ondemand::value& value) -> FieldResult {
+                if (key == "d") {
+                    return text_into(value, out.trade_id);
+                }
+                if (key == "t") {
+                    return u64_into(value, out.trade_ms);
+                }
+                if (key == "p") {
+                    return text_into(value, out.price);
+                }
+                if (key == "q") {
+                    return text_into(value, out.qty);
+                }
+                if (key == "s") {
+                    return text_into(value, out.side);
+                }
+                return {};
+            });
             if (!read.has_value()) {
                 return std::unexpected(read.error());
             }
@@ -81,19 +78,18 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
 std::expected<WireTicker, WireError> parse_ticker(std::string_view data) {
     return wire::guarded([&]() -> std::expected<WireTicker, WireError> {
         return first_row<WireTicker>(data, [](ondemand::object& row, WireTicker& out) {
-            return each_field(row,
-                              [&](std::string_view key, ondemand::value& value) -> FieldResult {
-                                  if (key == "v") {
-                                      return text_into(value, out.volume);
-                                  }
-                                  if (key == "vv") {
-                                      return text_into(value, out.quote_volume);
-                                  }
-                                  if (key == "t") {
-                                      return u64_into(value, out.ts_ms);
-                                  }
-                                  return {};
-                              });
+            return each_field(row, [&](std::string_view key, ondemand::value& value) -> FieldResult {
+                if (key == "v") {
+                    return text_into(value, out.volume);
+                }
+                if (key == "vv") {
+                    return text_into(value, out.quote_volume);
+                }
+                if (key == "t") {
+                    return u64_into(value, out.ts_ms);
+                }
+                return {};
+            });
         });
     });
 }
@@ -101,16 +97,15 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view data) {
 std::expected<WireValue, WireError> parse_value(std::string_view data) {
     return wire::guarded([&]() -> std::expected<WireValue, WireError> {
         auto out = first_row<WireValue>(data, [](ondemand::object& row, WireValue& value_out) {
-            return each_field(row,
-                              [&](std::string_view key, ondemand::value& value) -> FieldResult {
-                                  if (key == "v") {
-                                      return text_into(value, value_out.value);
-                                  }
-                                  if (key == "t") {
-                                      return u64_into(value, value_out.ts_ms);
-                                  }
-                                  return {};
-                              });
+            return each_field(row, [&](std::string_view key, ondemand::value& value) -> FieldResult {
+                if (key == "v") {
+                    return text_into(value, value_out.value);
+                }
+                if (key == "t") {
+                    return u64_into(value, value_out.ts_ms);
+                }
+                return {};
+            });
         });
         if (out.has_value() && out->value.empty()) {
             return std::unexpected(WireError::MissingField);

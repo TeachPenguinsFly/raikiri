@@ -44,9 +44,7 @@ struct VenueCaps {
     // markets this adapter implements, which may be fewer than the venue lists
     MarketSet markets{};
 
-    [[nodiscard]] constexpr bool serves(MarketType market) const noexcept {
-        return markets.has(market);
-    }
+    [[nodiscard]] constexpr bool serves(MarketType market) const noexcept { return markets.has(market); }
 
     bool ws_order_entry{false};  // orders placeable over a WS trade API
     bool fix_order_entry{false}; // FIX offered at any access tier

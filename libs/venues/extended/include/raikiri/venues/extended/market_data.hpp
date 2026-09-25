@@ -36,8 +36,7 @@ struct WireBook {
 };
 
 // a delta's q is the change and c the absolute size; a snapshot has only q, absolute
-[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
-                                                            LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffer& storage);
 
 struct WirePrint {
     std::string_view market;
@@ -59,8 +58,7 @@ struct WirePrints {
     std::span<const WirePrint> prints;
 };
 
-[[nodiscard]] std::expected<WirePrints, WireError> parse_trades(std::string_view frame,
-                                                                PrintBuffer& storage);
+[[nodiscard]] std::expected<WirePrints, WireError> parse_trades(std::string_view frame, PrintBuffer& storage);
 
 struct WireMark {
     std::string_view market;

@@ -81,27 +81,23 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions);
 
     // uta v2 subscribes one symbol per frame; a symbols array is refused for obu
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    uta_subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> uta_subscribe_frame(std::span<const Subscription> subscriptions);
 
     // private topics must set privateChannel or the socket answers with the public feed
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    private_subscribe_frame(std::string_view topic);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> private_subscribe_frame(std::string_view topic);
 
     [[nodiscard]] std::string_view ping_frame() noexcept;
 
     void set_uta_book_depth(std::string_view depth) { uta_book_depth_ = depth; }
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    op_frame(std::string_view type, std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view type,
+                                                              std::span<const Subscription> subscriptions);
 
     std::uint64_t next_id_{1};
     std::string uta_book_depth_{k_uta_book_depth};

@@ -9,17 +9,13 @@
 namespace raikiri::venues::bybit {
 namespace {
 
-constexpr auto k_instrument_id = [] {
-    return InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{0});
-};
+constexpr auto k_instrument_id = [] { return InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{0}); };
 
 BookSync make_book() {
     return BookSync{k_instrument_id(), *parse_decimal_e9("0.1"), *parse_decimal_e9("0.001")};
 }
 
-WireOrderbook snapshot(std::span<const WireLevel> bids,
-                       std::span<const WireLevel> asks,
-                       std::uint64_t update_id) {
+WireOrderbook snapshot(std::span<const WireLevel> bids, std::span<const WireLevel> asks, std::uint64_t update_id) {
     WireOrderbook ob{};
     ob.symbol = "BTCUSDT";
     ob.is_snapshot = true;
@@ -30,8 +26,7 @@ WireOrderbook snapshot(std::span<const WireLevel> bids,
     return ob;
 }
 
-WireOrderbook
-delta(std::span<const WireLevel> bids, std::span<const WireLevel> asks, std::uint64_t update_id) {
+WireOrderbook delta(std::span<const WireLevel> bids, std::span<const WireLevel> asks, std::uint64_t update_id) {
     auto ob = snapshot(bids, asks, update_id);
     ob.is_snapshot = false;
     return ob;
@@ -179,8 +174,7 @@ TEST(BookSync, OneSidedBookPublishesNoSnapshot) {
     auto book = make_book();
     const std::array bids{WireLevel{"100.0", "1.000"}};
     ASSERT_EQ(book.apply(snapshot(bids, {}, 1)), SyncResult::Resynced);
-    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value())
-        << "half a book has no spread to price against";
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value()) << "half a book has no spread to price against";
 }
 
 TEST(BookSync, LevelsStaySortedAcrossManyUpdates) {

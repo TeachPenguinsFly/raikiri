@@ -11,8 +11,7 @@ namespace {
 // rfc 4231 test case 2
 constexpr std::string_view k_rfc_key = "Jefe";
 constexpr std::string_view k_rfc_msg = "what do ya want for nothing?";
-constexpr std::string_view k_rfc_hex =
-    "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
+constexpr std::string_view k_rfc_hex = "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
 
 TEST(Hmac, MatchesRfc4231Vector) {
     std::array<char, k_hex_bytes> out{};
@@ -75,8 +74,7 @@ TEST(Signer, BybitStyleMessageShape) {
     ASSERT_GT(n, 0);
 
     std::array<char, k_hex_bytes> sig{};
-    const auto out =
-        signer.sign({msg_buf.data(), static_cast<std::size_t>(n)}, Signer::Encoding::Hex, sig);
+    const auto out = signer.sign({msg_buf.data(), static_cast<std::size_t>(n)}, Signer::Encoding::Hex, sig);
     EXPECT_EQ(out.size(), k_hex_bytes);
     EXPECT_EQ(out.find_first_not_of("0123456789abcdef"), std::string_view::npos);
 }

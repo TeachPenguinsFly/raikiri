@@ -82,8 +82,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -100,8 +99,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (memo == nullptr) {
             break; // nothing to accumulate into, and nothing to publish
         }
-        if (const auto funding = map_mark_price(*wire, state.instruments, *memo, received);
-            funding.has_value()) {
+        if (const auto funding = map_mark_price(*wire, state.instruments, *memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
         break;
@@ -135,8 +133,7 @@ constexpr char k_key_sep = '\x1f';
         return std::nullopt;
     }
     const auto channel = key.substr(0, cut);
-    return Subscription{
-        .channel = channel, .symbol = key.substr(cut + 1), .params = params_for(channel, market)};
+    return Subscription{.channel = channel, .symbol = key.substr(cut + 1), .params = params_for(channel, market)};
 }
 
 class PublicHandler final : public net::WsHandler {
@@ -191,20 +188,16 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
             // spot pairs and perpetuals share symbols, so the other market's id is refused
             return std::unexpected{exec::not_implemented("xt: this pool serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
             if (state_->market != MarketType::Perp) {
@@ -212,8 +205,7 @@ public:
                 return std::unexpected{exec::not_implemented("xt: spot pays no funding")};
             }
             // the mark has its own channel and FundingUpdate carries it
-            if (const auto placed =
-                    want(topic_for(exec::SubKind::MarkPrice, state_->market), symbol);
+            if (const auto placed = want(topic_for(exec::SubKind::MarkPrice, state_->market), symbol);
                 !placed.has_value()) {
                 return placed;
             }
@@ -263,8 +255,8 @@ private:
         }
         const std::array<std::string, 1> one{key_of(topic.channel, symbol)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "xt: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "xt: connection pool is full")};
         }
         return {};
     }
@@ -280,15 +272,13 @@ private:
         }
         // depth first: with paced sends the last ones may never go
         const auto quote = topic_for(exec::SubKind::Bbo, state_->market).channel;
-        std::ranges::stable_partition(
-            views, [quote](const Subscription& one) { return one.channel == quote; });
+        std::ranges::stable_partition(views, [quote](const Subscription& one) { return one.channel == quote; });
 
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < views.size()) {
-            const auto frame =
-                state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
-                    built, std::min(net::frame_subscriptions(), views.size() - built)));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
+                built, std::min(net::frame_subscriptions(), views.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
@@ -309,8 +299,7 @@ private:
     }
 
     void poll_funding(UnixNanos now) noexcept {
-        if (state_->funding_in_flight || state_->funding_symbols.empty() ||
-            now.ns < state_->next_funding_poll_ns) {
+        if (state_->funding_in_flight || state_->funding_symbols.empty() || now.ns < state_->next_funding_poll_ns) {
             return;
         }
         const auto count = state_->funding_symbols.size();
@@ -346,8 +335,7 @@ private:
         if (memo == nullptr) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, *memo, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, *memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
     }

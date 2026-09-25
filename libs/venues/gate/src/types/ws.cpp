@@ -28,17 +28,14 @@ public:
 
     void put(std::uint64_t value) noexcept {
         std::array<char, 24> num{};
-        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value);
-            ec == std::errc{}) {
+        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value); ec == std::errc{}) {
             put(std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
         }
     }
 
     [[nodiscard]] bool overflow() const noexcept { return overflow_; }
 
-    [[nodiscard]] std::string_view text() const noexcept {
-        return std::string_view{into_.data(), len_};
-    }
+    [[nodiscard]] std::string_view text() const noexcept { return std::string_view{into_.data(), len_}; }
 
 private:
     std::span<char> into_;
@@ -148,8 +145,8 @@ std::string_view channel_for(exec::SubKind kind, MarketType market) noexcept {
     return {};
 }
 
-std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(
-    std::string_view op, std::span<const Subscription> subscriptions, std::uint64_t now_s) {
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::op_frame(std::string_view op, std::span<const Subscription> subscriptions, std::uint64_t now_s) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -202,13 +199,13 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(
     return Frame{.text = writer.text(), .consumed = batch};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions, std::uint64_t now_s) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions,
+                                                                       std::uint64_t now_s) {
     return op_frame("subscribe", subscriptions, now_s);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions, std::uint64_t now_s) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions,
+                                                                         std::uint64_t now_s) {
     return op_frame("unsubscribe", subscriptions, now_s);
 }
 

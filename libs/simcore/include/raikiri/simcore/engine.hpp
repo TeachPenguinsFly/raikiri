@@ -57,21 +57,14 @@ public:
     [[nodiscard]] SimResult handle(const OrderCmd& cmd, UnixNanos now);
 
     // Background liquidity (owner 0).
-    std::uint64_t place_background_limit(InstrumentId instrument,
-                                         Side side,
-                                         PriceTicks price,
-                                         QtyLots qty,
-                                         UnixNanos now,
-                                         SimResult& out);
-    void place_background_market(
-        InstrumentId instrument, Side side, QtyLots qty, UnixNanos now, SimResult& out);
+    std::uint64_t place_background_limit(
+        InstrumentId instrument, Side side, PriceTicks price, QtyLots qty, UnixNanos now, SimResult& out);
+    void place_background_market(InstrumentId instrument, Side side, QtyLots qty, UnixNanos now, SimResult& out);
 
     bool cancel_background(InstrumentId instrument, std::uint64_t sim_id, SimResult* out = nullptr);
 
     // the venue's positions, folded independently from the client fills it printed
-    [[nodiscard]] const std::unordered_map<InstrumentId, QtyLots>& positions() const noexcept {
-        return positions_;
-    }
+    [[nodiscard]] const std::unordered_map<InstrumentId, QtyLots>& positions() const noexcept { return positions_; }
 
     // nullptr / nullopt when the instrument has never traded here.
     [[nodiscard]] const Book* book(InstrumentId instrument) const noexcept;
@@ -80,10 +73,8 @@ public:
 private:
     Book& book_for(InstrumentId instrument);
     [[nodiscard]] ExecId next_exec_id() noexcept;
-    [[nodiscard]] OrderEvent
-    make_event(const ClientOrderMeta& meta, OrderEventType type, UnixNanos now) const;
-    [[nodiscard]] OrderEvent
-    make_event_from_cmd(const OrderCmd& cmd, OrderEventType type, UnixNanos now) const;
+    [[nodiscard]] OrderEvent make_event(const ClientOrderMeta& meta, OrderEventType type, UnixNanos now) const;
+    [[nodiscard]] OrderEvent make_event_from_cmd(const OrderCmd& cmd, OrderEventType type, UnixNanos now) const;
     [[nodiscard]] std::optional<std::uint64_t> resolve_target(const OrderCmd& cmd) const;
     void handle_create(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     void handle_cancel(const OrderCmd& cmd, UnixNanos now, SimResult& out);

@@ -74,8 +74,7 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
     });
 }
 
-std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body,
-                                                                   IncomeBuffer& storage) {
+std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body, IncomeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireIncome>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {
@@ -101,8 +100,7 @@ std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_v
             out.tran_id = wire::opt_u64(obj, "tranId").value_or(0);
             // a digit string on commission rows and empty on funding rows, unlike the numeric tranId
             obj.reset();
-            out.trade_id =
-                wire::digits_to_u64(wire::opt_str(obj, "tradeId").value_or(std::string_view{}));
+            out.trade_id = wire::digits_to_u64(wire::opt_str(obj, "tradeId").value_or(std::string_view{}));
             const auto time_ms = wire::opt_u64(obj, "time");
             if (!time_ms.has_value()) {
                 return std::unexpected(WireError::WrongType);

@@ -18,10 +18,8 @@ inline constexpr std::size_t k_hex384_bytes = k_hmac384_bytes * 2; // 96
 hmac_sha384_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept;
 
 // the payload is "AUTH" + nonce + the same nonce again; no filter is sent
-[[nodiscard]] std::string_view ws_auth_frame(std::string_view api_key,
-                                             std::string_view secret,
-                                             std::uint64_t nonce,
-                                             std::span<char> out) noexcept;
+[[nodiscard]] std::string_view
+ws_auth_frame(std::string_view api_key, std::string_view secret, std::uint64_t nonce, std::span<char> out) noexcept;
 
 // microsecond nonces must strictly increase per key, so a counter supplies them
 class NonceSource {

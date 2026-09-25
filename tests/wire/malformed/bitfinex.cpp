@@ -93,8 +93,7 @@ TEST(Malformed, Bitfinex) {
                     static PairBuffer storage;
                     (void)parse_pair_info(f, storage);
                 }},
-               {"rest_platform_status.json",
-                [](std::string_view f) { (void)parse_platform_status(f); }},
+               {"rest_platform_status.json", [](std::string_view f) { (void)parse_platform_status(f); }},
                {"rest_error.json",
                 [](std::string_view f) {
                     (void)is_rest_error(f);

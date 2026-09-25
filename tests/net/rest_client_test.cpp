@@ -38,8 +38,7 @@ using raikiri::net::test::TlsListener;
 using namespace std::chrono_literals;
 
 template <class Predicate>
-[[nodiscard]] bool
-poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget = 5s) {
+[[nodiscard]] bool poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget = 5s) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
         if (predicate()) {
@@ -106,10 +105,7 @@ private:
     void do_read() {
         req_ = {};
         http::async_read(
-            stream_,
-            buffer_,
-            req_,
-            [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+            stream_, buffer_, req_, [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
                 if (!ec) {
                     self->respond();
                 }
@@ -124,22 +120,19 @@ private:
                                       to_std(req_[http::field::user_agent]),
                                       to_std(req_[http::field::content_type])});
 
-        auto res = std::make_shared<http::response<http::string_body>>(
-            static_cast<http::status>(state_.status), req_.version());
+        auto res = std::make_shared<http::response<http::string_body>>(static_cast<http::status>(state_.status),
+                                                                       req_.version());
         res->set(http::field::server, "raikiri-test");
         res->set(http::field::content_type, "application/json");
         res->keep_alive(true);
         for (const auto& [name, value] : state_.extra_headers) {
             res->insert(name, value);
         }
-        res->body() =
-            state_.status == 200 ? req_.body() + "|" + to_std(req_["X-Custom"]) : state_.error_body;
+        res->body() = state_.status == 200 ? req_.body() + "|" + to_std(req_["X-Custom"]) : state_.error_body;
         res->prepare_payload();
 
         http::async_write(
-            stream_,
-            *res,
-            [self = shared_from_this(), res](const boost::system::error_code& ec, std::size_t) {
+            stream_, *res, [self = shared_from_this(), res](const boost::system::error_code& ec, std::size_t) {
                 if (!ec) {
                     self->do_read();
                 }
@@ -216,8 +209,7 @@ TEST(RestClient, PostEchoesBodyAndCustomHeaderOnAWarmConnection) {
         second = std::move(response);
         second_done = true;
     }));
-    ASSERT_TRUE(poll_until(io, [&second_done] { return second_done; }))
-        << "second request never completed";
+    ASSERT_TRUE(poll_until(io, [&second_done] { return second_done; })) << "second request never completed";
     EXPECT_EQ(second.status, 200);
     EXPECT_EQ(second.body, "|reuse");
     EXPECT_GE(second.sent.ns, got.sent.ns);

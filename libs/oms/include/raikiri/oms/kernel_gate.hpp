@@ -37,7 +37,7 @@ enum class KernelEvent : std::uint8_t {
 };
 
 struct KernelVerdict {
-    bool may_open{false}; // create and amend, anything that adds exposure
+    bool may_open{false};  // create and amend, anything that adds exposure
     bool may_cancel{true}; // true in every state
 };
 
@@ -64,9 +64,7 @@ struct KernelStep {
                                       : KernelStep{.state = from.state, .recon_agreed = true};
     case OperatorResume:
         // refused unless a reconciliation agreed since the halt
-        return from.state == Halted && from.recon_agreed
-                   ? KernelStep{.state = Running, .recon_agreed = true}
-                   : from;
+        return from.state == Halted && from.recon_agreed ? KernelStep{.state = Running, .recon_agreed = true} : from;
     }
     return from;
 }
@@ -130,9 +128,7 @@ public:
     [[nodiscard]] UnixNanos since() const noexcept { return since_; }
 
     // true once the venue has agreed since the halt
-    [[nodiscard]] bool resumable() const noexcept {
-        return now_.state == KernelState::Halted && now_.recon_agreed;
-    }
+    [[nodiscard]] bool resumable() const noexcept { return now_.state == KernelState::Halted && now_.recon_agreed; }
 
 private:
     KernelStep now_{};

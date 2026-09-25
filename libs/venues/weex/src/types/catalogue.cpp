@@ -10,8 +10,8 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(std::string_view body,
+                                                                              InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -77,8 +77,8 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
-std::expected<std::span<const std::string_view>, WireError>
-parse_api_trading_symbols(std::string_view body, TradableBuffer& storage) {
+std::expected<std::span<const std::string_view>, WireError> parse_api_trading_symbols(std::string_view body,
+                                                                                      TradableBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const std::string_view>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {

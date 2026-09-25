@@ -20,10 +20,7 @@ namespace raikiri::venues::gate::internal {
 constexpr std::uint32_t k_private_stream_id = 1;
 
 // the market decides which order shape the payload is
-void handle_private_frame(VenueState& state,
-                          MarketType market,
-                          std::string_view frame,
-                          UnixNanos received) {
+void handle_private_frame(VenueState& state, MarketType market, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
         return;
@@ -39,8 +36,7 @@ void handle_private_frame(VenueState& state,
         for (const auto& entry : *wire) {
             // remembered before emitting: a queued user trade reads its leaves from this memo
             state.remember(entry);
-            if (const auto mapped = map_order_event(entry, state.instruments, received);
-                mapped.has_value()) {
+            if (const auto mapped = map_order_event(entry, state.instruments, received); mapped.has_value()) {
                 state.sink->on_order_event(*mapped);
             }
         }
@@ -67,12 +63,11 @@ void handle_private_frame(VenueState& state,
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             // code 4 wraps a rest label; the number tells a bad key from an unknown contract
-            state.sink->on_connectivity(
-                {.state = classify_stream(err->code) == exec::ErrorClass::AuthFailure
-                              ? exec::ConnState::AuthFailed
-                              : exec::ConnState::Connected,
-                 .stream_id = k_private_stream_id,
-                 .ts = state.clock->wall()});
+            state.sink->on_connectivity({.state = classify_stream(err->code) == exec::ErrorClass::AuthFailure
+                                                      ? exec::ConnState::AuthFailed
+                                                      : exec::ConnState::Connected,
+                                         .stream_id = k_private_stream_id,
+                                         .ts = state.clock->wall()});
         }
         break;
     }
@@ -95,14 +90,12 @@ public:
 
     void on_open() override {
         if (!subscribe(orders_channel(market_)) || !subscribe(user_trades_channel(market_))) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = k_private_stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
             return;
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -110,9 +103,8 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void attach(net::WsClient& client) noexcept { client_ = &client; }
@@ -127,8 +119,8 @@ private:
         std::array<std::string_view, 2> payload{};
         std::size_t count = 0;
         if (market_ == MarketType::Perp) {
-            const auto [stop, ec] = std::to_chars(
-                id_text.data(), id_text.data() + id_text.size(), state_->futures_user_id);
+            const auto [stop,
+                        ec] = std::to_chars(id_text.data(), id_text.data() + id_text.size(), state_->futures_user_id);
             if (ec != std::errc{} || state_->futures_user_id == 0) {
                 return false;
             }
@@ -150,12 +142,11 @@ private:
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, MarketType market)
-        : handler_{state, market},
-          ws_{state.io,
-              net::WsConfig{.host = std::string{private_host(state.testnet, market)},
-                            .port = std::string{stream_port()},
-                            .target = std::string{private_path(state.testnet, market)}},
-              handler_} {
+        : handler_{state, market}, ws_{state.io,
+                                       net::WsConfig{.host = std::string{private_host(state.testnet, market)},
+                                                     .port = std::string{stream_port()},
+                                                     .target = std::string{private_path(state.testnet, market)}},
+                                       handler_} {
         handler_.attach(ws_);
     }
 

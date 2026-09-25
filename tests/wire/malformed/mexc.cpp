@@ -68,8 +68,7 @@ TEST(Malformed, Mexc) {
                     static InstrumentBuffer instruments;
                     (void)parse_instruments(f, instruments);
                 }},
-               {"rest_error_bad_contract.json",
-                [](std::string_view f) { (void)parse_rest_envelope(f); }},
+               {"rest_error_bad_contract.json", [](std::string_view f) { (void)parse_rest_envelope(f); }},
                {"rest_server_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
                {"rest_funding_rate.json", [](std::string_view f) { (void)parse_funding_rate(f); }},
            });

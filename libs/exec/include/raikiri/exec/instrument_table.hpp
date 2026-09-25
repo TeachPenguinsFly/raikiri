@@ -18,7 +18,7 @@
 namespace raikiri::exec {
 
 enum class TableError : std::uint8_t {
-    DuplicateSymbol, // same symbol and market already loaded
+    DuplicateSymbol,   // same symbol and market already loaded
     InvalidInstrument, // failed domain validation (zero tick/lot, empty symbol)
     Full,              // more instruments than SymbolId space allows in practice
 };
@@ -36,8 +36,7 @@ public:
     // binance, bybit, bitget, gate, xt and bingx spell spot and perp identically
     [[nodiscard]] const Instrument* find(std::string_view exchange_symbol) const noexcept;
 
-    [[nodiscard]] const Instrument* find(std::string_view exchange_symbol,
-                                         MarketType market) const noexcept;
+    [[nodiscard]] const Instrument* find(std::string_view exchange_symbol, MarketType market) const noexcept;
 
     // warm path: outbound orders need the text back
     [[nodiscard]] const Instrument* find(InstrumentId id) const noexcept;

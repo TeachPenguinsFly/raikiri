@@ -13,9 +13,9 @@
 
 #include <algorithm>
 #include <array>
-#include <span>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -45,8 +45,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -57,8 +56,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
         break;
@@ -68,8 +66,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -128,8 +125,7 @@ public:
             }
             if (event->kind == EventKind::MarketPing) {
                 // answer on the socket that pinged; htx expects each ping echoed on its own connection
-                if (const auto pong = state_->protocol.market_pong_frame(event->keepalive_ts);
-                    pong.has_value()) {
+                if (const auto pong = state_->protocol.market_pong_frame(event->keepalive_ts); pong.has_value()) {
                     (void)pool_->reply(pong->text);
                 }
                 return;
@@ -174,8 +170,7 @@ public:
             }
             if (event->kind == EventKind::NotifyPing) {
                 // answer on the socket that pinged; htx expects each ping echoed on its own connection
-                if (const auto pong = state_->protocol.notify_pong_frame(event->keepalive_ts);
-                    pong.has_value()) {
+                if (const auto pong = state_->protocol.notify_pong_frame(event->keepalive_ts); pong.has_value()) {
                     (void)pool_->reply(pong->text);
                 }
                 return;
@@ -197,9 +192,7 @@ private:
 };
 
 net::WsConfig socket_config(std::string_view path) {
-    return {.host = std::string{stream_host()},
-            .port = std::string{stream_port()},
-            .target = std::string{path}};
+    return {.host = std::string{stream_host()}, .port = std::string{stream_port()}, .target = std::string{path}};
 }
 
 // split on the first dot: suffixes contain dots, contract codes do not
@@ -216,12 +209,11 @@ public:
                   market_handler_,
                   net::WsPoolConfig{},
                   [this](std::span<const std::string> keys) { return market_frames(keys); }},
-          notify_handler_{*state_},
-          notify_{state_->io,
-                  socket_config(notify_path()),
-                  notify_handler_,
-                  net::WsPoolConfig{},
-                  [this](std::span<const std::string> keys) { return notify_frames(keys); }} {
+          notify_handler_{*state_}, notify_{state_->io,
+                                            socket_config(notify_path()),
+                                            notify_handler_,
+                                            net::WsPoolConfig{},
+                                            [this](std::span<const std::string> keys) { return notify_frames(keys); }} {
         market_handler_.attach(market_);
         notify_handler_.attach(notify_);
     }
@@ -241,20 +233,16 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return market_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         if (instrument.market() != MarketType::Perp) {
             // no public spot market data is wired; a spot code here would be refused after counting as subscribed
             return std::unexpected{exec::not_implemented("htx spot market data")};
         }
         const auto code = state_->instruments.exchange_symbol(instrument);
         if (code.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
             // turnover comes on market.{code}.detail, so a funding subscription asks for it too
@@ -271,8 +259,8 @@ public:
             const std::array<std::string, 1> one{std::string{code}};
             if (!notify_.subscribe(one)) {
                 state_->funding_codes.pop_back();
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, "htx: notification pool is full")};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "htx: notification pool is full")};
             }
             return {};
         }
@@ -307,8 +295,7 @@ private:
         const std::array<std::string, 1> one{market_key(code, suffix)};
         if (!market_.subscribe(one)) {
             state_->desired.pop_back();
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "htx: market pool is full")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "htx: market pool is full")};
         }
         return {};
     }
@@ -322,8 +309,8 @@ private:
             if (dot == std::string::npos) {
                 continue;
             }
-            const auto frame = state_->protocol.subscribe_frame(
-                std::string_view{key}.substr(0, dot), std::string_view{key}.substr(dot + 1));
+            const auto frame = state_->protocol.subscribe_frame(std::string_view{key}.substr(0, dot),
+                                                                std::string_view{key}.substr(dot + 1));
             if (frame.has_value()) {
                 out.emplace_back(frame->text);
             }
@@ -335,8 +322,7 @@ private:
         std::vector<std::string> out;
         out.reserve(keys.size());
         for (const auto& key : keys) {
-            if (const auto frame = state_->protocol.funding_subscribe_frame(key);
-                frame.has_value()) {
+            if (const auto frame = state_->protocol.funding_subscribe_frame(key); frame.has_value()) {
                 out.emplace_back(frame->text);
             }
         }

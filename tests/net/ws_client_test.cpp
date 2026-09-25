@@ -40,8 +40,7 @@ using raikiri::net::test::TlsListener;
 using namespace std::chrono_literals;
 
 template <class Predicate>
-[[nodiscard]] bool
-poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget = 5s) {
+[[nodiscard]] bool poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget = 5s) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
         if (predicate()) {
@@ -94,13 +93,12 @@ public:
         : ws_{std::move(socket), tls}, state_{state}, index_{index} {}
 
     void run() {
-        ws_.next_layer().async_handshake(
-            ssl::stream_base::server,
-            [self = shared_from_this()](const boost::system::error_code& ec) {
-                if (!ec) {
-                    self->do_accept();
-                }
-            });
+        ws_.next_layer().async_handshake(ssl::stream_base::server,
+                                         [self = shared_from_this()](const boost::system::error_code& ec) {
+                                             if (!ec) {
+                                                 self->do_accept();
+                                             }
+                                         });
     }
 
 private:
@@ -123,22 +121,20 @@ private:
         }
         const std::string& message = state_.greeting[next_++];
         ws_.text(true);
-        ws_.async_write(
-            asio::buffer(message),
-            [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
-                if (!ec) {
-                    self->write_greeting();
-                }
-            });
+        ws_.async_write(asio::buffer(message),
+                        [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+                            if (!ec) {
+                                self->write_greeting();
+                            }
+                        });
     }
 
     void do_read() {
-        ws_.async_read(
-            buffer_, [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
-                if (!ec) {
-                    self->on_message();
-                }
-            });
+        ws_.async_read(buffer_, [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+            if (!ec) {
+                self->on_message();
+            }
+        });
     }
 
     void on_message() {
@@ -158,25 +154,23 @@ private:
     }
 
     void decline() {
-        beast::http::async_read(
-            ws_.next_layer(),
-            buffer_,
-            request_,
-            [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
-                if (ec) {
-                    return;
-                }
-                self->response_.version(11);
-                self->response_.result(beast::http::status::service_unavailable);
-                self->response_.set(beast::http::field::connection, "close");
-                self->response_.prepare_payload();
-                beast::http::async_write(
-                    self->ws_.next_layer(),
-                    self->response_,
-                    [self](const boost::system::error_code&, std::size_t) {
-                        beast::get_lowest_layer(self->ws_).close();
-                    });
-            });
+        beast::http::async_read(ws_.next_layer(),
+                                buffer_,
+                                request_,
+                                [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+                                    if (ec) {
+                                        return;
+                                    }
+                                    self->response_.version(11);
+                                    self->response_.result(beast::http::status::service_unavailable);
+                                    self->response_.set(beast::http::field::connection, "close");
+                                    self->response_.prepare_payload();
+                                    beast::http::async_write(self->ws_.next_layer(),
+                                                             self->response_,
+                                                             [self](const boost::system::error_code&, std::size_t) {
+                                                                 beast::get_lowest_layer(self->ws_).close();
+                                                             });
+                                });
     }
 
     WsStream ws_;
@@ -232,9 +226,7 @@ TEST(WsClient, StreamsInOrderSendsAndClosesOnRequest) {
     ServerState state;
     state.greeting = {"{\"m\":1}", "{\"m\":2}", "{\"m\":3}"};
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(
-            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
-            ->run();
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
     }};
 
     IoContext io;
@@ -254,8 +246,7 @@ TEST(WsClient, StreamsInOrderSendsAndClosesOnRequest) {
     EXPECT_LE(handler.stamps[0].ns, handler.stamps[2].ns);
 
     EXPECT_TRUE(client.send("{\"op\":\"subscribe\"}"));
-    ASSERT_TRUE(poll_until(io, [&] { return state.count() == 1; }))
-        << "server never received the outbound frame";
+    ASSERT_TRUE(poll_until(io, [&] { return state.count() == 1; })) << "server never received the outbound frame";
     EXPECT_EQ(state.snapshot().front(), "{\"op\":\"subscribe\"}");
 
     client.stop();
@@ -280,9 +271,7 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
     ServerState state;
     state.drop_first_after_message = true;
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(
-            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
-            ->run();
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
     }};
 
     IoContext io;
@@ -306,8 +295,7 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
     EXPECT_GE(client.stats().reconnects, 1U);
     EXPECT_GE(listener.accepted(), 2U);
 
-    ASSERT_TRUE(poll_until(io, [&] { return client.connected(); }))
-        << "second connection never reached Open";
+    ASSERT_TRUE(poll_until(io, [&] { return client.connected(); })) << "second connection never reached Open";
 
     client.stop();
     EXPECT_EQ(handler.closes.back(), WsCloseReason::Requested);
@@ -318,9 +306,7 @@ TEST(WsClient, ADeclinedHandshakeBacksOffInsteadOfRetryingAtTheFloor) {
     ServerState state;
     state.decline_first = 1;
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(
-            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
-            ->run();
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
     }};
 
     IoContext io;
@@ -348,9 +334,7 @@ TEST(WsClient, AServerCloseFrameIsReportedWithItsCodeAndReason) {
     ServerState state;
     state.close_first_after_message = true;
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(
-            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
-            ->run();
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
     }};
 
     IoContext io;
@@ -393,9 +377,7 @@ TEST(WsClient, SendQueueFullIsReportedRatherThanBlocking) {
 TEST(WsClient, DestroyedMidFlightNeverCallsBackIntoTheOwner) {
     ServerState state;
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(
-            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
-            ->run();
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
     }};
 
     IoContext io;

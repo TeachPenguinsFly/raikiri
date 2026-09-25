@@ -21,8 +21,7 @@ std::expected<WirePosition, WireError> read_position(wire::ondemand::object& obj
         return std::unexpected(WireError::MissingField);
     }
     out.instrument = *instrument;
-    for (const auto& [key, field] :
-         {std::pair{"size", &out.size}, std::pair{"average_price", &out.average_price}}) {
+    for (const auto& [key, field] : {std::pair{"size", &out.size}, std::pair{"average_price", &out.average_price}}) {
         const auto value = opt_num(obj, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
@@ -42,9 +41,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             return std::unexpected(root.error());
         }
         const auto count = read_rows<WirePosition>(
-            *root, "result", storage.positions, [](wire::ondemand::object& obj) {
-                return read_position(obj);
-            });
+            *root, "result", storage.positions, [](wire::ondemand::object& obj) { return read_position(obj); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }

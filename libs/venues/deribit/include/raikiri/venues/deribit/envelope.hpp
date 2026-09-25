@@ -48,18 +48,14 @@ struct WireResponse {
 // get_time answers a bare number as result
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 
-[[nodiscard]] std::expected<wire::ondemand::object, WireError>
-push_params(wire::ondemand::object& root);
+[[nodiscard]] std::expected<wire::ondemand::object, WireError> push_params(wire::ondemand::object& root);
 
-[[nodiscard]] std::expected<wire::ondemand::object, WireError>
-push_data(wire::ondemand::object& root);
+[[nodiscard]] std::expected<wire::ondemand::object, WireError> push_data(wire::ondemand::object& root);
 
 // raw channels push one object, timed intervals push an array
 template <typename Row, typename Reader>
-[[nodiscard]] std::expected<std::size_t, WireError> read_rows(wire::ondemand::object& parent,
-                                                              std::string_view key,
-                                                              std::span<Row> into,
-                                                              Reader reader) {
+[[nodiscard]] std::expected<std::size_t, WireError>
+read_rows(wire::ondemand::object& parent, std::string_view key, std::span<Row> into, Reader reader) {
     wire::ondemand::value value;
     if (const auto ec = parent.find_field_unordered(key).get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -103,15 +99,12 @@ template <typename Row, typename Reader>
 
 [[nodiscard]] std::expected<std::string_view, WireError> num_of(wire::ondemand::value value);
 
-[[nodiscard]] std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
-                                                                 std::string_view key);
-[[nodiscard]] std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
-                                                                 std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj, std::string_view key);
 
 // epoch ms would overflow parse_number_e9's 1e9 scaling; 0 means no venue time
 [[nodiscard]] std::uint64_t token_to_u64(std::string_view s) noexcept;
 
-[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
-                                                             std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj, std::string_view key);
 
 } // namespace raikiri::venues::deribit

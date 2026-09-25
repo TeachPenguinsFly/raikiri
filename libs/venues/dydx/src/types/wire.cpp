@@ -25,8 +25,7 @@ std::expected<WireMarket, WireError> read_market(wire::ondemand::object& obj) {
     out.tick_size = *tick;
     out.step_size = *step;
     // A zero read for an absent exponent would be a grid a hundred-fold off, not a missing one.
-    for (const auto key :
-         {"atomicResolution", "quantumConversionExponent", "stepBaseQuantums", "subticksPerTick"}) {
+    for (const auto key : {"atomicResolution", "quantumConversionExponent", "stepBaseQuantums", "subticksPerTick"}) {
         if (!wire::has_field(obj, key)) {
             return std::unexpected(WireError::MissingField);
         }
@@ -35,8 +34,7 @@ std::expected<WireMarket, WireError> read_market(wire::ondemand::object& obj) {
     const auto conversion = wire::opt_i64(obj, "quantumConversionExponent");
     const auto quantums = wire::opt_u64(obj, "stepBaseQuantums");
     const auto subticks = wire::opt_u64(obj, "subticksPerTick");
-    if (!resolution.has_value() || !conversion.has_value() || !quantums.has_value() ||
-        !subticks.has_value()) {
+    if (!resolution.has_value() || !conversion.has_value() || !quantums.has_value() || !subticks.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
     out.atomic_resolution = *resolution;
@@ -108,11 +106,8 @@ struct Cursor {
     bool overflow{false};
 };
 
-std::expected<void, WireError> read_side(wire::ondemand::object& obj,
-                                         std::string_view key,
-                                         std::span<WireLevel> into,
-                                         std::size_t& count,
-                                         bool& overflow) {
+std::expected<void, WireError> read_side(
+    wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into, std::size_t& count, bool& overflow) {
     if (!wire::has_field(obj, key)) {
         return {};
     }
@@ -138,8 +133,7 @@ std::expected<void, WireError> read_side(wire::ondemand::object& obj,
     return {};
 }
 
-std::expected<void, WireError>
-read_prints(wire::ondemand::object& obj, FrameBuffer& storage, Cursor& at) {
+std::expected<void, WireError> read_prints(wire::ondemand::object& obj, FrameBuffer& storage, Cursor& at) {
     auto array = wire::req_array(obj, "trades");
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -160,8 +154,7 @@ read_prints(wire::ondemand::object& obj, FrameBuffer& storage, Cursor& at) {
         if (!price.has_value() || !size.has_value() || !side.has_value() || !created.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
-        storage.prints[at.prints++] =
-            WirePrint{.price = *price, .size = *size, .side = *side, .created_at = *created};
+        storage.prints[at.prints++] = WirePrint{.price = *price, .size = *size, .side = *side, .created_at = *created};
     }
     return {};
 }
@@ -209,8 +202,8 @@ Channel channel_of(std::string_view name) noexcept {
 
 } // namespace
 
-std::expected<std::span<const WireMarket>, WireError>
-parse_perpetual_markets(std::string_view body, MarketBuffer& storage) {
+std::expected<std::span<const WireMarket>, WireError> parse_perpetual_markets(std::string_view body,
+                                                                              MarketBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireMarket>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -289,8 +282,7 @@ std::expected<WireFrame, WireError> parse_frame(std::string_view frame, FrameBuf
                 if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
                     return std::unexpected(wire::map_error(ec));
                 }
-                if (const auto read = read_contents(obj, out.channel, storage, at);
-                    !read.has_value()) {
+                if (const auto read = read_contents(obj, out.channel, storage, at); !read.has_value()) {
                     return std::unexpected(read.error());
                 }
                 if (at.overflow) {
@@ -338,11 +330,8 @@ std::string_view channel_name(Channel channel) noexcept {
 
 namespace {
 
-std::string_view build(std::span<char> buf,
-                       std::string_view type,
-                       Channel channel,
-                       std::string_view ticker,
-                       bool batched) {
+std::string_view
+build(std::span<char> buf, std::string_view type, Channel channel, std::string_view ticker, bool batched) {
     const auto name = channel_name(channel);
     if (name.empty()) {
         return {};

@@ -33,8 +33,7 @@ void walk(ondemand::value& value, int depth) {
     case ondemand::json_type::object: {
         ondemand::object obj;
         if (value.get_object().get(obj) == simdjson::SUCCESS) {
-            (void)for_each_field(
-                obj, [&](std::string_view, ondemand::value& child) { walk(child, depth + 1); });
+            (void)for_each_field(obj, [&](std::string_view, ondemand::value& child) { walk(child, depth + 1); });
         }
         return;
     }

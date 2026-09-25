@@ -1,5 +1,3 @@
-#include "json_mapping.hpp"
-
 #include <raikiri/introspect/files.hpp>
 
 #include <signal.h>
@@ -10,6 +8,8 @@
 #include <fstream>
 #include <iterator>
 #include <system_error>
+
+#include "json_mapping.hpp"
 
 namespace raikiri::introspect {
 
@@ -39,8 +39,7 @@ std::optional<SnapshotRecord> load(const std::filesystem::path& path) {
 }
 
 bool plain_account(std::string_view account) {
-    return !account.empty() && account.find('/') == std::string_view::npos &&
-           account.front() != '.';
+    return !account.empty() && account.find('/') == std::string_view::npos && account.front() != '.';
 }
 
 } // namespace

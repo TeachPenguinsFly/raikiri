@@ -60,8 +60,7 @@ TEST(Malformed, Kucoin) {
                     (void)parse_level2_snapshot(f, levels);
                 }},
                {"rest_bullet_public.json", [](std::string_view f) { (void)parse_bullet(f); }},
-               {"rest_error_unknown_symbol.json",
-                [](std::string_view f) { (void)parse_rest_envelope(f); }},
+               {"rest_error_unknown_symbol.json", [](std::string_view f) { (void)parse_rest_envelope(f); }},
                {"rest_contracts_active.json",
                 [](std::string_view f) {
                     static ContractBuffer storage;
@@ -77,8 +76,7 @@ TEST(Malformed, Kucoin) {
                     static PositionBuffer storage;
                     (void)parse_positions(f, storage);
                 }},
-               {"rest_account_overview.json",
-                [](std::string_view f) { (void)parse_account_overview(f); }},
+               {"rest_account_overview.json", [](std::string_view f) { (void)parse_account_overview(f); }},
            });
 }
 

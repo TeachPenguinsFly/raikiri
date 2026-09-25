@@ -90,8 +90,7 @@ Side side_from(std::string_view text) noexcept {
     return text == "Sell" ? Side::Sell : Side::Buy;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt; // a symbol we never subscribed to
@@ -113,10 +112,8 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(const WireTicker& wire,
-                                         const exec::InstrumentTable& table,
-                                         FundingMemo& memo,
-                                         UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding(const WireTicker& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -175,9 +172,8 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
-std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
-                                          const exec::InstrumentTable& table,
-                                          UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -234,9 +230,8 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
 }
 
 // sign flipped from bybit's fee convention to the account's: positive received
-std::optional<LedgerEntry> map_funding_charge(const WireExecution& wire,
-                                              const exec::InstrumentTable& table,
-                                              UnixNanos ts_init) {
+std::optional<LedgerEntry>
+map_funding_charge(const WireExecution& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (!is_funding_execution(wire)) {
         return std::nullopt;
     }
@@ -305,8 +300,7 @@ map_execution(const WireExecution& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -347,8 +341,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -390,7 +383,6 @@ std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixN
     return out;
 }
 
-
 namespace {
 
 [[nodiscard]] AssetClass asset_class_of(std::string_view symbol_type) noexcept {
@@ -416,8 +408,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         return std::nullopt; // delisted or pre-launch: not tradable today
     }
     // the linear catalogue includes dated futures; this adapter serves perps only
-    if (market == MarketType::Perp && !wire.contract_type.empty() &&
-        !wire.contract_type.ends_with("Perpetual")) {
+    if (market == MarketType::Perp && !wire.contract_type.empty() && !wire.contract_type.ends_with("Perpetual")) {
         return std::nullopt;
     }
     const auto tick = parse_decimal_e9(wire.tick_size);

@@ -71,10 +71,7 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
             continue;
         }
         (void)client->register_reader(reader_pid);
-        Gateway fresh{.account = account,
-                      .name = account_name,
-                      .client = std::move(*client),
-                      .channels = *channels};
+        Gateway fresh{.account = account, .name = account_name, .client = std::move(*client), .channels = *channels};
         if (held != nullptr) {
             // in place so the gateway keeps its address; pointers into the old mapping now dangle, hence the epoch
             *held = std::move(fresh);
@@ -131,8 +128,7 @@ std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
                                    .instruments = listed,
                                    .priced = priced,
                                    .coverage_pct = listed > 0 ? priced * 100 / listed : 0,
-                                   .subscribe_refusals =
-                                       static_cast<std::int64_t>(gw.client.subscribe_refusals())}});
+                                   .subscribe_refusals = static_cast<std::int64_t>(gw.client.subscribe_refusals())}});
     }
     return out;
 }
@@ -142,8 +138,7 @@ Health Registry::health(MonoNanos now, UnixNanos wall) const {
     return {.gateways = accounts(now, wall), .database = {}};
 }
 
-std::vector<Instrument> Registry::instruments(std::string_view account,
-                                              std::optional<MarketType> market) const {
+std::vector<Instrument> Registry::instruments(std::string_view account, std::optional<MarketType> market) const {
     std::vector<Instrument> out;
     for (const auto& owned : gateways_) {
         const auto& gw = *owned;
@@ -170,9 +165,7 @@ namespace {
     if (needle.size() > haystack.size()) {
         return false;
     }
-    const auto up = [](char c) {
-        return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
-    };
+    const auto up = [](char c) { return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c; };
     for (std::size_t start = 0; start + needle.size() <= haystack.size(); ++start) {
         std::size_t i = 0;
         while (i < needle.size() && up(haystack[start + i]) == up(needle[i])) {
@@ -201,12 +194,11 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
             if (market.symbol.empty()) {
                 market.symbol = symbol;
             }
-            market.listings.push_back(
-                {.instrument_id = digits(base.id.packed),
-                 .account = gw.name,
-                 .venue = std::string{to_string(gw.account.venue)},
-                 .market = std::string{to_string(gw.account.market)},
-                 .exchange_symbol = std::string{base.exchange_symbol.view()}});
+            market.listings.push_back({.instrument_id = digits(base.id.packed),
+                                       .account = gw.name,
+                                       .venue = std::string{to_string(gw.account.venue)},
+                                       .market = std::string{to_string(gw.account.market)},
+                                       .exchange_symbol = std::string{base.exchange_symbol.view()}});
         }
     }
 
@@ -284,8 +276,7 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
             continue;
         }
         entry.reported_at = digits(snapshot.ts_pulled.ns);
-        entry.stale =
-            now.ns > snapshot.ts_pulled.ns && (now.ns - snapshot.ts_pulled.ns) > k_stale_ns;
+        entry.stale = now.ns > snapshot.ts_pulled.ns && (now.ns - snapshot.ts_pulled.ns) > k_stale_ns;
         const auto rows = std::min<std::size_t>(snapshot.count, shm::k_balance_rows);
         entry.assets.reserve(rows);
         for (std::size_t i = 0; i < rows; ++i) {

@@ -86,8 +86,7 @@ std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
     if (!year || !month || !day || !hour || !minute || !second) {
         return std::nullopt;
     }
-    if (*month < 1 || *month > 12 || *day < 1 || *day > 31 || *hour > 23 || *minute > 59 ||
-        *second > 59) {
+    if (*month < 1 || *month > 12 || *day < 1 || *day > 31 || *hour > 23 || *minute > 59 || *second > 59) {
         return std::nullopt;
     }
 
@@ -114,13 +113,11 @@ std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
         return std::nullopt;
     }
 
-    const std::int64_t secs =
-        days_from_civil(*year, *month, *day) * 86'400 + *hour * 3'600 + *minute * 60 + *second;
+    const std::int64_t secs = days_from_civil(*year, *month, *day) * 86'400 + *hour * 3'600 + *minute * 60 + *second;
     if (secs < 0 || secs > k_max_epoch_s) {
         return std::nullopt;
     }
-    return UnixNanos{static_cast<std::uint64_t>(secs) * 1'000'000'000ULL +
-                     static_cast<std::uint64_t>(frac_ns)};
+    return UnixNanos{static_cast<std::uint64_t>(secs) * 1'000'000'000ULL + static_cast<std::uint64_t>(frac_ns)};
 }
 
 UnixNanos iso_to_unix(std::string_view text, UnixNanos fallback) noexcept {
@@ -128,8 +125,7 @@ UnixNanos iso_to_unix(std::string_view text, UnixNanos fallback) noexcept {
     return parsed.has_value() ? *parsed : fallback;
 }
 
-std::optional<Bbo>
-map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.product_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -174,8 +170,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.product_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -305,9 +300,8 @@ std::optional<OrderEvent> map_order_event(const WireOrder& wire,
     return event;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table,
-                                                      const ExchangeClientOrderId& client_id) {
+std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table, const ExchangeClientOrderId& client_id) {
     const auto* instrument = table.find(wire.product_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -328,8 +322,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     case OrderState::Open:
     case OrderState::Pending:
     case OrderState::Active:
-        report.status =
-            leaves->raw == qty->raw ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
+        report.status = leaves->raw == qty->raw ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
         break;
     case OrderState::Rejected:
         report.status = OrderStatus::Rejected;
@@ -379,8 +372,7 @@ std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType mar
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *step;
-    if (const auto min_funds = parse_decimal_e9(wire.min_market_funds);
-        min_funds.has_value() && min_funds->raw > 0) {
+    if (const auto min_funds = parse_decimal_e9(wire.min_market_funds); min_funds.has_value() && min_funds->raw > 0) {
         base.min_notional = *min_funds;
     }
     base.contract_value = *parse_decimal_e9("1");

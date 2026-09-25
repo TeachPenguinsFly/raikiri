@@ -77,15 +77,13 @@ public:
     SecretProvider& operator=(const SecretProvider&) = delete;
     virtual ~SecretProvider() = default;
 
-    [[nodiscard]] virtual std::expected<void, SecretError> resolve(const SecretRef& ref,
-                                                                   Secret& out) = 0;
+    [[nodiscard]] virtual std::expected<void, SecretError> resolve(const SecretRef& ref, Secret& out) = 0;
 };
 
 // exec runs through /bin/sh with the environment intact so op and vault find their session
 class DefaultSecretProvider final : public SecretProvider {
 public:
-    [[nodiscard]] std::expected<void, SecretError> resolve(const SecretRef& ref,
-                                                           Secret& out) override;
+    [[nodiscard]] std::expected<void, SecretError> resolve(const SecretRef& ref, Secret& out) override;
 };
 
 void disable_core_dumps() noexcept;

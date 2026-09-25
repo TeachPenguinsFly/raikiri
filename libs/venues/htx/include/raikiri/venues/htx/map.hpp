@@ -26,8 +26,7 @@ namespace raikiri::venues::htx {
 // truncates below 1e-9; rates and turnover only, since htx pads funding rates to 18 digits
 [[nodiscard]] std::optional<FixedE9> rate_e9(std::string_view token);
 
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
@@ -60,8 +59,7 @@ struct OrderIdentity {
 map_identity(std::string_view client_order_id, std::string_view order_id, MarketType market);
 
 // swap states filled and spot states remaining; callers cache it since fill frames may omit it
-[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
-                                                  const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::InstrumentTable& table);
 
 // lifecycle only; fills come from map_fill so one fill is not reported twice
 [[nodiscard]] std::optional<OrderEvent>
@@ -81,15 +79,14 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
                                                        const ExchangeClientOrderId& known_ulid,
                                                        UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                                    const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
 
 // amount is already signed; a row whose 30/31 type disagrees with the sign is dropped
-[[nodiscard]] std::optional<LedgerEntry> map_financial_record(const WireFinancialRecord& wire,
-                                                              const exec::InstrumentTable& table,
-                                                              UnixNanos ts_init);
+[[nodiscard]] std::optional<LedgerEntry>
+map_financial_record(const WireFinancialRecord& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 } // namespace raikiri::venues::htx

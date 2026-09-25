@@ -19,8 +19,7 @@ struct WireFuturesAccount {
     std::uint64_t update_s{0};
 };
 
-[[nodiscard]] std::expected<WireFuturesAccount, WireError>
-parse_futures_account(std::string_view body);
+[[nodiscard]] std::expected<WireFuturesAccount, WireError> parse_futures_account(std::string_view body);
 
 // the private socket needs this user id first in every subscribe payload or streams nothing
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view body);

@@ -53,7 +53,7 @@ inline constexpr std::int64_t k_flag_oco = 16384;
 struct WireOrder {
     std::string_view id;
     std::string_view symbol;
-    std::string_view amount; // signed; what remains
+    std::string_view amount;      // signed; what remains
     std::string_view amount_orig; // signed; the reliable side
     std::string_view type;        // "EXCHANGE LIMIT" on spot, "LIMIT" on margin
     std::string_view price;
@@ -76,8 +76,8 @@ struct OrderBuffer {
 [[nodiscard]] std::expected<WireOrder, WireError> parse_order(std::string_view frame);
 
 // the os snapshot and every rest order read
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
+                                                                                OrderBuffer& storage);
 
 // exec_amount's sign is our side; maker is 1 or -1
 // te and tu are the same fill, te without the fee; emit only one
@@ -115,8 +115,8 @@ struct ExecutionBuffer {
 
 [[nodiscard]] std::expected<WireExecution, WireError> parse_execution(std::string_view frame);
 
-[[nodiscard]] std::expected<std::span<const WireExecution>, WireError>
-parse_executions(std::string_view body, ExecutionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireExecution>, WireError> parse_executions(std::string_view body,
+                                                                                        ExecutionBuffer& storage);
 
 // the answer to every write; status is the verdict since a refusal still gets http 200
 inline constexpr std::size_t k_notify_arity = 8;

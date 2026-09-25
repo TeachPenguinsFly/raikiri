@@ -45,13 +45,11 @@ private:
     bool overflow_{false};
 };
 
-constexpr std::string_view k_tail =
-    R"(],"book_subscription_type":"SNAPSHOT_AND_UPDATE","book_update_frequency":)";
+constexpr std::string_view k_tail = R"(],"book_subscription_type":"SNAPSHOT_AND_UPDATE","book_update_frequency":)";
 
 } // namespace
 
-std::string_view
-channel_name(std::string_view prefix, std::string_view symbol, std::span<char> out) noexcept {
+std::string_view channel_name(std::string_view prefix, std::string_view symbol, std::span<char> out) noexcept {
     Appender text{out};
     text << prefix << symbol;
     return text.ok() ? text.view() : std::string_view{};
@@ -79,20 +77,16 @@ std::string_view instrument_of(std::string_view channel) noexcept {
     return rest;
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const std::string_view> channels) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const std::string_view> channels) {
     std::array<char, 8> cadence{};
-    const auto [stop, ec] =
-        std::to_chars(cadence.data(), cadence.data() + cadence.size(), k_book_update_ms);
+    const auto [stop, ec] = std::to_chars(cadence.data(), cadence.data() + cadence.size(), k_book_update_ms);
     (void)ec;
-    const std::string_view cadence_text{cadence.data(),
-                                        static_cast<std::size_t>(stop - cadence.data())};
+    const std::string_view cadence_text{cadence.data(), static_cast<std::size_t>(stop - cadence.data())};
     const auto closing = k_tail.size() + cadence_text.size() + 2;
     const auto limit = std::min(frame_.size(), ep::k_max_frame_bytes);
 
     Appender text{std::span<char>{frame_.data(), limit}};
-    text << R"({"id":)" << static_cast<std::int64_t>(next_id_)
-         << R"(,"method":"subscribe","params":{"channels":[)";
+    text << R"({"id":)" << static_cast<std::int64_t>(next_id_) << R"(,"method":"subscribe","params":{"channels":[)";
     std::size_t consumed = 0;
     for (const auto channel : channels) {
         const auto cost = channel.size() + 2 + (consumed == 0 ? 0 : 1);

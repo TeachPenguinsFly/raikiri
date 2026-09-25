@@ -6,12 +6,10 @@
 
 namespace raikiri::venues::blofin {
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                            InstrumentBuffer& storage) {
     return read_data<WireInstrument>(
-        body,
-        storage.rows,
-        [](wire::ondemand::object& obj, WireInstrument& out) -> std::expected<void, WireError> {
+        body, storage.rows, [](wire::ondemand::object& obj, WireInstrument& out) -> std::expected<void, WireError> {
             const auto inst_id = wire::req_str(obj, "instId");
             if (!inst_id.has_value()) {
                 return std::unexpected(inst_id.error());

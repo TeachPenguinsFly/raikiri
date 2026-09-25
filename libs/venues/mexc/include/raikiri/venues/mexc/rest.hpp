@@ -74,8 +74,7 @@ enum class BuildError : std::uint8_t {
 [[nodiscard]] std::int64_t futures_side(Side side, OrderFlags flags) noexcept;
 
 // 1 limit, 2 post-only, 3 ioc, 4 fok, 5 market, 6 market-on-close
-[[nodiscard]] std::int64_t
-futures_order_type(OrderType type, TimeInForce tif, OrderFlags flags) noexcept;
+[[nodiscard]] std::int64_t futures_order_type(OrderType type, TimeInForce tif, OrderFlags flags) noexcept;
 
 [[nodiscard]] std::string_view spot_order_type(OrderType type, OrderFlags flags) noexcept;
 
@@ -113,14 +112,13 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     open_orders(MarketType market, std::string_view symbol, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> query_order(
-        const ExchangeClientOrderId& id, MarketType market, std::string_view symbol, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    query_order(const ExchangeClientOrderId& id, MarketType market, std::string_view symbol, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     my_trades(MarketType market, std::string_view symbol, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // futures only; spot pays no funding
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
@@ -135,11 +133,8 @@ private:
     sign_spot(net::HttpMethod method, std::string_view path, std::string_view query, UnixNanos now);
 
     // the query must already be sorted by parameter name
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_futures(net::HttpMethod method,
-                                                                           std::string_view path,
-                                                                           std::string_view query,
-                                                                           std::string_view body,
-                                                                           UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_futures(
+        net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now);
 
     const net::Signer* signer_;
 

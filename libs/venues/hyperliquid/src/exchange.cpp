@@ -15,8 +15,7 @@ constexpr std::string_view k_exchange = "/exchange";
 // the json and packed forms share one call sequence
 class ActionWriter {
 public:
-    ActionWriter(std::span<std::uint8_t> pack, std::span<char> json) noexcept
-        : pack_{pack}, json_{json} {}
+    ActionWriter(std::span<std::uint8_t> pack, std::span<char> json) noexcept : pack_{pack}, json_{json} {}
 
     ActionWriter& map(std::size_t entries) noexcept {
         if (entries >= 16) {
@@ -292,11 +291,10 @@ bool price_digits_ok(std::string_view text) noexcept {
     return significant <= 5;
 }
 
-std::expected<net::RestRequest, BuildError>
-ExchangeBuilder::create_order(const OrderCmd& cmd,
-                              const exec::InstrumentTable& table,
-                              std::int64_t asset,
-                              std::uint64_t nonce) {
+std::expected<net::RestRequest, BuildError> ExchangeBuilder::create_order(const OrderCmd& cmd,
+                                                                          const exec::InstrumentTable& table,
+                                                                          std::int64_t asset,
+                                                                          std::uint64_t nonce) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -397,11 +395,10 @@ ExchangeBuilder::cancel_order(const OrderCmd& cmd, std::int64_t asset, std::uint
     return sign_and_wrap(action.packed(), action.json(), nonce);
 }
 
-std::expected<net::RestRequest, BuildError>
-ExchangeBuilder::modify_order(const OrderCmd& cmd,
-                              const exec::InstrumentTable& table,
-                              std::int64_t asset,
-                              std::uint64_t nonce) {
+std::expected<net::RestRequest, BuildError> ExchangeBuilder::modify_order(const OrderCmd& cmd,
+                                                                          const exec::InstrumentTable& table,
+                                                                          std::int64_t asset,
+                                                                          std::uint64_t nonce) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -478,8 +475,9 @@ std::uint64_t ExchangeBuilder::digits_to_oid(std::string_view text) noexcept {
     return ec == std::errc{} && stop == text.data() + text.size() ? value : 0;
 }
 
-std::expected<net::RestRequest, BuildError> ExchangeBuilder::sign_and_wrap(
-    std::span<const std::uint8_t> packed, std::string_view action_json, std::uint64_t nonce) {
+std::expected<net::RestRequest, BuildError> ExchangeBuilder::sign_and_wrap(std::span<const std::uint8_t> packed,
+                                                                           std::string_view action_json,
+                                                                           std::uint64_t nonce) {
     // vault and expiry change the preimage and are not supported here
     const auto hash = action_hash(packed, nonce, {}, 0);
     Signature signature{};
@@ -497,14 +495,12 @@ std::expected<net::RestRequest, BuildError> ExchangeBuilder::sign_and_wrap(
         at += text.size();
     };
     std::array<char, 24> nonce_buf{};
-    const auto [stop, ec] =
-        std::to_chars(nonce_buf.data(), nonce_buf.data() + nonce_buf.size(), nonce);
+    const auto [stop, ec] = std::to_chars(nonce_buf.data(), nonce_buf.data() + nonce_buf.size(), nonce);
     if (ec != std::errc{}) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
     std::array<char, 4> v_buf{};
-    const auto [v_stop, v_ec] =
-        std::to_chars(v_buf.data(), v_buf.data() + v_buf.size(), signature.v);
+    const auto [v_stop, v_ec] = std::to_chars(v_buf.data(), v_buf.data() + v_buf.size(), signature.v);
     if (v_ec != std::errc{}) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -524,9 +520,8 @@ std::expected<net::RestRequest, BuildError> ExchangeBuilder::sign_and_wrap(
         return std::unexpected{BuildError::BufferTooSmall};
     }
 
-    return net::RestRequest{.method = net::HttpMethod::Post,
-                            .target = k_exchange,
-                            .body = std::string_view{body_.data(), at}};
+    return net::RestRequest{
+        .method = net::HttpMethod::Post, .target = k_exchange, .body = std::string_view{body_.data(), at}};
 }
 
 } // namespace raikiri::venues::hyperliquid

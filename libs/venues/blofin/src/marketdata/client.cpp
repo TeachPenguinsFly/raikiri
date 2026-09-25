@@ -69,9 +69,7 @@ public:
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { on_socket_open(keys); }},
           rest_{state_->io,
-                net::RestConfig{.host = std::string{ep::host(state_->testnet)},
-                                .port = "443",
-                                .pool_size = 2}} {
+                net::RestConfig{.host = std::string{ep::host(state_->testnet)}, .port = "443", .pool_size = 2}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
 
@@ -93,12 +91,10 @@ public:
 
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return refusals_; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto* listed = state_->instruments.find(instrument);
         if (listed == nullptr || instrument.market() != k_market) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto& base = base_of(*listed);
         const auto symbol = base.exchange_symbol.view();
@@ -114,8 +110,7 @@ public:
         case exec::SubKind::Funding:
         case exec::SubKind::MarkPrice: {
             if (funding_wanted_.insert(instrument.packed).second) {
-                memos_[instrument.packed].interval_s =
-                    std::get<PerpInstrument>(*listed).funding_interval_s;
+                memos_[instrument.packed].interval_s = std::get<PerpInstrument>(*listed).funding_interval_s;
             }
             if (const auto opened = open(k_funding_channel, symbol); !opened.has_value()) {
                 return opened;
@@ -154,9 +149,8 @@ private:
         explicit Handler(BlofinData& owner) : owner_{&owner} {}
 
         void on_open() override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
         void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -164,17 +158,15 @@ private:
         }
 
         void on_close(net::WsCloseReason) override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
     private:
         BlofinData* owner_;
     };
 
-    [[nodiscard]] std::expected<void, exec::VenueError> open(std::string_view channel,
-                                                             std::string_view inst_id) {
+    [[nodiscard]] std::expected<void, exec::VenueError> open(std::string_view channel, std::string_view inst_id) {
         auto key = key_of(channel, inst_id);
         if (!desired_.insert(key).second) {
             return {};
@@ -182,8 +174,8 @@ private:
         const std::array<std::string, 1> one{std::move(key)};
         if (!pool_.subscribe(one)) {
             desired_.erase(one[0]);
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "blofin: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "blofin: connection pool is full")};
         }
         return {};
     }
@@ -209,8 +201,7 @@ private:
         std::vector<std::string> frames;
         frames.reserve(order.size());
         for (const auto inst_id : order) {
-            if (const auto frame = protocol_.subscribe_frame(inst_id, channels[inst_id]);
-                frame.has_value()) {
+            if (const auto frame = protocol_.subscribe_frame(inst_id, channels[inst_id]); frame.has_value()) {
                 frames.emplace_back(*frame);
             }
         }
@@ -227,8 +218,7 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto book = books_.find(base_of(*instrument).id.packed);
-                book != books_.end()) {
+            if (const auto book = books_.find(base_of(*instrument).id.packed); book != books_.end()) {
                 book->second.invalidate();
             }
         }
@@ -272,8 +262,7 @@ private:
             return;
         }
         const auto& base = base_of(*instrument);
-        auto& book = books_.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-                         .first->second;
+        auto& book = books_.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
         const auto result = book.apply(*wire);
         if (result == BookResult::Gap) {
             resubscribe_book(wire->inst_id);
@@ -289,8 +278,7 @@ private:
                 quoted_.insert(base.id.packed);
             }
         }
-        if (!depth_wanted_.contains(base.id.packed) ||
-            !state_->sink->wants_depth(base.id, received)) {
+        if (!depth_wanted_.contains(base.id.packed) || !state_->sink->wants_depth(base.id, received)) {
             return;
         }
         if (const auto depth = book.snapshot(ts_event, received); depth.has_value()) {
@@ -341,8 +329,7 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto stats = map_ticker_stats(row, base_of(*instrument), received);
-                stats.has_value()) {
+            if (const auto stats = map_ticker_stats(row, base_of(*instrument), received); stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -356,9 +343,7 @@ private:
         }
     }
 
-    void note_rates(std::span<const WireFundingRow> rows,
-                    UnixNanos ts_event,
-                    UnixNanos received) noexcept {
+    void note_rates(std::span<const WireFundingRow> rows, UnixNanos ts_event, UnixNanos received) noexcept {
         for (const auto& row : rows) {
             const auto* instrument = find(row.inst_id);
             if (instrument == nullptr) {
@@ -388,27 +373,21 @@ private:
         if (++refusals_logged_ <= k_refusals_logged && has_logger()) {
             RLOG_WARN("blofin: the venue refused {} subscription(s) for {} — code {}",
                       err->args,
-                      err->inst_id.empty() ? std::string_view{"an unnamed instrument"}
-                                           : err->inst_id,
+                      err->inst_id.empty() ? std::string_view{"an unnamed instrument"} : err->inst_id,
                       err->code);
         }
     }
 
     // the venue changes the period on live contracts, so it is re-read every pass
     void poll_funding(UnixNanos now) noexcept {
-        if (funding_wanted_.empty() || now.ns < next_poll_ns_ || rates_in_flight_ ||
-            marks_in_flight_) {
+        if (funding_wanted_.empty() || now.ns < next_poll_ns_ || rates_in_flight_ || marks_in_flight_) {
             return;
         }
-        const net::RestRequest rates{
-            .method = net::HttpMethod::Get, .target = ep::k_funding_rate, .body = {}};
-        const net::RestRequest marks{
-            .method = net::HttpMethod::Get, .target = ep::k_mark_price, .body = {}};
+        const net::RestRequest rates{.method = net::HttpMethod::Get, .target = ep::k_funding_rate, .body = {}};
+        const net::RestRequest marks{.method = net::HttpMethod::Get, .target = ep::k_mark_price, .body = {}};
         try {
-            rates_in_flight_ = rest_.send(
-                rates, [this](net::RestResponse&& response) { on_rate_table(response); });
-            marks_in_flight_ = rest_.send(
-                marks, [this](net::RestResponse&& response) { on_mark_table(response); });
+            rates_in_flight_ = rest_.send(rates, [this](net::RestResponse&& response) { on_rate_table(response); });
+            marks_in_flight_ = rest_.send(marks, [this](net::RestResponse&& response) { on_mark_table(response); });
         } catch (...) {
             return;
         }
@@ -421,8 +400,7 @@ private:
         if (response.status == 429 || response.status == 403) {
             next_poll_ns_ = state_->clock->wall().ns + ep::k_rest_suspension_ns;
             if (has_logger()) {
-                RLOG_WARN("blofin: REST answered {} — funding polls pause for five minutes",
-                          response.status);
+                RLOG_WARN("blofin: REST answered {} — funding polls pause for five minutes", response.status);
             }
             return false;
         }
@@ -463,12 +441,10 @@ private:
             }
             const auto& base = base_of(*instrument);
             const auto memo = memos_.find(base.id.packed);
-            if (memo == memos_.end() || !note_mark(memo->second, row, base) ||
-                memo->second.rate.is_undef()) {
+            if (memo == memos_.end() || !note_mark(memo->second, row, base) || memo->second.rate.is_undef()) {
                 continue;
             }
-            state_->sink->on_funding(
-                merged(base, memo->second, ms_to_unix(row.ts_ms, received), received));
+            state_->sink->on_funding(merged(base, memo->second, ms_to_unix(row.ts_ms, received), received));
         }
     }
 

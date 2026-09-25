@@ -30,8 +30,7 @@ struct OwnedSubscription {
 
 // single threaded: only the gateway loop touches it
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
-        : sink{&sink_ref}, clock{&clock_ref} {}
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref) : sink{&sink_ref}, clock{&clock_ref} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;
@@ -82,8 +81,7 @@ struct VenueState {
     // htx refuses a Timestamp a few minutes off its clock as a bad signature
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     void remember(const WireOrder& wire) {
@@ -107,8 +105,7 @@ struct VenueState {
         if (const auto leaves = order_leaves(wire, instruments); leaves.has_value()) {
             memo.leaves = *leaves;
         }
-        const auto identity =
-            map_identity(wire.client_order_id, wire.order_id, base_of(*instrument).id.market());
+        const auto identity = map_identity(wire.client_order_id, wire.order_id, base_of(*instrument).id.market());
         if (!identity.has_value()) {
             return;
         }

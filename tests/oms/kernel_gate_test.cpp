@@ -26,9 +26,7 @@ TEST(KernelGate, OnlyRunningMayAddRisk) {
 }
 
 TEST(KernelGate, NoEventEverMakesTheKernelMoreTrustingByAccident) {
-    const auto trust = [](KernelState s) {
-        return s == Running ? 2 : (s == Degraded ? 1 : 0);
-    };
+    const auto trust = [](KernelState s) { return s == Running ? 2 : (s == Degraded ? 1 : 0); };
     for (const auto state : k_states) {
         for (const bool agreed : {false, true}) {
             for (const auto event : k_events) {
@@ -39,9 +37,8 @@ TEST(KernelGate, NoEventEverMakesTheKernelMoreTrustingByAccident) {
                 }
                 const bool cleared = from.state == Degraded && event == ReconAgreed;
                 const bool resumed = from.state == Halted && agreed && event == OperatorResume;
-                EXPECT_TRUE(cleared || resumed)
-                    << to_string(state) << " agreed=" << agreed << " + " << to_string(event)
-                    << " -> " << to_string(to.state);
+                EXPECT_TRUE(cleared || resumed) << to_string(state) << " agreed=" << agreed << " + " << to_string(event)
+                                                << " -> " << to_string(to.state);
             }
         }
     }

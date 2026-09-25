@@ -5,17 +5,14 @@
 
 namespace raikiri::introspect {
 
-GetGatewayStats::GetGatewayStats(const GatewayStatsSource& source,
-                                 WallClock now,
-                                 std::uint64_t stale_after_ns)
+GetGatewayStats::GetGatewayStats(const GatewayStatsSource& source, WallClock now, std::uint64_t stale_after_ns)
     : source_{&source}, now_{std::move(now)}, stale_after_ns_{stale_after_ns} {}
 
 GatewayView GetGatewayStats::view(SnapshotRecord record, std::uint64_t now_ns) const {
     const auto taken = record.stats.taken_ns;
     const auto state = classify(taken, record.process_alive, now_ns, stale_after_ns_);
-    return GatewayView{.stats = std::move(record.stats),
-                       .state = state,
-                       .age_ms = now_ns > taken ? (now_ns - taken) / 1'000'000 : 0};
+    return GatewayView{
+        .stats = std::move(record.stats), .state = state, .age_ms = now_ns > taken ? (now_ns - taken) / 1'000'000 : 0};
 }
 
 std::optional<GatewayView> GetGatewayStats::operator()(std::string_view account) const {
@@ -26,9 +23,7 @@ std::optional<GatewayView> GetGatewayStats::operator()(std::string_view account)
     return view(std::move(*record), now_());
 }
 
-GetMachineStats::GetMachineStats(const GatewayStatsSource& source,
-                                 WallClock now,
-                                 std::uint64_t stale_after_ns)
+GetMachineStats::GetMachineStats(const GatewayStatsSource& source, WallClock now, std::uint64_t stale_after_ns)
     : one_{source, std::move(now), stale_after_ns} {}
 
 MachineStats GetMachineStats::operator()() const {

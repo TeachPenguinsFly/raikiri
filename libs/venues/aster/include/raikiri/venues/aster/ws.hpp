@@ -31,7 +31,6 @@ inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
 inline constexpr std::string_view k_bbo_stream = "@bookTicker";
 inline constexpr std::string_view k_trade_stream = "@trade";
 
-
 // lowercases the symbol; aster rejects uppercase stream names
 [[nodiscard]] std::string_view
 stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept;
@@ -43,17 +42,15 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const std::string_view> streams);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const std::string_view> streams);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const std::string_view> streams);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const std::string_view> streams);
 
     [[nodiscard]] std::uint64_t last_id() const noexcept { return next_id_ - 1; }
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    method_frame(std::string_view method, std::span<const std::string_view> streams);
+    [[nodiscard]] std::expected<Frame, WsBuildError> method_frame(std::string_view method,
+                                                                  std::span<const std::string_view> streams);
 
     std::array<char, 2048> frame_{};
     std::uint64_t next_id_{1};

@@ -17,8 +17,8 @@ std::expected<WireTrade, WireError> read_trade(wire::ondemand::object& obj) {
     const auto side = wire::req_str(obj, "side");
     const auto price = req_num(obj, "price");
     const auto qty = req_num(obj, "qty");
-    if (!product.has_value() || !uid.has_value() || !type.has_value() || !side.has_value() ||
-        !price.has_value() || !qty.has_value()) {
+    if (!product.has_value() || !uid.has_value() || !type.has_value() || !side.has_value() || !price.has_value() ||
+        !qty.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.product_id = *product;
@@ -58,8 +58,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         const auto ask = opt_num(*root, "ask");
         const auto bid_size = opt_num(*root, "bid_size");
         const auto ask_size = opt_num(*root, "ask_size");
-        if (!bid.has_value() || !ask.has_value() || !bid_size.has_value() ||
-            !ask_size.has_value()) {
+        if (!bid.has_value() || !ask.has_value() || !bid_size.has_value() || !ask_size.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         out.bid = *bid;
@@ -95,8 +94,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
     });
 }
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {

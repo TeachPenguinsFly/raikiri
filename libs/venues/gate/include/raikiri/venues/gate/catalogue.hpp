@@ -35,8 +35,8 @@ struct ContractBuffer {
 };
 
 // the body is a top-level array
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_contracts(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
+                                                                                      ContractBuffer& storage);
 
 // precisions are digit counts: steps are 10^-n
 struct WireCurrencyPair {

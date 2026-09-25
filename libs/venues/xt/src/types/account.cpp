@@ -11,8 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-std::expected<void, WireError> read_futures_balance(wire::ondemand::object& obj,
-                                                    WireFuturesBalance& out) {
+std::expected<void, WireError> read_futures_balance(wire::ondemand::object& obj, WireFuturesBalance& out) {
     for (const auto& [key, field] : {std::pair{"coin", &out.coin},
                                      std::pair{"walletBalance", &out.wallet_balance},
                                      std::pair{"availableBalance", &out.available_balance}}) {
@@ -44,8 +43,8 @@ std::expected<void, WireError> read_bill(wire::ondemand::object& obj, WireBill& 
 
 } // namespace
 
-std::expected<std::span<const WireFuturesBalance>, WireError>
-parse_futures_balances(std::string_view body, FuturesBalanceBuffer& storage) {
+std::expected<std::span<const WireFuturesBalance>, WireError> parse_futures_balances(std::string_view body,
+                                                                                     FuturesBalanceBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFuturesBalance>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -67,8 +66,7 @@ parse_futures_balances(std::string_view body, FuturesBalanceBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body,
-                                                                BillBuffer& storage) {
+std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body, BillBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireBill>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

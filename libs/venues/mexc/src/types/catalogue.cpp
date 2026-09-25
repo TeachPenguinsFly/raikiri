@@ -11,8 +11,8 @@ using wire::session;
 
 } // namespace
 
-std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage) {
+std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                            InstrumentBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -61,8 +61,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             const auto vol_scale = opt_int(obj, "volScale", -1);
             const auto state = opt_int(obj, "state", -1);
             const auto api_allowed = wire::opt_bool(obj, "apiAllowed");
-            if (!price_scale.has_value() || !vol_scale.has_value() || !state.has_value() ||
-                !api_allowed.has_value()) {
+            if (!price_scale.has_value() || !vol_scale.has_value() || !state.has_value() || !api_allowed.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.price_scale = *price_scale;
@@ -81,8 +80,8 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
+std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                             SpotSymbolBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotSymbol>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -115,8 +114,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             out.base_size_step = field(obj, "baseSizePrecision");
             out.quote_precision = int_field(obj, "quotePrecision");
             obj.reset();
-            out.spot_trading_allowed =
-                wire::opt_bool(obj, "isSpotTradingAllowed").value_or(false);
+            out.spot_trading_allowed = wire::opt_bool(obj, "isSpotTradingAllowed").value_or(false);
             storage.symbols[count] = out;
             ++count;
         }

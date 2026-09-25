@@ -36,8 +36,7 @@ class RestApi {
 public:
     explicit RestApi(VenueState& state)
         : state_{&state},
-          rest_{state.io,
-                net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}} {}
+          rest_{state.io, net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}} {}
 
     void start() { rest_.start(); }
 
@@ -53,10 +52,8 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-
     // aster meters one weight pool across all endpoints
-    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target,
-                                                              exec::RateClass cls) noexcept {
+    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target, exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited, not closed
         }
@@ -64,10 +61,10 @@ public:
         if (taken.has_value()) {
             return {};
         }
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::RateLimited,
-            static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
-            "local rate budget spent; retry after the stated milliseconds")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::RateLimited,
+                                   static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
+                                   "local rate budget spent; retry after the stated milliseconds")};
     }
 
     void penalize() const noexcept {
@@ -77,8 +74,8 @@ public:
     }
 
     // cold path: reconciliation reads and listen-key calls
-    [[nodiscard]] std::expected<std::string, exec::VenueError>
-    pull(const net::RestRequest& request, std::uint64_t timeout_ms = 10'000) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError> pull(const net::RestRequest& request,
+                                                                    std::uint64_t timeout_ms = 10'000) {
         return usable_body(await_response(*state_, rest_, request, timeout_ms));
     }
 
@@ -90,15 +87,13 @@ public:
     [[nodiscard]] std::expected<std::string, exec::VenueError>
     usable_body(const std::optional<net::RestResponse>& response) const {
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        if (const auto err = parse_rest_error(response->body);
-            err.has_value() && err->code != k_ok) {
+        if (const auto err = parse_rest_error(response->body); err.has_value() && err->code != k_ok) {
             const auto cls = classify(err->code);
             if (cls == exec::ErrorClass::RateLimited) {
                 penalize();

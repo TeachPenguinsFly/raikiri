@@ -38,9 +38,7 @@ TEST(LoadCatalogue, RetriesTransientFailuresUntilLoaded) {
         source,
         MarketType::Spot,
         [] { return false; },
-        [&](const VenueError&, std::uint32_t attempt, milliseconds) {
-            attempts.push_back(attempt);
-        },
+        [&](const VenueError&, std::uint32_t attempt, milliseconds) { attempts.push_back(attempt); },
         k_fast);
     ASSERT_TRUE(loaded.has_value());
     EXPECT_EQ(loaded->size(), 1U);
@@ -90,12 +88,8 @@ TEST(LoadCatalogue, BackoffDoublesToTheCapWithJitter) {
         [&](const VenueError&, std::uint32_t, milliseconds wait) { waits.push_back(wait); },
         {.first = milliseconds{2}, .cap = milliseconds{8}});
     ASSERT_TRUE(loaded.has_value());
-    const std::vector<milliseconds> ceilings{milliseconds{2},
-                                             milliseconds{4},
-                                             milliseconds{8},
-                                             milliseconds{8},
-                                             milliseconds{8},
-                                             milliseconds{8}};
+    const std::vector<milliseconds> ceilings{
+        milliseconds{2}, milliseconds{4}, milliseconds{8}, milliseconds{8}, milliseconds{8}, milliseconds{8}};
     ASSERT_EQ(waits.size(), ceilings.size());
     for (std::size_t i = 0; i < waits.size(); ++i) {
         EXPECT_GE(waits[i], ceilings[i] / 2) << i;

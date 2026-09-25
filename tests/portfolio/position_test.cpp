@@ -14,10 +14,7 @@ struct Fill {
     std::string_view fee{"0"};
 };
 
-InstrumentBase make(ContractKind kind,
-                    std::string_view tick,
-                    std::string_view lot,
-                    std::string_view contract_value) {
+InstrumentBase make(ContractKind kind, std::string_view tick, std::string_view lot, std::string_view contract_value) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Binance, MarketType::Perp, SymbolId{1});
     base.local_symbol = *SymbolText::from("X");
@@ -52,14 +49,13 @@ Position fold(const InstrumentBase& base, const std::vector<Fill>& fills) {
 }
 
 ::testing::AssertionResult same(const Position& a, const Position& b) {
-    if (a.qty().raw == b.qty().raw && a.cost().raw == b.cost().raw &&
-        a.realized().raw == b.realized().raw && a.fees().raw == b.fees().raw) {
+    if (a.qty().raw == b.qty().raw && a.cost().raw == b.cost().raw && a.realized().raw == b.realized().raw &&
+        a.fees().raw == b.fees().raw) {
         return ::testing::AssertionSuccess();
     }
-    return ::testing::AssertionFailure()
-           << "qty " << a.qty().raw << "/" << b.qty().raw << " cost " << a.cost().raw << "/"
-           << b.cost().raw << " realized " << a.realized().raw << "/" << b.realized().raw
-           << " fees " << a.fees().raw << "/" << b.fees().raw;
+    return ::testing::AssertionFailure() << "qty " << a.qty().raw << "/" << b.qty().raw << " cost " << a.cost().raw
+                                         << "/" << b.cost().raw << " realized " << a.realized().raw << "/"
+                                         << b.realized().raw << " fees " << a.fees().raw << "/" << b.fees().raw;
 }
 
 TEST(Position, LongOpensAndClosesForWhatTheMoveWasWorth) {
@@ -95,17 +91,13 @@ TEST(Position, FullCloseLeavesNoBasisResidue) {
 TEST(Position, PartialCloseDoesNotMoveTheAverageEntry) {
     const auto base = binance_btcusdt();
     Position p{PositionKey{7, base.id}, UnixNanos{1}};
-    const auto at = [&](std::string_view px) {
-        return *base.price_to_ticks(*parse_decimal_e9(px));
-    };
+    const auto at = [&](std::string_view px) { return *base.price_to_ticks(*parse_decimal_e9(px)); };
 
-    p.apply_fill(
-        base, Side::Buy, QtyLots::from_raw(1000), at("50000"), FixedE9::from_raw(0), UnixNanos{2});
+    p.apply_fill(base, Side::Buy, QtyLots::from_raw(1000), at("50000"), FixedE9::from_raw(0), UnixNanos{2});
     const auto before = p.avg_entry_price(base);
     EXPECT_EQ(before.raw, 50'000 * k_e9);
 
-    p.apply_fill(
-        base, Side::Sell, QtyLots::from_raw(400), at("55000"), FixedE9::from_raw(0), UnixNanos{3});
+    p.apply_fill(base, Side::Sell, QtyLots::from_raw(400), at("55000"), FixedE9::from_raw(0), UnixNanos{3});
     EXPECT_EQ(p.qty().raw, 600);
     EXPECT_EQ(p.avg_entry_price(base).raw, before.raw);
     EXPECT_EQ(p.realized().raw, 400 * 5 * k_e9); // 0.4 BTC through a 5000 move
@@ -114,9 +106,8 @@ TEST(Position, PartialCloseDoesNotMoveTheAverageEntry) {
 TEST(Position, FlipSplitsIntoACloseAndAnOpen) {
     const auto base = binance_btcusdt();
     const auto flipped = fold(base, {{Side::Buy, 1000, "50000"}, {Side::Sell, 2500, "51000"}});
-    const auto split = fold(
-        base,
-        {{Side::Buy, 1000, "50000"}, {Side::Sell, 1000, "51000"}, {Side::Sell, 1500, "51000"}});
+    const auto split = fold(base,
+                            {{Side::Buy, 1000, "50000"}, {Side::Sell, 1000, "51000"}, {Side::Sell, 1500, "51000"}});
     EXPECT_TRUE(same(flipped, split));
 
     EXPECT_EQ(flipped.qty().raw, -1500);
@@ -127,12 +118,9 @@ TEST(Position, FlipSplitsIntoACloseAndAnOpen) {
 TEST(Position, FlipProRatesTheFeeWithoutLosingAUnit) {
     const auto base = binance_btcusdt();
     Position p{PositionKey{7, base.id}, UnixNanos{1}};
-    const auto at = [&](std::string_view px) {
-        return *base.price_to_ticks(*parse_decimal_e9(px));
-    };
+    const auto at = [&](std::string_view px) { return *base.price_to_ticks(*parse_decimal_e9(px)); };
 
-    p.apply_fill(
-        base, Side::Buy, QtyLots::from_raw(1000), at("50000"), FixedE9::from_raw(0), UnixNanos{2});
+    p.apply_fill(base, Side::Buy, QtyLots::from_raw(1000), at("50000"), FixedE9::from_raw(0), UnixNanos{2});
     const auto applied = p.apply_fill(
         base, Side::Sell, QtyLots::from_raw(2500), at("51000"), FixedE9::from_raw(7), UnixNanos{3});
 
@@ -148,8 +136,7 @@ TEST(Position, ResentFillIsANoOp) {
 
     p.apply_fill(base, Side::Buy, QtyLots::from_raw(1000), at, FixedE9::from_raw(3), UnixNanos{2});
     const auto before = p;
-    const auto applied =
-        p.apply_fill(base, Side::Buy, QtyLots::from_raw(0), at, FixedE9::from_raw(3), UnixNanos{4});
+    const auto applied = p.apply_fill(base, Side::Buy, QtyLots::from_raw(0), at, FixedE9::from_raw(3), UnixNanos{4});
 
     EXPECT_TRUE(same(before, p));
     EXPECT_EQ(applied.realized.raw, 0);
@@ -183,9 +170,7 @@ TEST(Position, InverseShortLosesWhatTheLongGained) {
 TEST(Position, UnrealizedIsAFunctionOfTheMarkArgument) {
     const auto base = binance_btcusdt();
     const auto p = fold(base, {{Side::Buy, 1000, "50000"}});
-    const auto at = [&](std::string_view px) {
-        return *base.price_to_ticks(*parse_decimal_e9(px));
-    };
+    const auto at = [&](std::string_view px) { return *base.price_to_ticks(*parse_decimal_e9(px)); };
 
     EXPECT_EQ(unrealized_pnl(base, p, at("51000")).raw, 1000 * k_e9);
     EXPECT_EQ(unrealized_pnl(base, p, at("49000")).raw, -1000 * k_e9);
@@ -202,8 +187,7 @@ TEST(Position, UnrealizedOnInverseAlsoInverts) {
 
 TEST(Position, RealizedIsGrossAndFeesAreSeparate) {
     const auto base = binance_btcusdt();
-    const auto p =
-        fold(base, {{Side::Buy, 1000, "50000", "10"}, {Side::Sell, 1000, "51000", "10.2"}});
+    const auto p = fold(base, {{Side::Buy, 1000, "50000", "10"}, {Side::Sell, 1000, "51000", "10.2"}});
     EXPECT_EQ(p.realized().raw, 1000 * k_e9);
     EXPECT_EQ(p.fees().raw, parse_decimal_e9("20.2")->raw);
     EXPECT_EQ(p.net_realized().raw, 1000 * k_e9 - parse_decimal_e9("20.2")->raw);

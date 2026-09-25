@@ -14,7 +14,9 @@ bool exists(const char* path) noexcept {
     if (path == nullptr || *path == '\0') {
         return false;
     }
-    struct stat st{};
+
+    struct stat st {};
+
     return ::stat(path, &st) == 0;
 }
 

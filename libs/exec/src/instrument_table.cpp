@@ -62,8 +62,7 @@ const Instrument* InstrumentTable::find(std::string_view exchange_symbol) const 
     return &instruments_[it->second.front()];
 }
 
-const Instrument* InstrumentTable::find(std::string_view exchange_symbol,
-                                        MarketType market) const noexcept {
+const Instrument* InstrumentTable::find(std::string_view exchange_symbol, MarketType market) const noexcept {
     const auto it = by_exchange_symbol_.find(exchange_symbol);
     if (it == by_exchange_symbol_.end()) {
         return nullptr;

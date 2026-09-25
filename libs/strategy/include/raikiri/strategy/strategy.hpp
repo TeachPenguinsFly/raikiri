@@ -36,8 +36,7 @@ public:
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
 
-    [[nodiscard]] virtual std::expected<ClientOrderId, RejectReason>
-    submit(const NewOrder& order) noexcept = 0;
+    [[nodiscard]] virtual std::expected<ClientOrderId, RejectReason> submit(const NewOrder& order) noexcept = 0;
 
     virtual bool cancel(ClientOrderId id) noexcept = 0;
 
@@ -50,12 +49,10 @@ public:
 
     // The caller's own position, null before its first fill. The kernel
     // supplies the strategy_id, so a strategy cannot read another's book.
-    [[nodiscard]] virtual const portfolio::Position*
-    position(InstrumentId instrument) const noexcept = 0;
+    [[nodiscard]] virtual const portfolio::Position* position(InstrumentId instrument) const noexcept = 0;
 
     // takes an explicit mark; choosing it is the strategy's decision
-    [[nodiscard]] virtual FixedE9 unrealized(InstrumentId instrument,
-                                             PriceTicks mark) const noexcept = 0;
+    [[nodiscard]] virtual FixedE9 unrealized(InstrumentId instrument, PriceTicks mark) const noexcept = 0;
 
     // declares the position to hold; idempotent, so repeated calls send one order
     // nullopt when the book already agrees

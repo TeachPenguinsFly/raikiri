@@ -89,13 +89,10 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
-net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol,
-                                                std::uint32_t limit) noexcept {
+net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol, std::uint32_t limit) noexcept {
     Appender target{target_};
     target << ep::k_depth << "?symbol=" << symbol << "&limit=" << std::uint64_t{limit};
-    return {.method = net::HttpMethod::Get,
-            .target = target.ok() ? target.view() : std::string_view{},
-            .body = {}};
+    return {.method = net::HttpMethod::Get, .target = target.ok() ? target.view() : std::string_view{}, .body = {}};
 }
 
 std::string_view RequestBuilder::last_sign_message() const noexcept {
@@ -128,8 +125,7 @@ RequestBuilder::finish(net::HttpMethod method, std::string_view path, std::size_
     return request;
 }
 
-net::RestRequest RequestBuilder::header_only(net::HttpMethod method,
-                                             std::string_view path) noexcept {
+net::RestRequest RequestBuilder::header_only(net::HttpMethod method, std::string_view path) noexcept {
     net::RestRequest request{};
     request.method = method;
     request.target = path;

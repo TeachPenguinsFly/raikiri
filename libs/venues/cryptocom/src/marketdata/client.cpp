@@ -65,16 +65,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const bool perp = instrument.market() == MarketType::Perp;
         switch (kind) {
@@ -170,8 +166,8 @@ public:
 
 private:
     [[nodiscard]] static std::unexpected<exec::VenueError> pool_full() {
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::Terminal, 0, "cryptocom: connection pool is full")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "cryptocom: connection pool is full")};
     }
 
     [[nodiscard]] std::expected<void, exec::VenueError> open_book(std::string_view symbol) {
@@ -179,16 +175,14 @@ private:
         return place(book_channel(symbol, buf));
     }
 
-    [[nodiscard]] std::expected<void, exec::VenueError> open(std::string_view prefix,
-                                                             std::string_view symbol) {
+    [[nodiscard]] std::expected<void, exec::VenueError> open(std::string_view prefix, std::string_view symbol) {
         std::array<char, k_max_channel_len> buf{};
         return place(channel_name(prefix, symbol, buf));
     }
 
     [[nodiscard]] std::expected<void, exec::VenueError> place(std::string_view channel) {
         if (channel.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "channel name too long")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "channel name too long")};
         }
         const auto [at, inserted] = state_->desired.emplace(channel);
         if (!inserted) {
@@ -213,9 +207,7 @@ private:
         if (!wire.has_value()) {
             return;
         }
-        auto& book =
-            state_->books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-                .first->second;
+        auto& book = state_->books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
         switch (book.apply(*wire)) {
         case BookResult::Gap:
             resubscribe_book(base);
@@ -236,8 +228,7 @@ private:
                 state_->sink->on_bbo(*bbo);
             }
         }
-        if (state_->wants_depth.contains(base.id.packed) &&
-            state_->sink->wants_depth(base.id, received)) {
+        if (state_->wants_depth.contains(base.id.packed) && state_->sink->wants_depth(base.id, received)) {
             if (const auto depth = book.snapshot(ts_event, received); depth.has_value()) {
                 state_->sink->on_depth(*depth);
             }
@@ -290,8 +281,7 @@ private:
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, base_of(*listed), received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, base_of(*listed), received); stats.has_value()) {
             state_->sink->on_ticker_stats(*stats);
         }
     }
@@ -334,8 +324,7 @@ private:
             if (listed == nullptr) {
                 continue;
             }
-            if (const auto entry = state_->books.find(base_of(*listed).id.packed);
-                entry != state_->books.end()) {
+            if (const auto entry = state_->books.find(base_of(*listed).id.packed); entry != state_->books.end()) {
                 entry->second.invalidate();
             }
         }
@@ -344,8 +333,8 @@ private:
     // books first: they carry the quote
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> channels{keys.begin(), keys.end()};
-        std::ranges::stable_partition(
-            channels, [](std::string_view channel) { return channel.starts_with(k_book_prefix); });
+        std::ranges::stable_partition(channels,
+                                      [](std::string_view channel) { return channel.starts_with(k_book_prefix); });
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < channels.size()) {
@@ -365,8 +354,8 @@ private:
             return;
         }
         if (!state_->books.empty()) {
-            const auto cold = std::ranges::count_if(
-                state_->books, [](const auto& entry) { return !entry.second.synced(); });
+            const auto cold = std::ranges::count_if(state_->books,
+                                                    [](const auto& entry) { return !entry.second.synced(); });
             std::uint64_t gaps = 0;
             for (const auto& [packed, book] : state_->books) {
                 gaps += book.gaps();
@@ -403,8 +392,7 @@ private:
 
 void PublicHandler::on_open() {
     auto& state = owner_->state();
-    state.sink->on_connectivity(
-        {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state.clock->wall()});
+    state.sink->on_connectivity({.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state.clock->wall()});
 }
 
 void PublicHandler::on_message(std::string_view payload, UnixNanos received) noexcept {
@@ -413,8 +401,7 @@ void PublicHandler::on_message(std::string_view payload, UnixNanos received) noe
 
 void PublicHandler::on_close(net::WsCloseReason) {
     auto& state = owner_->state();
-    state.sink->on_connectivity(
-        {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state.clock->wall()});
+    state.sink->on_connectivity({.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state.clock->wall()});
 }
 
 } // namespace

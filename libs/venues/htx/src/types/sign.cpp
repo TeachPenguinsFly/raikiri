@@ -10,8 +10,8 @@ namespace {
 constexpr std::string_view k_hex = "0123456789ABCDEF";
 
 [[nodiscard]] bool unreserved(char c) noexcept {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' ||
-           c == '.' || c == '_' || c == '~';
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+           c == '_' || c == '~';
 }
 
 // hinnant's civil_from_days; avoids gmtime_r's locale and global state

@@ -70,8 +70,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     const auto value = positive(wire.contract_value);
     const auto symbol = SymbolText::from(wire.inst_id);
     const auto local = canonical_symbol(wire.base_ccy, wire.quote_ccy);
-    if (!tick.has_value() || !lot.has_value() || !value.has_value() || !symbol.has_value() ||
-        !local.has_value()) {
+    if (!tick.has_value() || !lot.has_value() || !value.has_value() || !symbol.has_value() || !local.has_value()) {
         return std::nullopt;
     }
     InstrumentBase base{};
@@ -102,8 +101,7 @@ void apply_schedule(PerpInstrument& perp, const WireFundingRow& row) noexcept {
     }
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = steps_of(wire.price, base.tick_size);
     const auto qty = steps_of(wire.size, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -119,8 +117,7 @@ map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) 
     return out;
 }
 
-std::optional<TickerStats>
-map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
     TickerStats out{};
     if (base.kind == ContractKind::Inverse) {
         // both columns count one-dollar contracts here
@@ -171,10 +168,8 @@ bool note_mark(FundingMemo& memo, const WireMark& wire, const InstrumentBase& ba
     return true;
 }
 
-FundingUpdate merged(const InstrumentBase& base,
-                     const FundingMemo& memo,
-                     UnixNanos ts_event,
-                     UnixNanos ts_init) noexcept {
+FundingUpdate
+merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) noexcept {
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = memo.rate;

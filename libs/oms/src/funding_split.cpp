@@ -4,9 +4,8 @@
 
 namespace raikiri::oms {
 
-std::vector<FundingShare> split_funding(std::span<const FundingHolder> holders,
-                                        FixedE9 amount,
-                                        std::uint16_t unheld_strategy_id) {
+std::vector<FundingShare>
+split_funding(std::span<const FundingHolder> holders, FixedE9 amount, std::uint16_t unheld_strategy_id) {
     if (amount.raw == 0 || amount.is_undef()) {
         return {};
     }
@@ -30,8 +29,7 @@ std::vector<FundingShare> split_funding(std::span<const FundingHolder> holders,
             continue;
         }
         // the remainder goes to the last holder so the parts sum exactly
-        const auto share =
-            &held == last ? amount.raw - paid : amount.raw * std::abs(held.lots) / total_lots;
+        const auto share = &held == last ? amount.raw - paid : amount.raw * std::abs(held.lots) / total_lots;
         paid += share;
         shares.push_back({.strategy_id = held.strategy_id, .amount = FixedE9{share}});
     }

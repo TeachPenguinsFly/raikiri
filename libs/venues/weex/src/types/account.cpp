@@ -54,13 +54,11 @@ std::expected<void, WireError> read_bill(ondemand::object& obj, WireBill& out) {
 
 } // namespace
 
-std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body,
-                                                                      BalanceBuffer& storage) {
+std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body, BalanceBuffer& storage) {
     return guarded([&] { return read_array<WireBalance>(body, storage.balances, read_balance); });
 }
 
-std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body,
-                                                                BillBuffer& storage) {
+std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body, BillBuffer& storage) {
     return guarded([&] { return read_list<WireBill>(body, "items", storage.bills, read_bill); });
 }
 

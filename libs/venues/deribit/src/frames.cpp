@@ -38,16 +38,14 @@ void handle_book(VenueState& state, std::string_view frame, UnixNanos received) 
     if (result != BookResult::Applied && result != BookResult::Resynced) {
         return; // unsynced, redelivered or dropped
     }
-    if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
-        depth.has_value()) {
+    if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received); depth.has_value()) {
         state.sink->on_depth(*depth);
     }
 }
 
 // the order row beside the trade is the authority; otherwise only filled names a quantity
-std::optional<QtyLots> leaves_for(const WireUserTrade& trade,
-                                  std::span<const WireOrder> orders,
-                                  const exec::InstrumentTable& table) {
+std::optional<QtyLots>
+leaves_for(const WireUserTrade& trade, std::span<const WireOrder> orders, const exec::InstrumentTable& table) {
     for (const auto& order : orders) {
         if (order.order_id == trade.order_id) {
             return order_leaves(order, table);
@@ -69,14 +67,12 @@ void handle_changes(VenueState& state, std::string_view frame, UnixNanos receive
         if (!leaves.has_value()) {
             continue;
         }
-        if (const auto event = map_fill(trade, state.instruments, *leaves, received);
-            event.has_value()) {
+        if (const auto event = map_fill(trade, state.instruments, *leaves, received); event.has_value()) {
             state.sink->on_order_event(*event);
         }
     }
     for (const auto& order : wire->orders) {
-        if (const auto event = map_order_event(order, state.instruments, received);
-            event.has_value()) {
+        if (const auto event = map_order_event(order, state.instruments, received); event.has_value()) {
             state.sink->on_order_event(*event);
         }
     }
@@ -107,8 +103,7 @@ bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return false;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -119,16 +114,13 @@ bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return false;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
-        if (const auto greeks = map_greeks(*wire, state.instruments, received);
-            greeks.has_value()) {
+        if (const auto greeks = map_greeks(*wire, state.instruments, received); greeks.has_value()) {
             state.sink->on_option_greeks(*greeks);
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;

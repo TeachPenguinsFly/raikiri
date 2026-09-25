@@ -64,8 +64,7 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
     });
 }
 
-std::expected<std::uint64_t, WireError> opt_number_ms(wire::ondemand::object& obj,
-                                                      std::string_view key) {
+std::expected<std::uint64_t, WireError> opt_number_ms(wire::ondemand::object& obj, std::string_view key) {
     const auto text = wire::opt_raw(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());

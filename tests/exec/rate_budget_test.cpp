@@ -59,8 +59,7 @@ TEST(SlidingLog, AFullLogAcrossAFixedWindowBoundaryWaitsForTheOldestToAge) {
 }
 
 TEST(RateBudget, ARequestSpendsFromEveryLimitThatMatchesIt) {
-    RateBudget budget{{pool(100, k_second),
-                       {.name = "orders", .window_ns = k_second, .max = 2, .match = {"/trade/"}}},
+    RateBudget budget{{pool(100, k_second), {.name = "orders", .window_ns = k_second, .max = 2, .match = {"/trade/"}}},
                       {}};
     EXPECT_TRUE(budget.take("/trade/order", MonoNanos{0}, RateClass::Order).has_value());
     EXPECT_TRUE(budget.take("/trade/order", MonoNanos{0}, RateClass::Order).has_value());
@@ -71,9 +70,7 @@ TEST(RateBudget, ARequestSpendsFromEveryLimitThatMatchesIt) {
 }
 
 TEST(RateBudget, ARefusedRequestSpendsFromNoLimitAtAll) {
-    RateBudget budget{{pool(3, k_second),
-                       {.name = "narrow", .window_ns = k_second, .max = 1, .match = {"/a"}}},
-                      {}};
+    RateBudget budget{{pool(3, k_second), {.name = "narrow", .window_ns = k_second, .max = 1, .match = {"/a"}}}, {}};
     ASSERT_TRUE(budget.take("/a", MonoNanos{0}, RateClass::Poll).has_value());
     ASSERT_FALSE(budget.take("/a", MonoNanos{0}, RateClass::Poll).has_value());
     EXPECT_TRUE(budget.take("/b", MonoNanos{0}, RateClass::Poll).has_value());
@@ -88,9 +85,8 @@ TEST(RateBudget, PathsMatchByPrefixAndQueryPairAndTheLongestCostWins) {
     EXPECT_FALSE(path_matches("/fapi/v1/depth?limit=100", "/fapi/v1/depth"));
     EXPECT_FALSE(path_matches("/api/v5/trade/", "/api/v5/account/bills"));
 
-    RateBudget budget{{pool(40, k_second)},
-                      {{.match = "/depth", .cost = 20}, {.match = "/depth?limit=100", .cost = 5}},
-                      3};
+    RateBudget budget{
+        {pool(40, k_second)}, {{.match = "/depth", .cost = 20}, {.match = "/depth?limit=100", .cost = 5}}, 3};
     EXPECT_EQ(budget.cost("/depth?limit=100"), 5U);
     EXPECT_EQ(budget.cost("/depth?limit=7"), 20U);
     EXPECT_EQ(budget.cost("/other"), 3U);

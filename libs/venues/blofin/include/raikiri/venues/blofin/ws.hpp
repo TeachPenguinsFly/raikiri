@@ -35,8 +35,8 @@ public:
     [[nodiscard]] static std::string_view ping_frame() noexcept { return "ping"; }
 
 private:
-    [[nodiscard]] std::expected<std::string_view, WsBuildError> op_frame(
-        std::string_view op, std::string_view inst_id, std::span<const std::string_view> channels);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError>
+    op_frame(std::string_view op, std::string_view inst_id, std::span<const std::string_view> channels);
 
     std::array<char, 1024> frame_{};
 };

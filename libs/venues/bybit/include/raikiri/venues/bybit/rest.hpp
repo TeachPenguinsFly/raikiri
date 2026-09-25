@@ -46,17 +46,14 @@ public:
     amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
     // cancel-all for gateway shutdown
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_all(MarketType market,
-                                                                         UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_all(MarketType market, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
-                                                                          UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     executions(MarketType market, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // pair with VenueCaps::funding_charge
     [[nodiscard]] std::expected<net::RestRequest, BuildError>

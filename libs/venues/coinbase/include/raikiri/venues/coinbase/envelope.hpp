@@ -15,7 +15,7 @@
 namespace raikiri::venues::coinbase {
 
 enum class EventKind : std::uint8_t {
-    Ticker, // ticker: best bid/ask, republished on every match
+    Ticker,        // ticker: best bid/ask, republished on every match
     Match,         // match, and the last_match replay sent on subscribe
     Snapshot,      // level2_batch's opening book, whole
     L2Update,      // level2_batch's changes
@@ -46,8 +46,8 @@ struct AckBuffer {
 };
 
 // the ack names channels the venue's way (level2_batch comes back as level2_50); an empty array is the refusal
-[[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
-parse_subscriptions(std::string_view frame, AckBuffer& storage);
+[[nodiscard]] std::expected<std::span<const std::string_view>, WireError> parse_subscriptions(std::string_view frame,
+                                                                                              AckBuffer& storage);
 
 // /time's `iso` field; `epoch` is a float
 [[nodiscard]] std::expected<std::string_view, WireError> parse_server_time(std::string_view body);

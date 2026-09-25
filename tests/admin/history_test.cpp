@@ -116,8 +116,7 @@ TEST(AdminHistoryCursor, EveryCursorSurvivesItsOwnEncoding) {
 }
 
 TEST(AdminHistoryUnits, ATickCountIsNotAPriceUntilAnInstrumentSaysWhatATickIs) {
-    const Scales scales{.tick_size = *parse_decimal_e9("0.1"),
-                        .lot_size = *parse_decimal_e9("0.001")};
+    const Scales scales{.tick_size = *parse_decimal_e9("0.1"), .lot_size = *parse_decimal_e9("0.001")};
     EXPECT_EQ(scales.price(PriceTicks::from_raw(794'183)), "79418.3");
     EXPECT_EQ(scales.size(QtyLots::from_raw(2'500)), "2.5");
     EXPECT_EQ(scales.size(QtyLots::from_raw(-2'500)), "-2.5") << "a short is signed, not absent";
@@ -134,8 +133,7 @@ TEST(AdminHistoryUnits, AnInstrumentTheCatalogueDoesNotHoldRendersNothingAtAll) 
 }
 
 TEST(AdminHistoryUnits, AnAbsentValueIsAbsentAndAZeroIsAZero) {
-    const Scales scales{.tick_size = *parse_decimal_e9("0.1"),
-                        .lot_size = *parse_decimal_e9("0.001")};
+    const Scales scales{.tick_size = *parse_decimal_e9("0.1"), .lot_size = *parse_decimal_e9("0.001")};
     EXPECT_FALSE(scales.price(PriceTicks::undef()).has_value()) << "a market order carries none";
     EXPECT_FALSE(scales.size(QtyLots::undef()).has_value());
     EXPECT_EQ(scales.size(QtyLots::from_raw(0)), "0") << "flat is a quantity, not a hole";
@@ -154,8 +152,7 @@ TEST(AdminHistoryUnits, ACatalogueRowWithAnImpossibleScaleRefusesRatherThanAbort
 
 TEST(AdminHistoryUnits, TheLiveCatalogueFillsOnlyWhatTheTableLeftOut) {
     const Scales table{.tick_size = *parse_decimal_e9("0.1"), .lot_size = FixedE9::undef()};
-    const Scales live{.tick_size = *parse_decimal_e9("0.5"),
-                      .lot_size = *parse_decimal_e9("0.001")};
+    const Scales live{.tick_size = *parse_decimal_e9("0.5"), .lot_size = *parse_decimal_e9("0.001")};
     const auto merged = table.or_from(live);
     EXPECT_EQ(merged.price(PriceTicks::from_raw(10)), "1");
     EXPECT_EQ(merged.size(QtyLots::from_raw(2'500)), "2.5");
@@ -286,11 +283,8 @@ TEST(AdminHistoryPg, EveryQueryTheContractNamesIsValidSqlAgainstTheRealSchema) {
     const Cursor numeric{.ts = 1'787'840'965'107'000'000ULL, .key = "281474976710658", .key2 = {}};
     const Cursor textual{.ts = 1'787'840'965'107'000'000ULL, .key = "bybit", .key2 = "e-1"};
 
-    const PageQuery full{.account = account,
-                         .instrument = instrument,
-                         .since = UnixNanos{1},
-                         .cursor = numeric,
-                         .limit = 5};
+    const PageQuery full{
+        .account = account, .instrument = instrument, .since = UnixNanos{1}, .cursor = numeric, .limit = 5};
 
     (void)history.orders({}, std::nullopt);
     survived("unfiltered orders");
@@ -303,11 +297,8 @@ TEST(AdminHistoryPg, EveryQueryTheContractNamesIsValidSqlAgainstTheRealSchema) {
     (void)history.order_events(ClientOrderId::make(1, 2));
     survived("order events");
 
-    (void)history.fills({.account = account,
-                         .instrument = instrument,
-                         .since = UnixNanos{1},
-                         .cursor = textual,
-                         .limit = 5});
+    (void)history.fills(
+        {.account = account, .instrument = instrument, .since = UnixNanos{1}, .cursor = textual, .limit = 5});
     survived("fills");
 
     (void)history.positions(account, std::uint16_t{7});
@@ -325,8 +316,7 @@ TEST(AdminHistoryPg, EveryQueryTheContractNamesIsValidSqlAgainstTheRealSchema) {
     (void)history.funding(full);
     survived("funding");
 
-    (void)history.recon_breaks(
-        {.account = account, .since = UnixNanos{1}, .cursor = textual, .limit = 5});
+    (void)history.recon_breaks({.account = account, .since = UnixNanos{1}, .cursor = textual, .limit = 5});
     survived("recon breaks");
 
     const PageQuery forged{.cursor = Cursor{.ts = 1, .key = "not-a-number", .key2 = {}}};
@@ -344,8 +334,7 @@ TEST(AdminHistoryPg, AFillWhoseInstrumentTheTableLacksIsScaledByTheLiveCatalogue
     if (!history.connected() || !history.health().reachable) {
         GTEST_SKIP() << "sql/migrations not applied to $RAIKIRI_PG_DSN";
     }
-    const auto instrument =
-        InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFF0U});
+    const auto instrument = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFF0U});
     const auto id = std::to_string(static_cast<std::int64_t>(instrument.packed));
     pqxx::connection conn{dsn};
     const auto scrub = [&] {
@@ -391,8 +380,7 @@ TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
     if (!history.connected() || !history.health().reachable) {
         GTEST_SKIP() << "sql/migrations not applied to $RAIKIRI_PG_DSN";
     }
-    const auto instrument =
-        InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFF1U});
+    const auto instrument = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFF1U});
     const auto id = std::to_string(static_cast<std::int64_t>(instrument.packed));
     pqxx::connection conn{dsn};
     const auto scrub = [&] {
@@ -409,18 +397,16 @@ TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
         auto writer = journal::JournalWriter::open(dir, "journal");
         ASSERT_TRUE(writer.has_value());
         namespace jt = raikiri_journal::types;
-        const auto load =
-            [&](std::uint64_t generation, std::int64_t tick, std::int64_t lot, std::uint64_t at) {
-                (void)schema::append_msg<raikiri_journal::schema::messages::InstrumentMsg>(
-                    *writer, at, [&](auto m) {
-                        m.instrument(jt::instrumentId{instrument.packed});
-                        m.generation(generation);
-                        m.symbol().assign_range(std::string_view{generation == 1 ? "OLD" : "NEW"});
-                        m.tickSize(jt::fixedE9{tick});
-                        m.lotSize(jt::fixedE9{lot});
-                        m.tsLoaded(jt::timestampNs{at});
-                    });
-            };
+        const auto load = [&](std::uint64_t generation, std::int64_t tick, std::int64_t lot, std::uint64_t at) {
+            (void)schema::append_msg<raikiri_journal::schema::messages::InstrumentMsg>(*writer, at, [&](auto m) {
+                m.instrument(jt::instrumentId{instrument.packed});
+                m.generation(generation);
+                m.symbol().assign_range(std::string_view{generation == 1 ? "OLD" : "NEW"});
+                m.tickSize(jt::fixedE9{tick});
+                m.lotSize(jt::fixedE9{lot});
+                m.tsLoaded(jt::timestampNs{at});
+            });
+        };
         load(1, 10'000'000, 1'000'000, 1'000);
         load(2, 500'000'000, 1'000'000'000, 2'000);
     }
@@ -438,9 +424,8 @@ TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
     (void)std::system(("rm -rf " + dir).c_str());
     {
         pqxx::work tx{conn};
-        for (const auto& [exec, ts] : {std::pair{"e-before", "500"},
-                                       std::pair{"e-old", "1500"},
-                                       std::pair{"e-new", "2500"}}) {
+        for (const auto& [exec, ts] :
+             {std::pair{"e-before", "500"}, std::pair{"e-old", "1500"}, std::pair{"e-new", "2500"}}) {
             tx.exec(std::string{"INSERT INTO raikiri.executions (venue, exec_id, instrument_id,"
                                 " side, price_ticks, qty_lots, ts_event)"
                                 " VALUES ('history-test-gen', '"} +

@@ -46,8 +46,8 @@ struct OrderBuffer {
 };
 
 // data.orders[] on both trees.
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
+                                                                                OrderBuffer& storage);
 
 // spot puts the order in data and perp in data.order; both are read
 [[nodiscard]] std::expected<WireOrder, WireError> parse_order_ack(std::string_view body);
@@ -55,7 +55,7 @@ parse_orders(std::string_view body, OrderBuffer& storage);
 // perp quotes numbers and spot sends them bare; a trade without l/L is dropped
 struct WireOrderUpdate {
     std::string_view symbol;                          // s
-    std::string_view client_order_id; // c, absent on spot
+    std::string_view client_order_id;                 // c, absent on spot
     std::string_view order_id;                        // i
     std::string_view side;                            // S
     std::string_view type;                            // o
@@ -65,10 +65,10 @@ struct WireOrderUpdate {
     std::string_view last_qty;                        // l
     std::string_view cum_qty;                         // z
     std::string_view last_price;                      // L
-    std::string_view fee; // n, negative when charged
-    std::string_view trade_id; // t, spot only
+    std::string_view fee;                             // n, negative when charged
+    std::string_view trade_id;                        // t, spot only
     WireOrderStatus status{WireOrderStatus::Unknown}; // X
-    bool is_maker{false}; // m, spot only
+    bool is_maker{false};                             // m, spot only
     bool maker_known{false};
     std::uint64_t ts_ms{0}; // T
 };

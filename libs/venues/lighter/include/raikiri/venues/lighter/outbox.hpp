@@ -22,7 +22,9 @@ public:
     void answered(std::string_view venue_channel);
     // The channel to ask for again, when the refusal was for pace.
     [[nodiscard]] std::optional<std::string> refused(std::int64_t code, MonoNanos now);
+
     void reopened() noexcept { unanswered_.clear(); }
+
     [[nodiscard]] std::size_t unanswered() const noexcept { return unanswered_.size(); }
 
 private:

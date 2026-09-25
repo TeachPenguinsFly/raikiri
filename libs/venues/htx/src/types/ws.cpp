@@ -108,8 +108,7 @@ Protocol::request(std::string_view op, std::string_view code, std::string_view s
     return writer.frame();
 }
 
-std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::string_view code,
-                                                                       std::string_view suffix) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::string_view code, std::string_view suffix) {
     return request("sub", code, suffix);
 }
 
@@ -118,8 +117,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::st
     return request("unsub", code, suffix);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::funding_subscribe_frame(std::string_view code) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::funding_subscribe_frame(std::string_view code) {
     if (code.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -133,8 +131,7 @@ Protocol::funding_subscribe_frame(std::string_view code) {
 }
 
 // the timestamp goes back as it arrived, quotes and all
-std::expected<Protocol::Frame, WsBuildError> Protocol::pong(std::string_view head,
-                                                            std::string_view ts) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::pong(std::string_view head, std::string_view ts) {
     if (ts.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -176,8 +173,7 @@ std::string_view Protocol::last_auth_message() const noexcept {
     return {auth_msg_.data(), auth_msg_len_};
 }
 
-std::expected<Protocol::Frame, WsBuildError> Protocol::swap_auth_frame(const net::Signer& signer,
-                                                                       UnixNanos now) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::swap_auth_frame(const net::Signer& signer, UnixNanos now) {
     if (!signer.has_credentials()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -194,8 +190,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::swap_auth_frame(const net
     if (rendered.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
-    const auto message =
-        sign::canonical("GET", ep::k_stream_futures, notify_path(), rendered, auth_msg_);
+    const auto message = sign::canonical("GET", ep::k_stream_futures, notify_path(), rendered, auth_msg_);
     if (message.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
@@ -217,8 +212,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::swap_auth_frame(const net
     return writer.frame();
 }
 
-std::expected<Protocol::Frame, WsBuildError> Protocol::spot_auth_frame(const net::Signer& signer,
-                                                                       UnixNanos now) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::spot_auth_frame(const net::Signer& signer, UnixNanos now) {
     if (!signer.has_credentials()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -235,8 +229,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::spot_auth_frame(const net
     if (rendered.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
-    const auto message =
-        sign::canonical("GET", ep::k_stream_spot, ep::k_ws_spot_private, rendered, auth_msg_);
+    const auto message = sign::canonical("GET", ep::k_stream_spot, ep::k_ws_spot_private, rendered, auth_msg_);
     if (message.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
@@ -257,8 +250,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::spot_auth_frame(const net
     return writer.frame();
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::swap_private_subscribe_frame(std::string_view topic) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::swap_private_subscribe_frame(std::string_view topic) {
     if (topic.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -271,8 +263,7 @@ Protocol::swap_private_subscribe_frame(std::string_view topic) {
     return writer.frame();
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::spot_private_subscribe_frame(std::string_view channel) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::spot_private_subscribe_frame(std::string_view channel) {
     if (channel.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }

@@ -61,8 +61,7 @@ void Engine::handle_create(const OrderCmd& cmd, UnixNanos now, SimResult& out) {
     meta.leaves = cmd.qty;
 
     const bool bad_qty = cmd.qty.is_undef() || cmd.qty.raw <= 0;
-    const bool bad_price =
-        cmd.order_type == OrderType::Limit && (cmd.price.is_undef() || cmd.price.raw <= 0);
+    const bool bad_price = cmd.order_type == OrderType::Limit && (cmd.price.is_undef() || cmd.price.raw <= 0);
     if (bad_qty || bad_price) {
         // Malformed orders die at the venue gate; the book never sees them.
         out.events.push_back(make_event(meta, OrderEventType::Rejected, now));
@@ -168,12 +167,8 @@ void Engine::handle_amend(const OrderCmd& cmd, UnixNanos now, SimResult& out) {
     out.bbo_changed = out.bbo_changed || before != bk.bbo();
 }
 
-std::uint64_t Engine::place_background_limit(InstrumentId instrument,
-                                             Side side,
-                                             PriceTicks price,
-                                             QtyLots qty,
-                                             UnixNanos now,
-                                             SimResult& out) {
+std::uint64_t Engine::place_background_limit(
+    InstrumentId instrument, Side side, PriceTicks price, QtyLots qty, UnixNanos now, SimResult& out) {
     Book& bk = book_for(instrument);
     const auto before = bk.bbo();
     const std::uint64_t sim_id = next_sim_id_++;
@@ -184,8 +179,7 @@ std::uint64_t Engine::place_background_limit(InstrumentId instrument,
     return sim_id;
 }
 
-void Engine::place_background_market(
-    InstrumentId instrument, Side side, QtyLots qty, UnixNanos now, SimResult& out) {
+void Engine::place_background_market(InstrumentId instrument, Side side, QtyLots qty, UnixNanos now, SimResult& out) {
     Book& bk = book_for(instrument);
     const auto before = bk.bbo();
     const std::uint64_t sim_id = next_sim_id_++;
@@ -235,8 +229,7 @@ ExecId Engine::next_exec_id() noexcept {
     return *ExecId::from(text); // "S-" + <=20 digits always fits 40 chars
 }
 
-OrderEvent
-Engine::make_event(const ClientOrderMeta& meta, OrderEventType type, UnixNanos now) const {
+OrderEvent Engine::make_event(const ClientOrderMeta& meta, OrderEventType type, UnixNanos now) const {
     OrderEvent ev{};
     ev.type = type;
     ev.side = meta.side;
@@ -256,8 +249,7 @@ Engine::make_event(const ClientOrderMeta& meta, OrderEventType type, UnixNanos n
     return ev;
 }
 
-OrderEvent
-Engine::make_event_from_cmd(const OrderCmd& cmd, OrderEventType type, UnixNanos now) const {
+OrderEvent Engine::make_event_from_cmd(const OrderCmd& cmd, OrderEventType type, UnixNanos now) const {
     ClientOrderMeta meta{};
     meta.instrument = cmd.instrument;
     meta.client_order_id = cmd.client_order_id;

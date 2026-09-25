@@ -15,9 +15,9 @@ namespace raikiri::venues::bingx {
 enum class EventKind : std::uint8_t {
     BookTicker, // {sym}@bookTicker
     Trade,      // {sym}@trade
-    Depth, // {sym}@depth100@100ms, a full snapshot
-    MarkPrice, // {sym}@markPrice; no funding
-    Ticker, // {sym}@ticker, rolling 24h window
+    Depth,      // {sym}@depth100@100ms, a full snapshot
+    MarkPrice,  // {sym}@markPrice; no funding
+    Ticker,     // {sym}@ticker, rolling 24h window
     Ping,       // the bare text "Ping"
     ControlAck, // a subscribe/unsubscribe answer with code 0
     Error,      // the same shape with a non-zero code
@@ -67,8 +67,7 @@ struct RestEnvelope {
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 
 // for values where zero is meaningful, so absence must fail
-[[nodiscard]] std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj,
-                                                             std::string_view key);
+[[nodiscard]] std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj, std::string_view key);
 
 // split on the first '@'; empty when there is none
 [[nodiscard]] std::string_view symbol_of(std::string_view data_type);
@@ -76,13 +75,10 @@ struct RestEnvelope {
 // any scalar as a view; perp quotes numbers and spot sends them bare
 [[nodiscard]] std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value);
 
-[[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
-                                                                    std::string_view key);
-[[nodiscard]] std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj,
-                                                                    std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj, std::string_view key);
 
 // absent reads as zero; map.cpp substitutes ingest time
-[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms_any(wire::ondemand::object& obj,
-                                                                 std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms_any(wire::ondemand::object& obj, std::string_view key);
 
 } // namespace raikiri::venues::bingx

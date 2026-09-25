@@ -77,10 +77,8 @@ std::expected<Print, WireError> read_print(wire::ondemand::array row, Read read_
 }
 
 template <typename Print, typename Read>
-std::expected<WireTrades<Print>, WireError> parse_trades(std::string_view frame,
-                                                         std::string_view key,
-                                                         PrintBuffer<Print>& storage,
-                                                         Read read_number) {
+std::expected<WireTrades<Print>, WireError>
+parse_trades(std::string_view frame, std::string_view key, PrintBuffer<Print>& storage, Read read_number) {
     return guarded([&]() -> std::expected<WireTrades<Print>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -153,8 +151,7 @@ std::expected<void, WireError> read_columns(wire::ondemand::array fields, PackCo
     return {};
 }
 
-std::expected<WirePackRow, WireError> read_pack_row(wire::ondemand::array row,
-                                                    const PackColumns& columns) {
+std::expected<WirePackRow, WireError> read_pack_row(wire::ondemand::array row, const PackColumns& columns) {
     WirePackRow out{};
     const std::array<std::pair<int, std::string_view*>, 6> wanted{{
         {columns.symbol, &out.symbol},
@@ -190,8 +187,7 @@ std::expected<WirePackRow, WireError> read_pack_row(wire::ondemand::array row,
 }
 
 // Absent is nullopt; present but not an integer is an error.
-std::expected<std::optional<std::int64_t>, WireError> opt_int(wire::ondemand::object& obj,
-                                                              std::string_view key) {
+std::expected<std::optional<std::int64_t>, WireError> opt_int(wire::ondemand::object& obj, std::string_view key) {
     const auto raw = wire::opt_raw(obj, key);
     if (!raw.has_value()) {
         return std::unexpected(raw.error());
@@ -212,8 +208,7 @@ struct IntField {
     std::optional<std::int64_t>* into;
 };
 
-std::expected<void, WireError> read_ints(wire::ondemand::object& obj,
-                                         std::initializer_list<IntField> wanted) {
+std::expected<void, WireError> read_ints(wire::ondemand::object& obj, std::initializer_list<IntField> wanted) {
     for (const auto& want : wanted) {
         const auto value = opt_int(obj, want.key);
         if (!value.has_value()) {
@@ -226,18 +221,17 @@ std::expected<void, WireError> read_ints(wire::ondemand::object& obj,
 
 } // namespace
 
-std::expected<WireTrades<WireRealPrint>, WireError>
-parse_real_trades(std::string_view frame, PrintBuffer<WireRealPrint>& storage) {
+std::expected<WireTrades<WireRealPrint>, WireError> parse_real_trades(std::string_view frame,
+                                                                      PrintBuffer<WireRealPrint>& storage) {
     return parse_trades(frame, "trades_p", storage, text_of);
 }
 
-std::expected<WireTrades<WireScaledPrint>, WireError>
-parse_scaled_trades(std::string_view frame, PrintBuffer<WireScaledPrint>& storage) {
+std::expected<WireTrades<WireScaledPrint>, WireError> parse_scaled_trades(std::string_view frame,
+                                                                          PrintBuffer<WireScaledPrint>& storage) {
     return parse_trades(frame, "trades", storage, int_of);
 }
 
-std::expected<WirePack, WireError>
-parse_perp_pack(std::string_view frame, PackColumns& columns, PackBuffer& storage) {
+std::expected<WirePack, WireError> parse_perp_pack(std::string_view frame, PackColumns& columns, PackBuffer& storage) {
     return guarded([&]() -> std::expected<WirePack, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -341,8 +335,7 @@ std::expected<WireSpotTicker, WireError> parse_spot_ticker(std::string_view fram
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        if (const auto ok = read_ints(
-                *body, {{"volumeEv", &out.volume_ev}, {"turnoverEv", &out.turnover_ev}});
+        if (const auto ok = read_ints(*body, {{"volumeEv", &out.volume_ev}, {"turnoverEv", &out.turnover_ev}});
             !ok.has_value()) {
             return std::unexpected(ok.error());
         }

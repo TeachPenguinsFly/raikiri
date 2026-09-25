@@ -22,8 +22,7 @@ void expect_uncrossed(const Book& book) {
     }
 }
 
-void rest(
-    Book& book, std::uint64_t id, std::uint32_t owner, Side side, PriceTicks price, QtyLots qty) {
+void rest(Book& book, std::uint64_t id, std::uint32_t owner, Side side, PriceTicks price, QtyLots qty) {
     const auto r = book.submit_limit(id, owner, side, price, qty, /*post_only=*/false);
     ASSERT_EQ(r.disposition, Disposition::Rested);
     ASSERT_TRUE(r.fills.empty());

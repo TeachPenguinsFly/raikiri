@@ -1,10 +1,10 @@
 #include <raikiri/venues/lighter/book.hpp>
-#include <raikiri/venues/lighter/outbox.hpp>
 #include <raikiri/venues/lighter/catalogue.hpp>
 #include <raikiri/venues/lighter/endpoints.hpp>
 #include <raikiri/venues/lighter/envelope.hpp>
 #include <raikiri/venues/lighter/map.hpp>
 #include <raikiri/venues/lighter/market_data.hpp>
+#include <raikiri/venues/lighter/outbox.hpp>
 #include <raikiri/venues/lighter/ws.hpp>
 
 #include <gtest/gtest.h>
@@ -179,9 +179,7 @@ TEST(LighterEnvelope, TheChannelEndsInTheMarketId) {
 
 // LDO/USDC, a spot pair: price_decimals 5 and size_decimals 1.
 Book ldo_book() {
-    return Book{InstrumentId::make(VenueId::Lighter, MarketType::Spot, SymbolId{2054}),
-                e9("0.00001"),
-                e9("0.1")};
+    return Book{InstrumentId::make(VenueId::Lighter, MarketType::Spot, SymbolId{2054}), e9("0.00001"), e9("0.1")};
 }
 
 WireOrderBook parsed(const std::string& text, LevelBuffer& storage) {
@@ -214,12 +212,9 @@ TEST(LighterBook, TheSnapshotIsTheWholeBook) {
 TEST(LighterBook, UpdatesChainOnTheNonceAndAZeroSizeDeletes) {
     const auto storage = std::make_unique<LevelBuffer>();
     auto book = ldo_book();
-    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)),
-              BookResult::Resynced);
-    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)),
-              BookResult::Applied);
-    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update_next.json"), *storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)), BookResult::Resynced);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)), BookResult::Applied);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update_next.json"), *storage)), BookResult::Applied);
     EXPECT_EQ(book.nonce(), 22'900'327'320ULL);
     const auto top = book.top(k_ingest, k_ingest);
     ASSERT_TRUE(top.has_value());
@@ -237,38 +232,28 @@ TEST(LighterBook, UpdatesChainOnTheNonceAndAZeroSizeDeletes) {
 TEST(LighterBook, AMissedFrameDarkensTheBookUntilTheNextSnapshot) {
     const auto storage = std::make_unique<LevelBuffer>();
     auto book = ldo_book();
-    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)),
-              BookResult::Resynced);
-    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_update_next.json"), *storage)),
-              BookResult::Gap);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)), BookResult::Resynced);
+    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_update_next.json"), *storage)), BookResult::Gap);
     EXPECT_FALSE(book.synced());
     EXPECT_EQ(book.gaps(), 1U);
     EXPECT_FALSE(book.top(k_ingest, k_ingest).has_value());
-    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)),
-              BookResult::Ignored);
-    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)),
-              BookResult::Resynced);
+    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)), BookResult::Ignored);
+    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)), BookResult::Resynced);
 }
 
 TEST(LighterBook, AFrameAlreadyInsideTheBookIsIgnored) {
     const auto storage = std::make_unique<LevelBuffer>();
     auto book = ldo_book();
-    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)),
-              BookResult::Resynced);
-    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)),
-              BookResult::Applied);
-    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)),
-              BookResult::Ignored);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)), BookResult::Resynced);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)), BookResult::Applied);
+    EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)), BookResult::Ignored);
     EXPECT_TRUE(book.synced());
 }
 
 TEST(LighterBook, ALevelOffTheGridDropsTheBookRatherThanRoundingIt) {
     const auto storage = std::make_unique<LevelBuffer>();
-    Book coarse{InstrumentId::make(VenueId::Lighter, MarketType::Spot, SymbolId{2054}),
-                e9("0.001"),
-                e9("0.1")};
-    EXPECT_EQ(coarse.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)),
-              BookResult::BadLevel);
+    Book coarse{InstrumentId::make(VenueId::Lighter, MarketType::Spot, SymbolId{2054}), e9("0.001"), e9("0.1")};
+    EXPECT_EQ(coarse.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)), BookResult::BadLevel);
     EXPECT_FALSE(coarse.synced());
 }
 
@@ -363,8 +348,7 @@ TEST(LighterFunding, VolumesAreReadFromTheNumberTextWithoutADouble) {
     const auto frame = parse_market_stats(text, storage);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->rows[0].base_volume, "10699.68227");
-    const auto stats =
-        map_ticker_stats(frame->rows[0], base_for(1, MarketType::Perp), frame->ts_ms, k_ingest);
+    const auto stats = map_ticker_stats(frame->rows[0], base_for(1, MarketType::Perp), frame->ts_ms, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("10699.68227"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("899521507.591693"));
@@ -401,12 +385,8 @@ TEST(LighterWs, AReopenAsksForBooksFirstAndEachChannelOnce) {
                                            "order_book/1",
                                            "trade/1"};
     const auto order = ask_order(carried);
-    const std::vector<std::string_view> expected{"order_book/1",
-                                                 "order_book/2048",
-                                                 "market_stats/all",
-                                                 "spot_market_stats/all",
-                                                 "trade/1",
-                                                 "trade/2"};
+    const std::vector<std::string_view> expected{
+        "order_book/1", "order_book/2048", "market_stats/all", "spot_market_stats/all", "trade/1", "trade/2"};
     EXPECT_EQ(order, expected);
 }
 

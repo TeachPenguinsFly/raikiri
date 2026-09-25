@@ -90,35 +90,33 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_result_object(
-            *root, [](wire::ondemand::object& obj) -> std::expected<WireBookTicker, WireError> {
-                WireBookTicker out{};
-                const auto ts = num_u64(obj, "t");
-                const auto update_id = num_u64(obj, "u");
-                const auto contract = wire::req_str(obj, "s");
-                const auto bid_price = req_num(obj, "b");
-                const auto bid_qty = req_num(obj, "B");
-                const auto ask_price = req_num(obj, "a");
-                const auto ask_qty = req_num(obj, "A");
-                if (!ts.has_value() || !update_id.has_value() || !contract.has_value() ||
-                    !bid_price.has_value() || !bid_qty.has_value() || !ask_price.has_value() ||
-                    !ask_qty.has_value()) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                out.ts_ms = *ts;
-                out.update_id = *update_id;
-                out.contract = *contract;
-                out.bid_price = *bid_price;
-                out.bid_qty = *bid_qty;
-                out.ask_price = *ask_price;
-                out.ask_qty = *ask_qty;
-                return out;
-            });
+        return with_result_object(*root, [](wire::ondemand::object& obj) -> std::expected<WireBookTicker, WireError> {
+            WireBookTicker out{};
+            const auto ts = num_u64(obj, "t");
+            const auto update_id = num_u64(obj, "u");
+            const auto contract = wire::req_str(obj, "s");
+            const auto bid_price = req_num(obj, "b");
+            const auto bid_qty = req_num(obj, "B");
+            const auto ask_price = req_num(obj, "a");
+            const auto ask_qty = req_num(obj, "A");
+            if (!ts.has_value() || !update_id.has_value() || !contract.has_value() || !bid_price.has_value() ||
+                !bid_qty.has_value() || !ask_price.has_value() || !ask_qty.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.ts_ms = *ts;
+            out.update_id = *update_id;
+            out.contract = *contract;
+            out.bid_price = *bid_price;
+            out.bid_qty = *bid_qty;
+            out.ask_price = *ask_price;
+            out.ask_qty = *ask_qty;
+            return out;
+        });
     });
 }
 
-std::expected<std::span<const WireBookTicker>, WireError>
-parse_futures_tickers(std::string_view body, TickerQuoteBuffer& storage) {
+std::expected<std::span<const WireBookTicker>, WireError> parse_futures_tickers(std::string_view body,
+                                                                                TickerQuoteBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireBookTicker>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {
@@ -149,81 +147,75 @@ parse_futures_tickers(std::string_view body, TickerQuoteBuffer& storage) {
     });
 }
 
-std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame,
-                                                           LevelBuffer& storage) {
+std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireBookUpdate, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_result_object(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
-                WireBookUpdate out{};
-                const auto ts = num_u64(obj, "t");
-                const auto first = num_u64(obj, "U");
-                const auto last = num_u64(obj, "u");
-                const auto contract = wire::req_str(obj, "s");
-                if (!ts.has_value() || !first.has_value() || !last.has_value() ||
-                    !contract.has_value()) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                out.ts_ms = *ts;
-                out.first_update_id = *first;
-                out.last_update_id = *last;
-                out.contract = *contract;
-                const auto asks = read_levels(obj, "a", storage.asks);
-                if (!asks.has_value()) {
-                    return std::unexpected(asks.error());
-                }
-                const auto bids = read_levels(obj, "b", storage.bids);
-                if (!bids.has_value()) {
-                    return std::unexpected(bids.error());
-                }
-                out.asks = {storage.asks.data(), *asks};
-                out.bids = {storage.bids.data(), *bids};
-                return out;
-            });
+        return with_result_object(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
+            WireBookUpdate out{};
+            const auto ts = num_u64(obj, "t");
+            const auto first = num_u64(obj, "U");
+            const auto last = num_u64(obj, "u");
+            const auto contract = wire::req_str(obj, "s");
+            if (!ts.has_value() || !first.has_value() || !last.has_value() || !contract.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.ts_ms = *ts;
+            out.first_update_id = *first;
+            out.last_update_id = *last;
+            out.contract = *contract;
+            const auto asks = read_levels(obj, "a", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            const auto bids = read_levels(obj, "b", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            out.asks = {storage.asks.data(), *asks};
+            out.bids = {storage.bids.data(), *bids};
+            return out;
+        });
     });
 }
 
-std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view frame,
-                                                             LevelBuffer& storage) {
+std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireBookUpdate, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_result_object(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
-                WireBookUpdate out{};
-                const auto ts = num_u64(obj, "t");
-                const auto last = num_u64(obj, "lastUpdateId");
-                const auto contract = wire::req_str(obj, "s");
-                if (!ts.has_value() || !last.has_value() || !contract.has_value()) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                out.ts_ms = *ts;
-                // a snapshot is its own first and last update
-                out.first_update_id = *last;
-                out.last_update_id = *last;
-                out.contract = *contract;
-                const auto asks = read_pair_levels(obj, "asks", storage.asks);
-                if (!asks.has_value()) {
-                    return std::unexpected(asks.error());
-                }
-                const auto bids = read_pair_levels(obj, "bids", storage.bids);
-                if (!bids.has_value()) {
-                    return std::unexpected(bids.error());
-                }
-                out.asks = {storage.asks.data(), *asks};
-                out.bids = {storage.bids.data(), *bids};
-                return out;
-            });
+        return with_result_object(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
+            WireBookUpdate out{};
+            const auto ts = num_u64(obj, "t");
+            const auto last = num_u64(obj, "lastUpdateId");
+            const auto contract = wire::req_str(obj, "s");
+            if (!ts.has_value() || !last.has_value() || !contract.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.ts_ms = *ts;
+            // a snapshot is its own first and last update
+            out.first_update_id = *last;
+            out.last_update_id = *last;
+            out.contract = *contract;
+            const auto asks = read_pair_levels(obj, "asks", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            const auto bids = read_pair_levels(obj, "bids", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            out.asks = {storage.asks.data(), *asks};
+            out.bids = {storage.bids.data(), *bids};
+            return out;
+        });
     });
 }
 
-std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body,
-                                                         LevelBuffer& storage) {
+std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderBook, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

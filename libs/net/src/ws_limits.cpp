@@ -36,8 +36,7 @@ std::unique_ptr<IpMeters> g_meters = std::make_unique<IpMeters>(WsLimits{});
 
 } // namespace
 
-WsLimits
-ws_limits(std::string_view venue, const config::VenueSettings& settings, std::string_view market) {
+WsLimits ws_limits(std::string_view venue, const config::VenueSettings& settings, std::string_view market) {
     const auto share = share_percent(venue);
     WsLimits out;
     for (const auto& limit : settings.limits) {
@@ -141,9 +140,9 @@ IpMeters& process_ip_meters() noexcept {
 }
 
 std::uint64_t steady_ns() noexcept {
-    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                          std::chrono::steady_clock::now().time_since_epoch())
-                                          .count());
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count());
 }
 
 } // namespace raikiri::net

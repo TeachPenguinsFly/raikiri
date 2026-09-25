@@ -21,8 +21,7 @@ public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        (void)client_->send(
-            state_->private_protocol.set_heartbeat_frame(k_heartbeat_interval_s).text);
+        (void)client_->send(state_->private_protocol.set_heartbeat_frame(k_heartbeat_interval_s).text);
         const auto frame = state_->private_protocol.auth_frame(state_->signer, state_->venue_now());
         if (!frame.has_value() || !client_->send(frame->text)) {
             fail();
@@ -52,9 +51,8 @@ public:
 
     void on_close(net::WsCloseReason) override {
         authenticated_ = false;
-        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void attach(net::WsClient& client) noexcept { client_ = &client; }
@@ -63,9 +61,8 @@ public:
 
 private:
     void fail() {
-        state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::AuthFailed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     void on_auth(const WireResponse& response) {
@@ -81,8 +78,7 @@ private:
         std::size_t count = 0;
         for (const auto market : {MarketType::Perp, MarketType::Option}) {
             for (const auto currency : k_currencies) {
-                const auto channel =
-                    user_changes_channel(kind_of(market), currency, storage[count]);
+                const auto channel = user_changes_channel(kind_of(market), currency, storage[count]);
                 if (channel.empty()) {
                     fail();
                     return;
@@ -91,15 +87,13 @@ private:
                 ++count;
             }
         }
-        const auto frame =
-            state_->private_protocol.private_subscribe_frame(std::span{channels}.first(count));
+        const auto frame = state_->private_protocol.private_subscribe_frame(std::span{channels}.first(count));
         if (!frame.has_value() || !client_->send(frame->text)) {
             fail();
             return;
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = k_private_stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = k_private_stream_id, .ts = state_->clock->wall()});
     }
 
     VenueState* state_;
@@ -124,9 +118,7 @@ public:
     void stop() { ws_.stop(); }
 
     // open is not usable until public/auth succeeded
-    [[nodiscard]] bool connected() const noexcept {
-        return ws_.connected() && handler_.authenticated();
-    }
+    [[nodiscard]] bool connected() const noexcept { return ws_.connected() && handler_.authenticated(); }
 
 private:
     PrivateHandler handler_;

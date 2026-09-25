@@ -59,20 +59,16 @@ private:
 
 } // namespace
 
-std::string_view request_data(net::HttpMethod method,
-                              std::string_view uri,
-                              std::string_view body,
-                              std::span<char> out) noexcept {
+std::string_view
+request_data(net::HttpMethod method, std::string_view uri, std::string_view body, std::span<char> out) noexcept {
     Appender text{out};
     // deribit expects the trailing newline even for an empty body
     text << method_text(method) << "\n" << uri << "\n" << body << "\n";
     return text.view();
 }
 
-std::string_view message(std::uint64_t timestamp_ms,
-                         std::string_view nonce,
-                         std::string_view data,
-                         std::span<char> out) noexcept {
+std::string_view
+message(std::uint64_t timestamp_ms, std::string_view nonce, std::string_view data, std::span<char> out) noexcept {
     Appender text{out};
     text << timestamp_ms << "\n" << nonce << "\n" << data;
     return text.view();
@@ -98,8 +94,8 @@ std::string_view auth_header(const net::Signer& signer,
         return {};
     }
     Appender text{out};
-    text << "deri-hmac-sha256 id=" << signer.api_key() << ",ts=" << timestamp_ms
-         << ",nonce=" << nonce_text << ",sig=" << signature;
+    text << "deri-hmac-sha256 id=" << signer.api_key() << ",ts=" << timestamp_ms << ",nonce=" << nonce_text
+         << ",sig=" << signature;
     return text.view();
 }
 

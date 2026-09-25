@@ -16,10 +16,7 @@ std::string_view to_string(Liveness state) noexcept {
     return "down";
 }
 
-Liveness classify(std::uint64_t taken_ns,
-                  bool process_alive,
-                  std::uint64_t now_ns,
-                  std::uint64_t max_age_ns) noexcept {
+Liveness classify(std::uint64_t taken_ns, bool process_alive, std::uint64_t now_ns, std::uint64_t max_age_ns) noexcept {
     if (!process_alive) {
         return Liveness::Down;
     }

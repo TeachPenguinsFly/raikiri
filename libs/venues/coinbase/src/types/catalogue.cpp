@@ -42,8 +42,7 @@ std::expected<WireProduct, WireError> read_product(wire::ondemand::object& obj) 
 
 } // namespace
 
-std::expected<std::span<const WireProduct>, WireError> parse_products(std::string_view body,
-                                                                      ProductBuffer& storage) {
+std::expected<std::span<const WireProduct>, WireError> parse_products(std::string_view body, ProductBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireProduct>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {

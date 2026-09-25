@@ -65,12 +65,11 @@ struct WireOrderAck {
     std::span<const WireUserTrade> trades;
 };
 
-[[nodiscard]] std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body,
-                                                                     UserTradeBuffer& storage);
+[[nodiscard]] std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body, UserTradeBuffer& storage);
 
 // result is an array on list reads and an object on private/cancel
-[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
-parse_orders(std::string_view body, OrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
+                                                                                OrderBuffer& storage);
 
 // orders and the trades that moved them arrive in one frame
 struct WireChanges {
@@ -82,7 +81,7 @@ struct WireChanges {
 parse_user_changes(std::string_view frame, OrderBuffer& orders, UserTradeBuffer& trades);
 
 // rest nests trades under result.trades; the socket puts them in params.data
-[[nodiscard]] std::expected<std::span<const WireUserTrade>, WireError>
-parse_user_trades(std::string_view body, UserTradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireUserTrade>, WireError> parse_user_trades(std::string_view body,
+                                                                                         UserTradeBuffer& storage);
 
 } // namespace raikiri::venues::deribit

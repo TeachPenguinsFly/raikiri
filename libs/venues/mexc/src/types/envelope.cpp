@@ -91,8 +91,7 @@ std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
-                                                      std::string_view key) {
+std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -104,8 +103,7 @@ std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& ob
     return scalar_of(value);
 }
 
-std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj,
-                                                      std::string_view key) {
+std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     if (const auto ec = wire::find(obj, key).get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -130,8 +128,7 @@ opt_int(wire::ondemand::object& obj, std::string_view key, std::int64_t fallback
     return out;
 }
 
-std::expected<std::uint64_t, WireError> scalar_ms(wire::ondemand::object& obj,
-                                                  std::string_view key) {
+std::expected<std::uint64_t, WireError> scalar_ms(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_scalar(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -178,8 +175,7 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
             return std::unexpected(root.error());
         }
         bool success = false;
-        if (const auto ec = wire::find(*root, "success").get_bool().get(success);
-            ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*root, "success").get_bool().get(success); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));
         }
         const auto code = opt_int(*root, "code", -1);

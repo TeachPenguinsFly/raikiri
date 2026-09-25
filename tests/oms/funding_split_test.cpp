@@ -11,16 +11,14 @@ namespace {
 constexpr std::uint16_t k_manual = 0;
 
 std::int64_t total(const std::vector<FundingShare>& shares) {
-    return std::accumulate(
-        shares.begin(), shares.end(), std::int64_t{0}, [](std::int64_t sum, const FundingShare& s) {
-            return sum + s.amount.raw;
-        });
+    return std::accumulate(shares.begin(), shares.end(), std::int64_t{0}, [](std::int64_t sum, const FundingShare& s) {
+        return sum + s.amount.raw;
+    });
 }
 
 TEST(FundingSplit, TheSharesSumToTheChargeExactly) {
-    const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = 1},
-                                             {.strategy_id = 2, .lots = 1},
-                                             {.strategy_id = 3, .lots = 1}};
+    const std::vector<FundingHolder> holders{
+        {.strategy_id = 1, .lots = 1}, {.strategy_id = 2, .lots = 1}, {.strategy_id = 3, .lots = 1}};
     const auto shares = split_funding(holders, FixedE9::from_raw(-100), k_manual);
 
     ASSERT_EQ(shares.size(), 3U);
@@ -31,8 +29,7 @@ TEST(FundingSplit, TheSharesSumToTheChargeExactly) {
 }
 
 TEST(FundingSplit, ProRatedByTheSizeEachCarries) {
-    const std::vector<FundingHolder> holders{{.strategy_id = 7, .lots = 30},
-                                             {.strategy_id = 9, .lots = 10}};
+    const std::vector<FundingHolder> holders{{.strategy_id = 7, .lots = 30}, {.strategy_id = 9, .lots = 10}};
     const auto shares = split_funding(holders, FixedE9::from_raw(-400), k_manual);
 
     ASSERT_EQ(shares.size(), 2U);
@@ -42,8 +39,7 @@ TEST(FundingSplit, ProRatedByTheSizeEachCarries) {
 }
 
 TEST(FundingSplit, AShortIsChargedExactlyAsALongIs) {
-    const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = -10},
-                                             {.strategy_id = 2, .lots = 10}};
+    const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = -10}, {.strategy_id = 2, .lots = 10}};
     const auto shares = split_funding(holders, FixedE9::from_raw(-200), k_manual);
 
     ASSERT_EQ(shares.size(), 2U);
@@ -67,9 +63,8 @@ TEST(FundingSplit, NoHoldersAtAllIsTheSameAnswer) {
 }
 
 TEST(FundingSplit, AFlatStrategyIsNotGivenAShareOfNothing) {
-    const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = 5},
-                                             {.strategy_id = 2, .lots = 0},
-                                             {.strategy_id = 3, .lots = 5}};
+    const std::vector<FundingHolder> holders{
+        {.strategy_id = 1, .lots = 5}, {.strategy_id = 2, .lots = 0}, {.strategy_id = 3, .lots = 5}};
     const auto shares = split_funding(holders, FixedE9::from_raw(-100), k_manual);
 
     ASSERT_EQ(shares.size(), 2U) << "a flat book carried none of it";
@@ -86,8 +81,7 @@ TEST(FundingSplit, NothingToBookIsNoRowsAtAll) {
 }
 
 TEST(FundingSplit, FundingReceivedSplitsTheSameWay) {
-    const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = 1},
-                                             {.strategy_id = 2, .lots = 2}};
+    const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = 1}, {.strategy_id = 2, .lots = 2}};
     const auto shares = split_funding(holders, FixedE9::from_raw(10), k_manual);
 
     ASSERT_EQ(shares.size(), 2U);

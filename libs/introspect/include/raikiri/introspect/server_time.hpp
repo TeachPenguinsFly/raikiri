@@ -25,8 +25,7 @@ struct TimeEndpoint {
     std::uint64_t unit_ns{1'000'000};
 };
 
-[[nodiscard]] std::optional<TimeEndpoint> time_endpoint(std::string_view venue,
-                                                        std::string_view market) noexcept;
+[[nodiscard]] std::optional<TimeEndpoint> time_endpoint(std::string_view venue, std::string_view market) noexcept;
 
 // the first number after `"key":`, quoted or not, in `unit_ns`
 [[nodiscard]] std::optional<std::uint64_t>

@@ -46,7 +46,6 @@ struct WireBook {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
-                                                            LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffer& storage);
 
 } // namespace raikiri::venues::hyperliquid

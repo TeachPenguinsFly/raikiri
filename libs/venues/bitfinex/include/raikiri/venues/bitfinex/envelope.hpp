@@ -35,8 +35,7 @@ template <std::size_t Arity> struct Row {
 };
 
 // a shorter array is ShortArray; extra trailing elements are ignored
-template <std::size_t Arity>
-[[nodiscard]] std::expected<Row<Arity>, WireError> read_row(wire::ondemand::array array) {
+template <std::size_t Arity> [[nodiscard]] std::expected<Row<Arity>, WireError> read_row(wire::ondemand::array array) {
     Row<Arity> out{};
     std::size_t index = 0;
     for (auto entry : array) {
@@ -60,8 +59,7 @@ template <std::size_t Arity>
     return out;
 }
 
-template <std::size_t Arity>
-[[nodiscard]] std::expected<Row<Arity>, WireError> read_row(wire::ondemand::value value) {
+template <std::size_t Arity> [[nodiscard]] std::expected<Row<Arity>, WireError> read_row(wire::ondemand::value value) {
     wire::ondemand::array array;
     if (const auto ec = value.get_array().get(array); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -73,19 +71,18 @@ template <std::size_t Arity>
 [[nodiscard]] bool token_to_i64(std::string_view s, std::int64_t& out) noexcept;
 
 // named-field raw token for object control frames; keeps number spelling, null reads empty
-[[nodiscard]] std::expected<std::string_view, WireError> opt_token(wire::ondemand::object& obj,
-                                                                   std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_token(wire::ondemand::object& obj, std::string_view key);
 
 // data frames carry only a channel id; the venue layer maps it to an instrument
 enum class FrameKind : std::uint8_t {
-    Info,         // {"event":"info",...}: greeting, or a coded venue notice
-    Subscribed,   // carries the chanId every later frame is keyed by
+    Info,       // {"event":"info",...}: greeting, or a coded venue notice
+    Subscribed, // carries the chanId every later frame is keyed by
     Unsubscribed,
-    Error,        // {"event":"error","code":10300,...}
+    Error, // {"event":"error","code":10300,...}
     Pong,
     Heartbeat, // [chan_id,"hb"], not a payload
-    Data,         // [CHAN_ID,<payload>] or [CHAN_ID,"te",<payload>]
-    Auth,         // {"event":"auth","status":"OK"|"FAILED",...}
+    Data,      // [CHAN_ID,<payload>] or [CHAN_ID,"te",<payload>]
+    Auth,      // {"event":"auth","status":"OK"|"FAILED",...}
     Unknown,
 };
 
@@ -154,8 +151,8 @@ inline constexpr std::int64_t k_platform_operative = 1;
 
 // variable length: position 1 is a tag if a string, the payload if an array
 template <typename Fn>
-[[nodiscard]] auto with_payload(std::string_view frame, Fn&& fn)
-    -> decltype(fn(std::declval<wire::ondemand::value>(), std::string_view{})) {
+[[nodiscard]] auto with_payload(std::string_view frame,
+                                Fn&& fn) -> decltype(fn(std::declval<wire::ondemand::value>(), std::string_view{})) {
     auto root = wire::session().open_array(frame);
     if (!root.has_value()) {
         return std::unexpected(root.error());
@@ -194,8 +191,7 @@ template <typename Fn>
 
 // private frames are [0,"<tag>",<payload>]; rest answers the payload alone
 template <typename Fn>
-[[nodiscard]] auto with_row(std::string_view frame, Fn&& fn)
-    -> decltype(fn(std::declval<wire::ondemand::value>())) {
+[[nodiscard]] auto with_row(std::string_view frame, Fn&& fn) -> decltype(fn(std::declval<wire::ondemand::value>())) {
     auto root = wire::session().open_array(frame);
     if (!root.has_value()) {
         return std::unexpected(root.error());
@@ -255,8 +251,7 @@ read_rows(wire::ondemand::array rows, std::span<Row_> into, Read read) {
 }
 
 template <typename Row_, typename Read>
-[[nodiscard]] std::expected<std::size_t, WireError>
-rows_of(std::string_view frame, std::span<Row_> into, Read read) {
+[[nodiscard]] std::expected<std::size_t, WireError> rows_of(std::string_view frame, std::span<Row_> into, Read read) {
     if (is_row_list(frame)) {
         auto root = wire::session().open_array(frame);
         if (!root.has_value()) {
@@ -264,14 +259,13 @@ rows_of(std::string_view frame, std::span<Row_> into, Read read) {
         }
         return read_rows<Row_>(*root, into, read);
     }
-    return with_row(
-        frame, [&](wire::ondemand::value payload) -> std::expected<std::size_t, WireError> {
-            wire::ondemand::array rows;
-            if (const auto ec = payload.get_array().get(rows); ec != simdjson::SUCCESS) {
-                return std::unexpected(wire::map_error(ec));
-            }
-            return read_rows<Row_>(rows, into, read);
-        });
+    return with_row(frame, [&](wire::ondemand::value payload) -> std::expected<std::size_t, WireError> {
+        wire::ondemand::array rows;
+        if (const auto ec = payload.get_array().get(rows); ec != simdjson::SUCCESS) {
+            return std::unexpected(wire::map_error(ec));
+        }
+        return read_rows<Row_>(rows, into, read);
+    });
 }
 
 } // namespace raikiri::venues::bitfinex

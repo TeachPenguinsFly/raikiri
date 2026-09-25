@@ -45,9 +45,7 @@ inline constexpr std::uint64_t k_stale_after_ns = 30ULL * 1'000'000'000ULL;
 
 class GetGatewayStats {
 public:
-    GetGatewayStats(const GatewayStatsSource& source,
-                    WallClock now,
-                    std::uint64_t stale_after_ns = k_stale_after_ns);
+    GetGatewayStats(const GatewayStatsSource& source, WallClock now, std::uint64_t stale_after_ns = k_stale_after_ns);
 
     [[nodiscard]] std::optional<GatewayView> operator()(std::string_view account) const;
 
@@ -62,9 +60,7 @@ private:
 
 class GetMachineStats {
 public:
-    GetMachineStats(const GatewayStatsSource& source,
-                    WallClock now,
-                    std::uint64_t stale_after_ns = k_stale_after_ns);
+    GetMachineStats(const GatewayStatsSource& source, WallClock now, std::uint64_t stale_after_ns = k_stale_after_ns);
 
     [[nodiscard]] MachineStats operator()() const;
 

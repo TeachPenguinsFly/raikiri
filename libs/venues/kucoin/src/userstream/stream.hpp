@@ -44,9 +44,7 @@ public:
         reopen_due_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept {
-        return client_ != nullptr && client_->connected();
-    }
+    [[nodiscard]] bool connected() const noexcept { return client_ != nullptr && client_->connected(); }
 
     void pump(UnixNanos now) noexcept override {
         if (!started_) {
@@ -72,9 +70,8 @@ public:
             schedule_reopen();
             return;
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Connected,
-                                       .stream_id = stream_id_,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Connected, .stream_id = stream_id_, .ts = state_->clock->wall()});
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -88,15 +85,13 @@ public:
             if (!wire.has_value()) {
                 return;
             }
-            if (const auto out = map_order_change(*wire, state_->instruments, received);
-                out.has_value()) {
+            if (const auto out = map_order_change(*wire, state_->instruments, received); out.has_value()) {
                 state_->sink->on_order_event(*out);
             }
             break;
         }
         case EventKind::Error: {
-            if (const auto err = parse_stream_error(payload);
-                err.has_value() && is_expired_token(err->code)) {
+            if (const auto err = parse_stream_error(payload); err.has_value() && is_expired_token(err->code)) {
                 schedule_reopen(); // the socket's own backoff would reuse the dead token
             }
             break;
@@ -119,9 +114,8 @@ public:
             // the token expires, so reconnect from a fresh bullet
             schedule_reopen();
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                       .stream_id = stream_id_,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = stream_id_, .ts = state_->clock->wall()});
     }
 
 private:
@@ -158,9 +152,8 @@ private:
     }
 
     void report_auth_failure() noexcept {
-        state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                       .stream_id = stream_id_,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::AuthFailed, .stream_id = stream_id_, .ts = state_->clock->wall()});
     }
 
     VenueState* state_;

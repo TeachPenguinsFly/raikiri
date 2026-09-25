@@ -24,10 +24,8 @@ std::expected<Stamp, WireError> read_stamp(json::ondemand::object& root) {
     return Stamp{.seq = *seq, .ts_ms = *ts};
 }
 
-std::expected<std::size_t, WireError> read_levels(json::ondemand::object& data,
-                                                  std::string_view key,
-                                                  std::string_view size_key,
-                                                  std::span<WireLevel> into) {
+std::expected<std::size_t, WireError>
+read_levels(json::ondemand::object& data, std::string_view key, std::string_view size_key, std::span<WireLevel> into) {
     auto array = json::req_array(data, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -129,8 +127,8 @@ std::expected<WirePrints, WireError> parse_trades(std::string_view frame, PrintB
                 const auto ts = json::opt_u64(obj, "T");
                 const auto price = json::req_str(obj, "p");
                 const auto qty = json::req_str(obj, "q");
-                if (!id.has_value() || !market.has_value() || !side.has_value() ||
-                    !ts.has_value() || !price.has_value() || !qty.has_value()) {
+                if (!id.has_value() || !market.has_value() || !side.has_value() || !ts.has_value() ||
+                    !price.has_value() || !qty.has_value()) {
                     return std::unexpected(WireError::MissingField);
                 }
                 if (*side != "BUY" && *side != "SELL") {

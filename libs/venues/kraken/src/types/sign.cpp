@@ -17,8 +17,7 @@ constexpr std::size_t k_sha512_bytes = 64;
 // config::Secret caps a credential at 512 bytes, and decoding never grows it
 constexpr std::size_t k_max_secret_bytes = 512;
 
-constexpr std::string_view k_b64_digits =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+constexpr std::string_view k_b64_digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 [[nodiscard]] int b64_value(char c) noexcept {
     if (c >= 'A' && c <= 'Z') {
@@ -40,8 +39,7 @@ constexpr std::string_view k_b64_digits =
 }
 
 // strict padded base64 only
-[[nodiscard]] bool
-b64_decode(std::string_view text, std::span<std::uint8_t> out, std::size_t& written) noexcept {
+[[nodiscard]] bool b64_decode(std::string_view text, std::span<std::uint8_t> out, std::size_t& written) noexcept {
     written = 0;
     if (text.empty() || text.size() % 4 != 0) {
         return false;
@@ -86,8 +84,8 @@ void b64_encode(std::span<const std::uint8_t> bytes, std::span<char> out) noexce
     std::size_t o = 0;
     std::size_t i = 0;
     for (; i + 3 <= bytes.size(); i += 3) {
-        const std::uint32_t triple =
-            (std::uint32_t{bytes[i]} << 16) | (std::uint32_t{bytes[i + 1]} << 8) | bytes[i + 2];
+        const std::uint32_t triple = (std::uint32_t{bytes[i]} << 16) | (std::uint32_t{bytes[i + 1]} << 8) |
+                                     bytes[i + 2];
         out[o++] = k_b64_digits[(triple >> 18) & 0x3FU];
         out[o++] = k_b64_digits[(triple >> 12) & 0x3FU];
         out[o++] = k_b64_digits[(triple >> 6) & 0x3FU];
@@ -109,8 +107,7 @@ void b64_encode(std::span<const std::uint8_t> bytes, std::span<char> out) noexce
 
 } // namespace
 
-std::string_view
-authent(std::string_view secret_base64, std::string_view message, std::span<char> out) noexcept {
+std::string_view authent(std::string_view secret_base64, std::string_view message, std::span<char> out) noexcept {
     if (out.size() < k_authent_bytes || secret_base64.empty()) {
         return {};
     }
@@ -123,10 +120,9 @@ authent(std::string_view secret_base64, std::string_view message, std::span<char
     std::array<std::uint8_t, k_sha256_bytes> inner{};
     unsigned int inner_len = 0;
     // an empty message still hashes, so a null data pointer must not short-circuit
-    const bool hashed =
-        ::EVP_Digest(
-            message.data(), message.size(), inner.data(), &inner_len, EVP_sha256(), nullptr) == 1 &&
-        inner_len == k_sha256_bytes;
+    const bool hashed = ::EVP_Digest(message.data(), message.size(), inner.data(), &inner_len, EVP_sha256(), nullptr) ==
+                            1 &&
+                        inner_len == k_sha256_bytes;
 
     std::array<std::uint8_t, k_sha512_bytes> outer{};
     unsigned int outer_len = 0;

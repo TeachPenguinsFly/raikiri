@@ -33,8 +33,8 @@ struct MarketBuffer {
     std::array<WireMarket, k_max_markets> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireMarket>, WireError>
-parse_perpetual_markets(std::string_view body, MarketBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireMarket>, WireError> parse_perpetual_markets(std::string_view body,
+                                                                                            MarketBuffer& storage);
 
 enum class FrameType : std::uint8_t { Connected, Subscribed, Unsubscribed, Data, Error, Unknown };
 
@@ -79,8 +79,7 @@ struct WireFrame {
 };
 
 // The trades backlog on `subscribed` is not read.
-[[nodiscard]] std::expected<WireFrame, WireError> parse_frame(std::string_view frame,
-                                                              FrameBuffer& storage);
+[[nodiscard]] std::expected<WireFrame, WireError> parse_frame(std::string_view frame, FrameBuffer& storage);
 
 // The channel a refusal names in its text, e.g. "... limit reached for v4_orderbook (limit=32).".
 [[nodiscard]] Channel refused_channel(std::string_view message) noexcept;

@@ -87,8 +87,8 @@ TEST(BybitRestBuilder, PostSignsTimestampKeyWindowAndBodyConcatenated) {
     const auto request = builder.create_order(make_order(table), table, k_now);
     ASSERT_TRUE(request.has_value());
 
-    const std::string expected =
-        std::string{"1700000000123"} + std::string{k_api_key} + "5000" + std::string{request->body};
+    const std::string expected = std::string{"1700000000123"} + std::string{k_api_key} + "5000" +
+                                 std::string{request->body};
     EXPECT_EQ(builder.last_sign_message(), expected);
 
     // and the digest is that message under that secret
@@ -131,8 +131,7 @@ TEST(BybitRestBuilder, PostOnlyIsExpressedAsTimeInForce) {
 
     cmd.flags = OrderFlags::None;
     cmd.tif = TimeInForce::Ioc;
-    EXPECT_NE(builder.create_order(cmd, table, k_now)->body.find(R"("timeInForce":"IOC")"),
-              std::string_view::npos);
+    EXPECT_NE(builder.create_order(cmd, table, k_now)->body.find(R"("timeInForce":"IOC")"), std::string_view::npos);
 }
 
 TEST(BybitRestBuilder, MarketOrderOmitsPriceAndReduceOnlyAppears) {
@@ -163,8 +162,7 @@ TEST(BybitRestBuilder, CancelPrefersTheVenueIdWhenBound) {
     // before the ack binds an exchange id, our id is the only handle
     auto request = builder.cancel_order(cmd, table, k_now);
     ASSERT_TRUE(request.has_value());
-    EXPECT_NE(request->body.find(R"("orderLinkId":"01ARZ3NDEKTSV4RRFFQ69G5FAV")"),
-              std::string_view::npos);
+    EXPECT_NE(request->body.find(R"("orderLinkId":"01ARZ3NDEKTSV4RRFFQ69G5FAV")"), std::string_view::npos);
     EXPECT_EQ(request->target, "/v5/order/cancel");
 
     // once bound, the venue id is the durable handle; orderLinkId resolves only for a while
@@ -201,8 +199,7 @@ TEST(BybitRestBuilder, ReconciliationPullsAndCancelAll) {
     ASSERT_TRUE(positions.has_value());
     EXPECT_EQ(positions->target, "/v5/position/list?category=linear&settleCoin=USDT");
 
-    const auto executions =
-        builder.executions(MarketType::Perp, UnixNanos{1'700'000'000'000'000}, k_now);
+    const auto executions = builder.executions(MarketType::Perp, UnixNanos{1'700'000'000'000'000}, k_now);
     ASSERT_TRUE(executions.has_value());
     EXPECT_NE(executions->target.find("startTime=1700000000"), std::string_view::npos);
 
@@ -236,8 +233,7 @@ TEST(BybitRestBuilder, SpotUsesItsOwnCategory) {
     EXPECT_EQ(category_of(MarketType::Spot), "spot");
     net::Signer signer;
     RequestBuilder builder{signer};
-    EXPECT_NE(builder.instruments(MarketType::Spot).target.find("category=spot"),
-              std::string_view::npos);
+    EXPECT_NE(builder.instruments(MarketType::Spot).target.find("category=spot"), std::string_view::npos);
 }
 
 TEST(BybitRestBuilder, MissingCredentialsRefuseToBuildSignedRequests) {

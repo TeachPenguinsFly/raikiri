@@ -20,10 +20,7 @@ constexpr std::uint32_t k_spot_stream_id = 2;
 constexpr std::string_view k_spot_user_channel = "spot.executionReport";
 
 // market comes from the socket; pushes do not say which tree
-void handle_private_frame(VenueState& state,
-                          MarketType market,
-                          std::string_view frame,
-                          UnixNanos received) {
+void handle_private_frame(VenueState& state, MarketType market, std::string_view frame, UnixNanos received) {
     const auto kind = parse_private_event(frame);
     if (!kind.has_value()) {
         return;
@@ -53,22 +50,19 @@ void handle_private_frame(VenueState& state,
     }
     case PrivateKind::ListenKeyExpired:
         state.key_stale = true;
-        state.sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
+        state.sink->on_connectivity(
+            {.state = exec::ConnState::AuthFailed, .stream_id = stream_id, .ts = state.clock->wall()});
         return;
     case PrivateKind::Error:
         if (const auto control = parse_control(frame); control.has_value()) {
             state.last_error_code = control->code;
         }
-        state.sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
+        state.sink->on_connectivity(
+            {.state = exec::ConnState::AuthFailed, .stream_id = stream_id, .ts = state.clock->wall()});
         return;
     case PrivateKind::Ack:
-        state.sink->on_connectivity({.state = exec::ConnState::Connected,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
+        state.sink->on_connectivity(
+            {.state = exec::ConnState::Connected, .stream_id = stream_id, .ts = state.clock->wall()});
         return;
     case PrivateKind::Ignorable:
     case PrivateKind::Unknown:
@@ -86,15 +80,13 @@ public:
         if (market_ == MarketType::Spot && client_ != nullptr) {
             const auto frame = protocol_.subscribe_channel(k_spot_user_channel);
             if (!frame.has_value() || !client_->send(frame->text)) {
-                state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                               .stream_id = stream_id,
-                                               .ts = state_->clock->wall()});
+                state_->sink->on_connectivity(
+                    {.state = exec::ConnState::AuthFailed, .stream_id = stream_id, .ts = state_->clock->wall()});
                 return;
             }
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = stream_id, .ts = state_->clock->wall()});
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -117,10 +109,9 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        state_->sink->on_connectivity(
-            {.state = exec::ConnState::Disconnected,
-             .stream_id = market_ == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id,
-             .ts = state_->clock->wall()});
+        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
+                                       .stream_id = market_ == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id,
+                                       .ts = state_->clock->wall()});
     }
 
     void attach(net::WsClient& client) noexcept { client_ = &client; }
@@ -137,12 +128,11 @@ private:
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, MarketType market, const std::string& key)
-        : handler_{state, market},
-          ws_{state.io,
-              net::WsConfig{.host = std::string{private_stream_host(market)},
-                            .port = "443",
-                            .target = private_stream_target(market, key)},
-              handler_} {
+        : handler_{state, market}, ws_{state.io,
+                                       net::WsConfig{.host = std::string{private_stream_host(market)},
+                                                     .port = "443",
+                                                     .target = private_stream_target(market, key)},
+                                       handler_} {
         handler_.attach(ws_);
     }
 

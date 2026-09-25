@@ -24,8 +24,7 @@ std::expected<void, WireError> read_bill(wire::ondemand::object& obj, WireBill& 
 
 } // namespace
 
-std::expected<std::span<const WireBill>, WireError> parse_mix_bills(std::string_view body,
-                                                                    BillBuffer& storage) {
+std::expected<std::span<const WireBill>, WireError> parse_mix_bills(std::string_view body, BillBuffer& storage) {
     return guarded([&] { return read_rows<WireBill>(body, "bills", storage.bills, read_bill); });
 }
 

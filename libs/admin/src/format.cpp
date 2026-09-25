@@ -15,8 +15,7 @@ std::string scaled(std::int64_t count, FixedE9 step) {
         return {};
     }
     const int128_t product = static_cast<int128_t>(count) * step.raw;
-    auto mag = product < 0 ? -static_cast<uint128_t>(product)
-                           : static_cast<uint128_t>(product);
+    auto mag = product < 0 ? -static_cast<uint128_t>(product) : static_cast<uint128_t>(product);
     std::string out;
     for (int place = 0; mag != 0 || place <= 9; ++place) {
         if (place == 9) {
@@ -43,8 +42,7 @@ std::string scaled(std::int64_t count, FixedE9 step) {
 std::string digits(std::uint64_t value) {
     std::array<char, 24> buf{};
     const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
-    return ec == std::errc{} ? std::string{buf.data(), static_cast<std::size_t>(stop - buf.data())}
-                             : std::string{};
+    return ec == std::errc{} ? std::string{buf.data(), static_cast<std::size_t>(stop - buf.data())} : std::string{};
 }
 
 std::string decimal(FixedE9 value) {

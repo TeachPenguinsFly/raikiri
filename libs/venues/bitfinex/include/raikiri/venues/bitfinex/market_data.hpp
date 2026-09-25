@@ -66,8 +66,7 @@ struct WireTrades {
     std::span<const WireTrade> trades;
 };
 
-[[nodiscard]] std::expected<WireTrades, WireError> parse_trades(std::string_view frame,
-                                                                TradeBuffer& storage);
+[[nodiscard]] std::expected<WireTrades, WireError> parse_trades(std::string_view frame, TradeBuffer& storage);
 
 // mark price (14) tracks the index and drives liquidations; deriv price (2) is the perp's own mid
 inline constexpr std::size_t k_deriv_arity = 23;

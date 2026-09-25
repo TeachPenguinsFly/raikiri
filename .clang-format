@@ -1,7 +1,7 @@
 BasedOnStyle: LLVM
 Language: Cpp
 Standard: c++20
-ColumnLimit: 100
+ColumnLimit: 120
 IndentWidth: 4
 AccessModifierOffset: -4
 PointerAlignment: Left
@@ -23,3 +23,4 @@ IncludeCategories:
     Priority: 5
 SeparateDefinitionBlocks: Always
 InsertNewlineAtEOF: true
+PenaltyBreakAssignment: 1000

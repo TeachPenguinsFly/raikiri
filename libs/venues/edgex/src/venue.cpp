@@ -7,16 +7,15 @@
 
 namespace raikiri::venues::edgex {
 
-using internal::VenueState;
 using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
+using internal::VenueState;
 
 namespace {
 
 // no testnet host: the venue publishes no testnet rest host for its catalogue
-exec::VenueAdapter
-make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.market);
     state->budget = config.budget;
 

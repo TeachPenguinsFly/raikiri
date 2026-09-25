@@ -23,9 +23,8 @@ struct BookedFill {
 };
 
 // What this process held at the instant the venue answered.
-[[nodiscard]] std::int64_t book_as_of(std::int64_t book_now,
-                                      std::span<const BookedFill> booked,
-                                      std::uint64_t boundary_ns) noexcept;
+[[nodiscard]] std::int64_t
+book_as_of(std::int64_t book_now, std::span<const BookedFill> booked, std::uint64_t boundary_ns) noexcept;
 
 // drops fills older than any snapshot still worth comparing
 void prune_fills(std::vector<BookedFill>& booked, UnixNanos now, std::uint64_t max_age_ns);

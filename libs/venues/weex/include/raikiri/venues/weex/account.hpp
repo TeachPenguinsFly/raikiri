@@ -18,7 +18,7 @@ struct WireBalance {
     std::string_view asset;
     std::string_view balance;           // the venue's total for this coin
     std::string_view available_balance; // what a new order may be placed against
-    std::string_view unrealize_pnl; // on weex's own marks
+    std::string_view unrealize_pnl;     // on weex's own marks
 };
 
 inline constexpr std::size_t k_max_balances = 64;
@@ -28,8 +28,8 @@ struct BalanceBuffer {
 };
 
 // bare array, no parameters, no envelope
-[[nodiscard]] std::expected<std::span<const WireBalance>, WireError>
-parse_balances(std::string_view body, BalanceBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body,
+                                                                                    BalanceBuffer& storage);
 
 // bill_id is the identity the ledger keys on
 struct WireBill {

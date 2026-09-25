@@ -63,8 +63,7 @@ TEST(ParseDecimalE9, Rejections) {
 }
 
 TEST(FormatE9, RoundTripsParse) {
-    const std::string_view cases[] = {
-        "0", "1", "-1", "0.0001", "-12.5", "3.141592653", "0.000000001"};
+    const std::string_view cases[] = {"0", "1", "-1", "0.0001", "-12.5", "3.141592653", "0.000000001"};
     char buf[32];
     for (const auto text : cases) {
         const auto parsed = parse_decimal_e9(text);
@@ -155,8 +154,7 @@ TEST(MulDiv, AgreesWithA128BitReference) {
         {1, 1, k_e9}, // rounds to zero
     };
     for (const auto& c : cases) {
-        const int128_t reference =
-            (static_cast<int128_t>(c[0]) * static_cast<int128_t>(c[1])) / c[2];
+        const int128_t reference = (static_cast<int128_t>(c[0]) * static_cast<int128_t>(c[1])) / c[2];
         EXPECT_EQ(mul_div(c[0], c[1], c[2]), static_cast<std::int64_t>(reference))
             << c[0] << " * " << c[1] << " / " << c[2];
     }

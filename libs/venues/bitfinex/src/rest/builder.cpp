@@ -47,16 +47,13 @@ public:
 
     void put(std::uint32_t value) noexcept {
         std::array<char, 16> num{};
-        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value);
-            ec == std::errc{}) {
+        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value); ec == std::errc{}) {
             put(std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
         }
     }
 
     [[nodiscard]] net::RestRequest get() const noexcept {
-        return {.method = net::HttpMethod::Get,
-                .target = std::string_view{into_.data(), len_},
-                .body = {}};
+        return {.method = net::HttpMethod::Get, .target = std::string_view{into_.data(), len_}, .body = {}};
     }
 
 private:
@@ -149,8 +146,7 @@ private:
 }
 
 // a sell is a negative amount; there is no side field
-[[nodiscard]] std::optional<FixedE9> signed_amount(const OrderCmd& cmd,
-                                                   const InstrumentBase& base) noexcept {
+[[nodiscard]] std::optional<FixedE9> signed_amount(const OrderCmd& cmd, const InstrumentBase& base) noexcept {
     const auto qty = base.lots_to_qty(cmd.qty);
     if (qty.is_undef() || qty.raw <= 0) {
         return std::nullopt;
@@ -158,8 +154,7 @@ private:
     return cmd.side == Side::Buy ? qty : FixedE9::from_raw(-qty.raw);
 }
 
-[[nodiscard]] std::optional<FixedE9> order_price(const OrderCmd& cmd,
-                                                 const InstrumentBase& base) noexcept {
+[[nodiscard]] std::optional<FixedE9> order_price(const OrderCmd& cmd, const InstrumentBase& base) noexcept {
     const auto price = base.ticks_to_price(cmd.price);
     if (price.is_undef() || price.raw <= 0) {
         return std::nullopt;
@@ -291,13 +286,12 @@ SignedRequestBuilder::sign(std::string_view path, std::string_view body, UnixNan
     request.method = net::HttpMethod::Post;
     request.target = path;
     request.body = body;
-    request.headers = {
-        {k_hdr_nonce, nonce.view()}, {k_hdr_apikey, api_key_}, {k_hdr_signature, signature}};
+    request.headers = {{k_hdr_nonce, nonce.view()}, {k_hdr_apikey, api_key_}, {k_hdr_signature, signature}};
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
     if (const auto refusal = market_refusal(market); refusal.has_value()) {
         return std::unexpected{*refusal};
@@ -336,8 +330,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     return sign("/v2/auth/w/order/submit", body.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -357,8 +351,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     return sign("/v2/auth/w/order/cancel", json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -381,19 +375,14 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     }
     net::JsonWriter json{body_};
     // the amend restates the signed amount
-    json.obj_begin()
-        .raw("id", venue_id)
-        .decimal("amount", *amount)
-        .decimal("price", *price)
-        .obj_end();
+    json.obj_begin().raw("id", venue_id).decimal("amount", *amount).decimal("price", *price).obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return sign("/v2/auth/w/order/update", json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(MarketType market,
-                                                                              UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(MarketType market, UnixNanos now) {
     if (const auto refusal = market_refusal(market); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -419,8 +408,7 @@ SignedRequestBuilder::my_trades(MarketType market, UnixNanos since, UnixNanos no
     return sign("/v2/auth/r/trades/hist", json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(MarketType market,
-                                                                            UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(MarketType market, UnixNanos now) {
     switch (market) {
     case MarketType::Perp:
         return sign("/v2/auth/r/positions", k_empty_body, now);

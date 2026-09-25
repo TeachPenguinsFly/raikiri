@@ -51,7 +51,9 @@ private:
 // call it from a function the service calls (see raikiri/strategies/register.hpp)
 template <typename T> [[nodiscard]] bool register_type(Factory& types, std::string type) {
     return types.add(std::move(type), [](const Params& params) -> MakeResult {
-        if constexpr (requires { { T::make(params) } -> std::same_as<MakeResult>; }) {
+        if constexpr (requires {
+                          { T::make(params) } -> std::same_as<MakeResult>;
+                      }) {
             return T::make(params);
         } else if constexpr (std::constructible_from<T, const Params&>) {
             return std::make_unique<T>(params);

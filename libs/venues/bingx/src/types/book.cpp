@@ -13,8 +13,7 @@ using wire::guarded;
 using wire::session;
 
 // a level is ["64148.0","7.4404"]: price then size
-std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry,
-                                               const wire::Session& s) {
+std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry, const wire::Session& s) {
     wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -41,8 +40,7 @@ std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry,
     return level;
 }
 
-std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
-                                                  std::span<WireLevel> into) {
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side, std::span<WireLevel> into) {
     wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -90,26 +88,25 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
         Number update_id{0};
         Number transaction{0};
         Number event{0};
-        const auto walked = wire::for_each_field(
-            *data, [&](std::string_view key, wire::ondemand::value& value) {
-                if (key == "s") {
-                    symbol = wire::str_of(value);
-                } else if (key == "b") {
-                    bid = wire::str_of(value);
-                } else if (key == "B") {
-                    bid_qty = wire::str_of(value);
-                } else if (key == "a") {
-                    ask = wire::str_of(value);
-                } else if (key == "A") {
-                    ask_qty = wire::str_of(value);
-                } else if (key == "u") {
-                    update_id = wire::u64_of(value);
-                } else if (key == "T") {
-                    transaction = wire::u64_of(value);
-                } else if (key == "E") {
-                    event = wire::u64_of(value);
-                }
-            });
+        const auto walked = wire::for_each_field(*data, [&](std::string_view key, wire::ondemand::value& value) {
+            if (key == "s") {
+                symbol = wire::str_of(value);
+            } else if (key == "b") {
+                bid = wire::str_of(value);
+            } else if (key == "B") {
+                bid_qty = wire::str_of(value);
+            } else if (key == "a") {
+                ask = wire::str_of(value);
+            } else if (key == "A") {
+                ask_qty = wire::str_of(value);
+            } else if (key == "u") {
+                update_id = wire::u64_of(value);
+            } else if (key == "T") {
+                transaction = wire::u64_of(value);
+            } else if (key == "E") {
+                event = wire::u64_of(value);
+            }
+        });
         if (!walked.has_value()) {
             return std::unexpected(walked.error());
         }
@@ -134,23 +131,20 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
     });
 }
 
-std::expected<WireDepth, WireError>
-parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
+std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
     return guarded([&]() -> std::expected<WireDepth, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        std::expected<std::string_view, WireError> data_type{
-            std::unexpected(WireError::MissingField)};
+        std::expected<std::string_view, WireError> data_type{std::unexpected(WireError::MissingField)};
         std::expected<std::uint64_t, WireError> ts{0};
         std::expected<std::uint64_t, WireError> stamp{0};
         std::optional<std::size_t> bids;
         std::optional<std::size_t> asks;
         std::expected<void, WireError> data{std::unexpected(WireError::MissingField)};
-        const auto read_side =
-            [&](std::string_view key,
-                wire::ondemand::value& value) -> std::expected<void, WireError> {
+        const auto read_side = [&](std::string_view key,
+                                   wire::ondemand::value& value) -> std::expected<void, WireError> {
             if (key == "bids" || key == "asks") {
                 const bool bid = key == "bids";
                 const auto count = read_levels(value, bid ? storage.bids : storage.asks);
@@ -162,9 +156,7 @@ parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
             return {};
         };
         const auto walked = wire::for_each_field(
-            *root,
-            [&](std::string_view key,
-                wire::ondemand::value& value) -> std::expected<void, WireError> {
+            *root, [&](std::string_view key, wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "data") {
                     wire::ondemand::object obj;
                     if (const auto ec = value.get_object().get(obj); ec != simdjson::SUCCESS) {

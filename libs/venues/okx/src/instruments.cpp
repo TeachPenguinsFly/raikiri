@@ -37,24 +37,20 @@ public:
         sync_clock(*state_, rest_);
 
         const auto inst_type = market == MarketType::Spot ? "SPOT" : "SWAP";
-        const auto response =
-            await_response(*state_, rest_, state_->builder.instruments(inst_type), 20'000);
+        const auto response = await_response(*state_, rest_, state_->builder.instruments(inst_type), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         const auto envelope = parse_rest_envelope(response->body);
         if (!envelope.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
         }
         if (envelope->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
+            return std::unexpected{exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
         }
 
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
@@ -62,8 +58,7 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_instruments(response->body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;

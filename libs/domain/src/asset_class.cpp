@@ -900,8 +900,7 @@ void classify(VenueId venue, InstrumentBase& base) noexcept {
         cls = curated->cls;
         ticker = curated->underlying;
     } else {
-        if (cls == AssetClass::Unknown && !states_asset_class(venue) &&
-            dex == std::string_view::npos) {
+        if (cls == AssetClass::Unknown && !states_asset_class(venue) && dex == std::string_view::npos) {
             cls = AssetClass::Crypto;
         }
         if (dex != std::string_view::npos) {

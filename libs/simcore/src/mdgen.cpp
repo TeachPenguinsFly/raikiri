@@ -73,8 +73,7 @@ SimResult MdGen::step(Engine& engine, InstrumentId instrument, UnixNanos now) {
         if (book == nullptr || !book->contains(order.id)) {
             continue; // consumed or never rested — nothing to cancel
         }
-        const std::int64_t dist =
-            order.side == Side::Buy ? mid - order.price.raw : order.price.raw - mid;
+        const std::int64_t dist = order.side == Side::Buy ? mid - order.price.raw : order.price.raw - mid;
         const bool out_of_band = dist < 1 || dist > static_cast<std::int64_t>(cfg_.depth);
         const bool churned = cfg_.churn_one_in != 0 && rand_below(cfg_.churn_one_in) == 0;
         if (out_of_band || churned) {
@@ -94,8 +93,7 @@ SimResult MdGen::step(Engine& engine, InstrumentId instrument, UnixNanos now) {
     // Occasionally cross the spread with a market order so trades print.
     if (cfg_.market_order_one_in != 0 && rand_below(cfg_.market_order_one_in) == 0) {
         const Side side = (next_random() & 1U) == 0 ? Side::Buy : Side::Sell;
-        const std::uint64_t span =
-            cfg_.market_qty_max > 0 ? static_cast<std::uint64_t>(cfg_.market_qty_max) : 1U;
+        const std::uint64_t span = cfg_.market_qty_max > 0 ? static_cast<std::uint64_t>(cfg_.market_qty_max) : 1U;
         const std::int64_t qty = 1 + static_cast<std::int64_t>(rand_below(span));
         engine.place_background_market(instrument, side, QtyLots::from_raw(qty), now, out);
     }
@@ -115,10 +113,9 @@ void MdGen::quote_level(Engine& engine,
             return; // level already quoted
         }
     }
-    const std::int64_t jitter = cfg_.level_qty_jitter > 0
-                                    ? static_cast<std::int64_t>(rand_below(
-                                          static_cast<std::uint64_t>(cfg_.level_qty_jitter)))
-                                    : 0;
+    const std::int64_t jitter = cfg_.level_qty_jitter > 0 ? static_cast<std::int64_t>(rand_below(
+                                                                static_cast<std::uint64_t>(cfg_.level_qty_jitter)))
+                                                          : 0;
     const QtyLots qty = QtyLots::from_raw(cfg_.level_qty_base + jitter);
     const std::uint64_t id = engine.place_background_limit(instrument, side, price, qty, now, out);
     st.orders.push_back(BgOrder{id, side, price});

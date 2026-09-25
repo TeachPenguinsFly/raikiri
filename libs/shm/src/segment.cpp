@@ -78,10 +78,8 @@ SegmentOwner::~SegmentOwner() {
     }
 }
 
-std::expected<SegmentOwner, SegError> SegmentOwner::create(const std::string& path,
-                                                           std::size_t total_size,
-                                                           std::uint64_t generation,
-                                                           std::uint64_t now_ns) {
+std::expected<SegmentOwner, SegError>
+SegmentOwner::create(const std::string& path, std::size_t total_size, std::uint64_t generation, std::uint64_t now_ns) {
     if (total_size < k_header_reserved * 2) {
         return std::unexpected{SegError::TooSmall};
     }
@@ -94,10 +92,11 @@ std::expected<SegmentOwner, SegError> SegmentOwner::create(const std::string& pa
                 ::unlink(path.c_str());
                 continue;
             }
-            struct stat st{};
+
+            struct stat st {};
+
             bool alive = false;
-            if (::fstat(probe, &st) == 0 &&
-                st.st_size >= static_cast<off_t>(sizeof(SegmentHeader))) {
+            if (::fstat(probe, &st) == 0 && st.st_size >= static_cast<off_t>(sizeof(SegmentHeader))) {
                 if (auto m = map_file(probe, sizeof(SegmentHeader)); m.has_value()) {
                     const auto* h = channel_cast<SegmentHeader>(m->base);
                     alive = h->magic == k_magic && header_blocks_takeover(*h);
@@ -165,8 +164,7 @@ void* SegmentOwner::place(std::string_view name, std::size_t size, std::size_t a
 
 void SegmentOwner::publish() noexcept {
     header_->layout_hash = layout_hash(*header_);
-    header_->state.store(static_cast<std::uint32_t>(SegmentState::Ready),
-                         std::memory_order_release);
+    header_->state.store(static_cast<std::uint32_t>(SegmentState::Ready), std::memory_order_release);
 }
 
 void SegmentOwner::beat(std::uint64_t now_ns) noexcept {
@@ -204,7 +202,9 @@ std::expected<SegmentClient, SegError> SegmentClient::attach(const std::string& 
     if (fd < 0) {
         return std::unexpected{SegError::MapFailed};
     }
-    struct stat st{};
+
+    struct stat st {};
+
     if (::fstat(fd, &st) != 0 || st.st_size < static_cast<off_t>(sizeof(SegmentHeader))) {
         ::close(fd);
         return std::unexpected{SegError::TooSmall};
@@ -227,8 +227,7 @@ std::expected<SegmentClient, SegError> SegmentClient::attach(const std::string& 
     if (h.abi_version != k_abi_version) {
         return std::unexpected{SegError::BadAbi};
     }
-    if (h.state.load(std::memory_order_acquire) !=
-        static_cast<std::uint32_t>(SegmentState::Ready)) {
+    if (h.state.load(std::memory_order_acquire) != static_cast<std::uint32_t>(SegmentState::Ready)) {
         return std::unexpected{SegError::NotReady};
     }
     if (h.layout_hash != layout_hash(h)) {
@@ -237,8 +236,7 @@ std::expected<SegmentClient, SegError> SegmentClient::attach(const std::string& 
     return client;
 }
 
-std::expected<void*, SegError> SegmentClient::find(std::string_view name,
-                                                   std::size_t expected_size) noexcept {
+std::expected<void*, SegError> SegmentClient::find(std::string_view name, std::size_t expected_size) noexcept {
     for (std::uint32_t i = 0; i < header_->channel_count; ++i) {
         const auto& ch = header_->channels[i];
         if (std::string_view{ch.name} == name) {

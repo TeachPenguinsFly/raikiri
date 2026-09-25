@@ -8,8 +8,7 @@ namespace {
 
 using wire::guarded;
 
-std::expected<void, WireError> read_futures_position(wire::ondemand::object& obj,
-                                                     WireFuturesPosition& out) {
+std::expected<void, WireError> read_futures_position(wire::ondemand::object& obj, WireFuturesPosition& out) {
     const auto symbol = field(obj, "symbol");
     if (symbol.empty()) {
         return std::unexpected(WireError::MissingField);
@@ -25,17 +24,14 @@ std::expected<void, WireError> read_futures_position(wire::ondemand::object& obj
 
 } // namespace
 
-std::expected<std::span<const WireFuturesPosition>, WireError>
-parse_futures_positions(std::string_view body, FuturesPositionBuffer& storage) {
-    return guarded([&] {
-        return read_envelope_array<WireFuturesPosition>(
-            body, storage.positions, read_futures_position);
-    });
+std::expected<std::span<const WireFuturesPosition>, WireError> parse_futures_positions(std::string_view body,
+                                                                                       FuturesPositionBuffer& storage) {
+    return guarded(
+        [&] { return read_envelope_array<WireFuturesPosition>(body, storage.positions, read_futures_position); });
 }
 
 std::expected<WireFuturesPosition, WireError> parse_futures_position(std::string_view frame) {
-    return guarded(
-        [&] { return read_envelope_object<WireFuturesPosition>(frame, read_futures_position); });
+    return guarded([&] { return read_envelope_object<WireFuturesPosition>(frame, read_futures_position); });
 }
 
 } // namespace raikiri::venues::mexc

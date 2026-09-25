@@ -15,8 +15,7 @@ constexpr char k_hex_digits[] = "0123456789abcdef";
 
 } // namespace
 
-std::string_view
-hmac_sha384_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept {
+std::string_view hmac_sha384_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept {
     if (out.size() < k_hex384_bytes) {
         return {};
     }
@@ -39,10 +38,8 @@ hmac_sha384_hex(std::string_view key, std::string_view message, std::span<char> 
     return {out.data(), k_hex384_bytes};
 }
 
-std::string_view ws_auth_frame(std::string_view api_key,
-                               std::string_view secret,
-                               std::uint64_t nonce,
-                               std::span<char> out) noexcept {
+std::string_view
+ws_auth_frame(std::string_view api_key, std::string_view secret, std::uint64_t nonce, std::span<char> out) noexcept {
     if (api_key.empty() || secret.empty()) {
         return {};
     }
@@ -51,8 +48,7 @@ std::string_view ws_auth_frame(std::string_view api_key,
     if (ec != std::errc{}) {
         return {};
     }
-    const std::string_view nonce_text{digits.data(),
-                                      static_cast<std::size_t>(stop - digits.data())};
+    const std::string_view nonce_text{digits.data(), static_cast<std::size_t>(stop - digits.data())};
 
     // the nonce appears twice; once is answered 10100
     std::array<char, 64> payload{};

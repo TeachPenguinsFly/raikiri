@@ -37,8 +37,7 @@ std::expected<void, WireError> split_change(std::string_view change, WireBookCha
 }
 
 // spot levels are two-element arrays
-std::expected<std::size_t, WireError> read_pair_levels(wire::ondemand::value side,
-                                                       std::span<WireLevel> into) {
+std::expected<std::size_t, WireError> read_pair_levels(wire::ondemand::value side, std::span<WireLevel> into) {
     wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -87,8 +86,7 @@ read_pair_levels(wire::ondemand::object& obj, std::string_view key, std::span<Wi
 }
 
 // a level is [price, size], both json numbers
-std::expected<void, WireError>
-read_pair(wire::ondemand::value entry, std::string_view& price, std::string_view& qty) {
+std::expected<void, WireError> read_pair(wire::ondemand::value entry, std::string_view& price, std::string_view& qty) {
     wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -155,66 +153,64 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
-        return with_data(*root,
-                         [&](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
-                             // futures: bestBidPrice and nanosecond ts; spot: bestBid, millisecond time, sequence as a string
-                             const std::string_view bid_key = spot ? "bestBid" : "bestBidPrice";
-                             const std::string_view ask_key = spot ? "bestAsk" : "bestAskPrice";
-                             using Text = std::expected<std::string_view, WireError>;
-                             Text bid{std::string_view{}};
-                             Text bid_qty{std::string_view{}};
-                             Text ask{std::string_view{}};
-                             Text ask_qty{std::string_view{}};
-                             Text time{std::string_view{}};
-                             Text ts{std::string_view{}};
-                             Text sequence{std::string_view{}};
-                             const auto walked = wire::for_each_field(
-                                 obj, [&](std::string_view key, wire::ondemand::value& value) {
-                                     if (key == bid_key) {
-                                         bid = decimal_of(value);
-                                     } else if (key == "bestBidSize") {
-                                         bid_qty = decimal_of(value);
-                                     } else if (key == ask_key) {
-                                         ask = decimal_of(value);
-                                     } else if (key == "bestAskSize") {
-                                         ask_qty = decimal_of(value);
-                                     } else if (key == "time") {
-                                         time = decimal_of(value);
-                                     } else if (key == "ts") {
-                                         ts = decimal_of(value);
-                                     } else if (key == "sequence") {
-                                         sequence = decimal_of(value);
-                                     }
-                                 });
-                             if (!walked.has_value()) {
-                                 return std::unexpected(walked.error());
-                             }
-                             for (const auto* text : {&bid, &bid_qty, &ask, &ask_qty}) {
-                                 if (!text->has_value() || (*text)->empty()) {
-                                     return std::unexpected(WireError::MissingField);
-                                 }
-                             }
-                             WireBbo out{};
-                             out.symbol = *symbol;
-                             out.bid_price = *bid;
-                             out.bid_qty = *bid_qty;
-                             out.ask_price = *ask;
-                             out.ask_qty = *ask_qty;
-                             if (spot) {
-                                 if (!time.has_value()) {
-                                     return std::unexpected(WireError::WrongType);
-                                 }
-                                 out.ts_ns = wire::digits_to_u64(*time) * 1'000'000ULL;
-                                 out.sequence = 0; // a digit string here; nothing reads it
-                                 return out;
-                             }
-                             if (!ts.has_value() || !sequence.has_value()) {
-                                 return std::unexpected(WireError::WrongType);
-                             }
-                             out.ts_ns = wire::digits_to_u64(*ts);
-                             out.sequence = i64_of_digits(*sequence);
-                             return out;
-                         });
+        return with_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
+            // futures: bestBidPrice and nanosecond ts; spot: bestBid, millisecond time, sequence as a string
+            const std::string_view bid_key = spot ? "bestBid" : "bestBidPrice";
+            const std::string_view ask_key = spot ? "bestAsk" : "bestAskPrice";
+            using Text = std::expected<std::string_view, WireError>;
+            Text bid{std::string_view{}};
+            Text bid_qty{std::string_view{}};
+            Text ask{std::string_view{}};
+            Text ask_qty{std::string_view{}};
+            Text time{std::string_view{}};
+            Text ts{std::string_view{}};
+            Text sequence{std::string_view{}};
+            const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
+                if (key == bid_key) {
+                    bid = decimal_of(value);
+                } else if (key == "bestBidSize") {
+                    bid_qty = decimal_of(value);
+                } else if (key == ask_key) {
+                    ask = decimal_of(value);
+                } else if (key == "bestAskSize") {
+                    ask_qty = decimal_of(value);
+                } else if (key == "time") {
+                    time = decimal_of(value);
+                } else if (key == "ts") {
+                    ts = decimal_of(value);
+                } else if (key == "sequence") {
+                    sequence = decimal_of(value);
+                }
+            });
+            if (!walked.has_value()) {
+                return std::unexpected(walked.error());
+            }
+            for (const auto* text : {&bid, &bid_qty, &ask, &ask_qty}) {
+                if (!text->has_value() || (*text)->empty()) {
+                    return std::unexpected(WireError::MissingField);
+                }
+            }
+            WireBbo out{};
+            out.symbol = *symbol;
+            out.bid_price = *bid;
+            out.bid_qty = *bid_qty;
+            out.ask_price = *ask;
+            out.ask_qty = *ask_qty;
+            if (spot) {
+                if (!time.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                out.ts_ns = wire::digits_to_u64(*time) * 1'000'000ULL;
+                out.sequence = 0; // a digit string here; nothing reads it
+                return out;
+            }
+            if (!ts.has_value() || !sequence.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.ts_ns = wire::digits_to_u64(*ts);
+            out.sequence = i64_of_digits(*sequence);
+            return out;
+        });
     });
 }
 
@@ -228,49 +224,45 @@ std::expected<WireBookChange, WireError> parse_book_change(std::string_view fram
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
-        return with_data(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBookChange, WireError> {
-                WireBookChange out{};
-                out.symbol = *symbol;
-                std::expected<std::string_view, WireError> change{
-                    std::unexpected(WireError::MissingField)};
-                std::expected<std::string_view, WireError> ts{std::string_view{}};
-                std::expected<std::string_view, WireError> sequence{std::string_view{}};
-                const auto walked = wire::for_each_field(
-                    obj, [&](std::string_view key, wire::ondemand::value& value) {
-                        if (key == "change") {
-                            change = wire::str_of(value);
-                        } else if (key == "timestamp") {
-                            ts = decimal_of(value);
-                        } else if (key == "sequence") {
-                            sequence = decimal_of(value);
-                        }
-                    });
-                if (!walked.has_value()) {
-                    return std::unexpected(walked.error());
+        return with_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBookChange, WireError> {
+            WireBookChange out{};
+            out.symbol = *symbol;
+            std::expected<std::string_view, WireError> change{std::unexpected(WireError::MissingField)};
+            std::expected<std::string_view, WireError> ts{std::string_view{}};
+            std::expected<std::string_view, WireError> sequence{std::string_view{}};
+            const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
+                if (key == "change") {
+                    change = wire::str_of(value);
+                } else if (key == "timestamp") {
+                    ts = decimal_of(value);
+                } else if (key == "sequence") {
+                    sequence = decimal_of(value);
                 }
-                if (change.has_value() && change->empty()) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                if (!change.has_value()) {
-                    return std::unexpected(change.error());
-                }
-                if (const auto ok = split_change(*change, out); !ok.has_value()) {
-                    return std::unexpected(ok.error());
-                }
-                if (!ts.has_value() || !sequence.has_value()) {
-                    return std::unexpected(WireError::WrongType);
-                }
-                out.ts_ms = wire::digits_to_u64(*ts);
-                out.sequence = i64_of_digits(*sequence);
-                return out;
             });
+            if (!walked.has_value()) {
+                return std::unexpected(walked.error());
+            }
+            if (change.has_value() && change->empty()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            if (!change.has_value()) {
+                return std::unexpected(change.error());
+            }
+            if (const auto ok = split_change(*change, out); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            if (!ts.has_value() || !sequence.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.ts_ms = wire::digits_to_u64(*ts);
+            out.sequence = i64_of_digits(*sequence);
+            return out;
+        });
     });
 }
 
 // spot level2Depth50: a whole book of ["price","size"] pairs
-std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame,
-                                                               LevelBuffer& storage) {
+std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireBookSnapshot, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -280,24 +272,22 @@ std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view 
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
-        return with_data(
-            *root,
-            [&](wire::ondemand::object& obj) -> std::expected<WireBookSnapshot, WireError> {
-                WireBookSnapshot out{};
-                out.symbol = *symbol;
-                const auto asks = read_pair_levels(obj, "asks", storage.asks);
-                if (!asks.has_value()) {
-                    return std::unexpected(asks.error());
-                }
-                const auto bids = read_pair_levels(obj, "bids", storage.bids);
-                if (!bids.has_value()) {
-                    return std::unexpected(bids.error());
-                }
-                out.asks = {storage.asks.data(), *asks};
-                out.bids = {storage.bids.data(), *bids};
-                out.ts_ms = opt_u64(obj, "timestamp").value_or(0);
-                return out;
-            });
+        return with_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBookSnapshot, WireError> {
+            WireBookSnapshot out{};
+            out.symbol = *symbol;
+            const auto asks = read_pair_levels(obj, "asks", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            const auto bids = read_pair_levels(obj, "bids", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            out.asks = {storage.asks.data(), *asks};
+            out.bids = {storage.bids.data(), *bids};
+            out.ts_ms = opt_u64(obj, "timestamp").value_or(0);
+            return out;
+        });
     });
 }
 
@@ -329,9 +319,7 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
         std::optional<std::size_t> bids;
         std::uint64_t ts_ns = 0;
         const auto walked = wire::for_each_field(
-            *data,
-            [&](std::string_view key,
-                wire::ondemand::value& value) -> std::expected<void, WireError> {
+            *data, [&](std::string_view key, wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "a" || key == "b") {
                     const bool ask = key == "a";
                     const auto count = read_pair_levels(value, ask ? storage.asks : storage.bids);
@@ -377,41 +365,39 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
     });
 }
 
-std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view body,
-                                                              LevelBuffer& storage) {
+std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view body, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderBook, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_data(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireOrderBook, WireError> {
-                WireOrderBook out{};
-                const auto symbol = wire::req_str(obj, "symbol");
-                const auto sequence = opt_i64(obj, "sequence");
-                const auto ts = opt_u64(obj, "ts");
-                if (!symbol.has_value() || !sequence.has_value() || !ts.has_value()) {
-                    return std::unexpected(WireError::WrongType);
-                }
-                // a seed without a sequence cannot be chained
-                if (*sequence <= 0) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                out.symbol = *symbol;
-                out.sequence = *sequence;
-                out.ts_ns = *ts;
-                const auto bids = read_levels(obj, "bids", storage.bids);
-                if (!bids.has_value()) {
-                    return std::unexpected(bids.error());
-                }
-                const auto asks = read_levels(obj, "asks", storage.asks);
-                if (!asks.has_value()) {
-                    return std::unexpected(asks.error());
-                }
-                out.bids = {storage.bids.data(), *bids};
-                out.asks = {storage.asks.data(), *asks};
-                return out;
-            });
+        return with_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireOrderBook, WireError> {
+            WireOrderBook out{};
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto sequence = opt_i64(obj, "sequence");
+            const auto ts = opt_u64(obj, "ts");
+            if (!symbol.has_value() || !sequence.has_value() || !ts.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            // a seed without a sequence cannot be chained
+            if (*sequence <= 0) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.symbol = *symbol;
+            out.sequence = *sequence;
+            out.ts_ns = *ts;
+            const auto bids = read_levels(obj, "bids", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            const auto asks = read_levels(obj, "asks", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            out.bids = {storage.bids.data(), *bids};
+            out.asks = {storage.asks.data(), *asks};
+            return out;
+        });
     });
 }
 
@@ -435,8 +421,7 @@ void DepthBook::invalidate() noexcept {
     // keep the wait so the retry stays off the frame rate
 }
 
-std::optional<DepthBook::Level> DepthBook::convert(std::string_view price,
-                                                   std::string_view qty) const {
+std::optional<DepthBook::Level> DepthBook::convert(std::string_view price, std::string_view qty) const {
     const auto ticks = steps_of(price, tick_size_);
     const auto lots = steps_of(qty, lot_size_);
     if (!ticks.has_value() || !lots.has_value()) {
@@ -688,8 +673,7 @@ std::optional<BookSnapshot> DepthBook::snapshot(UnixNanos ts_event, UnixNanos ts
     if (state_ != State::Live) {
         return std::nullopt;
     }
-    return ladders_.snapshot(
-        instrument_, static_cast<std::uint64_t>(last_sequence_), ts_event, ts_init);
+    return ladders_.snapshot(instrument_, static_cast<std::uint64_t>(last_sequence_), ts_event, ts_init);
 }
 
 std::optional<Bbo> DepthBook::bbo(UnixNanos ts_event, UnixNanos ts_init) const {

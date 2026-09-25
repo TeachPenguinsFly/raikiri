@@ -30,8 +30,7 @@ bool mkdir_p(const std::string& dir) noexcept {
     return true;
 }
 
-std::string
-segment_path(const std::string& dir, const std::string& prefix, std::uint64_t segment_seq) {
+std::string segment_path(const std::string& dir, const std::string& prefix, std::uint64_t segment_seq) {
     char num[8];
     std::snprintf(num, sizeof num, "%06llu", static_cast<unsigned long long>(segment_seq));
     return dir + "/" + prefix + "." + num + ".rj";
@@ -76,10 +75,7 @@ std::vector<std::uint64_t> list_segments(const std::string& dir, const std::stri
     return out;
 }
 
-bool decode_frame(const std::byte* base,
-                  std::size_t size,
-                  std::uint64_t off,
-                  FrameView& out) noexcept {
+bool decode_frame(const std::byte* base, std::size_t size, std::uint64_t off, FrameView& out) noexcept {
     if (off + k_frame_header_bytes + k_frame_trailer_bytes > size) {
         return false;
     }
@@ -91,8 +87,7 @@ bool decode_frame(const std::byte* base,
     }
     std::uint32_t stored_crc{};
     std::memcpy(&stored_crc, frame + k_frame_header_bytes + len, 4);
-    const std::uint32_t crc =
-        crc32c::Crc32c(reinterpret_cast<const char*>(frame), k_frame_header_bytes + len);
+    const std::uint32_t crc = crc32c::Crc32c(reinterpret_cast<const char*>(frame), k_frame_header_bytes + len);
     if (crc != stored_crc) {
         return false;
     }
@@ -104,8 +99,7 @@ bool decode_frame(const std::byte* base,
     return true;
 }
 
-WalkResult
-walk_frames(const std::byte* base, std::size_t size, std::uint64_t base_record_seq) noexcept {
+WalkResult walk_frames(const std::byte* base, std::size_t size, std::uint64_t base_record_seq) noexcept {
     WalkResult result{};
     result.end_offset = k_header_bytes;
     result.next_seq = base_record_seq;

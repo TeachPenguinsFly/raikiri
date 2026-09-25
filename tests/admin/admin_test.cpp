@@ -1,7 +1,7 @@
 #include <raikiri/admin/format.hpp>
 #include <raikiri/admin/registry.hpp>
-#include <raikiri/http/server.hpp>
 #include <raikiri/admin/stream.hpp>
+#include <raikiri/http/server.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/shm/segment.hpp>
 
@@ -52,8 +52,7 @@ TEST(AdminFormat, EveryValueTooLargeForADoubleLeavesAsDigits) {
 }
 
 TEST(AdminFormat, ATurnoverPastInt64AtE9IsStillANumber) {
-    EXPECT_EQ(decimal(parse_turnover_e6("10666647192.81728").value_or(FixedE6::undef())),
-              "10666647192.81728");
+    EXPECT_EQ(decimal(parse_turnover_e6("10666647192.81728").value_or(FixedE6::undef())), "10666647192.81728");
     EXPECT_EQ(decimal(FixedE6::from_raw(5'000'000)), "5");
     EXPECT_EQ(decimal(FixedE6::undef()), "");
 }
@@ -113,8 +112,7 @@ TEST(AdminRegistry, AnEmptyRuntimeDirectoryIsNoGatewaysRatherThanAnError) {
 
 TEST(HttpServer, ARequestIsAnsweredWhileTheServerBlocks) {
     http::Server server{"127.0.0.1", 0, [](const http::Request&) {
-                            return http::Response{
-                                .status = 200, .content_type = "application/json", .body = "{}"};
+                            return http::Response{.status = 200, .content_type = "application/json", .body = "{}"};
                         }};
     ASSERT_TRUE(server.start());
     std::atomic<bool> done{false};
@@ -180,8 +178,7 @@ raikiri::Instrument listed_as(std::uint32_t slot, std::string_view symbol) {
 }
 
 // same order as gatewayd: create the segment, fill the catalogue, then publish
-std::optional<shm::SegmentOwner> start_gateway(std::uint64_t generation,
-                                               const std::vector<std::string>& symbols) {
+std::optional<shm::SegmentOwner> start_gateway(std::uint64_t generation, const std::vector<std::string>& symbols) {
     auto owner = shm::SegmentOwner::create(
         segment_dir() + "/gw.sim", shm::k_gateway_segment_bytes, generation, generation);
     if (!owner.has_value()) {

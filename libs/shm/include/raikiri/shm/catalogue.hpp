@@ -27,13 +27,9 @@ class CatalogueTable {
 public:
     [[nodiscard]] std::expected<void, CatalogueError> push(const Instrument& instrument) noexcept;
 
-    [[nodiscard]] std::uint32_t size() const noexcept {
-        return count_.load(std::memory_order_acquire);
-    }
+    [[nodiscard]] std::uint32_t size() const noexcept { return count_.load(std::memory_order_acquire); }
 
-    [[nodiscard]] std::span<const Instrument> all() const noexcept {
-        return {entries_.data(), size()};
-    }
+    [[nodiscard]] std::span<const Instrument> all() const noexcept { return {entries_.data(), size()}; }
 
     [[nodiscard]] const Instrument* find(InstrumentId id) const noexcept;
 

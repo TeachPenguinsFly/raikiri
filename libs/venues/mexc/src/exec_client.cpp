@@ -79,13 +79,10 @@ public:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -132,8 +129,7 @@ public:
             // per-order verdicts are in the body; the callback reports only transport failure
             const std::vector<OrderCmd> pending{chunk.begin(), chunk.end()};
             if (!api_.send(*request, [this, pending](net::RestResponse&& response) {
-                    if (!response.transport_failed() && response.status >= 200 &&
-                        response.status < 300) {
+                    if (!response.transport_failed() && response.status >= 200 && response.status < 300) {
                         return;
                     }
                     // a lost connection must not mark the chunk refused; the venue
@@ -142,17 +138,15 @@ public:
                         for (const auto& cmd : pending) {
                             state_->sink->on_order_error(
                                 cmd.client_order_id,
-                                exec::VenueError::make(
-                                    exec::ErrorClass::Connectivity,
-                                    0,
-                                    response.error.empty()
-                                        ? std::string_view{"no response from venue"}
-                                        : std::string_view{response.error}));
+                                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                       0,
+                                                       response.error.empty()
+                                                           ? std::string_view{"no response from venue"}
+                                                           : std::string_view{response.error}));
                         }
                         return;
                     }
-                    const auto refusal =
-                        rest_failure(response.body, pending.front().instrument.market());
+                    const auto refusal = rest_failure(response.body, pending.front().instrument.market());
                     for (const auto& cmd : pending) {
                         (void)unanswered_.resolve(cmd.client_order_id);
                         emit_reject(cmd, Kind::Cancel, refusal);
@@ -160,9 +154,7 @@ public:
                 })) {
                 for (const auto& cmd : chunk) {
                     emit_reject(
-                        cmd,
-                        Kind::Cancel,
-                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+                        cmd, Kind::Cancel, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
                 }
             }
         }
@@ -173,23 +165,22 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
@@ -199,10 +190,9 @@ private:
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto market = cmd.instrument.market();
         const auto now = state_->venue_now(market);
-        const auto request =
-            kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
-                                   : api_.builder().amend_order(cmd, state_->instruments, now);
+        const auto request = kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
+                             : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
+                                                    : api_.builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
@@ -211,9 +201,7 @@ private:
                 on_response(std::move(response), cmd, kind, market);
             })) {
             // never left this process
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded before the callback, which may never run
@@ -226,21 +214,19 @@ private:
                                .sent = state_->clock->mono()});
     }
 
-    void
-    on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
+    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
         // any answer settles it, including a refusal
         if (!response.transport_failed()) {
             (void)unanswered_.resolve(cmd.client_order_id);
         }
         if (response.transport_failed()) {
             // the request may have reached the matcher, so this is not a rejection
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         const bool http_ok = response.status >= 200 && response.status < 300;
@@ -258,8 +244,7 @@ private:
             // spot has no user stream, so the create response is the ack
             if (kind == Kind::Create) {
                 if (const auto wire = parse_spot_order(response.body); wire.has_value()) {
-                    if (const auto event =
-                            map_spot_order_event(*wire, state_->instruments, state_->clock->wall());
+                    if (const auto event = map_spot_order_event(*wire, state_->instruments, state_->clock->wall());
                         event.has_value()) {
                         state_->sink->on_order_event(*event);
                     }
@@ -270,13 +255,11 @@ private:
 
         // futures answers 200 with success:false; the envelope code decides
         const auto envelope = parse_rest_envelope(response.body);
-        const bool accepted =
-            http_ok && envelope.has_value() && envelope->success && envelope->code == k_ok;
+        const bool accepted = http_ok && envelope.has_value() && envelope->success && envelope->code == k_ok;
         if (accepted) {
             return; // the socket's push carries the lifecycle
         }
-        if (kind == Kind::Cancel && envelope.has_value() &&
-            is_benign_cancel_failure(envelope->code)) {
+        if (kind == Kind::Cancel && envelope.has_value() && is_benign_cancel_failure(envelope->code)) {
             return;
         }
         emit_reject(cmd, kind, rest_failure(response.body, market));
@@ -316,8 +299,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state,
-                                                             MarketType market) {
+std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state, MarketType market) {
     return std::make_unique<MexcExec>(std::move(state), market);
 }
 

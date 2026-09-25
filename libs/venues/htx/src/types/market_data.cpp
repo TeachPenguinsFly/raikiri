@@ -27,8 +27,7 @@ std::expected<wire::ondemand::object, WireError> first_data(wire::ondemand::obje
 
 } // namespace
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -63,30 +62,27 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             std::expected<std::string_view, WireError> price{std::string_view{}};
             std::expected<std::uint64_t, WireError> ts{0};
             std::expected<std::uint64_t, WireError> id{0};
-            std::expected<std::string_view, WireError> direction{
-                std::unexpected(WireError::MissingField)};
-            const auto walked = wire::for_each_field(
-                obj, [&](std::string_view key, wire::ondemand::value& value) {
-                    if (key == "amount") {
-                        amount = wire::raw_of(value);
-                    } else if (key == "quantity") {
-                        quantity = wire::raw_of(value);
-                    } else if (key == "price") {
-                        price = wire::raw_of(value);
-                    } else if (key == "ts") {
-                        ts = wire::u64_of(value);
-                    } else if (key == "id") {
-                        id = wire::u64_of(value);
-                    } else if (key == "direction") {
-                        direction = wire::str_of(value);
-                    }
-                });
+            std::expected<std::string_view, WireError> direction{std::unexpected(WireError::MissingField)};
+            const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
+                if (key == "amount") {
+                    amount = wire::raw_of(value);
+                } else if (key == "quantity") {
+                    quantity = wire::raw_of(value);
+                } else if (key == "price") {
+                    price = wire::raw_of(value);
+                } else if (key == "ts") {
+                    ts = wire::u64_of(value);
+                } else if (key == "id") {
+                    id = wire::u64_of(value);
+                } else if (key == "direction") {
+                    direction = wire::str_of(value);
+                }
+            });
             if (!walked.has_value()) {
                 return std::unexpected(walked.error());
             }
-            if (!amount.has_value() || !quantity.has_value() || !ts.has_value() ||
-                !id.has_value() || !price.has_value() || !direction.has_value() ||
-                direction->empty()) {
+            if (!amount.has_value() || !quantity.has_value() || !ts.has_value() || !id.has_value() ||
+                !price.has_value() || !direction.has_value() || direction->empty()) {
                 return std::unexpected(WireError::MissingField);
             }
             if (amount->empty() || price->empty()) {
@@ -163,8 +159,7 @@ std::expected<WireFunding, WireError> parse_funding(std::string_view frame) {
         const auto rate = wire::opt_str(*obj, "funding_rate");
         const auto estimated = wire::opt_str(*obj, "estimated_rate");
         const auto settlement_ms = opt_ms_str(*obj, "settlement_time");
-        if (!funding_ms.has_value() || !rate.has_value() || !estimated.has_value() ||
-            !settlement_ms.has_value()) {
+        if (!funding_ms.has_value() || !rate.has_value() || !estimated.has_value() || !settlement_ms.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         out.funding_ms = *funding_ms;

@@ -67,8 +67,8 @@ inline std::expected<std::string_view, WireError> arg_inst_id(wire::ondemand::ob
 
 // every channel here and every singleton rest read carries one data element
 template <typename Fn>
-[[nodiscard]] auto with_first_data(wire::ondemand::object& root, Fn&& fn)
-    -> decltype(fn(std::declval<wire::ondemand::object&>())) {
+[[nodiscard]] auto with_first_data(wire::ondemand::object& root,
+                                   Fn&& fn) -> decltype(fn(std::declval<wire::ondemand::object&>())) {
     auto array = wire::req_array(root, "data");
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -84,8 +84,7 @@ template <typename Fn>
 }
 
 template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError>
-read_data(std::string_view body, std::span<Entry> into, Read&& read) {
+std::expected<std::span<const Entry>, WireError> read_data(std::string_view body, std::span<Entry> into, Read&& read) {
     auto root = wire::session().open_object(body);
     if (!root.has_value()) {
         return std::unexpected(root.error());

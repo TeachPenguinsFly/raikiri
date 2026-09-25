@@ -14,9 +14,8 @@ constexpr std::string_view k_auth_prefix = "GET/realtime";
 
 std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     const auto [end, ec] = std::to_chars(out.data(), out.data() + out.size(), value);
-    return ec == std::errc{}
-               ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
-               : std::string_view{};
+    return ec == std::errc{} ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
+                             : std::string_view{};
 }
 
 } // namespace
@@ -89,8 +88,8 @@ std::string_view topic_name(exec::SubKind kind,
     return len > out.size() ? std::string_view{} : std::string_view{out.data(), len};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::op_frame(std::string_view op, std::span<const std::string_view> topics) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view op,
+                                                                std::span<const std::string_view> topics) {
     if (topics.empty()) {
         return std::unexpected{WsBuildError::TooManyTopics};
     }
@@ -129,13 +128,11 @@ Protocol::op_frame(std::string_view op, std::span<const std::string_view> topics
     return Frame{.text = {frame_.data(), len}, .consumed = batch};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const std::string_view> topics) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const std::string_view> topics) {
     return op_frame("subscribe", topics);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const std::string_view> topics) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const std::string_view> topics) {
     return op_frame("unsubscribe", topics);
 }
 

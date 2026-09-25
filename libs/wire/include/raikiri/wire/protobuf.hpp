@@ -22,7 +22,7 @@ struct Field {
     std::uint32_t number{0};
     WireType type{WireType::Varint};
     std::uint64_t varint{0}; // Varint, Fixed64 and Fixed32 land here
-    std::string_view bytes; // bytes only; a view into the caller's buffer
+    std::string_view bytes;  // bytes only; a view into the caller's buffer
 };
 
 // forward-only; nullopt at the end and at the first unreadable byte
@@ -42,11 +42,9 @@ private:
 };
 
 // the first bytes field with this number, as a submessage or a string
-[[nodiscard]] std::optional<std::string_view> bytes_field(std::string_view buffer,
-                                                          std::uint32_t number) noexcept;
+[[nodiscard]] std::optional<std::string_view> bytes_field(std::string_view buffer, std::uint32_t number) noexcept;
 
 // The first varint field with this number.
-[[nodiscard]] std::optional<std::uint64_t> varint_field(std::string_view buffer,
-                                                        std::uint32_t number) noexcept;
+[[nodiscard]] std::optional<std::uint64_t> varint_field(std::string_view buffer, std::uint32_t number) noexcept;
 
 } // namespace raikiri::wire::pb

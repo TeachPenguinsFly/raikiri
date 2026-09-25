@@ -6,18 +6,14 @@
 
 namespace raikiri::venues::blofin {
 
-std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
-                                                                  PrintBuffer& storage) {
+std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame, PrintBuffer& storage) {
     return read_data<WirePrint>(
-        frame,
-        storage.prints,
-        [](wire::ondemand::object& obj, WirePrint& out) -> std::expected<void, WireError> {
+        frame, storage.prints, [](wire::ondemand::object& obj, WirePrint& out) -> std::expected<void, WireError> {
             const auto inst_id = wire::req_str(obj, "instId");
             const auto price = wire::req_str(obj, "price");
             const auto size = wire::req_str(obj, "size");
             const auto side = wire::req_str(obj, "side");
-            if (!inst_id.has_value() || !price.has_value() || !size.has_value() ||
-                !side.has_value()) {
+            if (!inst_id.has_value() || !price.has_value() || !size.has_value() || !side.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             if (*side != "buy" && *side != "sell") {
@@ -36,12 +32,9 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
         });
 }
 
-std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view frame,
-                                                                    TickerBuffer& storage) {
+std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view frame, TickerBuffer& storage) {
     return read_data<WireTicker>(
-        frame,
-        storage.rows,
-        [](wire::ondemand::object& obj, WireTicker& out) -> std::expected<void, WireError> {
+        frame, storage.rows, [](wire::ondemand::object& obj, WireTicker& out) -> std::expected<void, WireError> {
             const auto inst_id = wire::req_str(obj, "instId");
             if (!inst_id.has_value()) {
                 return std::unexpected(inst_id.error());
@@ -62,12 +55,9 @@ std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_
         });
 }
 
-std::expected<std::span<const WireFundingRow>, WireError> parse_funding(std::string_view body,
-                                                                        FundingBuffer& storage) {
+std::expected<std::span<const WireFundingRow>, WireError> parse_funding(std::string_view body, FundingBuffer& storage) {
     return read_data<WireFundingRow>(
-        body,
-        storage.rows,
-        [](wire::ondemand::object& obj, WireFundingRow& out) -> std::expected<void, WireError> {
+        body, storage.rows, [](wire::ondemand::object& obj, WireFundingRow& out) -> std::expected<void, WireError> {
             const auto inst_id = wire::req_str(obj, "instId");
             if (!inst_id.has_value()) {
                 return std::unexpected(inst_id.error());
@@ -93,12 +83,9 @@ std::expected<std::span<const WireFundingRow>, WireError> parse_funding(std::str
         });
 }
 
-std::expected<std::span<const WireMark>, WireError> parse_mark_table(std::string_view body,
-                                                                     MarkBuffer& storage) {
+std::expected<std::span<const WireMark>, WireError> parse_mark_table(std::string_view body, MarkBuffer& storage) {
     return read_data<WireMark>(
-        body,
-        storage.rows,
-        [](wire::ondemand::object& obj, WireMark& out) -> std::expected<void, WireError> {
+        body, storage.rows, [](wire::ondemand::object& obj, WireMark& out) -> std::expected<void, WireError> {
             const auto inst_id = wire::req_str(obj, "instId");
             const auto mark = wire::opt_str(obj, "markPrice");
             const auto ts = wire::opt_ms(obj, "ts");

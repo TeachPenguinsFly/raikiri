@@ -74,8 +74,8 @@ struct ExecutionBuffer {
     WireExecution executions[k_max_updates];
 };
 
-[[nodiscard]] std::expected<std::span<const WireExecution>, WireError>
-parse_executions(std::string_view frame, ExecutionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireExecution>, WireError> parse_executions(std::string_view frame,
+                                                                                        ExecutionBuffer& storage);
 
 // result of /v5/order/create and /v5/order/cancel
 struct WireOrderAck {
@@ -88,7 +88,7 @@ struct WireOrderAck {
 // one entry of /v5/order/realtime
 using WireOpenOrder = WireOrderUpdate;
 
-[[nodiscard]] std::expected<std::span<const WireOpenOrder>, WireError>
-parse_open_orders(std::string_view result, OrderUpdateBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOpenOrder>, WireError> parse_open_orders(std::string_view result,
+                                                                                         OrderUpdateBuffer& storage);
 
 } // namespace raikiri::venues::bybit

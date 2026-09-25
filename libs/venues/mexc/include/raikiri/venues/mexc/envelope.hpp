@@ -17,10 +17,10 @@
 namespace raikiri::venues::mexc {
 
 enum class EventKind : std::uint8_t {
-    Ticker, // push.ticker: bid1/ask1, fair price and funding rate
+    Ticker,       // push.ticker: bid1/ask1, fair price and funding rate
     Trade,        // push.deal
-    Depth, // push.depth, incremental
-    DepthFull, // push.depth.full, limit-n snapshot
+    Depth,        // push.depth, incremental
+    DepthFull,    // push.depth.full, limit-n snapshot
     SubscribeAck, // rs.sub.*
     Pong,         // answer to {"method":"ping"}
     Error,        // rs.error
@@ -78,18 +78,15 @@ struct SpotError {
 // numbers keep their token, strings lose quotes, null reads empty; mexc mixes the encodings
 [[nodiscard]] std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value);
 
-[[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
-                                                                    std::string_view key);
-[[nodiscard]] std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj,
-                                                                    std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj, std::string_view key);
 
 // signed with a caller-chosen absent value; wire::opt_i64 pins absent to 0, which is a real scale
 [[nodiscard]] std::expected<std::int64_t, WireError>
 opt_int(wire::ondemand::object& obj, std::string_view key, std::int64_t fallback);
 
 // accepts a quoted or bare number; mexc quotes `cts` and leaves `t` bare
-[[nodiscard]] std::expected<std::uint64_t, WireError> scalar_ms(wire::ondemand::object& obj,
-                                                                std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> scalar_ms(wire::ondemand::object& obj, std::string_view key);
 
 // on-demand only walks forward, so both rewind before looking
 [[nodiscard]] inline std::string_view field(wire::ondemand::object& obj, std::string_view key) {
@@ -103,8 +100,7 @@ opt_int(wire::ondemand::object& obj, std::string_view key, std::int64_t fallback
 }
 
 // the symbol precedes `data` in the envelope, so read it first
-[[nodiscard]] inline std::expected<std::string_view, WireError>
-envelope_symbol(wire::ondemand::object& root) {
+[[nodiscard]] inline std::expected<std::string_view, WireError> envelope_symbol(wire::ondemand::object& root) {
     return opt_scalar(root, "symbol");
 }
 

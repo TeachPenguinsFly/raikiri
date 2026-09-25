@@ -25,7 +25,8 @@ TEST(Platform, PreallocateSetsFileSize) {
     const auto result = platform::preallocate(fd, k_size);
     ASSERT_TRUE(result.has_value()) << result.error().message();
 
-    struct stat st{};
+    struct stat st {};
+
     ASSERT_EQ(::fstat(fd, &st), 0);
     EXPECT_EQ(static_cast<std::uint64_t>(st.st_size), k_size);
 

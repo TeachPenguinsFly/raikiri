@@ -24,11 +24,11 @@
 
 namespace raikiri::venues::bybit {
 
-using internal::VenueState;
 using internal::await_response;
 using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
+using internal::VenueState;
 
 // bybit checks recvWindow against its own clock; the offset is measured at startup, less half the round trip
 void internal::sync_clock(VenueState& state, net::RestClient& rest) {
@@ -48,14 +48,12 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest) {
         return;
     }
     const auto server_ns = static_cast<std::int64_t>(envelope->time_ms) * 1'000'000;
-    const auto midpoint_ns =
-        static_cast<std::int64_t>(before.ns) +
-        (static_cast<std::int64_t>(after.ns) - static_cast<std::int64_t>(before.ns)) / 2;
+    const auto midpoint_ns = static_cast<std::int64_t>(before.ns) +
+                             (static_cast<std::int64_t>(after.ns) - static_cast<std::int64_t>(before.ns)) / 2;
     state.clock_offset_ns = server_ns - midpoint_ns;
 }
 
-exec::VenueAdapter
-make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
@@ -70,9 +68,8 @@ make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock
                       : config.book_depth == 200 ? 100
                                                  : 200);
         } else {
-            RLOG_WARN("bybit: book depth {} is not a tier bybit publishes — staying on {}",
-                      config.book_depth,
-                      k_book_depth);
+            RLOG_WARN(
+                "bybit: book depth {} is not a tier bybit publishes — staying on {}", config.book_depth, k_book_depth);
         }
     }
 

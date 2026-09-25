@@ -49,13 +49,10 @@ public:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -95,8 +92,7 @@ public:
                 continue;
             }
             std::vector<OrderCmd> members{remaining.begin(),
-                                          remaining.begin() +
-                                              static_cast<std::ptrdiff_t>(batch->consumed)};
+                                          remaining.begin() + static_cast<std::ptrdiff_t>(batch->consumed)};
             if (!api_.send(batch->request, [this, members](net::RestResponse&& response) {
                     on_batch_response(std::move(response), members);
                 })) {
@@ -108,14 +104,13 @@ public:
             } else {
                 // sent and unanswered: one lost read leaves the whole batch unknown
                 for (const auto& member : members) {
-                    (void)unanswered_.add(
-                        {.client_order_id = member.client_order_id,
-                         .exchange_client_order_id = member.exchange_client_order_id,
-                         .instrument = member.instrument,
-                         .side = member.side,
-                         .qty = member.qty,
-                         .kind = member.kind,
-                         .sent = state_->clock->mono()});
+                    (void)unanswered_.add({.client_order_id = member.client_order_id,
+                                           .exchange_client_order_id = member.exchange_client_order_id,
+                                           .instrument = member.instrument,
+                                           .side = member.side,
+                                           .qty = member.qty,
+                                           .kind = member.kind,
+                                           .sent = state_->clock->mono()});
                 }
             }
             sent += batch->consumed;
@@ -127,23 +122,22 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
@@ -152,10 +146,9 @@ private:
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
-        const auto request =
-            kind == Kind::Create
-                ? api_.builder().create_order(cmd, state_->instruments, state_->product(), now)
-                : api_.builder().cancel_order(cmd, state_->instruments, state_->product(), now);
+        const auto request = kind == Kind::Create
+                                 ? api_.builder().create_order(cmd, state_->instruments, state_->product(), now)
+                                 : api_.builder().cancel_order(cmd, state_->instruments, state_->product(), now);
         if (!request.has_value()) {
             emit(cmd,
                  refusal_of(kind),
@@ -166,9 +159,7 @@ private:
         if (!api_.send(*request, [this, snapshot, kind](net::RestResponse&& response) {
                 on_response(std::move(response), snapshot, kind);
             })) {
-            emit(cmd,
-                 refusal_of(kind),
-                 exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit(cmd, refusal_of(kind), exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded here because the callback may never run
@@ -193,20 +184,17 @@ private:
         }
         if (response.transport_failed()) {
             // the request may have reached the matcher, so this is not a rejection
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
         if (!envelope.has_value()) {
-            emit(cmd,
-                 refusal_of(kind),
-                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
+            emit(cmd, refusal_of(kind), exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
             return;
         }
         if (envelope->code == k_ok) {
@@ -218,8 +206,7 @@ private:
         }
         emit(cmd,
              refusal_of(kind),
-             exec::VenueError::make(
-                 classify(envelope->code), code_number(envelope->code), envelope->msg));
+             exec::VenueError::make(classify(envelope->code), code_number(envelope->code), envelope->msg));
     }
 
     void on_batch_response(net::RestResponse&& response, const std::vector<OrderCmd>& members) {
@@ -239,8 +226,7 @@ private:
             const auto error = exec::VenueError::make(
                 exec::ErrorClass::Connectivity,
                 0,
-                response.error.empty() ? std::string_view{"no response from venue"}
-                                       : std::string_view{response.error});
+                response.error.empty() ? std::string_view{"no response from venue"} : std::string_view{response.error});
             for (const auto& member : members) {
                 state_->sink->on_order_error(member.client_order_id, error);
             }
@@ -248,14 +234,13 @@ private:
         }
         const auto envelope = parse_rest_envelope(response.body);
         if (!envelope.has_value()) {
-            reject_all(
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
+            reject_all(exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
             return;
         }
         if (envelope->code != k_ok) {
             if (!is_benign_cancel_failure(envelope->code)) {
-                reject_all(exec::VenueError::make(
-                    classify(envelope->code), code_number(envelope->code), envelope->msg));
+                reject_all(
+                    exec::VenueError::make(classify(envelope->code), code_number(envelope->code), envelope->msg));
             }
             return;
         }
@@ -272,8 +257,7 @@ private:
                 if (member.exchange_client_order_id.view() == failure.client_oid) {
                     emit(member,
                          OrderEventType::CancelRejected,
-                         exec::VenueError::make(
-                             classify(failure.code), code_number(failure.code), failure.msg));
+                         exec::VenueError::make(classify(failure.code), code_number(failure.code), failure.msg));
                 }
             }
         }

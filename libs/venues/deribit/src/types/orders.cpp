@@ -12,14 +12,12 @@ using wire::guarded;
 using wire::session;
 
 // price is market_price on an open trigger market order and reads as empty
-std::expected<std::string_view, WireError> lenient_num(wire::ondemand::object& obj,
-                                                       std::string_view key) {
+std::expected<std::string_view, WireError> lenient_num(wire::ondemand::object& obj, std::string_view key) {
     const auto token = opt_num(obj, key);
     if (token.has_value()) {
         return *token;
     }
-    return token.error() == WireError::WrongType ? std::expected<std::string_view, WireError>{}
-                                                 : token;
+    return token.error() == WireError::WrongType ? std::expected<std::string_view, WireError>{} : token;
 }
 
 std::expected<WireOrder, WireError> read_order(wire::ondemand::object& obj) {
@@ -95,9 +93,8 @@ std::expected<WireUserTrade, WireError> read_user_trade(wire::ondemand::object& 
     if (out.trade_id.empty() || out.instrument.empty()) {
         return std::unexpected(WireError::MissingField);
     }
-    for (const auto& [key, field] : {std::pair{"price", &out.price},
-                                     std::pair{"amount", &out.amount},
-                                     std::pair{"fee", &out.fee}}) {
+    for (const auto& [key, field] :
+         {std::pair{"price", &out.price}, std::pair{"amount", &out.amount}, std::pair{"fee", &out.fee}}) {
         const auto value = opt_num(obj, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
@@ -132,8 +129,7 @@ std::expected<WireUserTrade, WireError> read_user_trade(wire::ondemand::object& 
 
 } // namespace
 
-std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body,
-                                                       UserTradeBuffer& storage) {
+std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body, UserTradeBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderAck, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -152,29 +148,22 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body,
             return std::unexpected(order.error());
         }
         const auto count = read_rows<WireUserTrade>(
-            *result, "trades", storage.trades, [](wire::ondemand::object& obj) {
-                return read_user_trade(obj);
-            });
+            *result, "trades", storage.trades, [](wire::ondemand::object& obj) { return read_user_trade(obj); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
-        return WireOrderAck{.order = *order,
-                            .trades =
-                                std::span<const WireUserTrade>{storage.trades.data(), *count}};
+        return WireOrderAck{.order = *order, .trades = std::span<const WireUserTrade>{storage.trades.data(), *count}};
     });
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                  OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
         const auto count = read_rows<WireOrder>(
-            *root, "result", storage.orders, [](wire::ondemand::object& obj) {
-                return read_order(obj);
-            });
+            *root, "result", storage.orders, [](wire::ondemand::object& obj) { return read_order(obj); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
@@ -196,9 +185,7 @@ parse_user_changes(std::string_view frame, OrderBuffer& orders, UserTradeBuffer&
         std::size_t order_count = 0;
         if (wire::has_field(*data, "orders")) {
             const auto count = read_rows<WireOrder>(
-                *data, "orders", orders.orders, [](wire::ondemand::object& obj) {
-                    return read_order(obj);
-                });
+                *data, "orders", orders.orders, [](wire::ondemand::object& obj) { return read_order(obj); });
             if (!count.has_value()) {
                 return std::unexpected(count.error());
             }
@@ -207,22 +194,19 @@ parse_user_changes(std::string_view frame, OrderBuffer& orders, UserTradeBuffer&
         std::size_t trade_count = 0;
         if (wire::has_field(*data, "trades")) {
             const auto count = read_rows<WireUserTrade>(
-                *data, "trades", trades.trades, [](wire::ondemand::object& obj) {
-                    return read_user_trade(obj);
-                });
+                *data, "trades", trades.trades, [](wire::ondemand::object& obj) { return read_user_trade(obj); });
             if (!count.has_value()) {
                 return std::unexpected(count.error());
             }
             trade_count = *count;
         }
         return WireChanges{.orders = std::span<const WireOrder>{orders.orders.data(), order_count},
-                           .trades =
-                               std::span<const WireUserTrade>{trades.trades.data(), trade_count}};
+                           .trades = std::span<const WireUserTrade>{trades.trades.data(), trade_count}};
     });
 }
 
-std::expected<std::span<const WireUserTrade>, WireError>
-parse_user_trades(std::string_view body, UserTradeBuffer& storage) {
+std::expected<std::span<const WireUserTrade>, WireError> parse_user_trades(std::string_view body,
+                                                                           UserTradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireUserTrade>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -233,9 +217,7 @@ parse_user_trades(std::string_view body, UserTradeBuffer& storage) {
             return std::unexpected(result.error());
         }
         const auto count = read_rows<WireUserTrade>(
-            *result, "trades", storage.trades, [](wire::ondemand::object& obj) {
-                return read_user_trade(obj);
-            });
+            *result, "trades", storage.trades, [](wire::ondemand::object& obj) { return read_user_trade(obj); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }

@@ -29,18 +29,15 @@ std::expected<WirePosition, WireError> read_position(wire::ondemand::value value
 
 std::expected<WirePosition, WireError> parse_position(std::string_view frame) {
     return guarded([&]() -> std::expected<WirePosition, WireError> {
-        return with_row(frame,
-                        [](wire::ondemand::value payload) { return read_position(payload); });
+        return with_row(frame, [](wire::ondemand::value payload) { return read_position(payload); });
     });
 }
 
 std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
                                                                         PositionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePosition>, WireError> {
-        const auto count =
-            rows_of<WirePosition>(body, storage.positions, [](wire::ondemand::value value) {
-                return read_position(value);
-            });
+        const auto count = rows_of<WirePosition>(
+            body, storage.positions, [](wire::ondemand::value value) { return read_position(value); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }

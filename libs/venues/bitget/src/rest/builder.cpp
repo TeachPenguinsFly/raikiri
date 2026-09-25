@@ -44,16 +44,13 @@ public:
 
     void put(std::uint32_t value) noexcept {
         std::array<char, 16> num{};
-        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value);
-            ec == std::errc{}) {
+        if (const auto [stop, ec] = std::to_chars(num.data(), num.data() + num.size(), value); ec == std::errc{}) {
             put(std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
         }
     }
 
     [[nodiscard]] net::RestRequest get() const noexcept {
-        return {.method = net::HttpMethod::Get,
-                .target = std::string_view{into_.data(), len_},
-                .body = {}};
+        return {.method = net::HttpMethod::Get, .target = std::string_view{into_.data(), len_}, .body = {}};
     }
 
 private:
@@ -185,8 +182,7 @@ net::RestRequest RequestBuilder::spot_symbols() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
-net::RestRequest RequestBuilder::ticker(std::string_view symbol,
-                                        std::string_view product) noexcept {
+net::RestRequest RequestBuilder::ticker(std::string_view symbol, std::string_view product) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_mix_ticker);
     writer.put("?symbol=");
@@ -196,8 +192,7 @@ net::RestRequest RequestBuilder::ticker(std::string_view symbol,
     return writer.get();
 }
 
-net::RestRequest RequestBuilder::current_fund_rate(std::string_view symbol,
-                                                   std::string_view product) noexcept {
+net::RestRequest RequestBuilder::current_fund_rate(std::string_view symbol, std::string_view product) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_mix_fund_rate);
     writer.put("?symbol=");
@@ -207,9 +202,8 @@ net::RestRequest RequestBuilder::current_fund_rate(std::string_view symbol,
     return writer.get();
 }
 
-net::RestRequest RequestBuilder::orderbook(std::string_view symbol,
-                                           std::string_view product,
-                                           std::uint32_t depth) noexcept {
+net::RestRequest
+RequestBuilder::orderbook(std::string_view symbol, std::string_view product, std::uint32_t depth) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_mix_orderbook);
     writer.put("?symbol=");
@@ -221,8 +215,7 @@ net::RestRequest RequestBuilder::orderbook(std::string_view symbol,
     return writer.get();
 }
 
-void RequestBuilder::set_credentials(const net::Signer& signer,
-                                     std::string_view passphrase) noexcept {
+void RequestBuilder::set_credentials(const net::Signer& signer, std::string_view passphrase) noexcept {
     signer_ = &signer;
     passphrase_ = passphrase;
 }
@@ -231,11 +224,8 @@ std::string_view RequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod method,
-                                                                 std::string_view path,
-                                                                 std::string_view query,
-                                                                 std::string_view body,
-                                                                 UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::sign(
+    net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now) {
     // without the passphrase bitget answers 40011, not the missing-key code
     if (signer_ == nullptr || !signer_->has_credentials() || passphrase_.empty()) {
         return std::unexpected{BuildError::NotSigned};
@@ -294,11 +284,10 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
     return sign(net::HttpMethod::Get, path, query, {}, now);
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::create_order(const OrderCmd& cmd,
-                             const exec::InstrumentTable& table,
-                             std::string_view product,
-                             UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(const OrderCmd& cmd,
+                                                                         const exec::InstrumentTable& table,
+                                                                         std::string_view product,
+                                                                         UnixNanos now) {
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -330,9 +319,7 @@ RequestBuilder::create_order(const OrderCmd& cmd,
         if (cmd.order_type == OrderType::Limit) {
             json.decimal("price", base.ticks_to_price(cmd.price));
         }
-        json.decimal("size", base.lots_to_qty(cmd.qty))
-            .str("clientOid", cmd.exchange_client_order_id.view())
-            .obj_end();
+        json.decimal("size", base.lots_to_qty(cmd.qty)).str("clientOid", cmd.exchange_client_order_id.view()).obj_end();
         break;
     }
     case MarketType::Perp: {
@@ -365,17 +352,14 @@ RequestBuilder::create_order(const OrderCmd& cmd,
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post(cmd.instrument.market() == MarketType::Spot ? ep::k_spot_place_order
-                                                                   : ep::k_mix_place_order,
-                       json.view(),
-                       now);
+    return signed_post(
+        cmd.instrument.market() == MarketType::Spot ? ep::k_spot_place_order : ep::k_mix_place_order, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::cancel_order(const OrderCmd& cmd,
-                             const exec::InstrumentTable& table,
-                             std::string_view product,
-                             UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(const OrderCmd& cmd,
+                                                                         const exec::InstrumentTable& table,
+                                                                         std::string_view product,
+                                                                         UnixNanos now) {
     const auto symbol = table.exchange_symbol(cmd.instrument);
     if (symbol.empty()) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -410,11 +394,10 @@ RequestBuilder::cancel_order(const OrderCmd& cmd,
     return signed_post(path, json.view(), now);
 }
 
-std::expected<RequestBuilder::Batch, BuildError>
-RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds,
-                             const exec::InstrumentTable& table,
-                             std::string_view product,
-                             UnixNanos now) {
+std::expected<RequestBuilder::Batch, BuildError> RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds,
+                                                                              const exec::InstrumentTable& table,
+                                                                              std::string_view product,
+                                                                              UnixNanos now) {
     if (cmds.empty()) {
         return std::unexpected{BuildError::NothingToSend};
     }
@@ -424,8 +407,7 @@ RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds,
         return std::unexpected{BuildError::UnknownInstrument};
     }
     std::size_t batch = 0;
-    while (batch < cmds.size() && batch < k_max_cancel_batch &&
-           cmds[batch].instrument == instrument) {
+    while (batch < cmds.size() && batch < k_max_cancel_batch && cmds[batch].instrument == instrument) {
         ++batch;
     }
 
@@ -494,8 +476,10 @@ RequestBuilder::open_orders(MarketType market, std::string_view product, UnixNan
     return std::unexpected{BuildError::UnsupportedMarket};
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::order_by_client_id(
-    const ExchangeClientOrderId& id, MarketType market, std::string_view product, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::order_by_client_id(const ExchangeClientOrderId& id,
+                                                                               MarketType market,
+                                                                               std::string_view product,
+                                                                               UnixNanos now) {
     if (id.empty()) {
         return std::unexpected{BuildError::BadValue};
     }
@@ -552,16 +536,13 @@ RequestBuilder::fills(MarketType market, std::string_view product, UnixNanos sin
     return std::unexpected{BuildError::UnsupportedMarket};
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::settle_bills(MarketType market,
-                                                                         std::string_view product,
-                                                                         UnixNanos since,
-                                                                         UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::settle_bills(MarketType market, std::string_view product, UnixNanos since, UnixNanos now) {
     switch (market) {
     case MarketType::Perp: {
         // keys ascend; businessType filters to contract_settle_fee at the venue
         Appender query{body_};
-        query << "businessType=" << k_settle_fee_type << "&limit=" << k_page_limit
-              << "&productType=" << product;
+        query << "businessType=" << k_settle_fee_type << "&limit=" << k_page_limit << "&productType=" << product;
         // bitget refuses windows over 30 days; no startTime asks for the newest page
         if (since.ns != 0) {
             query << "&startTime=" << since.ns / 1'000'000ULL;

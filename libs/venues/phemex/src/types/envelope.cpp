@@ -52,8 +52,7 @@ std::expected<EventKind, WireError> parse_event(std::string_view frame) {
             }
             if (key == "error") {
                 bool is_null = false;
-                if (const auto ec = field.value().is_null().get(is_null);
-                    ec != simdjson::SUCCESS) {
+                if (const auto ec = field.value().is_null().get(is_null); ec != simdjson::SUCCESS) {
                     return std::unexpected(wire::map_error(ec));
                 }
                 return is_null ? EventKind::Reply : EventKind::Error;

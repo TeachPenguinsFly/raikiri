@@ -61,8 +61,8 @@ std::string_view Protocol::ping_frame() noexcept {
     return "ping";
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::method_frame(std::string_view method, std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::method_frame(std::string_view method,
+                                                                    std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -99,8 +99,7 @@ Protocol::method_frame(std::string_view method, std::span<const Subscription> su
     }
     put(R"(],"id":")");
     std::array<char, 24> id{};
-    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_);
-        ec == std::errc{}) {
+    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_); ec == std::errc{}) {
         put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
     }
     put(R"("})");
@@ -111,13 +110,11 @@ Protocol::method_frame(std::string_view method, std::span<const Subscription> su
     return Frame{.text = {frame_.data(), len}, .consumed = batch};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
     return method_frame("subscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return method_frame("unsubscribe", subscriptions);
 }
 
@@ -141,8 +138,7 @@ std::string_view PrivateProtocol::ping_frame() noexcept {
     return "ping";
 }
 
-std::expected<std::string_view, WsBuildError>
-PrivateProtocol::futures_subscribe(std::string_view listen_key) {
+std::expected<std::string_view, WsBuildError> PrivateProtocol::futures_subscribe(std::string_view listen_key) {
     if (listen_key.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -170,8 +166,7 @@ PrivateProtocol::futures_subscribe(std::string_view listen_key) {
     }
     put(R"(],"id":")");
     std::array<char, 24> id{};
-    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_);
-        ec == std::errc{}) {
+    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_); ec == std::errc{}) {
         put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
     }
     put(R"("})");
@@ -182,8 +177,7 @@ PrivateProtocol::futures_subscribe(std::string_view listen_key) {
     return std::string_view{frame_.data(), len};
 }
 
-std::expected<std::string_view, WsBuildError>
-PrivateProtocol::spot_subscribe(std::string_view access_token) {
+std::expected<std::string_view, WsBuildError> PrivateProtocol::spot_subscribe(std::string_view access_token) {
     if (access_token.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -202,8 +196,7 @@ PrivateProtocol::spot_subscribe(std::string_view access_token) {
     put(access_token);
     put(R"(","id":")");
     std::array<char, 24> id{};
-    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_);
-        ec == std::errc{}) {
+    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_); ec == std::errc{}) {
         put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
     }
     put(R"("})");

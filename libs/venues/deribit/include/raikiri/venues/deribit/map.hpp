@@ -23,8 +23,7 @@ namespace raikiri::venues::deribit {
 // zero or absent timestamps fall back to ingest time
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
@@ -41,25 +40,21 @@ map_greeks(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
-                                                       MarketType market);
+[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 // amount minus filled_amount; deribit publishes no leaves field
-[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
-                                                  const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::InstrumentTable& table);
 
 // nullopt when the row says nothing new; an open order with fills is described by its fills
 [[nodiscard]] std::optional<OrderEvent>
 map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // leaves must be definite since the oms subtracts it from the order size
-[[nodiscard]] std::optional<OrderEvent> map_fill(const WireUserTrade& wire,
-                                                 const exec::InstrumentTable& table,
-                                                 QtyLots leaves,
-                                                 UnixNanos ts_init);
+[[nodiscard]] std::optional<OrderEvent>
+map_fill(const WireUserTrade& wire, const exec::InstrumentTable& table, QtyLots leaves, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                                    const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::FillReport> map_fill_report(const WireUserTrade& wire,
                                                               const exec::InstrumentTable& table);

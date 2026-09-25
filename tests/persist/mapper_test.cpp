@@ -35,9 +35,7 @@ public:
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
 
-    operator const std::string&() const noexcept {
-        return path_;
-    } // NOLINT(google-explicit-constructor)
+    operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
 
 private:
     void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }
@@ -57,8 +55,7 @@ std::string build_journal(const std::string& dir) {
         m.tif(jt::tifEnum::Gtc);
         m.flags(0);
         m.liquidity(jt::liquidityEnum::Maker);
-        m.instrument(jt::instrumentId{
-            InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7}).packed});
+        m.instrument(jt::instrumentId{InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7}).packed});
         m.clientOrderIdField(jt::clientOrderId{ClientOrderId::make(3, 42).raw});
         m.exchangeClientOrderIdField().assign_string("01ARZ3NDEKTSV4RRFFQ69G5FAV");
         m.exchangeOrderIdField().assign_string("EX-123");
@@ -72,8 +69,7 @@ std::string build_journal(const std::string& dir) {
     });
 
     (void)schema::append_msg<msgs::FundingMsg>(*writer, 200, [](auto m) {
-        m.instrument(jt::instrumentId{
-            InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7}).packed});
+        m.instrument(jt::instrumentId{InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7}).packed});
         m.rate(jt::fixedE9{100'000});
         m.predictedRate(jt::fixedE9{110'000});
         m.markPrice(jt::priceTicks{500'100});
@@ -88,22 +84,19 @@ std::string build_journal(const std::string& dir) {
     const auto settled = UnixNanos{1'788'696'006'115'000'000ULL +
                                    static_cast<std::uint64_t>(::getpid()) * 1'000'000'000ULL};
     for (const std::uint16_t strategy : {std::uint16_t{3}, std::uint16_t{10}}) {
-        (void)schema::append_msg<msgs::PnlIncrementMsg>(
-            *writer, 400 + strategy, [strategy, settled](auto m) {
-                const auto instrument =
-                    InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7});
-                std::array<char, oms::k_max_funding_identity> buf{};
-                m.kind(jt::pnlKindEnum::Funding);
-                m.settleSide(jt::settleSideEnum::Quote);
-                m.strategyId(strategy);
-                m.instrument(jt::instrumentId{instrument.packed});
-                m.symbol().assign_range(std::string_view{"BTCUSDT"});
-                m.clientOrderIdField(jt::clientOrderId{0});
-                m.execIdField().assign_range(
-                    oms::funding_identity(instrument, settled, strategy, buf));
-                m.amount(jt::fixedE9{-250'000});
-                m.tsEvent(jt::timestampNs{settled.ns});
-            });
+        (void)schema::append_msg<msgs::PnlIncrementMsg>(*writer, 400 + strategy, [strategy, settled](auto m) {
+            const auto instrument = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7});
+            std::array<char, oms::k_max_funding_identity> buf{};
+            m.kind(jt::pnlKindEnum::Funding);
+            m.settleSide(jt::settleSideEnum::Quote);
+            m.strategyId(strategy);
+            m.instrument(jt::instrumentId{instrument.packed});
+            m.symbol().assign_range(std::string_view{"BTCUSDT"});
+            m.clientOrderIdField(jt::clientOrderId{0});
+            m.execIdField().assign_range(oms::funding_identity(instrument, settled, strategy, buf));
+            m.amount(jt::fixedE9{-250'000});
+            m.tsEvent(jt::timestampNs{settled.ns});
+        });
     }
 
     (void)schema::append_msg<msgs::BboMsg>(*writer, 300, [](auto m) {
@@ -221,8 +214,7 @@ TEST(Mapper, PartialFillKeepsPartialStatusAndAckHasNoExecution) {
 
     (void)schema::append_msg<msgs::OrderEventMsg>(*writer, 1, [](auto m) {
         m.eventType(jt::orderEventTypeEnum::Accepted);
-        m.instrument(jt::instrumentId{
-            InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1}).packed});
+        m.instrument(jt::instrumentId{InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1}).packed});
         m.clientOrderIdField(jt::clientOrderId{1});
         m.qty(jt::qtyLots{10});
         m.leavesQty(jt::qtyLots{10});
@@ -231,8 +223,7 @@ TEST(Mapper, PartialFillKeepsPartialStatusAndAckHasNoExecution) {
     });
     (void)schema::append_msg<msgs::OrderEventMsg>(*writer, 2, [](auto m) {
         m.eventType(jt::orderEventTypeEnum::Filled);
-        m.instrument(jt::instrumentId{
-            InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1}).packed});
+        m.instrument(jt::instrumentId{InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1}).packed});
         m.clientOrderIdField(jt::clientOrderId{1});
         m.execIdField().assign_string("E1");
         m.qty(jt::qtyLots{4});
@@ -261,8 +252,7 @@ TEST(Mapper, TheLedgerKeyNamesTheKindTheVenueAndTheFill) {
     auto writer = journal::JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
 
-    const auto instrument =
-        InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7}).packed;
+    const auto instrument = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7}).packed;
     const auto write = [&](jt::pnlKindEnum kind, std::string_view exec_id, std::int64_t amount) {
         (void)schema::append_msg<msgs::PnlIncrementMsg>(*writer, 1, [&](auto m) {
             m.kind(kind);
@@ -348,12 +338,11 @@ TEST(PersistIntegration, AGenerationClosesThePreviousWindowOnItsId) {
     replay();
 
     pqxx::work tx{conn};
-    EXPECT_EQ(tx.query_value<std::string>(
-                  "SELECT string_agg(generation || ':' || exchange_symbol || ':' ||"
-                  " valid_from || '-' || COALESCE(valid_to::text, ''), ','"
-                  " ORDER BY generation) FROM raikiri.instruments"
-                  " WHERE instrument_id = " +
-                  key),
+    EXPECT_EQ(tx.query_value<std::string>("SELECT string_agg(generation || ':' || exchange_symbol || ':' ||"
+                                          " valid_from || '-' || COALESCE(valid_to::text, ''), ','"
+                                          " ORDER BY generation) FROM raikiri.instruments"
+                                          " WHERE instrument_id = " +
+                                          key),
               "1:OLDUSD:1000-2000,2:NEWUSD:2000-");
     tx.commit();
     scrub();
@@ -372,8 +361,7 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     migrate(sink);
 
     const auto run_once = [&] {
-        auto reader =
-            journal::JournalReader::open_after(dir, "journal", sink.load_cursor("test-journal"));
+        auto reader = journal::JournalReader::open_after(dir, "journal", sink.load_cursor("test-journal"));
         EXPECT_TRUE(reader.has_value());
         RowBatch batch;
         journal::FrameView frame{};
@@ -399,8 +387,7 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     EXPECT_EQ(sink.load_cursor("test-journal"), 5U);
     const auto increments = sink.count_rows("pnl_increments");
     const auto events = sink.count_rows("order_events");
-    EXPECT_GE(increments - increments_before, 2)
-        << "one strategy's funding never reached the ledger";
+    EXPECT_GE(increments - increments_before, 2) << "one strategy's funding never reached the ledger";
 
     rewind();
     run_once();

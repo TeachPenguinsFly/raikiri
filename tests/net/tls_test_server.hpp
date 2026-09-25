@@ -82,13 +82,8 @@ inline SelfSignedCert make_self_signed() {
 
     X509_NAME* name = X509_get_subject_name(cert.get());
     ossl::require(name != nullptr, "X509_get_subject_name");
-    ossl::require(X509_NAME_add_entry_by_txt(name,
-                                             "CN",
-                                             MBSTRING_ASC,
-                                             reinterpret_cast<const unsigned char*>("127.0.0.1"),
-                                             -1,
-                                             -1,
-                                             0) == 1,
+    ossl::require(X509_NAME_add_entry_by_txt(
+                      name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("127.0.0.1"), -1, -1, 0) == 1,
                   "X509_NAME_add_entry_by_txt");
     ossl::require(X509_set_issuer_name(cert.get(), name) == 1, "X509_set_issuer_name");
     ossl::require(X509_sign(cert.get(), key.get(), EVP_sha256()) > 0, "X509_sign");
@@ -99,8 +94,7 @@ inline SelfSignedCert make_self_signed() {
 
     ossl::BioPtr key_bio{BIO_new(BIO_s_mem())};
     ossl::require(key_bio != nullptr, "BIO_new");
-    ossl::require(PEM_write_bio_PrivateKey(
-                      key_bio.get(), key.get(), nullptr, nullptr, 0, nullptr, nullptr) == 1,
+    ossl::require(PEM_write_bio_PrivateKey(key_bio.get(), key.get(), nullptr, nullptr, 0, nullptr, nullptr) == 1,
                   "PEM_write_bio_PrivateKey");
 
     return SelfSignedCert{ossl::drain(cert_bio.get()), ossl::drain(key_bio.get())};
@@ -118,8 +112,7 @@ public:
         tls_.use_certificate_chain(boost::asio::buffer(cert.cert_pem));
         tls_.use_private_key(boost::asio::buffer(cert.key_pem), SslContext::file_format::pem);
 
-        const boost::asio::ip::tcp::endpoint endpoint{boost::asio::ip::make_address("127.0.0.1"),
-                                                      0};
+        const boost::asio::ip::tcp::endpoint endpoint{boost::asio::ip::make_address("127.0.0.1"), 0};
         acceptor_.open(endpoint.protocol());
         acceptor_.set_option(boost::asio::socket_base::reuse_address{true});
         acceptor_.bind(endpoint);
@@ -147,9 +140,7 @@ public:
 
     [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 
-    [[nodiscard]] std::size_t accepted() const noexcept {
-        return accepted_.load(std::memory_order_relaxed);
-    }
+    [[nodiscard]] std::size_t accepted() const noexcept { return accepted_.load(std::memory_order_relaxed); }
 
 private:
     void do_accept() {

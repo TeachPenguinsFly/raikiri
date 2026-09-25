@@ -53,11 +53,9 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions);
 
     // signs timestamp + "GET" + "/user/verify" with the timestamp in seconds, same string in frame and digest
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
@@ -69,8 +67,8 @@ public:
     [[nodiscard]] static std::string_view ping_frame() noexcept { return "ping"; }
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    op_frame(std::string_view op, std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op,
+                                                              std::span<const Subscription> subscriptions);
 
     std::array<char, 8192> frame_{};
     std::array<char, 64> login_msg_{};

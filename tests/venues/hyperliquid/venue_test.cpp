@@ -48,8 +48,7 @@ exec::InstrumentTable loaded_table() {
     EXPECT_TRUE(assets.has_value());
     exec::InstrumentTable table;
     for (const auto& asset : *assets) {
-        if (const auto instrument = map_instrument(asset, MarketType::Perp);
-            instrument.has_value()) {
+        if (const auto instrument = map_instrument(asset, MarketType::Perp); instrument.has_value()) {
             EXPECT_TRUE(table.add(*instrument).has_value());
         }
     }
@@ -75,8 +74,7 @@ TEST(HyperliquidVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Hyperliquid);
     EXPECT_NE(adapter->data, nullptr);
@@ -88,8 +86,7 @@ TEST(HyperliquidVenue, OrderEntryWithoutAKeyRefusesThroughTheSink) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -123,8 +120,7 @@ TEST(HyperliquidVenue, ReconciliationPullsRefuseRatherThanReportFlat) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Spot, MarketType::Perp}) {
@@ -134,8 +130,8 @@ TEST(HyperliquidVenue, ReconciliationPullsRefuseRatherThanReportFlat) {
         const auto open = adapter->execution->open_order_reports(market);
         ASSERT_FALSE(open.has_value());
         EXPECT_EQ(open.error().cls, exec::ErrorClass::AuthFailure);
-        const auto one = adapter->execution->query_order(
-            *ExchangeClientOrderId::from("00000000000000000000000001"), market);
+        const auto one = adapter->execution->query_order(*ExchangeClientOrderId::from("00000000000000000000000001"),
+                                                         market);
         ASSERT_FALSE(one.has_value());
         EXPECT_EQ(one.error().cls, exec::ErrorClass::AuthFailure);
     }
@@ -155,14 +151,12 @@ TEST(HyperliquidVenue, UnservedMarketsRefuseBeforeAnythingElseIsConsulted) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto& [market, message] :
          {std::pair{MarketType::Option, std::string_view{"hyperliquid options order entry"}},
-          std::pair{MarketType::Future,
-                    std::string_view{"hyperliquid dated futures order entry"}}}) {
+          std::pair{MarketType::Future, std::string_view{"hyperliquid dated futures order entry"}}}) {
         const auto positions = adapter->execution->position_reports(market);
         ASSERT_FALSE(positions.has_value());
         EXPECT_EQ(positions.error().message.view(), message);
@@ -596,13 +590,10 @@ TEST(HyperliquidWs, FundingAndMarkShareOneChannel) {
 }
 
 TEST(HyperliquidErrors, StatusClassificationDefaultsToTerminal) {
-    EXPECT_EQ(classify(400, "Failed to parse the request body as JSON"),
-              exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(400, "Failed to parse the request body as JSON"), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(405, ""), exec::ErrorClass::Terminal);
-    EXPECT_EQ(classify(415, "Expected request with `Content-Type: application/json`"),
-              exec::ErrorClass::Terminal);
-    EXPECT_EQ(classify(422, "Failed to deserialize the JSON body into the target type"),
-              exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(415, "Expected request with `Content-Type: application/json`"), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(422, "Failed to deserialize the JSON body into the target type"), exec::ErrorClass::Terminal);
     // unrecognised statuses are terminal
     EXPECT_EQ(classify(451, ""), exec::ErrorClass::Terminal);
 
@@ -694,19 +685,14 @@ Hash keccak_of(std::string_view text) {
 }
 
 // the sdk's test key, which produced every vector below
-constexpr std::string_view k_test_key =
-    "0x0123456789012345678901234567890123456789012345678901234567890123";
+constexpr std::string_view k_test_key = "0x0123456789012345678901234567890123456789012345678901234567890123";
 
 TEST(HyperliquidSign, KeccakIsKeccakAndNotSha3) {
     // canonical ethereum keccak-256 vectors; sha3-256 would fail them
-    EXPECT_EQ(hex_of(keccak_of("")),
-              "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
-    EXPECT_EQ(hex_of(keccak_of("abc")),
-              "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45");
-    EXPECT_EQ(hex_of(keccak_of("testing")),
-              "5f16f4c7f149ac4f9510d9cf8cf384038ad348b3bcdc01915f95de12df9d1b02");
-    EXPECT_EQ(hex_of(keccak_of("hello")),
-              "1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8");
+    EXPECT_EQ(hex_of(keccak_of("")), "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
+    EXPECT_EQ(hex_of(keccak_of("abc")), "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45");
+    EXPECT_EQ(hex_of(keccak_of("testing")), "5f16f4c7f149ac4f9510d9cf8cf384038ad348b3bcdc01915f95de12df9d1b02");
+    EXPECT_EQ(hex_of(keccak_of("hello")), "1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8");
 
     // 136 bytes is the one length that absorbs a whole padding block
     const std::string block(136, 'a');
@@ -717,9 +703,8 @@ TEST(HyperliquidSign, KeccakIsKeccakAndNotSha3) {
 TEST(HyperliquidSign, ActionHashMatchesThePublishedConnectionId) {
     // from test_phantom_agent_creation_matches_production:
     // eth ioc buy, asset 4, nonce 1677777606040, no vault
-    const auto action = unhex(
-        "83a474797065a56f72646572a66f72646572739186a16104a162c3a170a6313637302e31a173a6302e3031"
-        "3437a172c2a17481a56c696d697481a3746966a3496f63a867726f7570696e67a26e61");
+    const auto action = unhex("83a474797065a56f72646572a66f72646572739186a16104a162c3a170a6313637302e31a173a6302e3031"
+                              "3437a172c2a17481a56c696d697481a3746966a3496f63a867726f7570696e67a26e61");
     const auto hash = action_hash(action, 1677777606040ULL, {}, 0);
     EXPECT_EQ(hex_of(hash), "0fcbeda5ae3c4950a548021552a4fea2226858c4453571bf3f24ba017eac2908");
 }
@@ -753,17 +738,17 @@ TEST(HyperliquidSign, PublishedSignatureVectorsReproduceExactly) {
     };
 
     constexpr std::string_view k_dummy = "82a474797065a564756d6d79a36e756dcf000000174876e800";
-    constexpr std::string_view k_order =
-        "83a474797065a56f72646572a66f72646572739186a16101a162c3a170a3313030a173a3313030a172c2a174"
-        "81a56c696d697481a3746966a3477463a867726f7570696e67a26e61";
-    constexpr std::string_view k_order_cloid =
-        "83a474797065a56f72646572a66f72646572739187a16101a162c3a170a3313030a173a3313030a172c2a174"
-        "81a56c696d697481a3746966a3477463a163d92230783030303030303030303030303030303030303030303"
-        "030303030303030303031a867726f7570696e67a26e61";
-    constexpr std::string_view k_trigger =
-        "83a474797065a56f72646572a66f72646572739186a16101a162c3a170a3313030a173a3313030a172c2a174"
-        "81a77472696767657283a869734d61726b6574c3a9747269676765725078a3313033a47470736ca2736ca867"
-        "726f7570696e67a26e61";
+    constexpr std::string_view
+        k_order = "83a474797065a56f72646572a66f72646572739186a16101a162c3a170a3313030a173a3313030a172c2a174"
+                  "81a56c696d697481a3746966a3477463a867726f7570696e67a26e61";
+    constexpr std::string_view
+        k_order_cloid = "83a474797065a56f72646572a66f72646572739187a16101a162c3a170a3313030a173a3313030a172c2a174"
+                        "81a56c696d697481a3746966a3477463a163d92230783030303030303030303030303030303030303030303"
+                        "030303030303030303031a867726f7570696e67a26e61";
+    constexpr std::string_view
+        k_trigger = "83a474797065a56f72646572a66f72646572739186a16101a162c3a170a3313030a173a3313030a172c2a174"
+                    "81a77472696767657283a869734d61726b6574c3a9747269676765725078a3313033a47470736ca2736ca867"
+                    "726f7570696e67a26e61";
 
     const std::array<Vector, 8> vectors{
         Vector{k_dummy,
@@ -839,10 +824,10 @@ TEST(HyperliquidSign, PublishedSignatureVectorsReproduceExactly) {
 
 TEST(HyperliquidSign, AddressComparisonIgnoresTheChecksumCase) {
     // addresses compare case-insensitively since ethereum checksums by case
-    EXPECT_TRUE(same_address("0x5e9ee1089755c3435139848e47e6635505d5a13a",
-                             "0x5E9EE1089755C3435139848E47E6635505D5A13A"));
-    EXPECT_FALSE(same_address("0x5e9ee1089755c3435139848e47e6635505d5a13a",
-                              "0x5e9ee1089755c3435139848e47e6635505d5a13b"));
+    EXPECT_TRUE(
+        same_address("0x5e9ee1089755c3435139848e47e6635505d5a13a", "0x5E9EE1089755C3435139848E47E6635505D5A13A"));
+    EXPECT_FALSE(
+        same_address("0x5e9ee1089755c3435139848e47e6635505d5a13a", "0x5e9ee1089755c3435139848e47e6635505d5a13b"));
     EXPECT_FALSE(same_address("", ""));
     EXPECT_FALSE(same_address("0x5e9ee1", "0x5e9ee1089755c3435139848e47e6635505d5a13a"));
 
@@ -999,12 +984,11 @@ TEST(HyperliquidMap, NoTwoSpotListingsShareOneCanonicalSymbol) {
 
 TEST(HyperliquidWire, ASpotPairNamingAnUncarriedTokenIsDropped) {
     // synthetic body; a pair missing either token is dropped
-    constexpr std::string_view k_body =
-        R"({"universe":[{"tokens":[1,0],"name":"@1","index":1,"isCanonical":false},)"
-        R"({"tokens":[1,9],"name":"@2","index":2,"isCanonical":false},)"
-        R"({"tokens":[9,0],"name":"@3","index":3,"isCanonical":false}],)"
-        R"("tokens":[{"name":"USDC","szDecimals":8,"index":0},)"
-        R"({"name":"PURR","szDecimals":0,"index":1}]})";
+    constexpr std::string_view k_body = R"({"universe":[{"tokens":[1,0],"name":"@1","index":1,"isCanonical":false},)"
+                                        R"({"tokens":[1,9],"name":"@2","index":2,"isCanonical":false},)"
+                                        R"({"tokens":[9,0],"name":"@3","index":3,"isCanonical":false}],)"
+                                        R"("tokens":[{"name":"USDC","szDecimals":8,"index":0},)"
+                                        R"({"name":"PURR","szDecimals":0,"index":1}]})";
     auto storage = std::make_unique<SpotAssetBuffer>();
     const auto pairs = parse_spot_meta(k_body, *storage);
     ASSERT_TRUE(pairs.has_value());
@@ -1012,10 +996,10 @@ TEST(HyperliquidWire, ASpotPairNamingAnUncarriedTokenIsDropped) {
     EXPECT_EQ((*pairs)[0].name, "@1");
 
     // a row that is not [base, quote] fails the read
-    constexpr std::string_view k_three =
-        R"({"universe":[{"tokens":[1,0,1],"name":"@1","index":1,"isCanonical":false}],)"
-        R"("tokens":[{"name":"USDC","szDecimals":8,"index":0},)"
-        R"({"name":"PURR","szDecimals":0,"index":1}]})";
+    constexpr std::string_view
+        k_three = R"({"universe":[{"tokens":[1,0,1],"name":"@1","index":1,"isCanonical":false}],)"
+                  R"("tokens":[{"name":"USDC","szDecimals":8,"index":0},)"
+                  R"({"name":"PURR","szDecimals":0,"index":1}]})";
     EXPECT_FALSE(parse_spot_meta(k_three, *storage).has_value());
 }
 
@@ -1070,14 +1054,12 @@ TEST(HyperliquidMap, PositionSizesSurviveTheVenuesFloatSerialiser) {
     ASSERT_NE(eth, nullptr);
     const auto ts = UnixNanos{7};
 
-    const auto noisy = map_position(
-        {.coin = "ETH", .size = "-24856.6978000000004", .entry_px = "1981.64"}, table, ts);
+    const auto noisy = map_position({.coin = "ETH", .size = "-24856.6978000000004", .entry_px = "1981.64"}, table, ts);
     ASSERT_TRUE(noisy.has_value());
     EXPECT_EQ(noisy->net_qty.raw, -248'566'978);
 
     // half a lot is refused; eth steps by 1e-4
-    EXPECT_FALSE(map_position({.coin = "ETH", .size = "1.00005", .entry_px = "1981.64"}, table, ts)
-                     .has_value());
+    EXPECT_FALSE(map_position({.coin = "ETH", .size = "1.00005", .entry_px = "1981.64"}, table, ts).has_value());
 }
 
 TEST(HyperliquidWire, OpenOrdersCarryBothMarketsInOneAnswer) {
@@ -1147,8 +1129,7 @@ TEST(HyperliquidMap, OpenOrdersResolveIntoTheirOwnMarket) {
 TEST(HyperliquidMap, PartialFillShowsAsLeavesBelowTheOriginal) {
     const auto table = loaded_table();
     const auto report = map_open_order(
-        {.coin = "ETH", .price = "2461.5", .qty = "4.0", .orig_qty = "8.99", .oid = 1, .buy = true},
-        table);
+        {.coin = "ETH", .price = "2461.5", .qty = "4.0", .orig_qty = "8.99", .oid = 1, .buy = true}, table);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
     EXPECT_EQ(report->qty.raw, 89'900);
@@ -1205,15 +1186,11 @@ TEST(HyperliquidMap, StatusVocabularyIsMatchedByItsTail) {
     // status words are base states with reasons prefixed; new ones must still classify
     const auto table = loaded_table();
     const auto classify = [&](std::string_view status) {
-        return map_order_status({.order = {.coin = "ETH",
-                                           .price = "2461.5",
-                                           .qty = "8.99",
-                                           .orig_qty = "8.99",
-                                           .oid = 1,
-                                           .buy = true},
-                                 .status = status,
-                                 .found = true},
-                                table);
+        return map_order_status(
+            {.order = {.coin = "ETH", .price = "2461.5", .qty = "8.99", .orig_qty = "8.99", .oid = 1, .buy = true},
+             .status = status,
+             .found = true},
+            table);
     };
     EXPECT_EQ(classify("open")->status, OrderStatus::Accepted);
     EXPECT_EQ(classify("filled")->status, OrderStatus::Filled);
@@ -1365,8 +1342,7 @@ TEST(HyperliquidMap, AUlidAndItsCloidAreTheSameNumber) {
     EXPECT_FALSE(cloid_to_ulid("0x00", ignored));
     EXPECT_FALSE(cloid_to_ulid(std::string(34, 'z'), ignored));
     // a ulid whose leading digit sets bits above 128 is refused
-    EXPECT_TRUE(
-        cloid_text(*ExchangeClientOrderId::from("8000000000000000000000000A"), buf).empty());
+    EXPECT_TRUE(cloid_text(*ExchangeClientOrderId::from("8000000000000000000000000A"), buf).empty());
 }
 
 TEST(HyperliquidExchange, ARealOrderReproducesThePublishedSignature) {
@@ -1394,26 +1370,24 @@ TEST(HyperliquidExchange, ARealOrderReproducesThePublishedSignature) {
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->method, net::HttpMethod::Post);
     EXPECT_EQ(request->target, "/exchange");
-    EXPECT_EQ(
-        request->body,
-        R"({"action":{"type":"order","orders":[{"a":1,"b":true,"p":"100","s":"100","r":false,)"
-        R"("t":{"limit":{"tif":"Gtc"}}}],"grouping":"na"},"nonce":0,"signature":)"
-        R"({"r":"0xd65369825a9df5d80099e513cce430311d7d26ddf477f5b3a33d2806b100d78e",)"
-        R"("s":"0x2b54116ff64054968aa237c20ca9ff68000f977c93289157748a3162b6ea940e",)"
-        R"("v":28},"vaultAddress":null})");
+    EXPECT_EQ(request->body,
+              R"({"action":{"type":"order","orders":[{"a":1,"b":true,"p":"100","s":"100","r":false,)"
+              R"("t":{"limit":{"tif":"Gtc"}}}],"grouping":"na"},"nonce":0,"signature":)"
+              R"({"r":"0xd65369825a9df5d80099e513cce430311d7d26ddf477f5b3a33d2806b100d78e",)"
+              R"("s":"0x2b54116ff64054968aa237c20ca9ff68000f977c93289157748a3162b6ea940e",)"
+              R"("v":28},"vaultAddress":null})");
 
     // with a 34-byte cloid, which msgpack encodes as str8
     cmd.exchange_client_order_id = *ExchangeClientOrderId::from("00000000000000000000000001");
     const auto with_cloid = builder.create_order(cmd, table, 1, 0);
     ASSERT_TRUE(with_cloid.has_value());
-    EXPECT_EQ(
-        with_cloid->body,
-        R"({"action":{"type":"order","orders":[{"a":1,"b":true,"p":"100","s":"100","r":false,)"
-        R"("t":{"limit":{"tif":"Gtc"}},"c":"0x00000000000000000000000000000001"}],)"
-        R"("grouping":"na"},"nonce":0,"signature":)"
-        R"({"r":"0x41ae18e8239a56cacbc5dad94d45d0b747e5da11ad564077fcac71277a946e3",)"
-        R"("s":"0x3c61f667e747404fe7eea8f90ab0e76cc12ce60270438b2058324681a00116da",)"
-        R"("v":27},"vaultAddress":null})");
+    EXPECT_EQ(with_cloid->body,
+              R"({"action":{"type":"order","orders":[{"a":1,"b":true,"p":"100","s":"100","r":false,)"
+              R"("t":{"limit":{"tif":"Gtc"}},"c":"0x00000000000000000000000000000001"}],)"
+              R"("grouping":"na"},"nonce":0,"signature":)"
+              R"({"r":"0x41ae18e8239a56cacbc5dad94d45d0b747e5da11ad564077fcac71277a946e3",)"
+              R"("s":"0x3c61f667e747404fe7eea8f90ab0e76cc12ce60270438b2058324681a00116da",)"
+              R"("v":27},"vaultAddress":null})");
 
     // testnet signs a different `source`
     ExchangeBuilder testnet{wallet, false};
@@ -1591,9 +1565,8 @@ TEST(HyperliquidExchange, UnservedMarketsRefuseBeforeTheInstrumentTable) {
     cmd.side = Side::Buy;
     cmd.price = PriceTicks::from_raw(1);
     cmd.qty = QtyLots::from_raw(1);
-    for (const auto& [market, expected] :
-         {std::pair{MarketType::Option, BuildError::OptionsUnsupported},
-          std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported}}) {
+    for (const auto& [market, expected] : {std::pair{MarketType::Option, BuildError::OptionsUnsupported},
+                                           std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported}}) {
         cmd.instrument = InstrumentId::make(VenueId::Hyperliquid, market, SymbolId{0});
         EXPECT_EQ(builder.create_order(cmd, table, 0, 1).error(), expected);
         EXPECT_EQ(builder.cancel_order(cmd, 0, 1).error(), expected);
@@ -1679,8 +1652,7 @@ TEST(HyperliquidWire, ARefusedOrderIsStatusOkWithAnErrorInside) {
 
 TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
     // matched by prefix since the venue appends context
-    EXPECT_EQ(classify_reason("Insufficient margin to place order. asset=84"),
-              exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify_reason("Insufficient margin to place order. asset=84"), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify_reason("Price must be divisible by tick size."), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify_reason("Post only order would have immediately matched, bbo was 100"),
               exec::ErrorClass::Terminal);
@@ -1688,10 +1660,8 @@ TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
 
     // both mean nothing this key signs will be accepted
     EXPECT_EQ(classify_reason("Unable to recover signer."), exec::ErrorClass::AuthFailure);
-    EXPECT_EQ(classify_reason("User or API Wallet 0xb8a6f8b2 does not exist."),
-              exec::ErrorClass::AuthFailure);
-    EXPECT_EQ(classify_reason("Must deposit before performing actions. User: 0x123"),
-              exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify_reason("User or API Wallet 0xb8a6f8b2 does not exist."), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify_reason("Must deposit before performing actions. User: 0x123"), exec::ErrorClass::AuthFailure);
 
     // the limit is priced in traded volume
     EXPECT_EQ(classify_reason("Too many cumulative requests sent (37986 > 10436) for cumulative "
@@ -1878,14 +1848,12 @@ TEST(HyperliquidHip3, EveryChannelNamesTheCoinWithItsDex) {
 }
 
 InstrumentBase classified_dex(std::string_view name, std::span<const WireCategory> categories) {
-    auto instrument =
-        map_dex_instrument({.name = name, .sz_decimals = 3, .max_leverage = 10}, "USDC");
+    auto instrument = map_dex_instrument({.name = name, .sz_decimals = 3, .max_leverage = 10}, "USDC");
     EXPECT_TRUE(instrument.has_value()) << name;
     if (!instrument.has_value()) {
         return InstrumentBase{};
     }
-    std::visit([&](auto& row) { row.base.asset_class = dex_asset_class(name, categories); },
-               *instrument);
+    std::visit([&](auto& row) { row.base.asset_class = dex_asset_class(name, categories); }, *instrument);
     classify(VenueId::Hyperliquid, *instrument);
     return base_of(*instrument);
 }
@@ -1931,8 +1899,7 @@ TEST(HyperliquidHip3, ADexRowTakesTheVenuesCategoryAndNeverDefaults) {
     EXPECT_EQ(unlisted.asset_class, AssetClass::Unknown);
     EXPECT_TRUE(unlisted.underlying.empty());
 
-    auto coin =
-        map_instrument({.name = "SPX", .sz_decimals = 1, .max_leverage = 5}, MarketType::Perp);
+    auto coin = map_instrument({.name = "SPX", .sz_decimals = 1, .max_leverage = 5}, MarketType::Perp);
     ASSERT_TRUE(coin.has_value());
     classify(VenueId::Hyperliquid, *coin);
     EXPECT_EQ(base_of(*coin).asset_class, AssetClass::Crypto);

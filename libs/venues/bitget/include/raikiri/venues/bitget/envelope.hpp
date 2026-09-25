@@ -19,7 +19,7 @@ enum class EventKind : std::uint8_t {
     Ticker, // bid/ask, mark, index and funding on one frame
     Trade,
     Books,    // books5/books15/books share one shape
-    Orders, // private: lifecycle and fills on one channel
+    Orders,   // private: lifecycle and fills on one channel
     LoginAck, // the private handshake's answer, distinct from a subscribe ack
     SubscribeAck,
     Error,
@@ -63,8 +63,8 @@ struct RestEnvelope {
 }
 
 template <typename Fn>
-[[nodiscard]] auto with_first_data(wire::ondemand::object& root, Fn&& fn)
-    -> decltype(fn(std::declval<wire::ondemand::object&>())) {
+[[nodiscard]] auto with_first_data(wire::ondemand::object& root,
+                                   Fn&& fn) -> decltype(fn(std::declval<wire::ondemand::object&>())) {
     auto array = wire::req_array(root, "data");
     if (!array.has_value()) {
         return std::unexpected(array.error());

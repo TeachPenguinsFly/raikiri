@@ -44,7 +44,6 @@ inline constexpr std::string_view k_orders_channel = "orders";
 // the only public channel with 24h turnover; it rides along with the funding subscription
 inline constexpr std::string_view k_tickers_channel = "tickers";
 
-
 class Protocol {
 public:
     struct Frame {
@@ -53,11 +52,9 @@ public:
     };
 
     // {"op":"subscribe","args":[{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"}]}
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions);
 
     // the timestamp is epoch seconds and the message is timestamp + GET + /users/self/verify;
     // okx expires it 30 s later
@@ -69,8 +66,8 @@ public:
     [[nodiscard]] std::string_view last_login_message() const noexcept;
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    op_frame(std::string_view op, std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op,
+                                                              std::span<const Subscription> subscriptions);
 
     std::array<char, 8192> frame_{};
     std::array<char, 64> login_msg_{};

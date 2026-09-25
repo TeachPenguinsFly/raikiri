@@ -21,8 +21,7 @@ namespace {
 // no private socket: an order's only answer is its rest response, and fills arrive by reconciliation
 class WeexExecution final : public exec::ExecutionClient {
 public:
-    explicit WeexExecution(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, api_{*state_} {}
+    explicit WeexExecution(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();
@@ -36,9 +35,7 @@ public:
     }
 
     // connected only with the rest pool up and a credential to sign with
-    [[nodiscard]] bool connected() const noexcept override {
-        return started_ && api_.signed_path_available();
-    }
+    [[nodiscard]] bool connected() const noexcept override { return started_ && api_.signed_path_available(); }
 
     // sweeps rest connections the venue closed
     void poll(UnixNanos now) noexcept override {
@@ -57,8 +54,7 @@ public:
                     cmd.side,
                     cmd.qty,
                     Kind::Amend,
-                    exec::VenueError::make(
-                        exec::ErrorClass::Terminal, 0, "weex has no amend; cancel and replace"));
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "weex has no amend; cancel and replace"));
     }
 
     // chunked to weex's batch limit of ten
@@ -74,28 +70,26 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
-    std::expected<std::vector<BalanceReport>, exec::VenueError>
-    balance_reports(MarketType market) override {
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
         return api_.balance_reports(market);
     }
 
@@ -107,13 +101,10 @@ private:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             in_flight_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : in_flight_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -131,16 +122,14 @@ private:
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
-        const auto request = kind == Kind::Create
-                                 ? api_.builder().create_order(cmd, state_->instruments, now)
-                                 : api_.builder().cancel_order(cmd, now);
+        const auto request = kind == Kind::Create ? api_.builder().create_order(cmd, state_->instruments, now)
+                                                  : api_.builder().cancel_order(cmd, now);
         if (!request.has_value()) {
             reject(cmd, kind, request.error());
             return;
         }
         // creates outside the api-tradable set are refused locally (-1058); cancels are never checked
-        if (kind == Kind::Create &&
-            !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
+        if (kind == Kind::Create && !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
             emit_reject(cmd.client_order_id,
                         cmd.instrument,
                         cmd.side,
@@ -152,12 +141,10 @@ private:
             return;
         }
         // a placement costs no ip weight; weex meters it per account
-        if (const auto allowed = kind == Kind::Create
-                                     ? std::expected<void, exec::VenueError>{}
-                                     : api_.spend(ep::k_order, exec::RateClass::Order);
+        if (const auto allowed = kind == Kind::Create ? std::expected<void, exec::VenueError>{}
+                                                      : api_.spend(ep::k_order, exec::RateClass::Order);
             !allowed.has_value()) {
-            emit_reject(
-                cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, kind, allowed.error());
+            emit_reject(cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, kind, allowed.error());
             return;
         }
         const auto copy = cmd;
@@ -190,16 +177,9 @@ private:
             }
             return;
         }
-        if (const auto allowed =
-                api_.spend(ep::k_batch_orders, exec::RateClass::Order);
-            !allowed.has_value()) {
+        if (const auto allowed = api_.spend(ep::k_batch_orders, exec::RateClass::Order); !allowed.has_value()) {
             for (const auto& cmd : cmds) {
-                emit_reject(cmd.client_order_id,
-                            cmd.instrument,
-                            cmd.side,
-                            cmd.qty,
-                            Kind::Cancel,
-                            allowed.error());
+                emit_reject(cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, Kind::Cancel, allowed.error());
             }
             return;
         }
@@ -209,13 +189,12 @@ private:
                 on_batch_response(std::move(response), batch);
             })) {
             for (const auto& cmd : cmds) {
-                emit_reject(
-                    cmd.client_order_id,
-                    cmd.instrument,
-                    cmd.side,
-                    cmd.qty,
-                    Kind::Cancel,
-                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "rest queue full"));
+                emit_reject(cmd.client_order_id,
+                            cmd.instrument,
+                            cmd.side,
+                            cmd.qty,
+                            Kind::Cancel,
+                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "rest queue full"));
             }
             return;
         }
@@ -231,8 +210,7 @@ private:
     }
 
     // whole-request verdict; a benign cancel is still returned since only the caller knows the verb
-    [[nodiscard]] std::optional<exec::VenueError>
-    request_failure(const net::RestResponse& response) const noexcept {
+    [[nodiscard]] std::optional<exec::VenueError> request_failure(const net::RestResponse& response) const noexcept {
         const auto error = parse_rest_error(response.body);
         if (!error.has_value()) {
             return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable answer");
@@ -242,8 +220,7 @@ private:
         }
         if (response.status < 200 || response.status >= 300) {
             // an unrouted path answers with no code
-            return exec::VenueError::make(
-                exec::ErrorClass::Terminal, response.status, "venue refused without a code");
+            return exec::VenueError::make(exec::ErrorClass::Terminal, response.status, "venue refused without a code");
         }
         return std::nullopt;
     }
@@ -254,13 +231,12 @@ private:
             (void)in_flight_.resolve(cmd.client_order_id);
         } else {
             // the request may have reached the matcher; the sweep reports it as a gap
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
 
@@ -281,15 +257,13 @@ private:
                         cmd.side,
                         cmd.qty,
                         kind,
-                        exec::VenueError::make(
-                            exec::ErrorClass::Terminal, 0, "unreadable order acknowledgement"));
+                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable order acknowledgement"));
             return;
         }
         publish(cmd, kind, *ack);
     }
 
-    void on_batch_response(net::RestResponse&& response,
-                           const std::vector<OrderCmd>& batch) noexcept {
+    void on_batch_response(net::RestResponse&& response, const std::vector<OrderCmd>& batch) noexcept {
         for (const auto& cmd : batch) {
             if (!response.transport_failed()) {
                 (void)in_flight_.resolve(cmd.client_order_id);
@@ -297,13 +271,12 @@ private:
         }
         if (response.transport_failed()) {
             for (const auto& cmd : batch) {
-                state_->sink->on_order_error(
-                    cmd.client_order_id,
-                    exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                           0,
-                                           response.error.empty()
-                                               ? std::string_view{"no response from venue"}
-                                               : std::string_view{response.error}));
+                state_->sink->on_order_error(cmd.client_order_id,
+                                             exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                    0,
+                                                                    response.error.empty()
+                                                                        ? std::string_view{"no response from venue"}
+                                                                        : std::string_view{response.error}));
             }
             return;
         }
@@ -315,8 +288,7 @@ private:
                     emit(cmd, OrderEventType::Canceled, {}, QtyLots::from_raw(0));
                     continue;
                 }
-                emit_reject(
-                    cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, Kind::Cancel, *failure);
+                emit_reject(cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, Kind::Cancel, *failure);
             }
             return;
         }
@@ -330,8 +302,7 @@ private:
                             cmd.side,
                             cmd.qty,
                             Kind::Cancel,
-                            exec::VenueError::make(
-                                exec::ErrorClass::Terminal, 0, "unreadable batch acknowledgement"));
+                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable batch acknowledgement"));
             }
             return;
         }
@@ -370,10 +341,7 @@ private:
         emit(cmd, OrderEventType::Accepted, ack.order_id, cmd.qty);
     }
 
-    void emit(const OrderCmd& cmd,
-              OrderEventType type,
-              std::string_view order_id,
-              QtyLots leaves) noexcept {
+    void emit(const OrderCmd& cmd, OrderEventType type, std::string_view order_id, QtyLots leaves) noexcept {
         OrderEvent event{};
         populate(event, cmd);
         event.type = type;
@@ -423,8 +391,7 @@ private:
 
     void reject(const OrderCmd& cmd, Kind kind, BuildError why) noexcept {
         // unsigned means an auth failure, which halts the gateway
-        const auto cls = why == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                      : exec::ErrorClass::Terminal;
+        const auto cls = why == BuildError::NotSigned ? exec::ErrorClass::AuthFailure : exec::ErrorClass::Terminal;
         emit_reject(cmd.client_order_id,
                     cmd.instrument,
                     cmd.side,

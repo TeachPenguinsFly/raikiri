@@ -31,8 +31,8 @@ struct ContractBuffer {
     std::array<WireContract, k_max_contracts> contracts{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_contracts(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
+                                                                                      ContractBuffer& storage);
 
 // spot states precision as decimal places and has no priceEndStep
 struct WireSpotSymbol {
@@ -52,7 +52,7 @@ struct SpotSymbolBuffer {
     std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                                           SpotSymbolBuffer& storage);
 
 } // namespace raikiri::venues::bitget

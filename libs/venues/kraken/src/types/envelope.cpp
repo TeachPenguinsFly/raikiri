@@ -57,8 +57,7 @@ EventKind kind_from_event(std::string_view event) noexcept {
 }
 
 // days since epoch from a gregorian date (hinnant), integer only
-[[nodiscard]] constexpr std::int64_t
-days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) noexcept {
+[[nodiscard]] constexpr std::int64_t days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) noexcept {
     y -= m <= 2 ? 1 : 0;
     const std::int64_t era = (y >= 0 ? y : y - 399) / 400;
     const auto yoe = static_cast<std::uint32_t>(y - era * 400);
@@ -68,10 +67,7 @@ days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) noexcept {
 }
 
 // false unless exactly width digits
-[[nodiscard]] bool field_at(std::string_view text,
-                            std::size_t offset,
-                            std::size_t width,
-                            std::uint32_t& out) noexcept {
+[[nodiscard]] bool field_at(std::string_view text, std::size_t offset, std::size_t width, std::uint32_t& out) noexcept {
     if (offset + width > text.size()) {
         return false;
     }
@@ -102,8 +98,7 @@ std::expected<std::string_view, WireError> num_of(wire::ondemand::value value) {
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -115,8 +110,7 @@ std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
     return num_of(value);
 }
 
-std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     if (const auto ec = wire::find(obj, key).get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -128,8 +122,7 @@ std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
     return text;
 }
 
-std::expected<std::int64_t, WireError>
-opt_i64(wire::ondemand::object& obj, std::string_view key, bool& present) {
+std::expected<std::int64_t, WireError> opt_i64(wire::ondemand::object& obj, std::string_view key, bool& present) {
     present = false;
     std::int64_t out = 0;
     const auto ec = wire::find(obj, key).get_int64().get(out);
@@ -143,8 +136,7 @@ opt_i64(wire::ondemand::object& obj, std::string_view key, bool& present) {
     return out;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
-                                               std::string_view key) {
+std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_num(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -164,8 +156,7 @@ std::expected<std::uint64_t, WireError> parse_iso8601_ms(std::string_view text) 
     std::uint32_t minute = 0;
     std::uint32_t second = 0;
     if (!field_at(text, 0, 4, year) || !field_at(text, 5, 2, month) || !field_at(text, 8, 2, day) ||
-        !field_at(text, 11, 2, hour) || !field_at(text, 14, 2, minute) ||
-        !field_at(text, 17, 2, second)) {
+        !field_at(text, 11, 2, hour) || !field_at(text, 14, 2, minute) || !field_at(text, 17, 2, second)) {
         return std::unexpected(WireError::WrongType);
     }
     if (text[4] != '-' || text[7] != '-' || text[10] != 'T' || text[13] != ':' || text[16] != ':') {

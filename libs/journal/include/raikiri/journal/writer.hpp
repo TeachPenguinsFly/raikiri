@@ -39,11 +39,10 @@ public:
          std::size_t segment_bytes = k_default_segment_bytes,
          std::size_t retain_segments = 0);
 
-    [[nodiscard]] std::expected<std::uint64_t, JournalError>
-    append(std::uint16_t schema_id,
-           std::uint16_t schema_version,
-           std::span<const std::byte> payload,
-           std::uint64_t ts_ns) noexcept;
+    [[nodiscard]] std::expected<std::uint64_t, JournalError> append(std::uint16_t schema_id,
+                                                                    std::uint16_t schema_version,
+                                                                    std::span<const std::byte> payload,
+                                                                    std::uint64_t ts_ns) noexcept;
 
     // Cold-thread group commit (fdatasync/F_FULLFSYNC of the current segment),
     // skipped when nothing was appended since the last one that succeeded.
@@ -65,13 +64,11 @@ private:
     // header
     enum class SegmentOpen : std::uint8_t { Create, Recover, Adopt };
 
-    [[nodiscard]] std::expected<void, JournalError> open_segment(std::uint64_t segment_seq,
-                                                                 SegmentOpen how) noexcept;
+    [[nodiscard]] std::expected<void, JournalError> open_segment(std::uint64_t segment_seq, SegmentOpen how) noexcept;
     void close_segment() noexcept;
     void prune_sealed() noexcept;
     // held for the writer's life, across segment rolls
-    [[nodiscard]] std::expected<void, JournalError> claim(const std::string& dir,
-                                                          const std::string& prefix) noexcept;
+    [[nodiscard]] std::expected<void, JournalError> claim(const std::string& dir, const std::string& prefix) noexcept;
 
     std::string dir_;
     std::string prefix_;

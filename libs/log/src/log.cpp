@@ -36,8 +36,7 @@ void init(std::string_view process_name) {
     backend.thread_name = "log-backend";
     // let high bytes through so utf-8 stays readable; control characters stay escaped
     backend.check_printable_char = [](char c) {
-        return static_cast<unsigned char>(c) >= 0x80 || (c >= ' ' && c <= '~') || c == '\n' ||
-               c == '\t' || c == '\r';
+        return static_cast<unsigned char>(c) >= 0x80 || (c >= ' ' && c <= '~') || c == '\n' || c == '\t' || c == '\r';
     };
     // how long an idle line may wait; warn and above wake the backend at once
     backend.sleep_duration = std::chrono::milliseconds{250};

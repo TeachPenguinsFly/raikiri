@@ -14,8 +14,7 @@ namespace raikiri::venues::edgex {
 // the mark is off the tick grid, so it is truncated rather than refused
 [[nodiscard]] PriceTicks mark_ticks(std::string_view text, FixedE9 tick_size) noexcept;
 
-[[nodiscard]] std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_init);

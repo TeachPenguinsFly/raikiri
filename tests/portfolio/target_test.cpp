@@ -5,10 +5,7 @@
 namespace raikiri::portfolio {
 namespace {
 
-InstrumentBase make(ContractKind kind,
-                    std::string_view tick,
-                    std::string_view lot,
-                    std::string_view contract_value) {
+InstrumentBase make(ContractKind kind, std::string_view tick, std::string_view lot, std::string_view contract_value) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Binance, MarketType::Perp, SymbolId{1});
     base.local_symbol = *SymbolText::from("X");
@@ -115,8 +112,7 @@ TEST(RiskSizing, DirectionOfTheStopDoesNotChangeTheSize) {
 TEST(RiskSizing, InverseIsSizedInItsOwnCurrency) {
     const auto base = bitmex_xbtusd();
     const auto at = [&](std::string_view p) { return *base.price_to_ticks(*parse_decimal_e9(p)); };
-    const auto size = size_for_risk(
-        base, *parse_decimal_e9("1"), *parse_decimal_e9("0.01"), at("50000"), at("60000"));
+    const auto size = size_for_risk(base, *parse_decimal_e9("1"), *parse_decimal_e9("0.01"), at("50000"), at("60000"));
     ASSERT_TRUE(size.has_value());
     // 1/60000 lands on 16666666666 in e9, so the size truncates to 2999
     EXPECT_EQ(size->raw, 2999);
@@ -129,10 +125,8 @@ TEST(RiskSizing, RefusesInputsThatMakeTheAnswerMeaningless) {
     const auto pct = *parse_decimal_e9("0.01");
 
     EXPECT_FALSE(size_for_risk(base, ok, pct, at("50000"), at("50000")).has_value());
-    EXPECT_FALSE(
-        size_for_risk(base, FixedE9::from_raw(0), pct, at("50000"), at("49000")).has_value());
-    EXPECT_FALSE(
-        size_for_risk(base, ok, FixedE9::from_raw(0), at("50000"), at("49000")).has_value());
+    EXPECT_FALSE(size_for_risk(base, FixedE9::from_raw(0), pct, at("50000"), at("49000")).has_value());
+    EXPECT_FALSE(size_for_risk(base, ok, FixedE9::from_raw(0), at("50000"), at("49000")).has_value());
     EXPECT_FALSE(size_for_risk(base, ok, pct, at("50000"), PriceTicks::undef()).has_value());
 }
 

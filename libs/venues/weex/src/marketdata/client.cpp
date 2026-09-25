@@ -41,8 +41,7 @@ void handle_depth(VenueState& state, std::string_view frame, UnixNanos received)
         return;
     }
     const auto& base = base_of(*instrument);
-    const auto entry =
-        state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
+    const auto entry = state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
     auto& book = entry->second;
     const auto result = book.apply(*wire);
     auto& watch = state.book_watch[base.id.packed];
@@ -75,28 +74,21 @@ void handle_depth(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
-void handle_trades(VenueState& state,
-                   std::string_view frame,
-                   std::string_view symbol,
-                   UnixNanos received) {
+void handle_trades(VenueState& state, std::string_view frame, std::string_view symbol, UnixNanos received) {
     static thread_local PrintBuffer storage;
     const auto wire = parse_trades(frame, storage);
     if (!wire.has_value()) {
         return;
     }
     for (const auto& print : *wire) {
-        if (const auto trade = map_trade(print, symbol, state.instruments, received);
-            trade.has_value()) {
+        if (const auto trade = map_trade(print, symbol, state.instruments, received); trade.has_value()) {
             state.sink->on_trade(*trade);
         }
     }
 }
 
 // the caller already resolved the event kind, so frames parse once
-void handle_frame(VenueState& state,
-                  const EventInfo& event,
-                  std::string_view frame,
-                  UnixNanos received) {
+void handle_frame(VenueState& state, const EventInfo& event, std::string_view frame, UnixNanos received) {
     switch (event.kind) {
     case EventKind::Depth:
     case EventKind::DepthSnapshot:
@@ -113,8 +105,7 @@ void handle_frame(VenueState& state,
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -152,7 +143,8 @@ public:
         if (!event.has_value()) {
             return; // unknown shapes are ignored, never fatal: venues add frames
         }
-        // weex pings each socket every ~30 s and closes one that misses ten; the handler cannot tell which, so it answers all
+        // weex pings each socket every ~30 s and closes one that misses ten; the handler cannot tell which, so it
+        // answers all
         if (event->kind == EventKind::Ping) {
             if (pool_ != nullptr) {
                 pool_->broadcast(k_pong_frame);
@@ -204,21 +196,16 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
             // funding is polled; the same request places the ticker channel for 24h turnover
-            if (std::ranges::find(state_->funding_instruments, instrument) ==
-                state_->funding_instruments.end()) {
+            if (std::ranges::find(state_->funding_instruments, instrument) == state_->funding_instruments.end()) {
                 state_->funding_instruments.push_back(instrument);
             }
             return place(exec::SubKind::MarkPrice, symbol, instrument);
@@ -242,8 +229,7 @@ public:
 
 private:
     // Bbo and Depth share @depth200, so the channel is placed once
-    std::expected<void, exec::VenueError>
-    place(exec::SubKind kind, std::string_view symbol, InstrumentId instrument) {
+    std::expected<void, exec::VenueError> place(exec::SubKind kind, std::string_view symbol, InstrumentId instrument) {
         std::array<char, 64> buf{};
         const auto channel = channel_name(kind, symbol, buf);
         if (channel.empty()) {
@@ -256,8 +242,8 @@ private:
         const std::array<std::string, 1> one{std::string{channel}};
         if (!pool_.subscribe(one)) {
             state_->desired.pop_back();
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "weex: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "weex: connection pool is full")};
         }
         return {};
     }
@@ -312,14 +298,12 @@ private:
             if (!std::string_view{key}.ends_with(k_depth_channel)) {
                 continue;
             }
-            const auto symbol =
-                std::string_view{key}.substr(0, key.size() - k_depth_channel.size());
+            const auto symbol = std::string_view{key}.substr(0, key.size() - k_depth_channel.size());
             const auto* instrument = state_->instruments.find(symbol);
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto entry = state_->books.find(base_of(*instrument).id.packed);
-                entry != state_->books.end()) {
+            if (const auto entry = state_->books.find(base_of(*instrument).id.packed); entry != state_->books.end()) {
                 entry->second.invalidate();
             }
         }
@@ -333,15 +317,14 @@ private:
             channels.emplace_back(key);
         }
         // quote first: on a paced full socket the last frames may never go
-        std::ranges::stable_partition(
-            channels, [](std::string_view channel) { return channel.ends_with(k_depth_channel); });
+        std::ranges::stable_partition(channels,
+                                      [](std::string_view channel) { return channel.ends_with(k_depth_channel); });
 
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < channels.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{channels}.subspan(
-                    built, std::min(net::frame_subscriptions(), channels.size() - built)));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const std::string_view>{channels}.subspan(
+                built, std::min(net::frame_subscriptions(), channels.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
@@ -353,15 +336,13 @@ private:
 
     // one call covers every symbol; only subscribed instruments reach the sink
     void poll_funding(UnixNanos now) noexcept {
-        if (state_->funding_instruments.empty() || now.ns < state_->next_funding_poll_ns ||
-            in_flight_) {
+        if (state_->funding_instruments.empty() || now.ns < state_->next_funding_poll_ns || in_flight_) {
             return;
         }
         in_flight_ = true;
         try {
-            if (!state_->rest.send(
-                    state_->builder.premium_index(),
-                    [this](const net::RestResponse& response) { on_funding(response); })) {
+            if (!state_->rest.send(state_->builder.premium_index(),
+                                   [this](const net::RestResponse& response) { on_funding(response); })) {
                 in_flight_ = false;
                 return; // refused: still due, so the next tick asks again
             }
@@ -390,12 +371,10 @@ private:
                 continue;
             }
             const auto id = base_of(*instrument).id;
-            if (std::ranges::find(state_->funding_instruments, id) ==
-                state_->funding_instruments.end()) {
+            if (std::ranges::find(state_->funding_instruments, id) == state_->funding_instruments.end()) {
                 continue; // nobody asked for this one
             }
-            if (const auto funding = map_funding(row, state_->instruments, received);
-                funding.has_value()) {
+            if (const auto funding = map_funding(row, state_->instruments, received); funding.has_value()) {
                 state_->sink->on_funding(*funding);
             }
         }

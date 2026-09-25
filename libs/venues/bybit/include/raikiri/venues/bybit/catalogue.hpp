@@ -37,8 +37,8 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view result, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view result,
+                                                                                          InstrumentBuffer& storage);
 
 // nextPageCursor, already percent-encoded; empty on the last page.
 [[nodiscard]] std::expected<std::string_view, WireError> parse_page_cursor(std::string_view result);

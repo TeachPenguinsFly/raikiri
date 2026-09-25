@@ -28,8 +28,8 @@ struct PrintBuffer {
     std::array<WirePrint, k_max_prints> prints{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePrint>, WireError>
-parse_trades(std::string_view frame, PrintBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
+                                                                                PrintBuffer& storage);
 
 struct WireTicker {
     std::string_view inst_id;
@@ -45,8 +45,8 @@ struct TickerBuffer {
     std::array<WireTicker, k_max_tickers> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTicker>, WireError>
-parse_tickers(std::string_view frame, TickerBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view frame,
+                                                                                  TickerBuffer& storage);
 
 // a row of /api/v1/market/funding-rate; the channel's row lacks period, cap and floor
 struct WireFundingRow {
@@ -63,8 +63,8 @@ struct FundingBuffer {
     std::array<WireFundingRow, k_max_instruments> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireFundingRow>, WireError>
-parse_funding(std::string_view body, FundingBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFundingRow>, WireError> parse_funding(std::string_view body,
+                                                                                      FundingBuffer& storage);
 
 struct WireMark {
     std::string_view inst_id;
@@ -76,8 +76,8 @@ struct MarkBuffer {
     std::array<WireMark, k_max_instruments> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireMark>, WireError>
-parse_mark_table(std::string_view body, MarkBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireMark>, WireError> parse_mark_table(std::string_view body,
+                                                                                   MarkBuffer& storage);
 
 // fields arrive from three sources; each updates its own
 struct FundingMemo {

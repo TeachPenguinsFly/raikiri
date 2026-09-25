@@ -70,7 +70,6 @@ struct WireCatalogue {
     std::size_t malformed{0}; // rows skipped because a field had the wrong type
 };
 
-[[nodiscard]] std::expected<WireCatalogue, WireError> parse_products(std::string_view body,
-                                                                     CatalogueBuffer& storage);
+[[nodiscard]] std::expected<WireCatalogue, WireError> parse_products(std::string_view body, CatalogueBuffer& storage);
 
 } // namespace raikiri::venues::phemex

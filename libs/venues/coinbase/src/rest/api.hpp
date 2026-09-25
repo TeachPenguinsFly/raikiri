@@ -19,10 +19,8 @@ namespace raikiri::venues::coinbase::internal {
 
 // build refusals are terminal; NotSigned points at the config
 inline exec::VenueError build_failure(BuildError err) noexcept {
-    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                               : exec::ErrorClass::Terminal,
-                                  0,
-                                  to_string(err));
+    return exec::VenueError::make(
+        err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure : exec::ErrorClass::Terminal, 0, to_string(err));
 }
 
 // the status classifies even when the body does not parse
@@ -36,8 +34,7 @@ inline exec::VenueError http_failure(const net::RestResponse& response) noexcept
 class RestApi {
 public:
     explicit RestApi(VenueState& state)
-        : state_{&state},
-          rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+        : state_{&state}, rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
           builder_{state.signer, state.passphrase} {}
 
     void start() {
@@ -57,8 +54,7 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType market) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         if (const auto refusal = market_refusal(market); refusal.has_value()) {
             return std::unexpected{build_failure(*refusal)};
         }
@@ -74,14 +70,12 @@ public:
         auto& storage = *storage_owner;
         const auto orders = parse_orders(*body, storage);
         if (!orders.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
         }
         std::vector<exec::OrderStatusReport> reports;
         reports.reserve(orders->size());
         for (const auto& wire : *orders) {
-            if (auto report =
-                    map_open_order(wire, state_->instruments, state_->recall(wire.client_oid));
+            if (auto report = map_open_order(wire, state_->instruments, state_->recall(wire.client_oid));
                 report.has_value()) {
                 reports.push_back(*report);
             }
@@ -89,8 +83,8 @@ public:
         return reports;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) {
         if (const auto refusal = market_refusal(market); refusal.has_value()) {
             return std::unexpected{build_failure(*refusal)};
         }
@@ -104,20 +98,17 @@ public:
         }
         const auto order = parse_order(*body);
         if (!order.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(order.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(order.error()))};
         }
         // the uuid cannot be turned back into a ulid, so the caller's id is reported
         auto report = map_open_order(*order, state_->instruments, id);
         if (!report.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
         }
         return *report;
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
-                                                                                UnixNanos since) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
         (void)since;
         if (const auto refusal = market_refusal(market); refusal.has_value()) {
             return std::unexpected{build_failure(*refusal)};
@@ -126,8 +117,7 @@ public:
         return std::unexpected{exec::not_implemented("coinbase fill pull is per-product")};
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         if (const auto refusal = market_refusal(market); refusal.has_value()) {
             return std::unexpected{build_failure(*refusal)};
         }
@@ -139,8 +129,7 @@ private:
     [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& req) {
         const auto response = await_response(*state_, rest_, req);
         if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
         if (response->status < 200 || response->status >= 300) {
             return std::unexpected{http_failure(*response)};

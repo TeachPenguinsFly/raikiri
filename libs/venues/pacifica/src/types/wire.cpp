@@ -36,8 +36,7 @@ std::expected<WireMarket, WireError> read_market(json::ondemand::object& row) {
     const auto tick = json::req_str(row, "tick_size");
     const auto lot = json::req_str(row, "lot_size");
     const auto min = json::opt_str(row, "min_order_size");
-    if (!symbol.has_value() || !type.has_value() || !tick.has_value() || !lot.has_value() ||
-        !min.has_value()) {
+    if (!symbol.has_value() || !type.has_value() || !tick.has_value() || !lot.has_value() || !min.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.symbol = *symbol;
@@ -60,8 +59,7 @@ std::expected<WireMarket, WireError> read_market(json::ondemand::object& row) {
     return out;
 }
 
-std::expected<std::size_t, WireError> read_side(json::ondemand::array& side,
-                                                std::span<WireLevel> into) {
+std::expected<std::size_t, WireError> read_side(json::ondemand::array& side, std::span<WireLevel> into) {
     std::size_t count = 0;
     for (auto entry : side) {
         if (count == into.size()) {
@@ -95,8 +93,7 @@ std::expected<std::uint64_t, WireError> req_id(json::ondemand::object& obj, std:
 
 } // namespace
 
-std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body,
-                                                                    MarketBuffer& storage) {
+std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_view body, MarketBuffer& storage) {
     return json::guarded([&]() -> std::expected<std::span<const WireMarket>, WireError> {
         auto root = json::session().open_object(body);
         if (!root.has_value()) {
@@ -211,8 +208,8 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
         const auto bid_qty = json::req_str(*data, "B");
         const auto ask = json::req_str(*data, "a");
         const auto ask_qty = json::req_str(*data, "A");
-        if (!symbol.has_value() || !li.has_value() || !bid.has_value() || !bid_qty.has_value() ||
-            !ask.has_value() || !ask_qty.has_value()) {
+        if (!symbol.has_value() || !li.has_value() || !bid.has_value() || !bid_qty.has_value() || !ask.has_value() ||
+            !ask_qty.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         return WireBbo{.symbol = *symbol,
@@ -225,8 +222,7 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
     });
 }
 
-std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
-                                                                  PrintBuffer& storage) {
+std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame, PrintBuffer& storage) {
     return json::guarded([&]() -> std::expected<std::span<const WirePrint>, WireError> {
         auto root = json::session().open_object(frame);
         if (!root.has_value()) {
@@ -259,8 +255,7 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
     });
 }
 
-std::expected<std::span<const WirePrice>, WireError> parse_prices(std::string_view frame,
-                                                                  PriceBuffer& storage) {
+std::expected<std::span<const WirePrice>, WireError> parse_prices(std::string_view frame, PriceBuffer& storage) {
     return json::guarded([&]() -> std::expected<std::span<const WirePrice>, WireError> {
         auto root = json::session().open_object(frame);
         if (!root.has_value()) {

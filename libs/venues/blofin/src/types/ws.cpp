@@ -4,8 +4,8 @@
 
 namespace raikiri::venues::blofin {
 
-std::expected<std::string_view, WsBuildError> Protocol::op_frame(
-    std::string_view op, std::string_view inst_id, std::span<const std::string_view> channels) {
+std::expected<std::string_view, WsBuildError>
+Protocol::op_frame(std::string_view op, std::string_view inst_id, std::span<const std::string_view> channels) {
     if (inst_id.empty() || channels.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -36,13 +36,13 @@ std::expected<std::string_view, WsBuildError> Protocol::op_frame(
     return std::string_view{frame_.data(), len};
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::subscribe_frame(std::string_view inst_id, std::span<const std::string_view> channels) {
+std::expected<std::string_view, WsBuildError> Protocol::subscribe_frame(std::string_view inst_id,
+                                                                        std::span<const std::string_view> channels) {
     return op_frame("subscribe", inst_id, channels);
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::unsubscribe_frame(std::string_view inst_id, std::span<const std::string_view> channels) {
+std::expected<std::string_view, WsBuildError> Protocol::unsubscribe_frame(std::string_view inst_id,
+                                                                          std::span<const std::string_view> channels) {
     return op_frame("unsubscribe", inst_id, channels);
 }
 

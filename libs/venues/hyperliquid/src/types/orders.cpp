@@ -15,8 +15,7 @@ using wire::session;
 }
 
 // absent or null reads as empty
-[[nodiscard]] std::expected<std::string_view, WireError> soft_str(wire::ondemand::object& obj,
-                                                                  std::string_view key) {
+[[nodiscard]] std::expected<std::string_view, WireError> soft_str(wire::ondemand::object& obj, std::string_view key) {
     const auto value = wire::opt_str(obj, key);
     if (!value.has_value() && value.error() == WireError::MissingField) {
         return std::string_view{};
@@ -24,8 +23,7 @@ using wire::session;
     return value;
 }
 
-[[nodiscard]] std::expected<bool, WireError> soft_bool(wire::ondemand::object& obj,
-                                                       std::string_view key) {
+[[nodiscard]] std::expected<bool, WireError> soft_bool(wire::ondemand::object& obj, std::string_view key) {
     const auto value = wire::opt_bool(obj, key);
     if (!value.has_value() && value.error() == WireError::MissingField) {
         return false;
@@ -47,10 +45,9 @@ std::expected<WireOpenOrder, WireError> read_open_order(wire::ondemand::object& 
     const auto ts = opt_number_ms(obj, "timestamp");
     const auto reduce_only = soft_bool(obj, "reduceOnly");
     const auto is_trigger = soft_bool(obj, "isTrigger");
-    if (!coin.has_value() || !side.has_value() || !price.has_value() || !qty.has_value() ||
-        !orig.has_value() || !cloid.has_value() || !order_type.has_value() || !tif.has_value() ||
-        !oid.has_value() || !ts.has_value() || !reduce_only.has_value() ||
-        !is_trigger.has_value()) {
+    if (!coin.has_value() || !side.has_value() || !price.has_value() || !qty.has_value() || !orig.has_value() ||
+        !cloid.has_value() || !order_type.has_value() || !tif.has_value() || !oid.has_value() || !ts.has_value() ||
+        !reduce_only.has_value() || !is_trigger.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.coin = *coin;
@@ -145,8 +142,8 @@ std::expected<WireExchangeStatus, WireError> read_status(wire::ondemand::value e
 
 } // namespace
 
-std::expected<std::span<const WireOpenOrder>, WireError>
-parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
+std::expected<std::span<const WireOpenOrder>, WireError> parse_open_orders(std::string_view body,
+                                                                           OpenOrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOpenOrder>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {
@@ -172,8 +169,7 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
-                                                                FillBuffer& storage) {
+std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body, FillBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFill>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {
@@ -200,9 +196,9 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
             const auto tid = wire::opt_u64(obj, "tid");
             const auto ts = opt_number_ms(obj, "time");
             const auto crossed = soft_bool(obj, "crossed");
-            if (!coin.has_value() || !price.has_value() || !qty.has_value() || !side.has_value() ||
-                !fee.has_value() || !fee_token.has_value() || !cloid.has_value() ||
-                !oid.has_value() || !tid.has_value() || !ts.has_value() || !crossed.has_value()) {
+            if (!coin.has_value() || !price.has_value() || !qty.has_value() || !side.has_value() || !fee.has_value() ||
+                !fee_token.has_value() || !cloid.has_value() || !oid.has_value() || !tid.has_value() ||
+                !ts.has_value() || !crossed.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             out.coin = *coin;
@@ -263,8 +259,7 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
     });
 }
 
-std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_view body,
-                                                                 ExchangeStatusBuffer& storage) {
+std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_view body, ExchangeStatusBuffer& storage) {
     return guarded([&]() -> std::expected<WireExchangeReply, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -308,9 +303,8 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
         auto data = wire::req_object(envelope, "data");
         if (!data.has_value()) {
             // several actions answer {"type":"default"} alone
-            return data.error() == WireError::MissingField
-                       ? std::expected<WireExchangeReply, WireError>{out}
-                       : std::unexpected(data.error());
+            return data.error() == WireError::MissingField ? std::expected<WireExchangeReply, WireError>{out}
+                                                           : std::unexpected(data.error());
         }
         auto rows = wire::req_array(*data, "statuses");
         if (!rows.has_value()) {

@@ -17,9 +17,8 @@ constexpr std::string_view k_hdr_recv = "X-BAPI-RECV-WINDOW";
 
 std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     const auto [end, ec] = std::to_chars(out.data(), out.data() + out.size(), value);
-    return ec == std::errc{}
-               ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
-               : std::string_view{};
+    return ec == std::errc{} ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
+                             : std::string_view{};
 }
 
 // reports overflow instead of truncating a signed body
@@ -124,10 +123,7 @@ RequestBuilder::signed_post(std::string_view target, std::string_view body, Unix
     request.method = net::HttpMethod::Post;
     request.target = target;
     request.body = body;
-    request.headers = {{k_hdr_key, signer_->api_key()},
-                       {k_hdr_ts, ts},
-                       {k_hdr_recv, recv},
-                       {k_hdr_sign, signature}};
+    request.headers = {{k_hdr_key, signer_->api_key()}, {k_hdr_ts, ts}, {k_hdr_recv, recv}, {k_hdr_sign, signature}};
     return request;
 }
 
@@ -161,15 +157,12 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
     request.method = net::HttpMethod::Get;
     request.target = target.view();
     request.body = {};
-    request.headers = {{k_hdr_key, signer_->api_key()},
-                       {k_hdr_ts, ts},
-                       {k_hdr_recv, recv},
-                       {k_hdr_sign, signature}};
+    request.headers = {{k_hdr_key, signer_->api_key()}, {k_hdr_ts, ts}, {k_hdr_recv, recv}, {k_hdr_sign, signature}};
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -187,8 +180,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     if (cmd.order_type == OrderType::Limit) {
         json.decimal("price", base.ticks_to_price(cmd.price));
     }
-    json.str("timeInForce", tif_text(cmd.tif, cmd.flags))
-        .str("orderLinkId", cmd.exchange_client_order_id.view());
+    json.str("timeInForce", tif_text(cmd.tif, cmd.flags)).str("orderLinkId", cmd.exchange_client_order_id.view());
     if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
         json.boolean("reduceOnly", true);
     }
@@ -200,8 +192,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     return signed_post(ep::k_order_create, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto symbol = table.exchange_symbol(cmd.instrument);
     if (symbol.empty()) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -222,8 +214,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
     return signed_post(ep::k_order_cancel, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -252,21 +244,16 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
     return signed_post(ep::k_order_amend, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_all(MarketType market,
-                                                                       UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_all(MarketType market, UnixNanos now) {
     net::JsonWriter json{body_};
-    json.obj_begin()
-        .str("category", category_of(market))
-        .str("settleCoin", k_settle_coin)
-        .obj_end();
+    json.obj_begin().str("category", category_of(market)).str("settleCoin", k_settle_coin).obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return signed_post(ep::k_order_cancel_all, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market,
-                                                                        UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market, UnixNanos now) {
     Appender query{body_}; // reuse the body buffer: GET sends none
     query << "category=" << category_of(market) << "&settleCoin=" << k_settle_coin;
     if (!query.ok()) {
@@ -291,8 +278,7 @@ RequestBuilder::executions(MarketType market, UnixNanos since, UnixNanos now) {
     return signed_get(ep::k_execution_list, query.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
-                                                                      UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market, UnixNanos now) {
     Appender query{body_};
     query << "category=" << category_of(market) << "&settleCoin=" << k_settle_coin;
     if (!query.ok()) {
@@ -314,8 +300,7 @@ RequestBuilder::funding_charges(MarketType market, UnixNanos since, UnixNanos no
     char end_buf[24];
     Appender query{body_};
     query << "accountType=" << k_account_type << "&category=" << category_of(market)
-          << "&limit=50&startTime=" << render_u64(start_ms, start_buf)
-          << "&endTime=" << render_u64(end_ms, end_buf);
+          << "&limit=50&startTime=" << render_u64(start_ms, start_buf) << "&endTime=" << render_u64(end_ms, end_buf);
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

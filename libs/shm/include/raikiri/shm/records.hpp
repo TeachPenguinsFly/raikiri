@@ -3,12 +3,12 @@
 // every process maps these pods; each channel has exactly one writer
 
 #include <raikiri/domain/balance.hpp>
+#include <raikiri/domain/fill_report.hpp>
 #include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
-#include <raikiri/domain/fill_report.hpp>
 #include <raikiri/domain/position_report.hpp>
 #include <raikiri/shm/broadcast_ring.hpp>
 #include <raikiri/shm/catalogue.hpp>

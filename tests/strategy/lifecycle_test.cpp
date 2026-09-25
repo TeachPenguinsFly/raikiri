@@ -58,8 +58,7 @@ TEST(StrategyLifecycle, EveryNameIsDistinctAndNoneIsTheFallback) {
     }
     EXPECT_EQ(seen.size(), phases.size());
 
-    const std::array errors{
-        LifecycleError::AlreadyRunning, LifecycleError::NotRunning, LifecycleError::Finished};
+    const std::array errors{LifecycleError::AlreadyRunning, LifecycleError::NotRunning, LifecycleError::Finished};
     std::set<std::string> reasons;
     for (const auto error : errors) {
         EXPECT_NE(to_string(error), "?");

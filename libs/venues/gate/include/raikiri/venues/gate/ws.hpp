@@ -63,11 +63,11 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions, std::uint64_t now_s);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions,
+                                                                     std::uint64_t now_s);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions, std::uint64_t now_s);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions,
+                                                                       std::uint64_t now_s);
 
     [[nodiscard]] std::string_view ping_frame(std::uint64_t now_s) noexcept;
 

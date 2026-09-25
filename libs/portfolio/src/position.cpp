@@ -10,8 +10,7 @@ namespace {
 }
 
 // signed with the trade so closing needs no side-specific formula
-[[nodiscard]] std::int64_t
-signed_value(const InstrumentBase& base, Side side, QtyLots qty, PriceTicks price) noexcept {
+[[nodiscard]] std::int64_t signed_value(const InstrumentBase& base, Side side, QtyLots qty, PriceTicks price) noexcept {
     const auto value = settlement_value(base, price, qty);
     if (value.is_undef()) {
         return 0;
@@ -25,12 +24,8 @@ FixedE9 Position::net_realized() const noexcept {
     return FixedE9::from_raw(detail::checked_sub(realized_.raw, fees_.raw));
 }
 
-Position::Applied Position::apply_fill(const InstrumentBase& base,
-                                       Side side,
-                                       QtyLots delta,
-                                       PriceTicks price,
-                                       FixedE9 fee,
-                                       UnixNanos ts) noexcept {
+Position::Applied Position::apply_fill(
+    const InstrumentBase& base, Side side, QtyLots delta, PriceTicks price, FixedE9 fee, UnixNanos ts) noexcept {
     Applied out{};
     if (delta.is_undef() || delta.raw <= 0) {
         return out; // a resent notification derives a zero delta; nothing happened
@@ -38,17 +33,14 @@ Position::Applied Position::apply_fill(const InstrumentBase& base,
     out.open_fee = fee;
 
     const std::int64_t open_qty = qty_.raw;
-    const bool opposes =
-        (open_qty > 0 && side == Side::Sell) || (open_qty < 0 && side == Side::Buy);
+    const bool opposes = (open_qty > 0 && side == Side::Sell) || (open_qty < 0 && side == Side::Buy);
     const std::int64_t close_raw = opposes ? std::min(magnitude(open_qty), delta.raw) : 0;
     const std::int64_t add_raw = delta.raw - close_raw;
     out.flipped = close_raw > 0 && add_raw > 0;
 
     if (close_raw > 0) {
         // one rounding, the other half by subtraction, so the parts sum to the fee
-        out.close_fee = close_raw == delta.raw
-                            ? fee
-                            : FixedE9::from_raw(mul_div(fee.raw, close_raw, delta.raw));
+        out.close_fee = close_raw == delta.raw ? fee : FixedE9::from_raw(mul_div(fee.raw, close_raw, delta.raw));
         out.open_fee = FixedE9::from_raw(detail::checked_sub(fee.raw, out.close_fee.raw));
 
         // a full close releases the whole basis so no truncation residue remains
@@ -66,8 +58,8 @@ Position::Applied Position::apply_fill(const InstrumentBase& base,
     }
 
     if (add_raw > 0) {
-        cost_ = FixedE9::from_raw(detail::checked_add(
-            cost_.raw, signed_value(base, side, QtyLots::from_raw(add_raw), price)));
+        cost_ = FixedE9::from_raw(
+            detail::checked_add(cost_.raw, signed_value(base, side, QtyLots::from_raw(add_raw), price)));
     }
 
     qty_ = QtyLots::from_raw(side == Side::Buy ? detail::checked_add(open_qty, delta.raw)
@@ -99,8 +91,7 @@ FixedE9 Position::avg_entry_price(const InstrumentBase& base) const noexcept {
     return FixedE9::from_raw(mul_div(abs_cost, k_e9, quantity.raw));
 }
 
-FixedE9
-unrealized_pnl(const InstrumentBase& base, const Position& position, PriceTicks mark) noexcept {
+FixedE9 unrealized_pnl(const InstrumentBase& base, const Position& position, PriceTicks mark) noexcept {
     if (position.flat()) {
         return FixedE9::from_raw(0);
     }
@@ -111,9 +102,8 @@ unrealized_pnl(const InstrumentBase& base, const Position& position, PriceTicks 
     }
     const std::int64_t marked = qty.raw > 0 ? value.raw : -value.raw;
     const std::int64_t cost = position.cost().raw;
-    return FixedE9::from_raw(base.kind == ContractKind::Inverse
-                                 ? detail::checked_sub(cost, marked)
-                                 : detail::checked_sub(marked, cost));
+    return FixedE9::from_raw(base.kind == ContractKind::Inverse ? detail::checked_sub(cost, marked)
+                                                                : detail::checked_sub(marked, cost));
 }
 
 } // namespace raikiri::portfolio

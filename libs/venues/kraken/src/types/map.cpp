@@ -216,8 +216,7 @@ std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept {
     return FixedE9::from_raw(raw);
 }
 
-std::optional<Bbo>
-map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.suspended) {
         return std::nullopt;
     }
@@ -248,8 +247,7 @@ map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.product_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -287,8 +285,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     const auto& base = base_of(*instrument);
     out.instrument = base.id;
     out.rate = *rate;
-    if (const auto predicted = to_truncated_e9(wire.relative_funding_rate_prediction);
-        predicted.has_value()) {
+    if (const auto predicted = to_truncated_e9(wire.relative_funding_rate_prediction); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
@@ -346,8 +343,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     const auto tick = parse_number_e9(wire.tick_size);
     const auto lot = step_from_precision(wire.contract_value_trade_precision);
     const auto contract = parse_number_e9(wire.contract_size);
-    if (!tick.has_value() || tick->raw <= 0 || !lot.has_value() || !contract.has_value() ||
-        contract->raw <= 0) {
+    if (!tick.has_value() || tick->raw <= 0 || !lot.has_value() || !contract.has_value() || contract->raw <= 0) {
         return std::nullopt;
     }
     const auto symbol = SymbolText::from(wire.symbol);
@@ -368,8 +364,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     return PerpInstrument{base, k_funding_interval_s};
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -405,8 +400,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
     return out;
 }
 
-std::optional<exec::FillReport> map_rest_fill(const WireFill& wire,
-                                              const exec::InstrumentTable& table) {
+std::optional<exec::FillReport> map_rest_fill(const WireFill& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -440,8 +434,7 @@ std::optional<exec::FillReport> map_rest_fill(const WireFill& wire,
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -469,10 +462,9 @@ DeltaEffect effect_of(std::string_view reason, bool is_cancel) noexcept {
     }
     if (is_cancel) {
         // kraken spells two reasons as sentences; match them exactly
-        if (reason == "not_enough_margin" ||
-            reason == "post_order_failed_because_it_would_filled" ||
-            reason == "ioc_order_failed_because_it_would_not_be_executed" ||
-            reason == "would_execute_self" || reason == "would_not_reduce_position") {
+        if (reason == "not_enough_margin" || reason == "post_order_failed_because_it_would_filled" ||
+            reason == "ioc_order_failed_because_it_would_not_be_executed" || reason == "would_execute_self" ||
+            reason == "would_not_reduce_position") {
             return DeltaEffect::Rejected;
         }
         if (reason == "order_for_edit_not_found") {
@@ -491,10 +483,8 @@ DeltaEffect effect_of(std::string_view reason, bool is_cancel) noexcept {
     return DeltaEffect::Silent;
 }
 
-std::optional<OrderEvent> map_ws_order(const WireWsOrder& wire,
-                                       OrderEventType type,
-                                       const exec::InstrumentTable& table,
-                                       UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_ws_order(const WireWsOrder& wire, OrderEventType type, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.instrument);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -524,14 +514,12 @@ std::optional<OrderEvent> map_ws_order(const WireWsOrder& wire,
     // qty here is what remains; the original adds filled
     out.qty = QtyLots::from_raw(remaining->raw + filled->raw);
     out.leaves_qty = *remaining;
-    out.ts_event =
-        ms_to_unix(wire.last_update_ms != 0 ? wire.last_update_ms : wire.time_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.last_update_ms != 0 ? wire.last_update_ms : wire.time_ms, ts_init);
     out.ts_init = ts_init;
     return out;
 }
 
-std::optional<OrderEvent>
-map_ws_fill(const WireWsFill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<OrderEvent> map_ws_fill(const WireWsFill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.instrument);
     if (instrument == nullptr) {
         return std::nullopt;

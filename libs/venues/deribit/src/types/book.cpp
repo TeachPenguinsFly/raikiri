@@ -55,10 +55,8 @@ std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry, bool
     return level;
 }
 
-std::expected<std::size_t, WireError> read_levels(wire::ondemand::object& obj,
-                                                  std::string_view key,
-                                                  bool expect_action,
-                                                  std::span<WireLevel> into) {
+std::expected<std::size_t, WireError>
+read_levels(wire::ondemand::object& obj, std::string_view key, bool expect_action, std::span<WireLevel> into) {
     auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -83,10 +81,8 @@ std::expected<std::size_t, WireError> read_levels(wire::ondemand::object& obj,
 }
 
 // an empty side is real on an illiquid option
-std::expected<void, WireError> read_top(wire::ondemand::object& obj,
-                                        std::string_view key,
-                                        std::string_view& price,
-                                        std::string_view& qty) {
+std::expected<void, WireError>
+read_top(wire::ondemand::object& obj, std::string_view key, std::string_view& price, std::string_view& qty) {
     auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -227,8 +223,7 @@ bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
 BookResult Book::apply(const WireBook& update) {
     if (update.snapshot) {
         ladders_.clear();
-        if (!apply_side(update.bids, ladders_.bids()) ||
-            !apply_side(update.asks, ladders_.asks())) {
+        if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
             invalidate();
             return BookResult::BadLevel;
         }
@@ -261,8 +256,7 @@ std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init
     if (!synced_) {
         return std::nullopt;
     }
-    return ladders_.snapshot(
-        instrument_, static_cast<std::uint64_t>(last_change_id_), ts_event, ts_init);
+    return ladders_.snapshot(instrument_, static_cast<std::uint64_t>(last_change_id_), ts_event, ts_init);
 }
 
 } // namespace raikiri::venues::deribit

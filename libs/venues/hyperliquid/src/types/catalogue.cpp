@@ -11,8 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-std::expected<std::size_t, WireError> read_universe(wire::ondemand::object& meta,
-                                                    AssetBuffer& storage) {
+std::expected<std::size_t, WireError> read_universe(wire::ondemand::object& meta, AssetBuffer& storage) {
     auto array = wire::req_array(meta, "universe");
     if (!array.has_value()) {
         return std::unexpected(array.error());
@@ -31,8 +30,7 @@ std::expected<std::size_t, WireError> read_universe(wire::ondemand::object& meta
         const auto sz_decimals = wire::opt_i64(obj, "szDecimals");
         const auto max_leverage = wire::opt_i64(obj, "maxLeverage");
         const auto delisted = wire::opt_bool(obj, "isDelisted");
-        if (!name.has_value() || !sz_decimals.has_value() || !max_leverage.has_value() ||
-            !delisted.has_value()) {
+        if (!name.has_value() || !sz_decimals.has_value() || !max_leverage.has_value() || !delisted.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.name = *name;
@@ -48,8 +46,7 @@ std::expected<std::size_t, WireError> read_universe(wire::ondemand::object& meta
 
 } // namespace
 
-std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view body,
-                                                                AssetBuffer& storage) {
+std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view body, AssetBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireAsset>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -68,8 +65,8 @@ std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view
     });
 }
 
-std::expected<std::span<const WireCategory>, WireError>
-parse_perp_categories(std::string_view body, PerpCategoryBuffer& storage) {
+std::expected<std::span<const WireCategory>, WireError> parse_perp_categories(std::string_view body,
+                                                                              PerpCategoryBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCategory>, WireError> {
         auto rows = session().open_array(body);
         if (!rows.has_value()) {
@@ -114,8 +111,8 @@ parse_perp_categories(std::string_view body, PerpCategoryBuffer& storage) {
     });
 }
 
-std::expected<std::span<const std::string_view>, WireError>
-parse_perp_dexs(std::string_view body, PerpDexBuffer& storage) {
+std::expected<std::span<const std::string_view>, WireError> parse_perp_dexs(std::string_view body,
+                                                                            PerpDexBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const std::string_view>, WireError> {
         auto rows = session().open_array(body);
         if (!rows.has_value()) {
@@ -144,8 +141,7 @@ parse_perp_dexs(std::string_view body, PerpDexBuffer& storage) {
     });
 }
 
-std::expected<std::string_view, WireError> parse_token_name(std::string_view body,
-                                                            std::int64_t index) {
+std::expected<std::string_view, WireError> parse_token_name(std::string_view body, std::int64_t index) {
     return guarded([&]() -> std::expected<std::string_view, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -208,8 +204,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             if (*index < 0 || static_cast<std::size_t>(*index) >= tokens.size()) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            tokens[static_cast<std::size_t>(*index)] = {
-                .name = *name, .sz_decimals = *decimals, .present = true};
+            tokens[static_cast<std::size_t>(*index)] = {.name = *name, .sz_decimals = *decimals, .present = true};
         }
 
         auto pairs = wire::req_array(*root, "universe");
@@ -241,8 +236,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
                 if (read == members_at.size()) {
                     return std::unexpected(WireError::TooManyEntries);
                 }
-                if (const auto ec = member.get_int64().get(members_at[read]);
-                    ec != simdjson::SUCCESS) {
+                if (const auto ec = member.get_int64().get(members_at[read]); ec != simdjson::SUCCESS) {
                     return std::unexpected(wire::map_error(ec));
                 }
                 ++read;

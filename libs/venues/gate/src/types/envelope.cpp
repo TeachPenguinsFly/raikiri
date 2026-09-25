@@ -107,13 +107,11 @@ std::expected<std::string_view, WireError> num_of(wire::ondemand::value value) {
     return session().rebase(*raw);
 }
 
-std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj, std::string_view key) {
     return find_scalar(obj, key, false, num_of);
 }
 
-std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj, std::string_view key) {
     return find_scalar(obj, key, true, num_of);
 }
 
@@ -133,8 +131,7 @@ std::uint64_t whole_u64(std::string_view s) noexcept {
     return *stop == '.' ? out : 0;
 }
 
-std::expected<std::uint64_t, WireError> num_u64(wire::ondemand::object& obj,
-                                                std::string_view key) {
+std::expected<std::uint64_t, WireError> num_u64(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_num(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -188,8 +185,7 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
             return std::unexpected(error.error());
         }
         std::int64_t code = 0;
-        if (const auto ec = wire::find(*error, "code").get_int64().get(code);
-            ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*error, "code").get_int64().get(code); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));
         }
         const auto message = wire::opt_str(*error, "message");

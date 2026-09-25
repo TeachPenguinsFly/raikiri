@@ -34,8 +34,8 @@ std::expected<WireFundingCharge, WireError> read_charge(wire::ondemand::object& 
 
 } // namespace
 
-std::expected<std::span<const WireFundingCharge>, WireError>
-parse_user_funding(std::string_view body, FundingChargeBuffer& storage) {
+std::expected<std::span<const WireFundingCharge>, WireError> parse_user_funding(std::string_view body,
+                                                                                FundingChargeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFundingCharge>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {

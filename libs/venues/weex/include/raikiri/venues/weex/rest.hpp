@@ -56,21 +56,17 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_order(const OrderCmd& cmd,
-                                                                           UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_order(const OrderCmd& cmd, UnixNanos now);
 
     // at most k_max_cancel_batch; the caller chunks
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    cancel_batch(std::span<const OrderCmd> cmds, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_batch(std::span<const OrderCmd> cmds,
+                                                                           UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
-                                                                          UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    fills(MarketType market, UnixNanos since, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(MarketType market, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> balances(UnixNanos now);
 
@@ -82,11 +78,8 @@ public:
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign(net::HttpMethod method,
-                                                                   std::string_view path,
-                                                                   std::string_view query,
-                                                                   std::string_view body,
-                                                                   UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    sign(net::HttpMethod method, std::string_view path, std::string_view query, std::string_view body, UnixNanos now);
 
     const net::Signer* signer_{nullptr};
     std::string_view passphrase_;

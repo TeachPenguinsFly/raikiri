@@ -57,8 +57,7 @@ TEST(Malformed, Gate) {
                     (void)parse_contracts(f, storage);
                 }},
                {"rest_server_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
-               {"rest_error_invalid_param.json",
-                [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"rest_error_invalid_param.json", [](std::string_view f) { (void)parse_rest_error(f); }},
                {"ws_futures_order_new.json",
                 [](std::string_view f) {
                     static OrderBuffer storage;

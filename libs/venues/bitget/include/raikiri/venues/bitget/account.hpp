@@ -30,7 +30,7 @@ struct BillBuffer {
 };
 
 // rows sit under data.bills, beside the endId cursor
-[[nodiscard]] std::expected<std::span<const WireBill>, WireError>
-parse_mix_bills(std::string_view body, BillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireBill>, WireError> parse_mix_bills(std::string_view body,
+                                                                                  BillBuffer& storage);
 
 } // namespace raikiri::venues::bitget

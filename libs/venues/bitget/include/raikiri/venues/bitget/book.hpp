@@ -34,11 +34,9 @@ struct WireBooks {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame, LevelBuffer& storage);
 
 // its data is an object, unlike every other endpoint here
-[[nodiscard]] std::expected<WireBooks, WireError> parse_rest_orderbook(std::string_view body,
-                                                                       LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBooks, WireError> parse_rest_orderbook(std::string_view body, LevelBuffer& storage);
 
 } // namespace raikiri::venues::bitget

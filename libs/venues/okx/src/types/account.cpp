@@ -33,8 +33,7 @@ std::expected<void, WireError> read_bill(wire::ondemand::object& obj, WireBill& 
 
 } // namespace
 
-std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body,
-                                                                BillBuffer& storage) {
+std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body, BillBuffer& storage) {
     return guarded([&] { return read_data<WireBill>(body, storage.bills, read_bill); });
 }
 
@@ -65,8 +64,8 @@ std::expected<AccountMode, WireError> parse_account_mode(std::string_view body) 
     });
 }
 
-std::expected<std::span<const WireCurrencyBalance>, WireError>
-parse_balances(std::string_view body, BalanceBuffer& storage) {
+std::expected<std::span<const WireCurrencyBalance>, WireError> parse_balances(std::string_view body,
+                                                                              BalanceBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCurrencyBalance>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

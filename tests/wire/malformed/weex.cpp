@@ -59,8 +59,7 @@ TEST(Malformed, Weex) {
                     (void)parse_rest_error(f);
                     (void)parse_exchange_info(f, instruments);
                 }},
-               {"rest_error_invalid_param.json",
-                [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"rest_error_invalid_param.json", [](std::string_view f) { (void)parse_rest_error(f); }},
                {"rest_premium_index.json",
                 [](std::string_view f) {
                     static PremiumBuffer premiums;

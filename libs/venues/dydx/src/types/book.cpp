@@ -88,8 +88,7 @@ BookResult Book::apply(std::span<const WireLevel> bids, std::span<const WireLeve
         return BookResult::Lost;
     }
     // A banded side that empties has walked off what the snapshot vouched for.
-    if ((bid_band_.has_value() && ladders_.bids().empty()) ||
-        (ask_band_.has_value() && ladders_.asks().empty())) {
+    if ((bid_band_.has_value() && ladders_.bids().empty()) || (ask_band_.has_value() && ladders_.asks().empty())) {
         drop();
         return BookResult::Lost;
     }

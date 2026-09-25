@@ -21,8 +21,8 @@ namespace raikiri::gatewayd {
 
 enum class Channel : std::uint8_t { Bbo = 0, Trades, Depth, Funding, Ticker, Greeks, Count };
 
-inline constexpr std::array<std::string_view, static_cast<std::size_t>(Channel::Count)>
-    k_channel_names{"bbo", "trades", "depth", "funding", "ticker", "greeks"};
+inline constexpr std::array<std::string_view, static_cast<std::size_t>(Channel::Count)> k_channel_names{
+    "bbo", "trades", "depth", "funding", "ticker", "greeks"};
 
 struct SubTally {
     std::uint64_t requested{0};
@@ -93,16 +93,15 @@ public:
     void subscriptions(const SubTallies& tallies) { subs_ = tallies; }
 
     void limits(const raikiri::net::WsLimits& limits) {
-        base_.limits = introspect::SocketLimits{
-            .configured = limits.configured,
-            .ws_streams = limits.streams_per_socket,
-            .ws_sockets = limits.sockets,
-            .ws_channels = limits.channels,
-            .ws_subscriptions_per_frame = limits.subscriptions_per_frame,
-            .ws_socket_messages = limits.socket_messages.max,
-            .ws_socket_window_ms = limits.socket_messages.window_ns / 1'000'000,
-            .ws_connects = limits.connects.max,
-            .ws_connects_window_ms = limits.connects.window_ns / 1'000'000};
+        base_.limits = introspect::SocketLimits{.configured = limits.configured,
+                                                .ws_streams = limits.streams_per_socket,
+                                                .ws_sockets = limits.sockets,
+                                                .ws_channels = limits.channels,
+                                                .ws_subscriptions_per_frame = limits.subscriptions_per_frame,
+                                                .ws_socket_messages = limits.socket_messages.max,
+                                                .ws_socket_window_ms = limits.socket_messages.window_ns / 1'000'000,
+                                                .ws_connects = limits.connects.max,
+                                                .ws_connects_window_ms = limits.connects.window_ns / 1'000'000};
     }
 
     bool publish(Snapshot now, raikiri::exec::RateBudget* budget) {
@@ -116,13 +115,12 @@ public:
             if (sub.requested == 0 && now.messages[i] == 0) {
                 continue;
             }
-            stats.subscriptions.push_back(
-                introspect::SubscriptionStats{.channel = std::string{k_channel_names[i]},
-                                              .requested = sub.requested,
-                                              .accepted = sub.accepted,
-                                              .refused = sub.refused,
-                                              .messages = now.messages[i],
-                                              .per_second = window_.per_second(i)});
+            stats.subscriptions.push_back(introspect::SubscriptionStats{.channel = std::string{k_channel_names[i]},
+                                                                        .requested = sub.requested,
+                                                                        .accepted = sub.accepted,
+                                                                        .refused = sub.refused,
+                                                                        .messages = now.messages[i],
+                                                                        .per_second = window_.per_second(i)});
         }
 
         for (auto& pool : raikiri::net::process_ws_pool_stats()) {
@@ -133,8 +131,7 @@ public:
                 .keys = pool.keys,
                 .min_keys = pool.min_keys,
                 .avg_keys = pool.sockets == 0 ? 0.0
-                                              : static_cast<double>(pool.keys) /
-                                                    static_cast<double>(pool.sockets),
+                                              : static_cast<double>(pool.keys) / static_cast<double>(pool.sockets),
                 .max_keys = pool.max_keys,
                 .pending_frames = pool.pending_frames,
                 .reopens = pool.reopens,
@@ -149,8 +146,7 @@ public:
             .priced_60s = now.coverage.priced_60s,
             .priced_ever = now.coverage.priced_ever,
             .books_seeded = now.coverage.books_seeded,
-            .books_unseeded = depth > now.coverage.books_seeded ? depth - now.coverage.books_seeded
-                                                                : 0,
+            .books_unseeded = depth > now.coverage.books_seeded ? depth - now.coverage.books_seeded : 0,
             .funding_received = now.coverage.funding_received};
 
         stats.rates.messages_per_second = window_.total_per_second();
@@ -162,12 +158,11 @@ public:
         if (budget != nullptr) {
             stats.rates.budget_denials = budget->denials();
             for (auto& limit : budget->usage()) {
-                stats.rates.rest_limits.push_back(
-                    introspect::RestLimitStats{.name = std::move(limit.name),
-                                               .max = limit.max,
-                                               .window_ms = limit.window_ns / 1'000'000,
-                                               .calls = limit.calls,
-                                               .denied = limit.denied});
+                stats.rates.rest_limits.push_back(introspect::RestLimitStats{.name = std::move(limit.name),
+                                                                             .max = limit.max,
+                                                                             .window_ms = limit.window_ns / 1'000'000,
+                                                                             .calls = limit.calls,
+                                                                             .denied = limit.denied});
             }
         }
         return publisher_->publish(stats);

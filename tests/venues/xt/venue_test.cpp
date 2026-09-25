@@ -45,8 +45,7 @@ void load_perp_table(exec::InstrumentTable& table) {
     ASSERT_TRUE(wire.has_value());
     table.reserve(wire->size());
     for (const auto& entry : *wire) {
-        if (const auto instrument = map_instrument(entry, MarketType::Perp);
-            instrument.has_value()) {
+        if (const auto instrument = map_instrument(entry, MarketType::Perp); instrument.has_value()) {
             EXPECT_TRUE(table.add(*instrument).has_value());
         }
     }
@@ -131,8 +130,7 @@ TEST(XtVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Xt);
     EXPECT_NE(adapter->data, nullptr);
@@ -144,8 +142,7 @@ TEST(XtVenue, OrderWithoutAnImplementationFailsLoudly) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -166,8 +163,7 @@ TEST(XtVenue, ExecutionPullsWithoutCredentialsAnswerAuthFailure) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto orders = adapter->execution->open_order_reports(MarketType::Perp);
@@ -192,8 +188,7 @@ TEST(XtVenue, UnservedMarketsRefuseWithTheirOwnName) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto options = adapter->execution->open_order_reports(MarketType::Option);
@@ -223,8 +218,7 @@ TEST(XtVenue, SpotPositionPullSaysSoRatherThanAnsweringFlat) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Spot}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto positions = adapter->execution->position_reports(MarketType::Spot);
@@ -236,15 +230,13 @@ TEST(XtVenue, SpotBalancePullNamesItselfRatherThanAnsweringWithTheFuturesWallet)
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Spot}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto balances = adapter->execution->balance_reports(MarketType::Spot);
     ASSERT_FALSE(balances.has_value());
     EXPECT_EQ(balances.error().cls, exec::ErrorClass::Terminal);
-    EXPECT_EQ(balances.error().message.view(),
-              exec::not_implemented("xt spot balance pull").message.view());
+    EXPECT_EQ(balances.error().message.view(), exec::not_implemented("xt spot balance pull").message.view());
 }
 
 TEST(XtWire, EventKindComesFromTopic) {
@@ -369,13 +361,9 @@ TEST(XtWire, MarkPriceParses) {
 }
 
 TEST(XtWire, MalformedFrameIsAnError) {
-    EXPECT_FALSE(
-        parse_trade(R"({"topic":"trade","event":"x","data":{"s":"btc_usdt")", MarketType::Perp)
-            .has_value());
+    EXPECT_FALSE(parse_trade(R"({"topic":"trade","event":"x","data":{"s":"btc_usdt")", MarketType::Perp).has_value());
     LevelBuffer levels;
-    EXPECT_FALSE(
-        parse_depth(R"({"topic":"depth","data":{"s":"btc_usdt"}})", levels, MarketType::Perp)
-            .has_value());
+    EXPECT_FALSE(parse_depth(R"({"topic":"depth","data":{"s":"btc_usdt"}})", levels, MarketType::Perp).has_value());
 }
 
 TEST(XtRest, EnvelopeReportsSuccessAndFailureSeparately) {
@@ -425,10 +413,8 @@ TEST(XtRest, RequestTargetsCarryTheSymbolVerbatim) {
     RequestBuilder builder;
     EXPECT_EQ(builder.server_time().target, "/future/market/v1/public/time");
     EXPECT_EQ(builder.symbol_list().target, "/future/market/v1/public/symbol/list");
-    EXPECT_EQ(builder.funding_rate("btc_usdt").target,
-              "/future/market/v1/public/q/funding-rate?symbol=btc_usdt");
-    EXPECT_EQ(builder.depth("eth_usdt", 5).target,
-              "/future/market/v1/public/q/depth?symbol=eth_usdt&level=5");
+    EXPECT_EQ(builder.funding_rate("btc_usdt").target, "/future/market/v1/public/q/funding-rate?symbol=btc_usdt");
+    EXPECT_EQ(builder.depth("eth_usdt", 5).target, "/future/market/v1/public/q/depth?symbol=eth_usdt&level=5");
 }
 
 TEST(XtErrors, VerifiedCodesClassifyAndUnknownIsTerminal) {
@@ -513,21 +499,17 @@ TEST(XtWs, SubscribeFrameJoinsTopicWithAtSign) {
     const auto frame = protocol.subscribe_frame(subs);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
-    EXPECT_EQ(
-        frame->text,
-        R"({"method":"subscribe","params":["depth@btc_usdt,50,100ms","trade@eth_usdt"],"id":"1"})");
+    EXPECT_EQ(frame->text, R"({"method":"subscribe","params":["depth@btc_usdt,50,100ms","trade@eth_usdt"],"id":"1"})");
 
     // the id advances per frame
     const auto next = protocol.unsubscribe_frame(std::span{subs}.first(1));
     ASSERT_TRUE(next.has_value());
-    EXPECT_EQ(next->text,
-              R"({"method":"unsubscribe","params":["depth@btc_usdt,50,100ms"],"id":"2"})");
+    EXPECT_EQ(next->text, R"({"method":"unsubscribe","params":["depth@btc_usdt,50,100ms"],"id":"2"})");
 }
 
 TEST(XtWs, DeclinedKindNeverReachesTheWire) {
     Protocol protocol;
-    const std::array<Subscription, 1> empty_channel{
-        Subscription{.channel = {}, .symbol = "btc_usdt", .params = {}}};
+    const std::array<Subscription, 1> empty_channel{Subscription{.channel = {}, .symbol = "btc_usdt", .params = {}}};
     const auto frame = protocol.subscribe_frame(empty_channel);
     ASSERT_FALSE(frame.has_value());
     EXPECT_EQ(frame.error(), WsBuildError::UnsupportedKind);
@@ -942,8 +924,7 @@ TEST(XtClientId, EveryCharacterIsOneTheVenueAccepts) {
         ASSERT_TRUE(encoded.has_value()) << ulid.view();
         ASSERT_EQ(encoded->view().size(), k_client_id_len);
         for (const char c : encoded->view()) {
-            const bool legal = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
-                               (c >= 'A' && c <= 'Z') || c == '_';
+            const bool legal = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
             ASSERT_TRUE(legal) << "illegal clientOrderId byte: " << c;
         }
         const auto decoded = decode_client_id(encoded->view());
@@ -990,11 +971,11 @@ constexpr std::uint64_t k_vec_ts_ms = 1'641'446'237'201ULL;
 // the builder backdates by 500 ms
 constexpr UnixNanos k_vec_now{(k_vec_ts_ms + 500) * 1'000'000ULL};
 
-constexpr std::string_view k_vec_x_spot =
-    "validate-algorithms=HmacSHA256&validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085"
-    "&validate-recvwindow=5000&validate-timestamp=1641446237201";
-constexpr std::string_view k_vec_x_futures =
-    "validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-timestamp=1641446237201";
+constexpr std::string_view
+    k_vec_x_spot = "validate-algorithms=HmacSHA256&validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085"
+                   "&validate-recvwindow=5000&validate-timestamp=1641446237201";
+constexpr std::string_view
+    k_vec_x_futures = "validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-timestamp=1641446237201";
 
 void load_credentials(net::Signer& signer) {
     signer.set_api_key(k_vec_appkey);
@@ -1042,8 +1023,7 @@ TEST(XtSign, BuilderReproducesTheVerifiedVectors) {
 
     const auto key_request = builder.listen_key(k_vec_now);
     ASSERT_TRUE(key_request.has_value());
-    EXPECT_EQ(builder.last_sign_message(),
-              std::string{k_vec_x_futures} + "#/future/user/v1/user/listen-key");
+    EXPECT_EQ(builder.last_sign_message(), std::string{k_vec_x_futures} + "#/future/user/v1/user/listen-key");
     EXPECT_EQ(header_of(*key_request, "validate-signature"),
               "9784e9dfc2c62fac8904eea27724e2a3a54db0d2cdb187e2010a6c1b0f67c382");
 }
@@ -1060,8 +1040,7 @@ TEST(XtSign, TheBalanceReadSignsAsAFuturesGetWithNoParameters) {
     EXPECT_EQ(request->target, "/future/user/v1/balance/list");
     EXPECT_TRUE(request->body.empty());
     // no method in Y and no trailing # for an empty query
-    EXPECT_EQ(builder.last_sign_message(),
-              std::string{k_vec_x_futures} + "#/future/user/v1/balance/list");
+    EXPECT_EQ(builder.last_sign_message(), std::string{k_vec_x_futures} + "#/future/user/v1/balance/list");
     EXPECT_EQ(header_of(*request, "validate-signature"),
               "866cd718030736690ac19cc293859dcfb3330747fd6291e0de7e6fece4821c02");
 }
@@ -1073,22 +1052,19 @@ TEST(XtSign, TheVerifiedVectorsAreWhatHmacSha256Produces) {
     };
 
     const std::array<Vector, 3> vectors{
-        Vector{std::string_view{
-                   "validate-algorithms=HmacSHA256&validate-appkey=3976eb88-76d0-4f6e-a6b2-"
-                   "a57980770085&validate-recvwindow=5000&validate-timestamp=1641446237201#POST#"
-                   "/v4/order#{\"symbol\":\"btc_usdt\",\"side\":\"BUY\",\"type\":\"LIMIT\","
-                   "\"timeInForce\":\"GTC\",\"bizType\":\"SPOT\",\"price\":39000,\"quantity\":2}"},
+        Vector{std::string_view{"validate-algorithms=HmacSHA256&validate-appkey=3976eb88-76d0-4f6e-a6b2-"
+                                "a57980770085&validate-recvwindow=5000&validate-timestamp=1641446237201#POST#"
+                                "/v4/order#{\"symbol\":\"btc_usdt\",\"side\":\"BUY\",\"type\":\"LIMIT\","
+                                "\"timeInForce\":\"GTC\",\"bizType\":\"SPOT\",\"price\":39000,\"quantity\":2}"},
                "0ae356200e986654d47482b36e22a33530ba68ad5f446c94618db4f7245f7ee5"},
-        Vector{std::string_view{
-                   "validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-timestamp="
-                   "1641446237201#/future/trade/v1/order/create#{\"symbol\":\"btc_usdt\","
-                   "\"orderSide\":\"BUY\",\"orderType\":\"LIMIT\",\"origQty\":1,\"price\":39000,"
-                   "\"positionSide\":\"LONG\",\"timeInForce\":\"GTC\"}"},
+        Vector{std::string_view{"validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-timestamp="
+                                "1641446237201#/future/trade/v1/order/create#{\"symbol\":\"btc_usdt\","
+                                "\"orderSide\":\"BUY\",\"orderType\":\"LIMIT\",\"origQty\":1,\"price\":39000,"
+                                "\"positionSide\":\"LONG\",\"timeInForce\":\"GTC\"}"},
                "d38ebccc98597f30c2ad0f0533d80ef57083ca0a7f3d61719da4a7055d6b63ec"},
-        Vector{
-            std::string_view{"validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-"
-                             "timestamp=1641446237201#/future/trade/v1/order/detail#orderId=123"},
-            "ff5dd36741fdcfcf6c02905d3fadfe7911d41e7d51fc5adf5b2e84716f46f9fe"},
+        Vector{std::string_view{"validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-"
+                                "timestamp=1641446237201#/future/trade/v1/order/detail#orderId=123"},
+               "ff5dd36741fdcfcf6c02905d3fadfe7911d41e7d51fc5adf5b2e84716f46f9fe"},
     };
     std::array<char, net::k_hex_bytes> out{};
     for (const auto& vector : vectors) {
@@ -1118,8 +1094,7 @@ TEST(XtSign, TheTwoTreesSignDifferentlyOnPurpose) {
     exec::InstrumentTable spot_table;
     load_spot_table(spot_table);
     ASSERT_TRUE(builder.my_trades(MarketType::Spot, UnixNanos{0}, k_vec_now).has_value());
-    EXPECT_EQ(builder.last_sign_message(),
-              std::string{k_vec_x_spot} + "#GET#/v4/trade#bizType=SPOT&limit=100");
+    EXPECT_EQ(builder.last_sign_message(), std::string{k_vec_x_spot} + "#GET#/v4/trade#bizType=SPOT&limit=100");
 }
 
 TEST(XtSign, WithoutCredentialsNothingIsBuilt) {
@@ -1159,8 +1134,7 @@ TEST(XtRest, FuturesOrderNamesTheContractsAndThePositionItOpens) {
               R"("price":64118.1,"timeInForce":"GTC","positionSide":"LONG",)"
               R"("clientOrderId":"02WP8qFtGJTkHk10j5u4aZ"})");
     // the whole body is signed
-    EXPECT_NE(std::string{builder.last_sign_message()}.find(std::string{request->body}),
-              std::string::npos);
+    EXPECT_NE(std::string{builder.last_sign_message()}.find(std::string{request->body}), std::string::npos);
 }
 
 TEST(XtRest, ReduceOnlyFlipsThePositionSideNotTheOrderSide) {
@@ -1494,8 +1468,7 @@ TEST(XtMap, FuturesOrderPushBecomesALifecycleEvent) {
     const auto cancelled_wire = parse_futures_order(cancelled_body);
     ASSERT_TRUE(cancelled_wire.has_value());
     EXPECT_EQ(cancelled_wire->state, WireOrderStatus::Cancelled);
-    const auto cancelled =
-        map_futures_order_event(*cancelled_wire, table, remembered, UnixNanos{7});
+    const auto cancelled = map_futures_order_event(*cancelled_wire, table, remembered, UnixNanos{7});
     ASSERT_TRUE(cancelled.has_value());
     EXPECT_EQ(cancelled->type, OrderEventType::Canceled);
     EXPECT_EQ(cancelled->leaves_qty.raw, 0);
@@ -1509,8 +1482,7 @@ TEST(XtMap, AFilledOrderRecordProducesNoLifecycleEvent) {
     const auto orders = parse_futures_orders(body, storage);
     ASSERT_TRUE(orders.has_value());
     ASSERT_EQ(orders->size(), 2U);
-    EXPECT_FALSE(map_futures_order_event((*orders)[1], table, ExchangeClientOrderId{}, UnixNanos{1})
-                     .has_value());
+    EXPECT_FALSE(map_futures_order_event((*orders)[1], table, ExchangeClientOrderId{}, UnixNanos{1}).has_value());
 
     const auto report = map_futures_open_order((*orders)[1], table);
     ASSERT_TRUE(report.has_value());
@@ -1532,8 +1504,7 @@ TEST(XtMap, AFillWithoutASideIsDroppedRatherThanGuessed) {
     // trade-list has no side, so without a memo the fill is dropped
     EXPECT_FALSE(map_futures_deal((*deals)[0], table, OrderContext{}, UnixNanos{1}).has_value());
 
-    const OrderContext context{.client_order_id =
-                                   *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+    const OrderContext context{.client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
                                .leaves = QtyLots::from_raw(7),
                                .side = Side::Buy,
                                .side_known = true};
@@ -1638,8 +1609,7 @@ TEST(XtMap, SpotRecordsMapThroughTheUppercaseEcho) {
     const auto trades = parse_spot_trades(trades_body, trades_storage);
     ASSERT_TRUE(trades.has_value());
     ASSERT_EQ(trades->size(), 1U);
-    const auto fill =
-        map_spot_trade((*trades)[0], table, {.leaves = QtyLots::from_raw(80'000)}, UnixNanos{1});
+    const auto fill = map_spot_trade((*trades)[0], table, {.leaves = QtyLots::from_raw(80'000)}, UnixNanos{1});
     ASSERT_TRUE(fill.has_value());
     EXPECT_EQ(fill->side, Side::Buy); // /v4/trade states `orderSide`
     EXPECT_EQ(fill->qty.raw, 120'000);
@@ -1658,10 +1628,7 @@ TEST(XtMap, TheSpotSocketFillTakesItsSideFromTheMemo) {
     EXPECT_FALSE(map_spot_trade(*wire, table, OrderContext{}, UnixNanos{1}).has_value());
 
     const auto fill = map_spot_trade(
-        *wire,
-        table,
-        {.leaves = QtyLots::from_raw(179'000), .side = Side::Sell, .side_known = true},
-        UnixNanos{1});
+        *wire, table, {.leaves = QtyLots::from_raw(179'000), .side = Side::Sell, .side_known = true}, UnixNanos{1});
     ASSERT_TRUE(fill.has_value());
     EXPECT_EQ(fill->side, Side::Sell);
     EXPECT_EQ(fill->qty.raw, 21'000); // 0.21 at a 0.00001 lot

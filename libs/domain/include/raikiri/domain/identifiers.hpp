@@ -80,15 +80,11 @@ struct SymbolId {
 struct InstrumentId {
     std::uint64_t packed{0};
 
-    [[nodiscard]] static constexpr InstrumentId
-    make(VenueId venue, MarketType market, SymbolId symbol) noexcept {
-        return {(static_cast<std::uint64_t>(venue) << 56) |
-                (static_cast<std::uint64_t>(market) << 48) | symbol.raw};
+    [[nodiscard]] static constexpr InstrumentId make(VenueId venue, MarketType market, SymbolId symbol) noexcept {
+        return {(static_cast<std::uint64_t>(venue) << 56) | (static_cast<std::uint64_t>(market) << 48) | symbol.raw};
     }
 
-    [[nodiscard]] constexpr VenueId venue() const noexcept {
-        return static_cast<VenueId>(packed >> 56);
-    }
+    [[nodiscard]] constexpr VenueId venue() const noexcept { return static_cast<VenueId>(packed >> 56); }
 
     [[nodiscard]] constexpr MarketType market() const noexcept {
         return static_cast<MarketType>((packed >> 48) & 0xFFU);
@@ -112,8 +108,7 @@ struct AccountId {
 };
 
 // buf must hold at least 16 bytes
-[[nodiscard]] std::string_view
-format_account(AccountId account, char* buf, std::size_t buf_len) noexcept;
+[[nodiscard]] std::string_view format_account(AccountId account, char* buf, std::size_t buf_len) noexcept;
 
 // invalid venue when the name does not parse
 [[nodiscard]] AccountId account_from_string(std::string_view name) noexcept;
@@ -122,14 +117,11 @@ format_account(AccountId account, char* buf, std::size_t buf_len) noexcept;
 struct ClientOrderId {
     std::uint64_t raw{0};
 
-    [[nodiscard]] static constexpr ClientOrderId make(std::uint16_t strategy_id,
-                                                      std::uint64_t seq) noexcept {
+    [[nodiscard]] static constexpr ClientOrderId make(std::uint16_t strategy_id, std::uint64_t seq) noexcept {
         return {(static_cast<std::uint64_t>(strategy_id) << 48) | (seq & 0xFFFF'FFFF'FFFFULL)};
     }
 
-    [[nodiscard]] constexpr std::uint16_t strategy_id() const noexcept {
-        return static_cast<std::uint16_t>(raw >> 48);
-    }
+    [[nodiscard]] constexpr std::uint16_t strategy_id() const noexcept { return static_cast<std::uint16_t>(raw >> 48); }
 
     [[nodiscard]] constexpr std::uint64_t seq() const noexcept { return raw & 0xFFFF'FFFF'FFFFULL; }
 

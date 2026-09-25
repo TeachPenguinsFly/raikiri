@@ -76,8 +76,7 @@ TEST(HtxVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Htx);
     EXPECT_NE(adapter->data, nullptr);
@@ -89,8 +88,7 @@ TEST(HtxVenue, OrderWithoutAnImplementationFailsLoudly) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -110,8 +108,7 @@ TEST(HtxVenue, PullsRefuseRatherThanAnswerEmptyWithoutCredentials) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // AuthFailure: the pull works but has no key; it must refuse, not answer empty
@@ -779,8 +776,7 @@ TEST(HtxMap, AFundingPaymentAndAFundingReceiptDoNotBothComeOutPositive) {
 
     std::vector<LedgerEntry> booked;
     for (const auto& wire : *rows) {
-        if (const auto charge = map_financial_record(wire, table, UnixNanos{7});
-            charge.has_value()) {
+        if (const auto charge = map_financial_record(wire, table, UnixNanos{7}); charge.has_value()) {
             booked.push_back(*charge);
         }
     }
@@ -824,19 +820,15 @@ TEST(HtxRest, TheLedgerReadNamesTheMarginAccountAndClampsToTheVenuesWindow) {
     const auto request = builder.financial_record(MarketType::Perp, inside, now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->method, net::HttpMethod::Post);
-    EXPECT_TRUE(std::string_view{request->target}.starts_with(
-        "/linear-swap-api/v3/swap_financial_record?"));
+    EXPECT_TRUE(std::string_view{request->target}.starts_with("/linear-swap-api/v3/swap_financial_record?"));
     EXPECT_EQ(request->body, R"({"mar_acct":"USDT","type":"30,31","start_time":1699900000000})");
 
     // a cursor older than 48 hours is clamped; a wider window is refused
     const auto clamped = builder.financial_record(MarketType::Perp, UnixNanos{0}, now);
     ASSERT_TRUE(clamped.has_value());
-    EXPECT_EQ(clamped->body,
-              R"({"mar_acct":"USDT","type":"30,31","start_time":)" + std::to_string(floor_ms) +
-                  "}");
+    EXPECT_EQ(clamped->body, R"({"mar_acct":"USDT","type":"30,31","start_time":)" + std::to_string(floor_ms) + "}");
 
-    EXPECT_EQ(builder.financial_record(MarketType::Spot, inside, now).error(),
-              BuildError::SpotHasNoFunding);
+    EXPECT_EQ(builder.financial_record(MarketType::Spot, inside, now).error(), BuildError::SpotHasNoFunding);
 }
 
 TEST(HtxErrors, ClassifiesWhatTheVenueActuallySaid) {
@@ -861,9 +853,8 @@ TEST(HtxErrors, ClassifiesTheHttpStatusWhenThereIsNoEnvelope) {
 }
 
 TEST(HtxWire, ReadsFieldsInAnyOrderAndSkipsWhatItDoesNotKnow) {
-    const std::string depth =
-        R"({"tick":{"version":7,"asks":[[2.5,3]],"extra":{"x":[1,2]},"bids":[[2,4],[1.5,1]],)"
-        R"("ts":9},"ch":"market.ETH-USDT.depth.step0"})";
+    const std::string depth = R"({"tick":{"version":7,"asks":[[2.5,3]],"extra":{"x":[1,2]},"bids":[[2,4],[1.5,1]],)"
+                              R"("ts":9},"ch":"market.ETH-USDT.depth.step0"})";
     const auto event = parse_event(depth);
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->kind, EventKind::Depth);

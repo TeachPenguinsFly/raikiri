@@ -47,8 +47,7 @@ ClientOrderId ManualDesk::mint() noexcept {
     return ClientOrderId::make(k_manual_strategy_id, ++seq_);
 }
 
-std::expected<ClientOrderId, DeskError>
-ManualDesk::place(const DeskOrder& order, std::string_view key, UnixNanos now) {
+std::expected<ClientOrderId, DeskError> ManualDesk::place(const DeskOrder& order, std::string_view key, UnixNanos now) {
     if (!key.empty()) {
         if (const auto found = seen_.find(std::string{key}); found != seen_.end()) {
             // same key: answer with the existing id and place nothing

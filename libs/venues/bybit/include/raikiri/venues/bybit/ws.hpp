@@ -57,11 +57,9 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const std::string_view> topics);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const std::string_view> topics);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const std::string_view> topics);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const std::string_view> topics);
 
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     auth_frame(const net::Signer& signer, UnixNanos now, std::uint32_t validity_ms = 5'000);
@@ -72,8 +70,8 @@ public:
     [[nodiscard]] std::string_view last_auth_message() const noexcept;
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    op_frame(std::string_view op, std::span<const std::string_view> topics);
+    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op,
+                                                              std::span<const std::string_view> topics);
 
     std::array<char, 1024> frame_{};
     std::array<char, 64> auth_msg_{};

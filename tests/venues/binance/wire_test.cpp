@@ -155,8 +155,8 @@ TEST(BinanceWire, DepthLevelsKeepPriceAndQtyInOrder) {
 }
 
 TEST(BinanceWire, RestErrorIsDetectedByNegativeCode) {
-    for (const auto& [file, code] : {std::pair{"rest_error_bad_symbol.json", -1121},
-                                     std::pair{"rest_error_bad_apikey.json", -2014}}) {
+    for (const auto& [file, code] :
+         {std::pair{"rest_error_bad_symbol.json", -1121}, std::pair{"rest_error_bad_apikey.json", -2014}}) {
         const auto body = fixture(file);
         const auto err = parse_rest_error(body);
         ASSERT_TRUE(err.has_value()) << file;
@@ -167,8 +167,7 @@ TEST(BinanceWire, RestErrorIsDetectedByNegativeCode) {
 
 TEST(BinanceWire, SuccessBodyIsNotReadAsAnError) {
     // zero code means a success payload, including bodies with no code and arrays
-    for (const char* file :
-         {"rest_premium_index.json", "rest_server_time.json", "rest_depth_snapshot.json"}) {
+    for (const char* file : {"rest_premium_index.json", "rest_server_time.json", "rest_depth_snapshot.json"}) {
         const auto body = fixture(file);
         const auto err = parse_rest_error(body);
         ASSERT_TRUE(err.has_value()) << file;
@@ -273,8 +272,7 @@ TEST(BinanceWire, AccountCarriesEveryCollateralAssetNotOnlyTheHeldOnes) {
 
 TEST(BinanceWire, GarbageIsRefusedRatherThanPartiallyRead) {
     auto storage = std::make_unique<LevelBuffer>();
-    for (const char* junk :
-         {"", "{", "[]", "null", "{\"e\":", "\xff\xfe", "{\"e\":\"bookTicker\"}"}) {
+    for (const char* junk : {"", "{", "[]", "null", "{\"e\":", "\xff\xfe", "{\"e\":\"bookTicker\"}"}) {
         const std::string_view frame{junk};
         (void)parse_event(frame);
         EXPECT_FALSE(parse_book_ticker(frame).has_value()) << junk;
@@ -328,8 +326,7 @@ TEST(BinanceWire, SubscribeRefusalIsNotAnAcknowledgement) {
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->kind, EventKind::SubscribeAck);
 
-    const std::string bad =
-        R"({"error":{"code":2,"msg":"Invalid request: invalid stream"},"id":7})";
+    const std::string bad = R"({"error":{"code":2,"msg":"Invalid request: invalid stream"},"id":7})";
     event = parse_event(bad);
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->kind, EventKind::Error);

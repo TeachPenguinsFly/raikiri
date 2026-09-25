@@ -140,8 +140,7 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
             return std::nullopt;
         }
         std::int64_t out = 0;
-        if (__builtin_mul_overflow(
-                mantissa->raw, k_pow10[static_cast<std::size_t>(exponent)], &out)) {
+        if (__builtin_mul_overflow(mantissa->raw, k_pow10[static_cast<std::size_t>(exponent)], &out)) {
             return std::nullopt;
         }
         return FixedE9::from_raw(out);
@@ -165,8 +164,7 @@ UnixNanos ns_to_unix(std::uint64_t ns, UnixNanos fallback) noexcept {
     return ns == 0 ? fallback : UnixNanos{ns};
 }
 
-std::optional<Bbo>
-map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -194,9 +192,8 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
 namespace {
 
 // levels stop at the domain ceiling; an unconvertible level voids the side
-std::uint32_t fill_levels(std::span<const WireLevel> from,
-                          const InstrumentBase& base,
-                          std::array<BookLevel, k_book_levels>& into) {
+std::uint32_t
+fill_levels(std::span<const WireLevel> from, const InstrumentBase& base, std::array<BookLevel, k_book_levels>& into) {
     std::uint32_t count = 0;
     for (const auto& level : from) {
         if (count == k_book_levels) {
@@ -234,8 +231,7 @@ map_book(const WireBookSnapshot& wire, const exec::InstrumentTable& table, UnixN
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -280,9 +276,8 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
     return out;
 }
 
-std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
-                                            const exec::InstrumentTable& table,
-                                            UnixNanos ts_init) {
+std::optional<TickerStats>
+map_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     // java doubles past nine decimals; the exact reader refuses them
     const auto base = wire.vol.empty() ? std::nullopt : parse_amount_e9(wire.vol);
     const auto quote = wire.vol_value.empty() ? std::nullopt : parse_turnover_e6(wire.vol_value);
@@ -307,10 +302,8 @@ std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
 }
 
 // fields not yet stated stay undef
-[[nodiscard]] FundingUpdate merged(const Instrument& instrument,
-                                   const FundingMemo& memo,
-                                   UnixNanos ts_event,
-                                   UnixNanos ts_init) {
+[[nodiscard]] FundingUpdate
+merged(const Instrument& instrument, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
     FundingUpdate out{};
     out.instrument = base_of(instrument).id;
     out.rate = memo.rate;
@@ -342,8 +335,8 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
         memo.predicted = *predicted;
     }
     const auto* perp = std::get_if<PerpInstrument>(instrument);
-    const std::uint64_t interval_ms =
-        perp == nullptr ? 0 : static_cast<std::uint64_t>(perp->funding_interval_s) * 1000ULL;
+    const std::uint64_t interval_ms = perp == nullptr ? 0
+                                                      : static_cast<std::uint64_t>(perp->funding_interval_s) * 1000ULL;
     memo.interval_s = perp == nullptr ? 0 : perp->funding_interval_s;
     // only rest states the next settlement
     memo.next_funding = wire.next_funding_ms != 0 ? ms_to_unix(wire.next_funding_ms, UnixNanos{0})
@@ -353,10 +346,8 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
     return merged(*instrument, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
 }
 
-std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
-                                            const exec::InstrumentTable& table,
-                                            FundingMemo& memo,
-                                            UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -410,8 +401,8 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     const auto tick = parse_number_e9(wire.tick_size);
     const auto lot = parse_number_e9(wire.lot_size);
     const auto multiplier = parse_number_e9(wire.multiplier);
-    if (!tick.has_value() || !lot.has_value() || !multiplier.has_value() || tick->raw <= 0 ||
-        lot->raw <= 0 || multiplier->raw <= 0) {
+    if (!tick.has_value() || !lot.has_value() || !multiplier.has_value() || tick->raw <= 0 || lot->raw <= 0 ||
+        multiplier->raw <= 0) {
         return std::nullopt;
     }
     const auto symbol = SymbolText::from(wire.symbol);
@@ -437,9 +428,8 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     return PerpInstrument{base, static_cast<std::uint32_t>(wire.funding_granularity_ms / 1000)};
 }
 
-std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
-                                           const exec::InstrumentTable& table,
-                                           UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_order_change(const WireOrderChange& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -511,8 +501,7 @@ std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -531,8 +520,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
         !copy_id(wire.order_id, out.exchange_order_id)) {
         return std::nullopt;
     }
-    out.status =
-        dealt.has_value() && dealt->raw > 0 ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
+    out.status = dealt.has_value() && dealt->raw > 0 ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
     if (const auto price = to_ticks(wire.price, base); price.has_value()) {
         out.price = *price;
     }
@@ -587,8 +575,7 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -609,8 +596,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
     return out;
 }
 
-std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire,
-                                                  UnixNanos ts_init) {
+std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire, UnixNanos ts_init) {
     const auto asset = to_asset_code(wire.currency);
     if (!asset.has_value()) {
         return std::nullopt;

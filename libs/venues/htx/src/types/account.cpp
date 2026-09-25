@@ -41,8 +41,8 @@ std::expected<std::uint64_t, WireError> parse_spot_account_id(std::string_view b
     });
 }
 
-std::expected<std::span<const WireFinancialRecord>, WireError>
-parse_financial_records(std::string_view body, FinancialRecordBuffer& storage) {
+std::expected<std::span<const WireFinancialRecord>, WireError> parse_financial_records(std::string_view body,
+                                                                                       FinancialRecordBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFinancialRecord>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -67,8 +67,8 @@ parse_financial_records(std::string_view body, FinancialRecordBuffer& storage) {
             const auto type = wire::opt_i64(obj, "type");
             const auto query_id = wire::opt_u64(obj, "query_id");
             const auto ts = wire::opt_u64(obj, "ts");
-            if (!code.has_value() || !asset.has_value() || !amount.has_value() ||
-                !type.has_value() || !query_id.has_value() || !ts.has_value()) {
+            if (!code.has_value() || !asset.has_value() || !amount.has_value() || !type.has_value() ||
+                !query_id.has_value() || !ts.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             storage.records[count] = {.contract_code = *code,

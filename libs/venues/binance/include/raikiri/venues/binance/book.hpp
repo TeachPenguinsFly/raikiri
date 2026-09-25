@@ -57,8 +57,7 @@ struct WireDepthUpdate {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
-                                                                           LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data, LevelBuffer& storage);
 
 // usable only while a delta still straddles last_update_id
 struct WireDepthSnapshot {
@@ -69,8 +68,8 @@ struct WireDepthSnapshot {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepthSnapshot, WireError>
-parse_depth_snapshot(std::string_view body, LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_view body,
+                                                                               LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // book advanced and is publishable

@@ -70,8 +70,11 @@ bench:
 	$(MAKE) build PRESET=bench
 	@echo "--- benchmarks in build/bench/bench/"
 
+# ci pins clang-format 18; other versions format differently
+CLANG_FORMAT ?= $(shell command -v clang-format-18 2>/dev/null || ls $$(brew --prefix llvm@18 2>/dev/null)/bin/clang-format 2>/dev/null || echo clang-format)
+
 fmt:
-	git ls-files '*.hpp' '*.cpp' | xargs clang-format -i
+	git ls-files '*.hpp' '*.cpp' | xargs $(CLANG_FORMAT) -i
 
 clean:
 	rm -rf build

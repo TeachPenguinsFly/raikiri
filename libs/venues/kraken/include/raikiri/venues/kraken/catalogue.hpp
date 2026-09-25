@@ -30,7 +30,7 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                                          InstrumentBuffer& storage);
 
 } // namespace raikiri::venues::kraken

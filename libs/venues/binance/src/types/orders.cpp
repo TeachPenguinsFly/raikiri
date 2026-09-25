@@ -88,8 +88,8 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view da
         const auto trade_ms = wire::opt_u64(*order, "T");
         const auto maker = wire::opt_bool(*order, "m");
         const auto reduce_only = wire::opt_bool(*order, "R");
-        if (!order_id.has_value() || !trade_id.has_value() || !trade_ms.has_value() ||
-            !maker.has_value() || !reduce_only.has_value()) {
+        if (!order_id.has_value() || !trade_id.has_value() || !trade_ms.has_value() || !maker.has_value() ||
+            !reduce_only.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         out.order_id = *order_id;
@@ -115,8 +115,7 @@ std::expected<WireOrder, WireError> parse_order(std::string_view body) {
     });
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                  OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         auto& sess = session();
         auto array = sess.open_array(body);
@@ -143,8 +142,7 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
     });
 }
 
-std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::string_view body,
-                                                                       TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::string_view body, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {
@@ -172,8 +170,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::stri
             const auto order_id = wire::opt_u64(obj, "orderId");
             const auto time_ms = wire::opt_u64(obj, "time");
             const auto maker = wire::opt_bool(obj, "maker");
-            if (!trade_id.has_value() || !order_id.has_value() || !time_ms.has_value() ||
-                !maker.has_value()) {
+            if (!trade_id.has_value() || !order_id.has_value() || !time_ms.has_value() || !maker.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.trade_id = *trade_id;

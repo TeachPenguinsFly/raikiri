@@ -23,19 +23,16 @@ enum class LifecycleError : std::uint8_t {
     Finished,       // any move at all, on something stopped
 };
 
-[[nodiscard]] constexpr std::expected<Phase, LifecycleError> step(Phase from,
-                                                                  Transition move) noexcept {
+[[nodiscard]] constexpr std::expected<Phase, LifecycleError> step(Phase from, Transition move) noexcept {
     using Result = std::expected<Phase, LifecycleError>;
     if (from == Phase::Stopped) {
         return Result{std::unexpect, LifecycleError::Finished};
     }
     switch (move) {
     case Transition::Start:
-        return from == Phase::Created ? Result{Phase::Running}
-                                      : Result{std::unexpect, LifecycleError::AlreadyRunning};
+        return from == Phase::Created ? Result{Phase::Running} : Result{std::unexpect, LifecycleError::AlreadyRunning};
     case Transition::Stop:
-        return from == Phase::Running ? Result{Phase::Stopped}
-                                      : Result{std::unexpect, LifecycleError::NotRunning};
+        return from == Phase::Running ? Result{Phase::Stopped} : Result{std::unexpect, LifecycleError::NotRunning};
     }
     return Result{std::unexpect, LifecycleError::Finished};
 }

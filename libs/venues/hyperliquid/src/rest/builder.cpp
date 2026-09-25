@@ -120,30 +120,25 @@ net::RestRequest UserRequestBuilder::user_fills(std::string_view user) noexcept 
     return simple("userFills", user);
 }
 
-net::RestRequest UserRequestBuilder::user_fills_by_time(std::string_view user,
-                                                        std::uint64_t start_ms) noexcept {
+net::RestRequest UserRequestBuilder::user_fills_by_time(std::string_view user, std::uint64_t start_ms) noexcept {
     Appender body{body_};
-    body << R"({"type":"userFillsByTime","user":")" << user << R"(","startTime":)" << start_ms
-         << "}";
+    body << R"({"type":"userFillsByTime","user":")" << user << R"(","startTime":)" << start_ms << "}";
     return info(body.view());
 }
 
-net::RestRequest UserRequestBuilder::user_funding(std::string_view user,
-                                                  std::uint64_t start_ms) noexcept {
+net::RestRequest UserRequestBuilder::user_funding(std::string_view user, std::uint64_t start_ms) noexcept {
     Appender body{body_};
     body << R"({"type":"userFunding","user":")" << user << R"(","startTime":)" << start_ms << "}";
     return info(body.view());
 }
 
-net::RestRequest UserRequestBuilder::order_status(std::string_view user,
-                                                  std::uint64_t oid) noexcept {
+net::RestRequest UserRequestBuilder::order_status(std::string_view user, std::uint64_t oid) noexcept {
     Appender body{body_};
     body << R"({"type":"orderStatus","user":")" << user << R"(","oid":)" << oid << "}";
     return info(body.view());
 }
 
-net::RestRequest UserRequestBuilder::order_status(std::string_view user,
-                                                  std::string_view cloid) noexcept {
+net::RestRequest UserRequestBuilder::order_status(std::string_view user, std::string_view cloid) noexcept {
     Appender body{body_};
     body << R"({"type":"orderStatus","user":")" << user << R"(","oid":")" << cloid << R"("})";
     return info(body.view());

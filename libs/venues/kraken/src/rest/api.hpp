@@ -70,8 +70,7 @@ exec::VenueError rest_failure(std::string_view body) {
 class RestApi {
 public:
     explicit RestApi(VenueState& state)
-        : state_{&state},
-          rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+        : state_{&state}, rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
           builder_{state.signer} {}
 
     void start() { rest_.start(); }
@@ -86,8 +85,7 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType market) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -99,8 +97,7 @@ public:
         auto& storage = *storage_owner;
         const auto orders = parse_open_orders(*body, storage);
         if (!orders.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
         }
         std::vector<exec::OrderStatusReport> reports;
         reports.reserve(orders->size());
@@ -112,8 +109,8 @@ public:
         return reports;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) {
         // no single-order read: /openorders is filtered, so a finished order is not findable
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
@@ -124,12 +121,11 @@ public:
                 return report;
             }
         }
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::Terminal, 0, "kraken: order is not in the working set")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kraken: order is not in the working set")};
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
-                                                                                UnixNanos since) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -145,8 +141,7 @@ public:
             auto& storage = *storage_owner;
             const auto fills = parse_fills(*body, storage);
             if (!fills.has_value()) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(fills.error()))};
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(fills.error()))};
             }
             if (fills->empty()) {
                 break;
@@ -177,8 +172,7 @@ public:
         return reports;
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -190,8 +184,7 @@ public:
         auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());
@@ -211,8 +204,7 @@ private:
         }
         const auto response = await_response(*state_, rest_, *request);
         if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
         // an unauthenticated read answers http 200 with authenticationError
         const auto envelope = parse_rest_envelope(response->body);

@@ -8,13 +8,11 @@ namespace raikiri::venues::binance {
 namespace {
 
 // binance's documented signing example
-constexpr std::string_view k_doc_secret =
-    "NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j";
-constexpr std::string_view k_doc_query =
-    "symbol=LTCBTC&side=BUY&type=LIMIT&timeInForce=GTC&quantity=1&price=0.1&recvWindow=5000&"
-    "timestamp=1499827319559";
-constexpr std::string_view k_doc_signature =
-    "c8db56825ae71d6d79447849e617115f4a920fa2acdcab2b053c4b2838bd6b71";
+constexpr std::string_view k_doc_secret = "NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j";
+constexpr std::string_view
+    k_doc_query = "symbol=LTCBTC&side=BUY&type=LIMIT&timeInForce=GTC&quantity=1&price=0.1&recvWindow=5000&"
+                  "timestamp=1499827319559";
+constexpr std::string_view k_doc_signature = "c8db56825ae71d6d79447849e617115f4a920fa2acdcab2b053c4b2838bd6b71";
 
 void give_credentials(net::Signer& signer, std::string_view secret = k_doc_secret) {
     signer.set_api_key("test-api-key");
@@ -71,10 +69,8 @@ TEST(BinanceRest, WithoutCredentialsEverySignedPathRefuses) {
     const auto instrument = btc_usdt();
     const auto now = UnixNanos{1'700'000'000'000'000'000ULL};
 
-    EXPECT_EQ(builder.create_order(limit_buy(), instrument, now).error(),
-              BuildError::NoCredentials);
-    EXPECT_EQ(builder.cancel_order(limit_buy(), instrument, now).error(),
-              BuildError::NoCredentials);
+    EXPECT_EQ(builder.create_order(limit_buy(), instrument, now).error(), BuildError::NoCredentials);
+    EXPECT_EQ(builder.cancel_order(limit_buy(), instrument, now).error(), BuildError::NoCredentials);
     EXPECT_EQ(builder.open_orders(now).error(), BuildError::NoCredentials);
     EXPECT_EQ(builder.position_risk(now).error(), BuildError::NoCredentials);
     EXPECT_EQ(builder.account(now).error(), BuildError::NoCredentials);
@@ -87,8 +83,7 @@ TEST(BinanceRest, CreateOrderSignsExactlyWhatItSends) {
     give_credentials(signer);
     RequestBuilder builder{signer};
 
-    const auto request =
-        builder.create_order(limit_buy(), btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
+    const auto request = builder.create_order(limit_buy(), btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(request.has_value());
 
     const std::string_view target = request->target;
@@ -110,8 +105,7 @@ TEST(BinanceRest, CreateOrderRendersPricesFromFixedPoint) {
     give_credentials(signer);
     RequestBuilder builder{signer};
 
-    const auto request =
-        builder.create_order(limit_buy(), btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
+    const auto request = builder.create_order(limit_buy(), btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(request.has_value());
     const std::string_view target = request->target;
 
@@ -140,8 +134,7 @@ TEST(BinanceRest, PostOnlyBecomesTheTimeInForce) {
 
     auto cmd = limit_buy();
     cmd.flags = OrderFlags::PostOnly;
-    const auto request =
-        builder.create_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
+    const auto request = builder.create_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(param_of(request->target, "timeInForce"), "GTX");
 }
@@ -154,8 +147,7 @@ TEST(BinanceRest, PostOnlyMarketOrderIsRefusedLocally) {
     auto cmd = limit_buy();
     cmd.order_type = OrderType::Market;
     cmd.flags = OrderFlags::PostOnly;
-    const auto request =
-        builder.create_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
+    const auto request = builder.create_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_FALSE(request.has_value());
     EXPECT_EQ(request.error(), BuildError::UnsupportedOrderType);
 }
@@ -167,8 +159,7 @@ TEST(BinanceRest, MarketOrderCarriesNoPriceOrTimeInForce) {
 
     auto cmd = limit_buy();
     cmd.order_type = OrderType::Market;
-    const auto request =
-        builder.create_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
+    const auto request = builder.create_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(param_of(request->target, "type"), "MARKET");
     EXPECT_TRUE(param_of(request->target, "price").empty());
@@ -205,8 +196,7 @@ TEST(BinanceRest, AmendIsAPutCarryingBothNewValues) {
     cmd.kind = CmdKind::Amend;
     cmd.price = PriceTicks::from_raw(644'000);
     cmd.qty = QtyLots::from_raw(7);
-    const auto request =
-        builder.amend_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
+    const auto request = builder.amend_order(cmd, btc_usdt(), UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(request->method, net::HttpMethod::Put);
     EXPECT_EQ(param_of(request->target, "price"), "64400");
@@ -221,9 +211,8 @@ TEST(BinanceRest, ListenKeyEndpointsAreNeverSigned) {
     give_credentials(signer);
     RequestBuilder builder{signer};
 
-    for (const auto& request : {builder.listen_key_create(),
-                                builder.listen_key_keepalive(),
-                                builder.listen_key_close()}) {
+    for (const auto& request :
+         {builder.listen_key_create(), builder.listen_key_keepalive(), builder.listen_key_close()}) {
         ASSERT_TRUE(request.has_value());
         EXPECT_EQ(request->target, "/fapi/v1/listenKey");
         EXPECT_EQ(request->target.find("signature"), std::string_view::npos);
@@ -249,13 +238,11 @@ TEST(BinanceRest, ReconciliationPullsAreSignedGets) {
     ASSERT_TRUE(positions.has_value());
     EXPECT_NE(positions->target.find("/fapi/v3/positionRisk?"), std::string_view::npos);
 
-    const auto query = builder.query_order(
-        "BTCUSDT", *ExchangeClientOrderId::from("01HQ8ZK9M4TESTULID000000AB"), now);
+    const auto query = builder.query_order("BTCUSDT", *ExchangeClientOrderId::from("01HQ8ZK9M4TESTULID000000AB"), now);
     ASSERT_TRUE(query.has_value());
     EXPECT_EQ(param_of(query->target, "origClientOrderId"), "01HQ8ZK9M4TESTULID000000AB");
 
-    const auto trades =
-        builder.user_trades("BTCUSDT", UnixNanos{1'699'000'000'000'000'000ULL}, now);
+    const auto trades = builder.user_trades("BTCUSDT", UnixNanos{1'699'000'000'000'000'000ULL}, now);
     ASSERT_TRUE(trades.has_value());
     EXPECT_EQ(param_of(trades->target, "startTime"), "1699000000000");
 
@@ -273,8 +260,7 @@ TEST(BinanceRest, TheIncomeTargetIsWhatTheVenueExpects) {
     net::Signer signer;
     give_credentials(signer);
     RequestBuilder builder{signer};
-    const auto request =
-        builder.funding_income(UnixNanos{0}, UnixNanos{1'700'000'000'000'000'000ULL});
+    const auto request = builder.funding_income(UnixNanos{0}, UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(request.has_value());
     EXPECT_TRUE(request->target.starts_with("/fapi/v1/income?"));
 }
@@ -282,10 +268,8 @@ TEST(BinanceRest, TheIncomeTargetIsWhatTheVenueExpects) {
 TEST(BinanceRest, DepthSnapshotPercentEncodesANonAsciiSymbol) {
     net::Signer signer;
     RequestBuilder builder{signer};
-    EXPECT_EQ(builder.depth_snapshot("龙虾USDT", 100).target,
-              "/fapi/v1/depth?symbol=%E9%BE%99%E8%99%BEUSDT&limit=100");
-    EXPECT_EQ(builder.depth_snapshot("BTCUSDT", 100).target,
-              "/fapi/v1/depth?symbol=BTCUSDT&limit=100");
+    EXPECT_EQ(builder.depth_snapshot("龙虾USDT", 100).target, "/fapi/v1/depth?symbol=%E9%BE%99%E8%99%BEUSDT&limit=100");
+    EXPECT_EQ(builder.depth_snapshot("BTCUSDT", 100).target, "/fapi/v1/depth?symbol=BTCUSDT&limit=100");
 }
 
 } // namespace raikiri::venues::binance

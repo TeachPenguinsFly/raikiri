@@ -35,8 +35,8 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                                          InstrumentBuffer& storage);
 
 struct WireRestError {
     std::int64_t code{0};
@@ -138,8 +138,7 @@ struct MessageBuffer {
     AckBuffer ack;
 };
 
-[[nodiscard]] std::expected<WireMessage, WireError> parse_message(std::string_view frame,
-                                                                  MessageBuffer& storage);
+[[nodiscard]] std::expected<WireMessage, WireError> parse_message(std::string_view frame, MessageBuffer& storage);
 
 [[nodiscard]] std::string_view selector_instrument(std::string_view selector) noexcept;
 

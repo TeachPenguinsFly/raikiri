@@ -63,8 +63,7 @@ struct WireBookUpdate {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame,
-                                                                         LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame, LevelBuffer& storage);
 
 // spot.order_book is a whole book; both ids are lastUpdateId
 [[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view frame,
@@ -78,8 +77,7 @@ struct WireOrderBook {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body,
-                                                                       LevelBuffer& storage);
+[[nodiscard]] std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // book advanced and is publishable

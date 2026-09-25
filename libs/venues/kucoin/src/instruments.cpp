@@ -40,18 +40,14 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     }
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.clock_offset_ns =
-        static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
+    state.clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
 }
 
 class KucoinInstruments final : public exec::InstrumentSource {
 public:
     explicit KucoinInstruments(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          spot_rest_{
-              state_->io,
-              net::RestConfig{.host = std::string{rest_host(MarketType::Spot)}, .port = "443"}} {}
+        : state_{std::move(state)}, rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+          spot_rest_{state_->io, net::RestConfig{.host = std::string{rest_host(MarketType::Spot)}, .port = "443"}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         switch (market) {
@@ -61,8 +57,8 @@ public:
             return fetch_futures();
         case MarketType::Future:
             // dated contracts on the futures host are all inverse
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "kucoin dated futures are not modelled")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kucoin dated futures are not modelled")};
         case MarketType::Option:
             return std::unexpected{exec::not_implemented("kucoin options order entry")};
         }
@@ -75,8 +71,7 @@ private:
         // kucoin refuses signatures more than 5 s off its clock
         sync_clock(*state_, rest_);
 
-        const auto body =
-            usable_body(await_response(*state_, rest_, state_->builder.contracts_active(), 20'000));
+        const auto body = usable_body(await_response(*state_, rest_, state_->builder.contracts_active(), 20'000));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -86,8 +81,7 @@ private:
         auto& storage = *storage_owner;
         const auto wire = parse_contracts(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;
@@ -99,7 +93,10 @@ private:
                 if (entry.status == "Open" && entry.type == "FFWCSX" && !entry.is_inverse) {
                     RLOG_WARN("kucoin: {} dropped — tick {} or lot {} x {} is finer than 1e-9 "
                               "or unreadable",
-                              entry.symbol, entry.tick_size, entry.lot_size, entry.multiplier);
+                              entry.symbol,
+                              entry.tick_size,
+                              entry.lot_size,
+                              entry.multiplier);
                 }
                 continue;
             }
@@ -110,8 +107,7 @@ private:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_spot() {
         spot_rest_.start();
-        const auto body = usable_body(
-            await_response(*state_, spot_rest_, state_->builder.spot_symbols(), 20'000));
+        const auto body = usable_body(await_response(*state_, spot_rest_, state_->builder.spot_symbols(), 20'000));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -119,8 +115,7 @@ private:
         auto storage = std::make_unique<SpotSymbolBuffer>();
         const auto wire = parse_spot_symbols(*body, *storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;

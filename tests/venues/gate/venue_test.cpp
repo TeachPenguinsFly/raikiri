@@ -58,8 +58,7 @@ TEST(GateVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Gate);
     EXPECT_NE(adapter->data, nullptr);
@@ -72,8 +71,7 @@ TEST(GateVenue, AnUnbuildableCommandIsRefusedLocally) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -95,8 +93,7 @@ TEST(GateVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     for (const auto market : {MarketType::Option, MarketType::Future}) {
         const auto loaded = adapter->instruments->fetch_all(market);
@@ -106,11 +103,10 @@ TEST(GateVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
 }
 
 TEST(GateWire, EventDispatchResolvesKindFromChannelAndEvent) {
-    for (const auto& [file, kind] :
-         {std::pair{"ws_book_ticker.json", EventKind::BookTicker},
-          std::pair{"ws_trades.json", EventKind::Trade},
-          std::pair{"ws_tickers.json", EventKind::Ticker},
-          std::pair{"ws_order_book_update.json", EventKind::BookUpdate}}) {
+    for (const auto& [file, kind] : {std::pair{"ws_book_ticker.json", EventKind::BookTicker},
+                                     std::pair{"ws_trades.json", EventKind::Trade},
+                                     std::pair{"ws_tickers.json", EventKind::Ticker},
+                                     std::pair{"ws_order_book_update.json", EventKind::BookUpdate}}) {
         const auto frame = fixture(file);
         const auto event = parse_event(frame);
         ASSERT_TRUE(event.has_value()) << file;
@@ -702,9 +698,8 @@ TEST(GateMap, LiveCaptureFlowsFromFrameToDomain) {
 
 TEST(GateWs, SubscribeFrameNamesOneChannelAndListsContracts) {
     Protocol protocol;
-    const std::array<Subscription, 2> subs{
-        Subscription{.channel = "futures.book_ticker", .contract = "BTC_USDT"},
-        Subscription{.channel = "futures.book_ticker", .contract = "ETH_USDT"}};
+    const std::array<Subscription, 2> subs{Subscription{.channel = "futures.book_ticker", .contract = "BTC_USDT"},
+                                           Subscription{.channel = "futures.book_ticker", .contract = "ETH_USDT"}};
     const auto frame = protocol.subscribe_frame(subs, 1'786'394'633ULL);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
@@ -716,10 +711,9 @@ TEST(GateWs, SubscribeFrameNamesOneChannelAndListsContracts) {
 TEST(GateWs, BatchingStopsAtAChannelBoundary) {
     // one frame names one channel
     Protocol protocol;
-    const std::array<Subscription, 3> subs{
-        Subscription{.channel = "futures.book_ticker", .contract = "BTC_USDT"},
-        Subscription{.channel = "futures.book_ticker", .contract = "ETH_USDT"},
-        Subscription{.channel = "futures.trades", .contract = "BTC_USDT"}};
+    const std::array<Subscription, 3> subs{Subscription{.channel = "futures.book_ticker", .contract = "BTC_USDT"},
+                                           Subscription{.channel = "futures.book_ticker", .contract = "ETH_USDT"},
+                                           Subscription{.channel = "futures.trades", .contract = "BTC_USDT"}};
     auto frame = protocol.subscribe_frame(subs, 1ULL);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
@@ -764,14 +758,12 @@ TEST(GateWs, EmptyChannelIsRefusedRatherThanSent) {
 TEST(GateWs, PingFrameCarriesATimestamp) {
     // gate pings with a json frame and answers on futures.pong
     Protocol protocol;
-    EXPECT_EQ(protocol.ping_frame(1'786'394'751ULL),
-              R"({"time":1786394751,"channel":"futures.ping"})");
+    EXPECT_EQ(protocol.ping_frame(1'786'394'751ULL), R"({"time":1786394751,"channel":"futures.ping"})");
 }
 
 TEST(GateWs, UnsubscribeMirrorsSubscribe) {
     Protocol protocol;
-    const std::array<Subscription, 1> subs{
-        Subscription{.channel = "futures.trades", .contract = "BTC_USDT"}};
+    const std::array<Subscription, 1> subs{Subscription{.channel = "futures.trades", .contract = "BTC_USDT"}};
     const auto frame = protocol.unsubscribe_frame(subs, 5ULL);
     ASSERT_TRUE(frame.has_value());
     EXPECT_NE(frame->text.find(R"("event":"unsubscribe")"), std::string_view::npos);
@@ -1076,9 +1068,8 @@ TEST(GateErrors, BenignCancelRacesAreRecognised) {
 // gate's documented signing examples
 constexpr std::string_view k_doc_key = "key";
 constexpr std::string_view k_doc_secret = "secret";
-constexpr std::string_view k_empty_sha512 =
-    "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce"
-    "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
+constexpr std::string_view k_empty_sha512 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce"
+                                            "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
 
 TEST(GateSign, AnEmptyBodyIsHashedRatherThanSkipped) {
     // the body hash term is always present, 128 characters
@@ -1089,23 +1080,22 @@ TEST(GateSign, AnEmptyBodyIsHashedRatherThanSkipped) {
 TEST(GateSign, PublishedVectorsReproduce) {
     std::array<char, net::k_hex512_bytes> out{};
 
-    const std::string get_message =
-        std::string{"GET\n/api/v4/futures/orders\ncontract=BTC_USD&status=finished&limit=50\n"} +
-        std::string{k_empty_sha512} + "\n1541993715";
+    const std::string
+        get_message = std::string{"GET\n/api/v4/futures/orders\ncontract=BTC_USD&status=finished&limit=50\n"} +
+                      std::string{k_empty_sha512} + "\n1541993715";
     EXPECT_EQ(net::hmac_sha512_hex(k_doc_secret, get_message, out),
               "55f84ea195d6fe57ce62464daaa7c3c02fa9d1dde954e4c898289c9a2407a3d6"
               "fb3faf24deff16790d726b66ac9f74526668b13bd01029199cc4fcc522418b8a");
 
-    constexpr std::string_view post_body =
-        R"({"contract":"BTC_USD","type":"limit","size":100,"price":6800,"time_in_force":"gtc"})";
+    constexpr std::string_view
+        post_body = R"({"contract":"BTC_USD","type":"limit","size":100,"price":6800,"time_in_force":"gtc"})";
     std::array<char, net::k_hex512_bytes> body_hash{};
     EXPECT_EQ(net::sha512_hex(post_body, body_hash),
               "ad3c169203dc3026558f01b4df307641fa1fa361f086b2306658886d5708767b"
               "1854797c68d9e62fef2f991645aa82673622ebf417e091d0bd22bafe5d956cca");
 
     const std::string post_message = std::string{"POST\n/api/v4/futures/orders\n\n"} +
-                                     std::string{net::sha512_hex(post_body, body_hash)} +
-                                     "\n1541993715";
+                                     std::string{net::sha512_hex(post_body, body_hash)} + "\n1541993715";
     EXPECT_EQ(net::hmac_sha512_hex(k_doc_secret, post_message, out),
               "eae42da914a590ddf727473aff25fc87d50b64783941061f47a3fdb92742541f"
               "c4c2c14017581b4199a1418d54471c269c03a38d788d802e2c306c37636389f0");
@@ -1231,8 +1221,7 @@ TEST(GateSignedRest, SignatureLayoutIsMethodPathQueryBodyHashSeconds) {
     const auto table = table_with_btc();
 
     const auto request = builder.create_order(
-        limit_cmd(
-            MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(10)),
+        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(10)),
         table,
         k_sign_now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
@@ -1246,8 +1235,7 @@ TEST(GateSignedRest, SignatureLayoutIsMethodPathQueryBodyHashSeconds) {
     EXPECT_EQ(header_of(*request, "Timestamp"), "1541993715");
     EXPECT_EQ(header_of(*request, "KEY"), k_doc_key);
     std::array<char, net::k_hex512_bytes> signature{};
-    EXPECT_EQ(header_of(*request, "SIGN"),
-              net::hmac_sha512_hex(k_doc_secret, builder.last_sign_message(), signature));
+    EXPECT_EQ(header_of(*request, "SIGN"), net::hmac_sha512_hex(k_doc_secret, builder.last_sign_message(), signature));
 }
 
 TEST(GateSignedRest, WithoutCredentialsNothingIsBuilt) {
@@ -1255,9 +1243,7 @@ TEST(GateSignedRest, WithoutCredentialsNothingIsBuilt) {
     SignedRequestBuilder builder{signer};
     const auto table = table_with_btc();
     const auto request = builder.create_order(
-        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1)),
-        table,
-        k_sign_now);
+        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1)), table, k_sign_now);
     ASSERT_FALSE(request.has_value());
     EXPECT_EQ(request.error(), BuildError::NotSigned);
 }
@@ -1268,8 +1254,7 @@ TEST(GateSignedRest, PerpOrderCarriesTheSideInTheSignOfSize) {
     SignedRequestBuilder builder{signer};
     const auto table = table_with_btc();
 
-    auto cmd = limit_cmd(
-        MarketType::Perp, Side::Sell, PriceTicks::from_raw(640'000), QtyLots::from_raw(10));
+    auto cmd = limit_cmd(MarketType::Perp, Side::Sell, PriceTicks::from_raw(640'000), QtyLots::from_raw(10));
     cmd.flags = OrderFlags::PostOnly;
     const auto sell = builder.create_order(cmd, table, k_sign_now);
     ASSERT_TRUE(sell.has_value());
@@ -1280,8 +1265,7 @@ TEST(GateSignedRest, PerpOrderCarriesTheSideInTheSignOfSize) {
               R"("text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ"})");
 
     const auto buy = builder.create_order(
-        limit_cmd(
-            MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(10)),
+        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(10)),
         table,
         k_sign_now);
     ASSERT_TRUE(buy.has_value());
@@ -1296,8 +1280,7 @@ TEST(GateSignedRest, PerpMarketOrderIsPriceZeroWithIoc) {
     SignedRequestBuilder builder{signer};
     const auto table = table_with_btc();
 
-    auto cmd =
-        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(3));
+    auto cmd = limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(3));
     cmd.order_type = OrderType::Market;
     cmd.tif = TimeInForce::Gtc; // deliberately wrong; the builder must override
     cmd.flags = OrderFlags::ReduceOnly;
@@ -1315,8 +1298,7 @@ TEST(GateSignedRest, SpotIsADifferentEndpointAndADifferentShape) {
     const auto table = spot_table_with_btc();
 
     const auto request = builder.create_order(
-        limit_cmd(
-            MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000)),
+        limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000)),
         table,
         k_sign_now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
@@ -1334,8 +1316,7 @@ TEST(GateSignedRest, SpotMarketBuyIsRefusedRatherThanGuessed) {
     SignedRequestBuilder builder{signer};
     const auto table = spot_table_with_btc();
 
-    auto cmd =
-        limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::undef(), QtyLots::from_raw(500'000));
+    auto cmd = limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::undef(), QtyLots::from_raw(500'000));
     cmd.order_type = OrderType::Market;
     const auto refused = builder.create_order(cmd, table, k_sign_now);
     ASSERT_FALSE(refused.has_value());
@@ -1368,9 +1349,7 @@ TEST(GateSignedRest, AFractionalContractCountIsRefusedNotRounded) {
         ASSERT_TRUE(table.add(*instrument).has_value());
     }
     const auto request = builder.create_order(
-        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(3)),
-        table,
-        k_sign_now);
+        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(3)), table, k_sign_now);
     ASSERT_FALSE(request.has_value());
     EXPECT_EQ(request.error(), BuildError::BadQuantity);
 }
@@ -1381,8 +1360,7 @@ TEST(GateSignedRest, CancelPrefersTheVenueIdAndSpotAlsoNeedsThePair) {
     SignedRequestBuilder builder{signer};
 
     const auto perp = table_with_btc();
-    auto cmd =
-        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1));
+    auto cmd = limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1));
     cmd.kind = CmdKind::Cancel;
     const auto by_client = builder.cancel_order(cmd, perp, k_sign_now);
     ASSERT_TRUE(by_client.has_value());
@@ -1396,8 +1374,7 @@ TEST(GateSignedRest, CancelPrefersTheVenueIdAndSpotAlsoNeedsThePair) {
     EXPECT_EQ(by_venue->target, "/api/v4/futures/usdt/orders/123456789");
 
     const auto spot = spot_table_with_btc();
-    auto spot_cmd = limit_cmd(
-        MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
+    auto spot_cmd = limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
     spot_cmd.kind = CmdKind::Cancel;
     const auto spot_cancel = builder.cancel_order(spot_cmd, spot, k_sign_now);
     ASSERT_TRUE(spot_cancel.has_value());
@@ -1411,8 +1388,7 @@ TEST(GateSignedRest, AmendIsAPutOnFuturesAndAPatchOnSpot) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
 
-    auto cmd = limit_cmd(
-        MarketType::Perp, Side::Sell, PriceTicks::from_raw(650'000), QtyLots::from_raw(7));
+    auto cmd = limit_cmd(MarketType::Perp, Side::Sell, PriceTicks::from_raw(650'000), QtyLots::from_raw(7));
     cmd.kind = CmdKind::Amend;
     const auto perp = builder.amend_order(cmd, table_with_btc(), k_sign_now);
     ASSERT_TRUE(perp.has_value());
@@ -1420,8 +1396,7 @@ TEST(GateSignedRest, AmendIsAPutOnFuturesAndAPatchOnSpot) {
     // an amend restates the signed size
     EXPECT_EQ(perp->body, R"({"size":-7,"price":"65000"})");
 
-    auto spot_cmd = limit_cmd(
-        MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
+    auto spot_cmd = limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
     spot_cmd.kind = CmdKind::Amend;
     const auto spot = builder.amend_order(spot_cmd, spot_table_with_btc(), k_sign_now);
     ASSERT_TRUE(spot.has_value());
@@ -1434,8 +1409,7 @@ TEST(GateSignedRest, BatchCancelBodiesDifferPerMarket) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
 
-    auto first =
-        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1));
+    auto first = limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1));
     first.target_exchange_order_id = ExchangeOrderId::from("111").value();
     auto second = first;
     second.target_exchange_order_id = ExchangeOrderId::from("222").value();
@@ -1445,8 +1419,7 @@ TEST(GateSignedRest, BatchCancelBodiesDifferPerMarket) {
     EXPECT_EQ(perp->target, "/api/v4/futures/usdt/batch_cancel_orders");
     EXPECT_EQ(perp->body, R"(["111","222"])");
 
-    auto spot_cmd = limit_cmd(
-        MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
+    auto spot_cmd = limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
     spot_cmd.target_exchange_order_id = ExchangeOrderId::from("333").value();
     const std::array<OrderCmd, 1> spot_cmds{spot_cmd};
     const auto spot = builder.cancel_batch(spot_cmds, spot_table_with_btc(), k_sign_now);
@@ -1460,11 +1433,9 @@ TEST(GateSignedRest, ABatchStraddlingTwoMarketsIsRefused) {
     net::Signer signer;
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
-    auto perp =
-        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1));
+    auto perp = limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1));
     perp.target_exchange_order_id = ExchangeOrderId::from("111").value();
-    auto spot = limit_cmd(
-        MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
+    auto spot = limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
     spot.target_exchange_order_id = ExchangeOrderId::from("222").value();
     const std::array<OrderCmd, 2> mixed{perp, spot};
     EXPECT_FALSE(builder.cancel_batch(mixed, table_with_btc(), k_sign_now).has_value());
@@ -1485,8 +1456,7 @@ TEST(GateSignedRest, ReconciliationPullsAreScopedPerMarket) {
     EXPECT_EQ(spot_open->target, "/api/v4/spot/open_orders?limit=100&account=spot");
 
     // only the timerange variant takes since
-    const auto fills =
-        builder.my_trades(MarketType::Perp, UnixNanos{1'700'000'000'000'000'000ULL}, k_sign_now);
+    const auto fills = builder.my_trades(MarketType::Perp, UnixNanos{1'700'000'000'000'000'000ULL}, k_sign_now);
     ASSERT_TRUE(fills.has_value());
     EXPECT_EQ(fills->target, "/api/v4/futures/usdt/my_trades_timerange?limit=100&from=1700000000");
 
@@ -1513,18 +1483,14 @@ TEST(GateSignedRest, OptionsAreRefusedByNameOnEveryPath) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
     const auto table = table_with_btc();
-    auto cmd =
-        limit_cmd(MarketType::Option, Side::Buy, PriceTicks::from_raw(1), QtyLots::from_raw(1));
+    auto cmd = limit_cmd(MarketType::Option, Side::Buy, PriceTicks::from_raw(1), QtyLots::from_raw(1));
 
     EXPECT_EQ(builder.create_order(cmd, table, k_sign_now).error(), BuildError::OptionsUnsupported);
     EXPECT_EQ(builder.cancel_order(cmd, table, k_sign_now).error(), BuildError::OptionsUnsupported);
     EXPECT_EQ(builder.amend_order(cmd, table, k_sign_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.open_orders(MarketType::Option, k_sign_now).error(),
-              BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.my_trades(MarketType::Option, UnixNanos{}, k_sign_now).error(),
-              BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.positions(MarketType::Option, k_sign_now).error(),
-              BuildError::OptionsUnsupported);
+    EXPECT_EQ(builder.open_orders(MarketType::Option, k_sign_now).error(), BuildError::OptionsUnsupported);
+    EXPECT_EQ(builder.my_trades(MarketType::Option, UnixNanos{}, k_sign_now).error(), BuildError::OptionsUnsupported);
+    EXPECT_EQ(builder.positions(MarketType::Option, k_sign_now).error(), BuildError::OptionsUnsupported);
     EXPECT_EQ(builder.query_order(sample_coid(), MarketType::Option, k_sign_now).error(),
               BuildError::OptionsUnsupported);
     EXPECT_EQ(to_string(BuildError::OptionsUnsupported), "gate options order entry");
@@ -1532,8 +1498,7 @@ TEST(GateSignedRest, OptionsAreRefusedByNameOnEveryPath) {
     // dated futures get their own refusal
     auto dated = cmd;
     dated.instrument = InstrumentId::make(VenueId::Gate, MarketType::Future, SymbolId{0});
-    EXPECT_EQ(builder.create_order(dated, table, k_sign_now).error(),
-              BuildError::DatedFuturesUnsupported);
+    EXPECT_EQ(builder.create_order(dated, table, k_sign_now).error(), BuildError::DatedFuturesUnsupported);
 }
 
 TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
@@ -1541,8 +1506,7 @@ TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     auto& exec_client = *adapter->execution;
 
@@ -1555,8 +1519,7 @@ TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
     // spot has no positions
     const auto spot = exec_client.position_reports(MarketType::Spot);
     ASSERT_FALSE(spot.has_value());
-    EXPECT_EQ(spot.error().message.view(),
-              exec::not_implemented("gate spot position pull").message.view());
+    EXPECT_EQ(spot.error().message.view(), exec::not_implemented("gate spot position pull").message.view());
 }
 
 TEST(GateExecClient, TheCapsRowRefusesTheSameSpotPullsTheAdapterDoes) {
@@ -1564,8 +1527,7 @@ TEST(GateExecClient, TheCapsRowRefusesTheSameSpotPullsTheAdapterDoes) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Spot}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     auto& exec_client = *adapter->execution;
 
@@ -1771,8 +1733,7 @@ TEST(GateMapPrivate, APartialFillStatesTheLeavesTheOrderChannelSupplied) {
     const auto trades = parse_ws_user_trades(trade_body, trade_storage, MarketType::Perp);
     ASSERT_TRUE(trades.has_value());
 
-    const auto event =
-        map_user_trade(trades->front(), table, *leaves, ExchangeClientOrderId{}, k_ingest);
+    const auto event = map_user_trade(trades->front(), table, *leaves, ExchangeClientOrderId{}, k_ingest);
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->type, OrderEventType::Filled);
     EXPECT_EQ(event->qty.raw, 5);
@@ -1792,8 +1753,7 @@ TEST(GateMapPrivate, AFillForAnOrderThisProcessNeverSawIsStillReported) {
     const auto body = fixture("ws_futures_usertrade.json");
     const auto trades = parse_ws_user_trades(body, storage, MarketType::Perp);
     ASSERT_TRUE(trades.has_value());
-    const auto event =
-        map_user_trade(trades->front(), table, QtyLots::undef(), ExchangeClientOrderId{}, k_ingest);
+    const auto event = map_user_trade(trades->front(), table, QtyLots::undef(), ExchangeClientOrderId{}, k_ingest);
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->leaves_qty.raw, 0);
 }
@@ -1925,12 +1885,10 @@ TEST(GateWsPrivate, SubscribeCarriesItsOwnSignature) {
     const auto frame = protocol.private_subscribe_frame(
         orders_channel(MarketType::Perp), payload, signer, 1'541'993'715ULL);
     ASSERT_TRUE(frame.has_value());
-    EXPECT_EQ(protocol.last_auth_message(),
-              "channel=futures.orders&event=subscribe&time=1541993715");
+    EXPECT_EQ(protocol.last_auth_message(), "channel=futures.orders&event=subscribe&time=1541993715");
 
     std::array<char, net::k_hex512_bytes> expected{};
-    const auto signature =
-        net::hmac_sha512_hex(k_doc_secret, protocol.last_auth_message(), expected);
+    const auto signature = net::hmac_sha512_hex(k_doc_secret, protocol.last_auth_message(), expected);
     const auto text = std::string{*frame};
     EXPECT_EQ(text,
               std::string{R"({"time":1541993715,"channel":"futures.orders","event":"subscribe",)"
@@ -2055,8 +2013,7 @@ TEST(GateSpotWire, TheSpotBookIsAWholeBookAndNotADelta) {
 TEST(GateSpotWs, TheTwoDepthChannelsTakeTheirArgumentsInOppositeOrders) {
     // gate refuses swapped depth arguments
     Protocol protocol;
-    const std::array<Subscription, 1> one{
-        Subscription{.channel = "spot.order_book", .contract = "BTC_USDT"}};
+    const std::array<Subscription, 1> one{Subscription{.channel = "spot.order_book", .contract = "BTC_USDT"}};
     const auto spot = protocol.subscribe_frame(one, 1);
     ASSERT_TRUE(spot.has_value());
     EXPECT_NE(spot->text.find(R"(["BTC_USDT",")" + std::string{k_depth_level} + R"(",")" +
@@ -2073,7 +2030,6 @@ TEST(GateSpotWs, TheTwoDepthChannelsTakeTheirArgumentsInOppositeOrders) {
               std::string_view::npos)
         << futures->text;
 }
-
 
 InstrumentBase classified_contract(std::string_view name, std::string_view contract_type) {
     WireContract wire{};

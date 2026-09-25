@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/post.hpp>
@@ -20,7 +21,6 @@
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/http/write.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -47,8 +47,7 @@ using raikiri::net::test::TlsListener;
 using namespace std::chrono_literals;
 
 template <class Predicate>
-[[nodiscard]] bool
-poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget) {
+[[nodiscard]] bool poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
         if (predicate()) {
@@ -91,25 +90,21 @@ public:
         : stream_{std::move(socket), tls}, timer_{stream_.get_executor()} {}
 
     void run() {
-        stream_.async_handshake(ssl::stream_base::server,
-                                [self = shared_from_this()](const beast::error_code& ec) {
-                                    if (!ec) {
-                                        self->read();
-                                    }
-                                });
+        stream_.async_handshake(ssl::stream_base::server, [self = shared_from_this()](const beast::error_code& ec) {
+            if (!ec) {
+                self->read();
+            }
+        });
     }
 
 private:
     void read() {
         req_ = {};
-        http::async_read(stream_,
-                         buffer_,
-                         req_,
-                         [self = shared_from_this()](const beast::error_code& ec, std::size_t) {
-                             if (!ec) {
-                                 self->hold();
-                             }
-                         });
+        http::async_read(stream_, buffer_, req_, [self = shared_from_this()](const beast::error_code& ec, std::size_t) {
+            if (!ec) {
+                self->hold();
+            }
+        });
     }
 
     void hold() {
@@ -123,20 +118,16 @@ private:
     }
 
     void respond(const std::string& target) {
-        auto res =
-            std::make_shared<http::response<http::string_body>>(http::status::ok, req_.version());
+        auto res = std::make_shared<http::response<http::string_body>>(http::status::ok, req_.version());
         res->set(http::field::content_type, "application/json");
         res->keep_alive(true);
         res->body() = target;
         res->prepare_payload();
-        http::async_write(
-            stream_,
-            *res,
-            [self = shared_from_this(), res](const beast::error_code& ec, std::size_t) {
-                if (!ec) {
-                    self->read();
-                }
-            });
+        http::async_write(stream_, *res, [self = shared_from_this(), res](const beast::error_code& ec, std::size_t) {
+            if (!ec) {
+                self->read();
+            }
+        });
     }
 
     TlsStream stream_;
@@ -173,8 +164,7 @@ TEST(RestAwait, AnAnswerOnePullAbandonedNeverLandsInTheNext) {
 
     ASSERT_TRUE(got.has_value()) << "the second pull never got its answer";
     EXPECT_EQ(got->status, 200);
-    EXPECT_EQ(got->body, "/after/2000")
-        << "a pull was handed the answer the previous one abandoned";
+    EXPECT_EQ(got->body, "/after/2000") << "a pull was handed the answer the previous one abandoned";
 
     rest.stop();
 }
@@ -256,7 +246,6 @@ TEST(RestAwait, ARequestBehindAConnectionThatNeverOpensIsFailedOnItsOwnDeadline)
     held.clear();
 }
 
-
 TEST(RestAwait, PumpingAReactorThatIsAlreadyPumpingIsRefusedRatherThanNested) {
     IoContext io;
     EXPECT_FALSE(io.pumping()) << "idle before anything runs it";
@@ -273,8 +262,7 @@ TEST(RestAwait, PumpingAReactorThatIsAlreadyPumpingIsRefusedRatherThanNested) {
         rest.start();
         RestRequest request;
         request.target = "/nested";
-        nested_was_refused =
-            !await_response(io, LiveClock{}, rest, request, 50).has_value();
+        nested_was_refused = !await_response(io, LiveClock{}, rest, request, 50).has_value();
         rest.stop();
     });
 
@@ -288,16 +276,14 @@ class SlowSource final : public exec::InstrumentSource {
 public:
     SlowSource(IoContext& io, RestClient& rest) : io_{io}, rest_{rest} {}
 
-    std::expected<std::vector<Instrument>, exec::VenueError>
-    fetch_all(MarketType) override {
+    std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType) override {
         RestRequest request;
         request.method = HttpMethod::Get;
         request.target = "/after/8000";
         if (const auto got = await_response(io_, LiveClock{}, rest_, request, 10'000)) {
             return std::vector<Instrument>{};
         }
-        return std::unexpected{
-            exec::VenueError::make(ErrorClass::Connectivity, 0, "no answer")};
+        return std::unexpected{exec::VenueError::make(ErrorClass::Connectivity, 0, "no answer")};
     }
 
 private:

@@ -23,8 +23,7 @@ public:
         len_ += text.size();
     }
 
-    [[nodiscard]] std::expected<Protocol::Frame, WsBuildError>
-    frame(std::size_t consumed) const noexcept {
+    [[nodiscard]] std::expected<Protocol::Frame, WsBuildError> frame(std::size_t consumed) const noexcept {
         if (overflow_) {
             return std::unexpected{WsBuildError::BufferTooSmall};
         }
@@ -79,9 +78,7 @@ std::string_view feed_for(exec::SubKind kind) noexcept {
     return {};
 }
 
-void add_subscription(std::vector<OwnedSubscription>& set,
-                      std::string_view feed,
-                      std::string_view product_id) {
+void add_subscription(std::vector<OwnedSubscription>& set, std::string_view feed, std::string_view product_id) {
     auto run_end = set.end();
     for (auto it = set.begin(); it != set.end(); ++it) {
         if (it->feed != feed) {
@@ -92,12 +89,11 @@ void add_subscription(std::vector<OwnedSubscription>& set,
         }
         run_end = std::next(it);
     }
-    set.insert(run_end,
-               OwnedSubscription{.feed = std::string{feed}, .product_id = std::string{product_id}});
+    set.insert(run_end, OwnedSubscription{.feed = std::string{feed}, .product_id = std::string{product_id}});
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::event_frame(std::string_view event, std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::event_frame(std::string_view event,
+                                                                   std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -106,8 +102,7 @@ Protocol::event_frame(std::string_view event, std::span<const Subscription> subs
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
     std::size_t batch = 0;
-    while (batch < subscriptions.size() &&
-           subscriptions[batch].feed == feed) {
+    while (batch < subscriptions.size() && subscriptions[batch].feed == feed) {
         if (subscriptions[batch].product_id.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }
@@ -132,18 +127,15 @@ Protocol::event_frame(std::string_view event, std::span<const Subscription> subs
     return writer.frame(batch);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
     return event_frame("subscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return event_frame("unsubscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::challenge_request_frame(std::string_view api_key) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::challenge_request_frame(std::string_view api_key) {
     if (api_key.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -154,11 +146,10 @@ Protocol::challenge_request_frame(std::string_view api_key) {
     return writer.frame(0);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::private_subscribe_frame(std::string_view feed,
-                                  std::string_view api_key,
-                                  std::string_view original_challenge,
-                                  std::string_view signed_challenge) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::private_subscribe_frame(std::string_view feed,
+                                                                               std::string_view api_key,
+                                                                               std::string_view original_challenge,
+                                                                               std::string_view signed_challenge) {
     // an empty credential would subscribe the public form, which kraken answers with an alert
     if (feed.empty() || api_key.empty() || original_challenge.empty() || signed_challenge.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};

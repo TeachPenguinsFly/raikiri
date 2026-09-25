@@ -72,8 +72,7 @@ TEST(Malformed, Okx) {
                     (void)parse_rest_envelope(f);
                     (void)parse_instruments(f, instruments);
                 }},
-               {"rest_error_bad_instrument.json",
-                [](std::string_view f) { (void)parse_rest_envelope(f); }},
+               {"rest_error_bad_instrument.json", [](std::string_view f) { (void)parse_rest_envelope(f); }},
                {"rest_mark_price.json", [](std::string_view f) { (void)parse_mark_price(f); }},
                {"rest_fills.json",
                 [](std::string_view f) {

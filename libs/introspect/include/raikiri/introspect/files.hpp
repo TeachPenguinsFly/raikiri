@@ -20,6 +20,7 @@ class FileStatsPublisher final : public StatsPublisher {
 public:
     explicit FileStatsPublisher(std::string dir);
     [[nodiscard]] bool publish(const GatewayStats& stats) override;
+
     [[nodiscard]] std::size_t last_bytes() const noexcept { return last_bytes_; }
 
 private:

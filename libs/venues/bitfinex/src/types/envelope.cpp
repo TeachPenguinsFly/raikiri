@@ -71,8 +71,7 @@ bool token_to_i64(std::string_view s, std::int64_t& out) noexcept {
     return ec == std::errc{} && stop == end;
 }
 
-std::expected<std::string_view, WireError> opt_token(wire::ondemand::object& obj,
-                                                     std::string_view key) {
+std::expected<std::string_view, WireError> opt_token(wire::ondemand::object& obj, std::string_view key) {
     wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
@@ -160,15 +159,13 @@ std::expected<WireSubscribed, WireError> parse_subscribed(std::string_view frame
         const auto channel = opt_token(*root, "channel");
         const auto symbol = opt_token(*root, "symbol");
         const auto key = opt_token(*root, "key");
-        if (!chan_id.has_value() || !channel.has_value() || !symbol.has_value() ||
-            !key.has_value()) {
+        if (!chan_id.has_value() || !channel.has_value() || !symbol.has_value() || !key.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         if (*chan_id == 0 || channel->empty()) {
             return std::unexpected(WireError::MissingField);
         }
-        return WireSubscribed{
-            .chan_id = *chan_id, .channel = *channel, .symbol = *symbol, .key = *key};
+        return WireSubscribed{.chan_id = *chan_id, .channel = *channel, .symbol = *symbol, .key = *key};
     });
 }
 

@@ -36,7 +36,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Bybit,
         .markets = {.spot = true, .perp = true},
         .ws_order_entry = true,            // v5 WS trade (order.create/amend/cancel)
-        .fix_order_entry = false, // no fix; the institutional low-latency path is the ws mmws gateway
+        .fix_order_entry = false,          // no fix; the institutional low-latency path is the ws mmws gateway
         .cancel_by_client_order_id = true, // orderLinkId
         .batch_cancel = true,
         .amend_order = true,
@@ -59,7 +59,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Okx,
         .markets = {.spot = true, .perp = true},
         .ws_order_entry = true,            // /ws/v5/private: order/batch-orders (<=20)
-        .fix_order_entry = false, // no fix in v5 docs
+        .fix_order_entry = false,          // no fix in v5 docs
         .cancel_by_client_order_id = true, // clOrdId: <=32, alphanumeric only
         .batch_cancel = true,
         .amend_order = true,
@@ -195,7 +195,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .order_pull = {.perp = true},
         // spot trade history is per-symbol
         .fill_pull = {.perp = true},
-        // /api/v1/private/position/funding_records; direction comes from positionType, the sign of `funding` is undocumented
+        // /api/v1/private/position/funding_records; direction comes from positionType, the sign of `funding` is
+        // undocumented
         .funding_charge = {.perp = true},
         // push.ticker `amount24` in quote; `volume24` counts contracts, so base stays zero
         .ticker_stats = true,

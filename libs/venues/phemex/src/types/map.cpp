@@ -28,10 +28,8 @@ std::string without_spaces(std::string_view text) {
     return out;
 }
 
-std::optional<InstrumentBase> base_row(MarketType market,
-                                       std::string_view symbol,
-                                       std::string_view base_asset,
-                                       std::string_view quote_asset) {
+std::optional<InstrumentBase>
+base_row(MarketType market, std::string_view symbol, std::string_view base_asset, std::string_view quote_asset) {
     const auto exchange = SymbolText::from(symbol);
     const auto local = canonical_symbol(without_spaces(base_asset), quote_asset);
     if (!exchange.has_value() || !local.has_value()) {
@@ -105,8 +103,7 @@ std::optional<Listed> map_linear_perp(const WirePerp& wire) {
     const auto tick = parse_decimal_e9(wire.tick_size);
     const auto lot = parse_decimal_e9(wire.qty_step);
     auto base = base_row(MarketType::Perp, wire.symbol, wire.base, wire.quote);
-    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 ||
-        !base.has_value()) {
+    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 || !base.has_value()) {
         return std::nullopt;
     }
     base->tick_size = *tick;
@@ -123,15 +120,14 @@ std::optional<Listed> map_linear_perp(const WirePerp& wire) {
 }
 
 std::optional<Listed> map_inverse_perp(const WireProduct& wire, std::uint32_t settle_scale) {
-    if (wire.type != "Perpetual" || wire.status != "Listed" || wire.funding_interval_s == 0 ||
-        wire.price_scale == 0 || wire.price_scale > 9 || wire.lot_size <= 0) {
+    if (wire.type != "Perpetual" || wire.status != "Listed" || wire.funding_interval_s == 0 || wire.price_scale == 0 ||
+        wire.price_scale > 9 || wire.lot_size <= 0) {
         return std::nullopt;
     }
     const auto tick = parse_number_e9(wire.tick_size);
     const auto contract = parse_number_e9(wire.contract_size);
     auto base = base_row(MarketType::Perp, wire.symbol, wire.settle, wire.quote);
-    if (!tick.has_value() || !contract.has_value() || tick->raw <= 0 || contract->raw <= 0 ||
-        !base.has_value()) {
+    if (!tick.has_value() || !contract.has_value() || tick->raw <= 0 || contract->raw <= 0 || !base.has_value()) {
         return std::nullopt;
     }
     const auto per_ep = k_pow10[9 - wire.price_scale];
@@ -154,10 +150,9 @@ std::optional<Listed> map_inverse_perp(const WireProduct& wire, std::uint32_t se
     return Listed{PerpInstrument{*base, wire.funding_interval_s}, listing};
 }
 
-std::optional<Listed>
-map_spot(const WireProduct& wire, std::uint32_t base_scale, std::uint32_t quote_scale) {
-    if (wire.type != "Spot" || wire.status != "Listed" || wire.price_scale == 0 ||
-        wire.quote_tick_ev <= 0 || wire.base_tick_ev <= 0) {
+std::optional<Listed> map_spot(const WireProduct& wire, std::uint32_t base_scale, std::uint32_t quote_scale) {
+    if (wire.type != "Spot" || wire.status != "Listed" || wire.price_scale == 0 || wire.quote_tick_ev <= 0 ||
+        wire.base_tick_ev <= 0) {
         return std::nullopt;
     }
     const auto tick = scaled_e9(wire.quote_tick_ev, wire.price_scale);
@@ -228,16 +223,14 @@ MappedCatalogue map_catalogue(const WireCatalogue& wire, MarketType market) {
         } else if (market == MarketType::Spot && row.type == "Spot") {
             const auto base = scale_of(row.base);
             const auto quote = scale_of(row.quote);
-            keep(base.has_value() && quote.has_value() ? map_spot(row, *base, *quote)
-                                                       : std::nullopt);
+            keep(base.has_value() && quote.has_value() ? map_spot(row, *base, *quote) : std::nullopt);
         }
     }
     return out;
 }
 
-std::optional<std::size_t> to_levels(std::span<const WireRealLevel> wire,
-                                     const InstrumentBase& base,
-                                     std::span<book::Level> out) {
+std::optional<std::size_t>
+to_levels(std::span<const WireRealLevel> wire, const InstrumentBase& base, std::span<book::Level> out) {
     if (wire.size() > out.size()) {
         return std::nullopt;
     }
@@ -252,9 +245,8 @@ std::optional<std::size_t> to_levels(std::span<const WireRealLevel> wire,
     return wire.size();
 }
 
-std::optional<std::size_t> to_levels(std::span<const WireScaledLevel> wire,
-                                     const Listing& listing,
-                                     std::span<book::Level> out) {
+std::optional<std::size_t>
+to_levels(std::span<const WireScaledLevel> wire, const Listing& listing, std::span<book::Level> out) {
     if (wire.size() > out.size()) {
         return std::nullopt;
     }
@@ -269,8 +261,7 @@ std::optional<std::size_t> to_levels(std::span<const WireScaledLevel> wire,
     return wire.size();
 }
 
-std::optional<TradeTick>
-map_trade(const WireRealPrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireRealPrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = real_steps(wire.price, base.tick_size);
     const auto qty = real_steps(wire.qty, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -286,10 +277,8 @@ map_trade(const WireRealPrint& wire, const InstrumentBase& base, UnixNanos ts_in
     return out;
 }
 
-std::optional<TradeTick> map_trade(const WireScaledPrint& wire,
-                                   const InstrumentBase& base,
-                                   const Listing& listing,
-                                   UnixNanos ts_init) {
+std::optional<TradeTick>
+map_trade(const WireScaledPrint& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init) {
     const auto price = scaled_steps(wire.price_ep, listing.price_step);
     const auto qty = scaled_steps(wire.qty_ev, listing.qty_step);
     if (!price.has_value() || !qty.has_value()) {
@@ -320,8 +309,7 @@ std::optional<FundingUpdate> map_funding(const WirePackRow& wire,
     if (const auto predicted = parse_rate_e9(wire.predicted); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
-    if (const auto mark = mark_ticks(parse_number_e9(wire.mark), base.tick_size);
-        mark.has_value()) {
+    if (const auto mark = mark_ticks(parse_number_e9(wire.mark), base.tick_size); mark.has_value()) {
         out.mark_price = *mark;
     }
     out.ts_event = ns_to_unix(ts_ns, ts_init);
@@ -331,10 +319,8 @@ std::optional<FundingUpdate> map_funding(const WirePackRow& wire,
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(const WireInverseTicker& wire,
-                                         const InstrumentBase& base,
-                                         const Listing& listing,
-                                         UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding(const WireInverseTicker& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init) {
     if (!wire.rate_er.has_value()) {
         return std::nullopt;
     }
@@ -346,8 +332,7 @@ std::optional<FundingUpdate> map_funding(const WireInverseTicker& wire,
     out.instrument = base.id;
     out.rate = *rate;
     if (wire.predicted_er.has_value()) {
-        if (const auto predicted = scaled_e9(*wire.predicted_er, listing.ratio_scale);
-            predicted.has_value()) {
+        if (const auto predicted = scaled_e9(*wire.predicted_er, listing.ratio_scale); predicted.has_value()) {
             out.predicted_rate = *predicted;
         }
     }
@@ -361,10 +346,8 @@ std::optional<FundingUpdate> map_funding(const WireInverseTicker& wire,
     return out;
 }
 
-std::optional<TickerStats> map_ticker_stats(const WirePackRow& wire,
-                                            const InstrumentBase& base,
-                                            std::uint64_t ts_ns,
-                                            UnixNanos ts_init) {
+std::optional<TickerStats>
+map_ticker_stats(const WirePackRow& wire, const InstrumentBase& base, std::uint64_t ts_ns, UnixNanos ts_init) {
     const auto volume = parse_amount_e9(wire.volume);
     const auto turnover = parse_turnover_e6(wire.turnover);
     if (!volume.has_value() && !turnover.has_value()) {
@@ -383,10 +366,8 @@ std::optional<TickerStats> map_ticker_stats(const WirePackRow& wire,
     return out;
 }
 
-std::optional<TickerStats> map_ticker_stats(const WireInverseTicker& wire,
-                                            const InstrumentBase& base,
-                                            const Listing& listing,
-                                            UnixNanos ts_init) {
+std::optional<TickerStats>
+map_ticker_stats(const WireInverseTicker& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init) {
     // Inverse: `volume` counts contracts (the quote), `turnover` the settle coin (the base).
     std::optional<FixedE9> coins;
     if (wire.turnover_ev.has_value()) {
@@ -395,8 +376,7 @@ std::optional<TickerStats> map_ticker_stats(const WireInverseTicker& wire,
     std::optional<FixedE6> quote;
     if (wire.volume.has_value() && base.contract_value.raw > 0) {
         const auto units = mul_wide(*wire.volume, base.contract_value.raw).raw / (k_e9 / k_e6);
-        if (units <= std::numeric_limits<std::int64_t>::max() &&
-            units >= std::numeric_limits<std::int64_t>::min()) {
+        if (units <= std::numeric_limits<std::int64_t>::max() && units >= std::numeric_limits<std::int64_t>::min()) {
             quote = FixedE6::from_raw(static_cast<std::int64_t>(units));
         }
     }
@@ -416,10 +396,8 @@ std::optional<TickerStats> map_ticker_stats(const WireInverseTicker& wire,
     return out;
 }
 
-std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
-                                            const InstrumentBase& base,
-                                            const Listing& listing,
-                                            UnixNanos ts_init) {
+std::optional<TickerStats>
+map_ticker_stats(const WireSpotTicker& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init) {
     std::optional<FixedE9> volume;
     std::optional<FixedE6> turnover;
     if (wire.volume_ev.has_value()) {

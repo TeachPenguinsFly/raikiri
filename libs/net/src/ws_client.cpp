@@ -2,22 +2,24 @@
 #include <raikiri/net/trust_store.hpp>
 #include <raikiri/net/ws_client.hpp>
 
-#include "sni.hpp"
-
 #include <openssl/ssl.h>
 
+#include "sni.hpp"
+
 #ifdef __linux__
-#include <boost/asio/associated_immediate_executor.hpp>
-#include <boost/asio/async_result.hpp>
-#include <boost/asio/dispatch.hpp>
 #include <linux/errqueue.h>
 #include <linux/net_tstamp.h>
 #include <sys/socket.h>
+
 #include <array>
+#include <boost/asio/associated_immediate_executor.hpp>
+#include <boost/asio/async_result.hpp>
+#include <boost/asio/dispatch.hpp>
 #include <cerrno>
 #include <cstring>
 #endif
 
+#include <algorithm>
 #include <boost/asio/bind_immediate_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/connect.hpp>
@@ -32,7 +34,6 @@
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/beast/websocket/stream.hpp>
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -71,14 +72,11 @@ public:
     template <typename MutableBuffers, typename Handler>
     auto async_read_some(const MutableBuffers& buffers, Handler&& handler) {
         return asio::async_initiate<Handler, void(boost::system::error_code, std::size_t)>(
-            [this](auto done, const MutableBuffers& into) { start(std::move(done), into); },
-            handler,
-            buffers);
+            [this](auto done, const MutableBuffers& into) { start(std::move(done), into); }, handler, buffers);
     }
 
 private:
-    template <typename Done, typename MutableBuffers>
-    void start(Done done, const MutableBuffers& into) {
+    template <typename Done, typename MutableBuffers> void start(Done done, const MutableBuffers& into) {
         boost::system::error_code ec;
         std::size_t got = 0;
         if (attempt(into, ec, got)) {
@@ -101,8 +99,8 @@ private:
     bool attempt(const MutableBuffers& into, boost::system::error_code& ec, std::size_t& got) {
         std::array<::iovec, 4> iov{};
         std::size_t count = 0;
-        for (auto it = asio::buffer_sequence_begin(into);
-             it != asio::buffer_sequence_end(into) && count < iov.size(); ++it) {
+        for (auto it = asio::buffer_sequence_begin(into); it != asio::buffer_sequence_end(into) && count < iov.size();
+             ++it) {
             const asio::mutable_buffer piece{*it};
             iov[count++] = ::iovec{.iov_base = piece.data(), .iov_len = piece.size()};
         }
@@ -144,16 +142,15 @@ private:
     std::uint64_t last_arrival_ns_{0};
     bool stamps_{false};
 };
+
 // closing is the plain socket's job; beast finds these by adl
 [[maybe_unused]] void teardown(beast::role_type role, StampedSocket& socket, beast::error_code& ec) {
     websock::teardown(role, static_cast<asio::basic_stream_socket<tcp, Executor>&>(socket), ec);
 }
 
-template <typename Handler>
-void async_teardown(beast::role_type role, StampedSocket& socket, Handler&& handler) {
-    websock::async_teardown(role,
-                            static_cast<asio::basic_stream_socket<tcp, Executor>&>(socket),
-                            std::forward<Handler>(handler));
+template <typename Handler> void async_teardown(beast::role_type role, StampedSocket& socket, Handler&& handler) {
+    websock::async_teardown(
+        role, static_cast<asio::basic_stream_socket<tcp, Executor>&>(socket), std::forward<Handler>(handler));
 }
 
 using Socket = StampedSocket;
@@ -163,9 +160,8 @@ using Socket = asio::basic_stream_socket<tcp, Executor>;
 using TlsStream = beast::ssl_stream<Socket>;
 using WsStream = websock::stream<TlsStream>;
 using Resolver = asio::ip::basic_resolver<tcp, Executor>;
-using Timer = asio::basic_waitable_timer<std::chrono::steady_clock,
-                                         asio::wait_traits<std::chrono::steady_clock>,
-                                         Executor>;
+using Timer = asio::
+    basic_waitable_timer<std::chrono::steady_clock, asio::wait_traits<std::chrono::steady_clock>, Executor>;
 
 // inline reads before one posts, keeping recursion shallow and letting other sockets run
 constexpr std::uint32_t k_inline_reads = 8;
@@ -197,7 +193,7 @@ constexpr std::string_view k_user_agent = "raikiri/0.1";
     return std::format("close {} {}", static_cast<unsigned>(frame.code), frame.reason.c_str());
 }
 
-PongObserver g_pong_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PongObserver g_pong_observer;       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 ArrivalObserver g_arrival_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 } // namespace
@@ -233,10 +229,9 @@ namespace internal {
 class WsSession : public std::enable_shared_from_this<WsSession> {
 public:
     WsSession(asio::io_context& ioc, WsConfig config, WsHandler& handler)
-        : ioc_{ioc}, cfg_{std::move(config)}, handler_{handler}, tls_{ssl::context::tls_client},
-          resolver_{ioc}, ping_timer_{ioc}, reconnect_timer_{ioc},
-          backoff_ms_{cfg_.reconnect_min_ms}, rng_{static_cast<std::minstd_rand::result_type>(
-                                                  reinterpret_cast<std::uintptr_t>(this) | 1U)} {
+        : ioc_{ioc}, cfg_{std::move(config)}, handler_{handler}, tls_{ssl::context::tls_client}, resolver_{ioc},
+          ping_timer_{ioc}, reconnect_timer_{ioc}, backoff_ms_{cfg_.reconnect_min_ms},
+          rng_{static_cast<std::minstd_rand::result_type>(reinterpret_cast<std::uintptr_t>(this) | 1U)} {
         if (cfg_.verify_tls) {
             const auto trust = resolve_trust_store();
             boost::system::error_code ec;
@@ -351,8 +346,7 @@ private:
         static_cast<void>(beast::get_lowest_layer(conn.stream).close(ignored));
     }
 
-    [[nodiscard]] bool current(std::uint64_t gen,
-                               const std::shared_ptr<Conn>& conn) const noexcept {
+    [[nodiscard]] bool current(std::uint64_t gen, const std::shared_ptr<Conn>& conn) const noexcept {
         return !dead_ && gen == generation_ && conn == conn_;
     }
 
@@ -361,13 +355,12 @@ private:
         const auto gen = generation_;
         conn_ = std::make_shared<Conn>(ioc_, tls_, cfg_.max_message_bytes);
         state_ = State::Resolving;
-        resolver_.async_resolve(
-            cfg_.host,
-            cfg_.port,
-            [self = shared_from_this(), gen, conn = conn_](
-                const beast::error_code& ec, const tcp::resolver::results_type& results) {
-                self->on_resolve(gen, conn, ec, results);
-            });
+        resolver_.async_resolve(cfg_.host,
+                                cfg_.port,
+                                [self = shared_from_this(), gen, conn = conn_](
+                                    const beast::error_code& ec, const tcp::resolver::results_type& results) {
+                                    self->on_resolve(gen, conn, ec, results);
+                                });
     }
 
     void on_resolve(std::uint64_t gen,
@@ -387,12 +380,12 @@ private:
         ping_timer_.async_wait([self = shared_from_this(), gen](const beast::error_code& timer_ec) {
             self->on_handshake_deadline(gen, timer_ec);
         });
-        asio::async_connect(beast::get_lowest_layer(conn->stream),
-                            results,
-                            [self = shared_from_this(), gen, conn](
-                                const beast::error_code& connect_ec, const tcp::endpoint&) {
-                                self->on_connect(gen, conn, connect_ec);
-                            });
+        asio::async_connect(
+            beast::get_lowest_layer(conn->stream),
+            results,
+            [self = shared_from_this(), gen, conn](const beast::error_code& connect_ec, const tcp::endpoint&) {
+                self->on_connect(gen, conn, connect_ec);
+            });
     }
 
     void on_handshake_deadline(std::uint64_t gen, const beast::error_code& ec) {
@@ -406,8 +399,7 @@ private:
         }
     }
 
-    void
-    on_connect(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
+    void on_connect(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         if (!current(gen, conn)) {
             return;
         }
@@ -420,14 +412,12 @@ private:
         beast::get_lowest_layer(conn->stream).enable_stamps();
 #endif
         if (!is_ip_literal(cfg_.host) &&
-            !internal::set_sni_host(conn->stream.next_layer().native_handle(),
-                                  cfg_.host.c_str())) {
+            !internal::set_sni_host(conn->stream.next_layer().native_handle(), cfg_.host.c_str())) {
             close_with(WsCloseReason::Transport, "sni: refused");
             return;
         }
         conn->stream.next_layer().async_handshake(
-            ssl::stream_base::client,
-            [self = shared_from_this(), gen, conn](const beast::error_code& tls_ec) {
+            ssl::stream_base::client, [self = shared_from_this(), gen, conn](const beast::error_code& tls_ec) {
                 self->on_tls(gen, conn, tls_ec);
             });
     }
@@ -451,35 +441,30 @@ private:
 
         conn->stream.read_message_max(cfg_.max_message_bytes);
         conn->stream.text(true);
-        conn->stream.set_option(websock::stream_base::decorator([](websock::request_type& req) {
-            req.set(beast::http::field::user_agent, k_user_agent);
-        }));
+        conn->stream.set_option(websock::stream_base::decorator(
+            [](websock::request_type& req) { req.set(beast::http::field::user_agent, k_user_agent); }));
         conn->stream.control_callback([this](websock::frame_type kind, beast::string_view) {
             if (kind == websock::frame_type::pong) {
                 awaiting_pong_ = false;
                 if (ping_sent_ != std::chrono::steady_clock::time_point{} && g_pong_observer) {
                     const auto rtt = std::chrono::steady_clock::now() - ping_sent_;
-                    g_pong_observer(cfg_.host,
-                                    static_cast<std::uint64_t>(
-                                        std::chrono::duration_cast<std::chrono::nanoseconds>(rtt)
-                                            .count()));
+                    g_pong_observer(
+                        cfg_.host,
+                        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(rtt).count()));
                 }
                 ping_sent_ = {};
             }
         });
 
-        conn->stream.async_handshake(
-            conn->response,
-            host_header_,
-            cfg_.target,
-            [self = shared_from_this(), gen, conn](const beast::error_code& ws_ec) {
-                self->on_ws_handshake(gen, conn, ws_ec);
-            });
+        conn->stream.async_handshake(conn->response,
+                                     host_header_,
+                                     cfg_.target,
+                                     [self = shared_from_this(), gen, conn](const beast::error_code& ws_ec) {
+                                         self->on_ws_handshake(gen, conn, ws_ec);
+                                     });
     }
 
-    void on_ws_handshake(std::uint64_t gen,
-                         const std::shared_ptr<Conn>& conn,
-                         const beast::error_code& ec) {
+    void on_ws_handshake(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         if (!current(gen, conn)) {
             return;
         }
@@ -487,8 +472,7 @@ private:
             auto detail = describe("ws handshake", ec);
             if (ec == websock::error::upgrade_declined) {
                 detail += std::format(" (HTTP {})", conn->response.result_int());
-                backoff_ms_ = std::max(backoff_ms_,
-                                       std::min(cfg_.declined_backoff_ms, cfg_.reconnect_max_ms));
+                backoff_ms_ = std::max(backoff_ms_, std::min(cfg_.declined_backoff_ms, cfg_.reconnect_max_ms));
             }
             close_with(WsCloseReason::Transport, std::move(detail));
             return;
@@ -516,8 +500,7 @@ private:
     void do_read(ReadHandler handler) {
         auto& conn = *handler.conn;
         if (++reads_since_post_ < k_inline_reads) {
-            conn.stream.async_read(
-                conn.buffer, asio::bind_immediate_executor(ioc_.get_executor(), std::move(handler)));
+            conn.stream.async_read(conn.buffer, asio::bind_immediate_executor(ioc_.get_executor(), std::move(handler)));
             return;
         }
         reads_since_post_ = 0;
@@ -559,8 +542,7 @@ private:
             received = UnixNanos{arrival};
         }
 #endif
-        handler_.on_message(std::string_view{static_cast<const char*>(data.data()), data.size()},
-                            received);
+        handler_.on_message(std::string_view{static_cast<const char*>(data.data()), data.size()}, received);
         conn->buffer.consume(conn->buffer.size());
         do_read(std::move(handler));
     }
@@ -576,11 +558,10 @@ private:
             ping_pending_ = false;
             writing_ = true;
             ping_sent_ = std::chrono::steady_clock::now();
-            conn->stream.async_ping(
-                websock::ping_data{},
-                [self = shared_from_this(), gen, conn](const beast::error_code& ec) {
-                    self->on_write(gen, conn, ec, true);
-                });
+            conn->stream.async_ping(websock::ping_data{},
+                                    [self = shared_from_this(), gen, conn](const beast::error_code& ec) {
+                                        self->on_write(gen, conn, ec, true);
+                                    });
             return;
         }
         if (send_queue_.empty()) {
@@ -589,17 +570,13 @@ private:
         conn->write_buf = std::move(send_queue_.front());
         send_queue_.pop_front();
         writing_ = true;
-        conn->stream.async_write(
-            asio::buffer(conn->write_buf),
-            [self = shared_from_this(), gen, conn](const beast::error_code& ec, std::size_t) {
-                self->on_write(gen, conn, ec, false);
-            });
+        conn->stream.async_write(asio::buffer(conn->write_buf),
+                                 [self = shared_from_this(), gen, conn](const beast::error_code& ec, std::size_t) {
+                                     self->on_write(gen, conn, ec, false);
+                                 });
     }
 
-    void on_write(std::uint64_t gen,
-                  const std::shared_ptr<Conn>& conn,
-                  const beast::error_code& ec,
-                  bool was_ping) {
+    void on_write(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec, bool was_ping) {
         if (!current(gen, conn)) {
             return;
         }
@@ -617,10 +594,9 @@ private:
     void arm_ping_timer(bool awaiting) {
         const auto delay = awaiting ? cfg_.pong_timeout_ms : cfg_.ping_interval_ms;
         ping_timer_.expires_after(std::chrono::milliseconds{delay});
-        ping_timer_.async_wait(
-            [self = shared_from_this(), gen = generation_, awaiting](const beast::error_code& ec) {
-                self->on_ping_timer(gen, ec, awaiting);
-            });
+        ping_timer_.async_wait([self = shared_from_this(), gen = generation_, awaiting](const beast::error_code& ec) {
+            self->on_ping_timer(gen, ec, awaiting);
+        });
     }
 
     void on_ping_timer(std::uint64_t gen, const beast::error_code& ec, bool was_awaiting) {
@@ -630,8 +606,7 @@ private:
         if (was_awaiting) {
             if (awaiting_pong_) {
                 ++stats_.pong_timeouts;
-                close_with(WsCloseReason::PongTimeout,
-                           std::format("no pong within {} ms", cfg_.pong_timeout_ms));
+                close_with(WsCloseReason::PongTimeout, std::format("no pong within {} ms", cfg_.pong_timeout_ms));
                 return;
             }
             arm_ping_timer(false);
@@ -648,8 +623,7 @@ private:
             return;
         }
         close_detail_ = std::move(detail);
-        const bool was_stable =
-            state_ == State::Open && clock_.mono().ns - opened_at_.ns > k_stable_connection_ns;
+        const bool was_stable = state_ == State::Open && clock_.mono().ns - opened_at_.ns > k_stable_connection_ns;
         state_ = State::Idle;
         ++generation_;
         writing_ = false;
@@ -687,13 +661,12 @@ private:
 
         ++stats_.reconnects;
         reconnect_timer_.expires_after(std::chrono::milliseconds{base + jitter});
-        reconnect_timer_.async_wait(
-            [self = shared_from_this(), gen = generation_](const beast::error_code& ec) {
-                if (self->dead_ || ec || !self->running_ || gen != self->generation_) {
-                    return;
-                }
-                self->admit_connect();
-            });
+        reconnect_timer_.async_wait([self = shared_from_this(), gen = generation_](const beast::error_code& ec) {
+            if (self->dead_ || ec || !self->running_ || gen != self->generation_) {
+                return;
+            }
+            self->admit_connect();
+        });
     }
 
     void admit_connect() {
@@ -703,13 +676,12 @@ private:
             return;
         }
         reconnect_timer_.expires_after(std::chrono::nanoseconds{wait_ns});
-        reconnect_timer_.async_wait(
-            [self = shared_from_this(), gen = generation_](const beast::error_code& ec) {
-                if (self->dead_ || ec || !self->running_ || gen != self->generation_) {
-                    return;
-                }
-                self->admit_connect();
-            });
+        reconnect_timer_.async_wait([self = shared_from_this(), gen = generation_](const beast::error_code& ec) {
+            if (self->dead_ || ec || !self->running_ || gen != self->generation_) {
+                return;
+            }
+            self->admit_connect();
+        });
     }
 
     asio::io_context& ioc_;
@@ -750,8 +722,7 @@ struct WsClient::Impl {
 };
 
 WsClient::WsClient(IoContext& io, WsConfig config, WsHandler& handler)
-    : impl_{std::make_unique<Impl>(
-          *static_cast<asio::io_context*>(io.native()), std::move(config), handler)} {}
+    : impl_{std::make_unique<Impl>(*static_cast<asio::io_context*>(io.native()), std::move(config), handler)} {}
 
 WsClient::~WsClient() {
     impl_->session->shutdown();

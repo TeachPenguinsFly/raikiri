@@ -38,22 +38,19 @@ map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, 
 [[nodiscard]] std::optional<OrderEvent>
 map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                                    const exec::InstrumentTable& table);
 
-[[nodiscard]] std::optional<exec::FillReport> map_user_trade(const WireTrade& wire,
-                                                             const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::FillReport> map_user_trade(const WireTrade& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire,
                                                                const exec::InstrumentTable& table);
 
 // drops rows with no asset or all zeros and keeps undef figures;
 // multi_assets_margin must come from the same answer as the row
-[[nodiscard]] std::optional<BalanceReport> map_balance(const WireAssetBalance& wire,
-                                                       bool multi_assets_margin);
+[[nodiscard]] std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool multi_assets_margin);
 
 // nullopt unless trading, in the requested market, with parseable filters
-[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
-                                                       MarketType market);
+[[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 } // namespace raikiri::venues::binance

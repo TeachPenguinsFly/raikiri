@@ -69,23 +69,21 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<BalanceReport>, exec::VenueError>
-    balance_reports(MarketType market) override {
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
         return api_.balance_reports(market);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
@@ -97,13 +95,10 @@ private:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -123,21 +118,16 @@ private:
         if (!api_.serves(cmd.instrument.market())) {
             emit_reject(cmd,
                         kind,
-                        exec::VenueError::make(
-                            exec::ErrorClass::Terminal, 0, "no link for this instrument's market"));
+                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, "no link for this instrument's market"));
             return;
         }
         const auto now = state_->venue_now();
         auto& builder = api_.builder();
-        const auto request =
-            kind == Kind::Create   ? builder.create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel ? builder.cancel_order(cmd, state_->instruments, now)
-                                   : builder.amend_order(cmd, state_->instruments, now);
+        const auto request = kind == Kind::Create   ? builder.create_order(cmd, state_->instruments, now)
+                             : kind == Kind::Cancel ? builder.cancel_order(cmd, state_->instruments, now)
+                                                    : builder.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            emit_reject(
-                cmd,
-                kind,
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const auto client_order_id = cmd.client_order_id;
@@ -149,17 +139,10 @@ private:
                 *request,
                 [this, client_order_id, exchange_client_order_id, instrument, side, qty, kind](
                     net::RestResponse&& response) {
-                    on_response(std::move(response),
-                                client_order_id,
-                                exchange_client_order_id,
-                                instrument,
-                                side,
-                                qty,
-                                kind);
+                    on_response(
+                        std::move(response), client_order_id, exchange_client_order_id, instrument, side, qty, kind);
                 })) {
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded before the send, since the callback may never run
@@ -188,13 +171,12 @@ private:
         }
         if (response.transport_failed()) {
             // the request may have reached the matcher, so this is not a rejection
-            state_->sink->on_order_error(
-                client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
@@ -212,13 +194,7 @@ private:
     }
 
     void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
-        emit(cmd.client_order_id,
-             cmd.exchange_client_order_id,
-             cmd.instrument,
-             cmd.side,
-             cmd.qty,
-             kind,
-             error);
+        emit(cmd.client_order_id, cmd.exchange_client_order_id, cmd.instrument, cmd.side, cmd.qty, kind, error);
     }
 
     // a rest refusal never reaches the private socket, so the lifecycle event is made here
@@ -253,8 +229,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state,
-                                                             MarketType market) {
+std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state, MarketType market) {
     return std::make_unique<KucoinExec>(std::move(state), market);
 }
 

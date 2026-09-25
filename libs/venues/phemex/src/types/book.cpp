@@ -33,8 +33,7 @@ std::expected<WireRealLevel, WireError> read_level(wire::ondemand::array pair, W
     return out;
 }
 
-std::expected<WireScaledLevel, WireError> read_level(wire::ondemand::array pair,
-                                                     WireScaledLevel) {
+std::expected<WireScaledLevel, WireError> read_level(wire::ondemand::array pair, WireScaledLevel) {
     WireScaledLevel out{};
     std::size_t field = 0;
     for (auto item : pair) {
@@ -136,13 +135,13 @@ void apply_side(std::span<const book::Level> levels, book::Ladder& side) {
 
 } // namespace
 
-std::expected<WireBook<WireRealLevel>, WireError>
-parse_real_book(std::string_view frame, LevelBuffer<WireRealLevel>& storage) {
+std::expected<WireBook<WireRealLevel>, WireError> parse_real_book(std::string_view frame,
+                                                                  LevelBuffer<WireRealLevel>& storage) {
     return parse_book(frame, "orderbook_p", storage);
 }
 
-std::expected<WireBook<WireScaledLevel>, WireError>
-parse_scaled_book(std::string_view frame, LevelBuffer<WireScaledLevel>& storage) {
+std::expected<WireBook<WireScaledLevel>, WireError> parse_scaled_book(std::string_view frame,
+                                                                      LevelBuffer<WireScaledLevel>& storage) {
     return parse_book(frame, "book", storage);
 }
 

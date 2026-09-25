@@ -21,16 +21,13 @@ inline constexpr std::string_view k_perp_quote = "USDC";
 
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType market);
 
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireBbo& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireBbo& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<WireBbo> top_of(const WireBook& wire) noexcept;
 
-[[nodiscard]] std::optional<BookSnapshot>
-map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<BookSnapshot> map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init);

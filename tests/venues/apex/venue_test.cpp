@@ -164,8 +164,7 @@ TEST(ApexWs, TopicsAndFrames) {
     const std::array<std::string_view, 2> two{"orderBook25.H.BTCUSDT", "recentlyTrade.H.BTCUSDT"};
     const auto frame = protocol.subscribe_frame(two);
     ASSERT_TRUE(frame.has_value());
-    EXPECT_EQ(*frame,
-              R"({"op":"subscribe","args":["orderBook25.H.BTCUSDT","recentlyTrade.H.BTCUSDT"]})");
+    EXPECT_EQ(*frame, R"({"op":"subscribe","args":["orderBook25.H.BTCUSDT","recentlyTrade.H.BTCUSDT"]})");
 }
 
 class ApexBook : public ::testing::Test {

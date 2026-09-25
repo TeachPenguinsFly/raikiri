@@ -25,8 +25,7 @@ std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
     return level;
 }
 
-std::expected<std::size_t, WireError> read_levels(wire::ondemand::array levels,
-                                                  std::span<WireLevel> into) {
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::array levels, std::span<WireLevel> into) {
     std::size_t count = 0;
     for (auto entry : levels) {
         if (count == k_max_levels) {
@@ -54,48 +53,47 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_data_object(
-            *root, [](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
-                WireBbo out{};
-                const auto coin = wire::req_str(obj, "coin");
-                const auto ts = opt_number_ms(obj, "time");
-                if (!coin.has_value() || !ts.has_value()) {
-                    return std::unexpected(WireError::MissingField);
+        return with_data_object(*root, [](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
+            WireBbo out{};
+            const auto coin = wire::req_str(obj, "coin");
+            const auto ts = opt_number_ms(obj, "time");
+            if (!coin.has_value() || !ts.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.coin = *coin;
+            out.ts_ms = *ts;
+            auto pair = wire::req_array(obj, "bbo");
+            if (!pair.has_value()) {
+                return std::unexpected(pair.error());
+            }
+            std::size_t index = 0;
+            for (auto entry : *pair) {
+                wire::ondemand::value value;
+                if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
+                    return std::unexpected(wire::map_error(ec));
                 }
-                out.coin = *coin;
-                out.ts_ms = *ts;
-                auto pair = wire::req_array(obj, "bbo");
-                if (!pair.has_value()) {
-                    return std::unexpected(pair.error());
-                }
-                std::size_t index = 0;
-                for (auto entry : *pair) {
-                    wire::ondemand::value value;
-                    if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-                        return std::unexpected(wire::map_error(ec));
-                    }
-                    if (value.is_null()) {
-                        ++index;
-                        continue;
-                    }
-                    const auto level = read_level(value);
-                    if (!level.has_value()) {
-                        return std::unexpected(level.error());
-                    }
-                    if (index == 0) {
-                        out.bid_price = level->price;
-                        out.bid_qty = level->qty;
-                    } else if (index == 1) {
-                        out.ask_price = level->price;
-                        out.ask_qty = level->qty;
-                    }
+                if (value.is_null()) {
                     ++index;
+                    continue;
                 }
-                if (index != 2) {
-                    return std::unexpected(WireError::MissingField);
+                const auto level = read_level(value);
+                if (!level.has_value()) {
+                    return std::unexpected(level.error());
                 }
-                return out;
-            });
+                if (index == 0) {
+                    out.bid_price = level->price;
+                    out.bid_qty = level->qty;
+                } else if (index == 1) {
+                    out.ask_price = level->price;
+                    out.ask_qty = level->qty;
+                }
+                ++index;
+            }
+            if (index != 2) {
+                return std::unexpected(WireError::MissingField);
+            }
+            return out;
+        });
     });
 }
 
@@ -105,44 +103,42 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_data_object(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBook, WireError> {
-                WireBook out{};
-                const auto coin = wire::req_str(obj, "coin");
-                const auto ts = opt_number_ms(obj, "time");
-                if (!coin.has_value() || !ts.has_value()) {
-                    return std::unexpected(WireError::MissingField);
+        return with_data_object(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBook, WireError> {
+            WireBook out{};
+            const auto coin = wire::req_str(obj, "coin");
+            const auto ts = opt_number_ms(obj, "time");
+            if (!coin.has_value() || !ts.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.coin = *coin;
+            out.ts_ms = *ts;
+            auto levels = wire::req_array(obj, "levels");
+            if (!levels.has_value()) {
+                return std::unexpected(levels.error());
+            }
+            std::size_t side = 0;
+            for (auto entry : *levels) {
+                wire::ondemand::array inner;
+                if (const auto ec = entry.get_array().get(inner); ec != simdjson::SUCCESS) {
+                    return std::unexpected(wire::map_error(ec));
                 }
-                out.coin = *coin;
-                out.ts_ms = *ts;
-                auto levels = wire::req_array(obj, "levels");
-                if (!levels.has_value()) {
-                    return std::unexpected(levels.error());
+                if (side > 1) {
+                    return std::unexpected(WireError::TooManyEntries);
                 }
-                std::size_t side = 0;
-                for (auto entry : *levels) {
-                    wire::ondemand::array inner;
-                    if (const auto ec = entry.get_array().get(inner); ec != simdjson::SUCCESS) {
-                        return std::unexpected(wire::map_error(ec));
-                    }
-                    if (side > 1) {
-                        return std::unexpected(WireError::TooManyEntries);
-                    }
-                    auto& into = side == 0 ? storage.bids : storage.asks;
-                    const auto count = read_levels(inner, into);
-                    if (!count.has_value()) {
-                        return std::unexpected(count.error());
-                    }
-                    // assigned by name; libstdc++ rejects a brace list here
-                    (side == 0 ? out.bids : out.asks) =
-                        std::span<const WireLevel>{into.data(), *count};
-                    ++side;
+                auto& into = side == 0 ? storage.bids : storage.asks;
+                const auto count = read_levels(inner, into);
+                if (!count.has_value()) {
+                    return std::unexpected(count.error());
                 }
-                if (side != 2) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                return out;
-            });
+                // assigned by name; libstdc++ rejects a brace list here
+                (side == 0 ? out.bids : out.asks) = std::span<const WireLevel>{into.data(), *count};
+                ++side;
+            }
+            if (side != 2) {
+                return std::unexpected(WireError::MissingField);
+            }
+            return out;
+        });
     });
 }
 

@@ -13,7 +13,7 @@ namespace raikiri::venues::aster {
 enum class EventKind : std::uint8_t {
     BookTicker,    // <sym>@bookTicker
     Trade,         // <sym>@trade, or <sym>@aggTrade
-    MarkPrice, // <sym>@markPrice: mark, index and funding
+    MarkPrice,     // <sym>@markPrice: mark, index and funding
     DepthUpdate,   // <sym>@depth
     OrderUpdate,   // user stream: ORDER_TRADE_UPDATE
     AccountUpdate, // user stream: ACCOUNT_UPDATE

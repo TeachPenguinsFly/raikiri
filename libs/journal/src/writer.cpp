@@ -17,14 +17,12 @@
 namespace raikiri::journal {
 
 JournalWriter::JournalWriter(JournalWriter&& other) noexcept
-    : dir_{std::move(other.dir_)}, prefix_{std::move(other.prefix_)},
-      segment_bytes_{other.segment_bytes_},
+    : dir_{std::move(other.dir_)}, prefix_{std::move(other.prefix_)}, segment_bytes_{other.segment_bytes_},
       // move these too or they revert to their defaults
-      retain_segments_{other.retain_segments_}, pruned_{other.pruned_},
-      header_{std::exchange(other.header_, nullptr)}, base_{std::exchange(other.base_, nullptr)},
-      fd_{std::exchange(other.fd_, -1)}, lock_fd_{std::exchange(other.lock_fd_, -1)},
-      write_off_{other.write_off_}, segment_seq_{other.segment_seq_}, next_seq_{other.next_seq_},
-      synced_seq_{other.synced_seq_}, syncs_{other.syncs_} {}
+      retain_segments_{other.retain_segments_}, pruned_{other.pruned_}, header_{std::exchange(other.header_, nullptr)},
+      base_{std::exchange(other.base_, nullptr)}, fd_{std::exchange(other.fd_, -1)},
+      lock_fd_{std::exchange(other.lock_fd_, -1)}, write_off_{other.write_off_}, segment_seq_{other.segment_seq_},
+      next_seq_{other.next_seq_}, synced_seq_{other.synced_seq_}, syncs_{other.syncs_} {}
 
 JournalWriter::~JournalWriter() {
     close_segment();
@@ -35,8 +33,7 @@ JournalWriter::~JournalWriter() {
 }
 
 // an advisory lock on the journal keeps a second writer from overwriting frames
-std::expected<void, JournalError> JournalWriter::claim(const std::string& dir,
-                                                       const std::string& prefix) noexcept {
+std::expected<void, JournalError> JournalWriter::claim(const std::string& dir, const std::string& prefix) noexcept {
     const std::string path = dir + "/" + prefix + ".lock";
     lock_fd_ = ::open(path.c_str(), O_RDWR | O_CREAT, 0600);
     if (lock_fd_ < 0) {
@@ -77,10 +74,8 @@ void JournalWriter::close_segment() noexcept {
     }
 }
 
-std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir,
-                                                               std::string prefix,
-                                                               std::size_t segment_bytes,
-                                                               std::size_t retain_segments) {
+std::expected<JournalWriter, JournalError>
+JournalWriter::open(std::string dir, std::string prefix, std::size_t segment_bytes, std::size_t retain_segments) {
     JournalWriter w;
     w.dir_ = std::move(dir);
     w.prefix_ = std::move(prefix);
@@ -104,8 +99,7 @@ std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir,
     // a blank newest segment is an interrupted rotation; continue from the segment before it
     if (internal::segment_is_blank(internal::segment_path(w.dir_, w.prefix_, segments.back()))) {
         if (segments.size() >= 2) {
-            if (auto r = w.open_segment(segments[segments.size() - 2], SegmentOpen::Recover);
-                !r.has_value()) {
+            if (auto r = w.open_segment(segments[segments.size() - 2], SegmentOpen::Recover); !r.has_value()) {
                 return std::unexpected{r.error()};
             }
             // re-sealed, since recover cleared the flag and a reader waits at an unsealed
@@ -124,8 +118,7 @@ std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir,
     return w;
 }
 
-std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segment_seq,
-                                                              SegmentOpen how) noexcept {
+std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segment_seq, SegmentOpen how) noexcept {
     close_segment();
 
     const bool recover = how == SegmentOpen::Recover;
@@ -141,7 +134,8 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
     }
     if (recover) {
         // Segment size on disk is authoritative when re-opening.
-        struct stat st{};
+        struct stat st {};
+
         if (::fstat(fd_, &st) != 0 || st.st_size < static_cast<off_t>(k_header_bytes)) {
             return std::unexpected{JournalError::OpenFailed};
         }
@@ -209,8 +203,8 @@ std::expected<std::uint64_t, JournalError> JournalWriter::append(std::uint16_t s
     if (!payload.empty()) {
         std::memcpy(frame + k_frame_header_bytes, payload.data(), payload.size());
     }
-    const std::uint32_t crc =
-        crc32c::Crc32c(reinterpret_cast<const char*>(frame), k_frame_header_bytes + payload.size());
+    const std::uint32_t crc = crc32c::Crc32c(reinterpret_cast<const char*>(frame),
+                                             k_frame_header_bytes + payload.size());
     std::memcpy(frame + k_frame_header_bytes + payload.size(), &crc, 4);
 
     write_off_ += need;

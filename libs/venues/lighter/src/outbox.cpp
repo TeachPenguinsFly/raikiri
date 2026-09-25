@@ -21,8 +21,8 @@ void Outbox::answered(std::string_view venue_channel) {
     const auto head = venue_channel.substr(0, colon);
     const auto tail = venue_channel.substr(colon + 1);
     const auto found = std::ranges::find_if(unanswered_, [&](const std::string& ours) {
-        return ours.size() == venue_channel.size() && ours.starts_with(head) &&
-               ours[head.size()] == '/' && ours.ends_with(tail);
+        return ours.size() == venue_channel.size() && ours.starts_with(head) && ours[head.size()] == '/' &&
+               ours.ends_with(tail);
     });
     if (found != unanswered_.end()) {
         unanswered_.erase(found);

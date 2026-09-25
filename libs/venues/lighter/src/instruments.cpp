@@ -20,44 +20,40 @@ constexpr std::uint32_t k_catalogue_timeout_ms = 10'000;
 class LighterInstruments final : public exec::InstrumentSource {
 public:
     explicit LighterInstruments(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
-                                .port = "443",
-                                .pool_size = 1,
-                                .timeout_ms = k_catalogue_timeout_ms}} {
+        : state_{std::move(state)}, rest_{state_->io,
+                                          net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
+                                                          .port = "443",
+                                                          .pool_size = 1,
+                                                          .timeout_ms = k_catalogue_timeout_ms}} {
         rest_.set_admit(exec::market_data_gate(state_->rest_budget, *state_->clock));
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        const net::RestRequest request{
-            .method = net::HttpMethod::Get, .target = ep::k_order_book_details, .body = {}};
+        const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_order_book_details, .body = {}};
         // Past the transport's two timeouts in series, so the two never race.
         const auto response = net::await_response(
             state_->io, *state_->clock, rest_, request, 2ULL * k_catalogue_timeout_ms + 1'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status == 429 || response->status == 405) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::RateLimited, response->status, "catalogue: rate limited")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::RateLimited, response->status, "catalogue: rate limited")};
         }
         if (response->status != 200) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, response->status, "catalogue: unexpected status")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, response->status, "catalogue: unexpected status")};
         }
 
         static thread_local const auto storage_owner = std::make_unique<MarketBuffer>();
         const auto wire = parse_order_book_details(response->body, *storage_owner);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         std::vector<Instrument> loaded;

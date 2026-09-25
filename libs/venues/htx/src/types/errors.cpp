@@ -57,9 +57,8 @@ bool is_benign_cancel_failure(std::string_view code) noexcept {
                number == k_swap_cancel_in_flight || number == k_swap_already_executed ||
                number == k_swap_already_cancelled;
     }
-    return code == k_spot_order_state || code == k_spot_record_invalid ||
-           code == k_spot_not_found || code == k_spot_base_not_found ||
-           code == k_client_id_not_found;
+    return code == k_spot_order_state || code == k_spot_record_invalid || code == k_spot_not_found ||
+           code == k_spot_base_not_found || code == k_client_id_not_found;
 }
 
 exec::ErrorClass classify_http(int status) noexcept {

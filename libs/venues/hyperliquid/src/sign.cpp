@@ -85,8 +85,7 @@ void wipe(std::span<std::uint8_t> bytes) noexcept {
     std::size_t at = 2;
     bool leading = true;
     for (const auto byte : bytes) {
-        for (const auto nibble :
-             {static_cast<std::size_t>(byte >> 4), static_cast<std::size_t>(byte & 0x0FU)}) {
+        for (const auto nibble : {static_cast<std::size_t>(byte >> 4), static_cast<std::size_t>(byte & 0x0FU)}) {
             if (leading && nibble == 0) {
                 continue;
             }
@@ -203,8 +202,7 @@ private:
 };
 
 [[nodiscard]] bool to_fixed_bytes(const BIGNUM* value, std::span<std::uint8_t, 32> out) noexcept {
-    return BN_bn2binpad(value, out.data(), static_cast<int>(out.size())) ==
-           static_cast<int>(out.size());
+    return BN_bn2binpad(value, out.data(), static_cast<int>(out.size())) == static_cast<int>(out.size());
 }
 
 } // namespace
@@ -213,9 +211,7 @@ bool same_address(std::string_view a, std::string_view b) noexcept {
     if (a.size() != b.size() || a.empty()) {
         return false;
     }
-    const auto lower = [](char c) noexcept {
-        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
-    };
+    const auto lower = [](char c) noexcept { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; };
     for (std::size_t i = 0; i < a.size(); ++i) {
         if (lower(a[i]) != lower(b[i])) {
             return false;
@@ -294,8 +290,7 @@ bool Wallet::load(std::string_view hex_key) noexcept {
 
     const PointPtr pub{EC_POINT_new(group.get())};
     std::array<std::uint8_t, 65> uncompressed{};
-    if (pub == nullptr ||
-        EC_POINT_mul(group.get(), pub.get(), secret.get(), nullptr, nullptr, ctx.get()) != 1 ||
+    if (pub == nullptr || EC_POINT_mul(group.get(), pub.get(), secret.get(), nullptr, nullptr, ctx.get()) != 1 ||
         EC_POINT_point2oct(group.get(),
                            pub.get(),
                            POINT_CONVERSION_UNCOMPRESSED,
@@ -314,8 +309,7 @@ bool Wallet::load(std::string_view hex_key) noexcept {
         address_[3 + i * 2] = k_hex_digits[byte & 0x0FU];
     }
 
-    const auto stored = key_.assign(
-        std::string_view{reinterpret_cast<const char*>(raw.data()), raw.size()}); // NOLINT
+    const auto stored = key_.assign(std::string_view{reinterpret_cast<const char*>(raw.data()), raw.size()}); // NOLINT
     wipe(raw);
     if (!stored.has_value()) {
         return false;
@@ -367,8 +361,8 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
     const BnPtr x{BN_new()};
     const BnPtr y{BN_new()};
     const PointPtr point{EC_POINT_new(group.get())};
-    if (half == nullptr || r == nullptr || s == nullptr || scratch == nullptr || k_inv == nullptr ||
-        x == nullptr || y == nullptr || point == nullptr || BN_rshift1(half.get(), order) != 1) {
+    if (half == nullptr || r == nullptr || s == nullptr || scratch == nullptr || k_inv == nullptr || x == nullptr ||
+        y == nullptr || point == nullptr || BN_rshift1(half.get(), order) != 1) {
         return false;
     }
 
@@ -381,8 +375,7 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
             continue;
         }
         if (EC_POINT_mul(group.get(), point.get(), k.get(), nullptr, nullptr, ctx.get()) != 1 ||
-            EC_POINT_get_affine_coordinates(
-                group.get(), point.get(), x.get(), y.get(), ctx.get()) != 1 ||
+            EC_POINT_get_affine_coordinates(group.get(), point.get(), x.get(), y.get(), ctx.get()) != 1 ||
             BN_nnmod(r.get(), x.get(), order, ctx.get()) != 1) {
             return false;
         }

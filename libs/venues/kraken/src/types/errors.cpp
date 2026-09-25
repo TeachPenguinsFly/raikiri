@@ -33,8 +33,7 @@ exec::ErrorClass classify(std::string_view error) noexcept {
         return exec::ErrorClass::Retryable;
     }
     // routing-layer failures carry status, not error
-    if (name == "INTERNAL_SERVER_ERROR" || name == "SERVICE_UNAVAILABLE" ||
-        name == "GATEWAY_TIMEOUT") {
+    if (name == "INTERNAL_SERVER_ERROR" || name == "SERVICE_UNAVAILABLE" || name == "GATEWAY_TIMEOUT") {
         return exec::ErrorClass::Retryable;
     }
     return exec::ErrorClass::Terminal;
@@ -42,8 +41,7 @@ exec::ErrorClass classify(std::string_view error) noexcept {
 
 bool is_benign_cancel_failure(std::string_view error) noexcept {
     const auto name = name_of(error);
-    return name == "orderForEditNotFound" || name == "orderNotFound" ||
-           name == "cancelOrderNotFound";
+    return name == "orderForEditNotFound" || name == "orderNotFound" || name == "cancelOrderNotFound";
 }
 
 bool is_send_accepted(std::string_view status) noexcept {

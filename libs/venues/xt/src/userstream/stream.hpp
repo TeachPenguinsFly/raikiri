@@ -22,10 +22,7 @@ constexpr std::uint32_t k_perp_stream_id = 1;
 constexpr std::uint32_t k_spot_stream_id = 2;
 
 // same shell on both trees but different field names, so the reader is chosen by market
-void handle_private_frame(VenueState& state,
-                          MarketType market,
-                          std::string_view frame,
-                          UnixNanos received) {
+void handle_private_frame(VenueState& state, MarketType market, std::string_view frame, UnixNanos received) {
     const auto info = parse_private_frame(frame);
     if (!info.has_value()) {
         return; // the `pong` answer is bare text, not JSON
@@ -42,16 +39,14 @@ void handle_private_frame(VenueState& state,
             OrderContext context = state.context_for(wire->order_id);
             context.side = wire->side == "SELL" ? Side::Sell : Side::Buy;
             context.side_known = !wire->side.empty();
-            if (const auto report = map_spot_open_order(*wire, state.instruments);
-                report.has_value()) {
+            if (const auto report = map_spot_open_order(*wire, state.instruments); report.has_value()) {
                 context.leaves = report->leaves;
                 if (!report->exchange_client_order_id.empty()) {
                     context.client_order_id = report->exchange_client_order_id;
                 }
             }
             state.remember(wire->order_id, context);
-            if (const auto event = map_spot_order_event(*wire, state.instruments, received);
-                event.has_value()) {
+            if (const auto event = map_spot_order_event(*wire, state.instruments, received); event.has_value()) {
                 state.sink->on_order_event(*event);
             }
             return;
@@ -63,16 +58,14 @@ void handle_private_frame(VenueState& state,
         OrderContext context = state.context_for(wire->order_id);
         context.side = wire->order_side == "SELL" ? Side::Sell : Side::Buy;
         context.side_known = !wire->order_side.empty();
-        if (const auto report = map_futures_open_order(*wire, state.instruments);
-            report.has_value()) {
+        if (const auto report = map_futures_open_order(*wire, state.instruments); report.has_value()) {
             context.leaves = report->leaves;
             if (!report->exchange_client_order_id.empty()) {
                 context.client_order_id = report->exchange_client_order_id;
             }
         }
         state.remember(wire->order_id, context);
-        if (const auto event = map_futures_order_event(
-                *wire, state.instruments, context.client_order_id, received);
+        if (const auto event = map_futures_order_event(*wire, state.instruments, context.client_order_id, received);
             event.has_value()) {
             state.sink->on_order_event(*event);
         }
@@ -95,8 +88,7 @@ void handle_private_frame(VenueState& state,
         if (!wire.has_value()) {
             return;
         }
-        if (const auto event = map_futures_deal(
-                *wire, state.instruments, state.context_for(wire->order_id), received);
+        if (const auto event = map_futures_deal(*wire, state.instruments, state.context_for(wire->order_id), received);
             event.has_value()) {
             state.sink->on_order_event(*event);
         }
@@ -107,9 +99,8 @@ void handle_private_frame(VenueState& state,
         // GatewaySink has no channel for these; positions come via position_reports()
         return;
     case PrivateTopic::Ack:
-        state.sink->on_connectivity({.state = exec::ConnState::Connected,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
+        state.sink->on_connectivity(
+            {.state = exec::ConnState::Connected, .stream_id = stream_id, .ts = state.clock->wall()});
         return;
     case PrivateTopic::Refusal:
         // code 2: the key is dead, mint a new one
@@ -117,9 +108,8 @@ void handle_private_frame(VenueState& state,
             (market == MarketType::Spot ? state.spot_key_stale : state.perp_key_stale) = true;
         }
         state.last_error.assign(info->msg);
-        state.sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
+        state.sink->on_connectivity(
+            {.state = exec::ConnState::AuthFailed, .stream_id = stream_id, .ts = state.clock->wall()});
         return;
     case PrivateTopic::Unknown:
         return;
@@ -135,14 +125,12 @@ public:
         const auto frame = market_ == MarketType::Spot ? protocol_.spot_subscribe(*key_)
                                                        : protocol_.futures_subscribe(*key_);
         if (!frame.has_value() || client_ == nullptr || !client_->send(*frame)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = stream_id,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = stream_id, .ts = state_->clock->wall()});
             return;
         }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = stream_id,
-                                       .ts = state_->clock->wall()});
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = stream_id, .ts = state_->clock->wall()});
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -150,10 +138,9 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        state_->sink->on_connectivity(
-            {.state = exec::ConnState::Disconnected,
-             .stream_id = market_ == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id,
-             .ts = state_->clock->wall()});
+        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
+                                       .stream_id = market_ == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id,
+                                       .ts = state_->clock->wall()});
     }
 
     void attach(net::WsClient& client, const std::string& key) noexcept {
@@ -175,12 +162,11 @@ public:
     PrivateStream(VenueState& state, MarketType market)
         : handler_{state, market},
           client_{state.io,
-                  net::WsConfig{
-                      .host = std::string{market == MarketType::Spot ? spot_private_stream_host()
-                                                                     : private_stream_host()},
-                      .port = "443",
-                      .target = std::string{market == MarketType::Spot ? spot_private_stream_path()
-                                                                       : private_stream_path()}},
+                  net::WsConfig{.host = std::string{market == MarketType::Spot ? spot_private_stream_host()
+                                                                               : private_stream_host()},
+                                .port = "443",
+                                .target = std::string{market == MarketType::Spot ? spot_private_stream_path()
+                                                                                 : private_stream_path()}},
                   handler_} {
         handler_.attach(client_, key_);
     }

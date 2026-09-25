@@ -178,8 +178,7 @@ std::expected<WireOrder, WireError> parse_order(std::string_view frame) {
     });
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                  OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         const auto count = rows_of<WireOrder>(
             body, storage.orders, [](wire::ondemand::value value) { return read_order(value); });
@@ -192,18 +191,15 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
 
 std::expected<WireExecution, WireError> parse_execution(std::string_view frame) {
     return guarded([&]() -> std::expected<WireExecution, WireError> {
-        return with_row(frame,
-                        [](wire::ondemand::value payload) { return read_execution(payload); });
+        return with_row(frame, [](wire::ondemand::value payload) { return read_execution(payload); });
     });
 }
 
-std::expected<std::span<const WireExecution>, WireError>
-parse_executions(std::string_view body, ExecutionBuffer& storage) {
+std::expected<std::span<const WireExecution>, WireError> parse_executions(std::string_view body,
+                                                                          ExecutionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireExecution>, WireError> {
-        const auto count =
-            rows_of<WireExecution>(body, storage.executions, [](wire::ondemand::value value) {
-                return read_execution(value);
-            });
+        const auto count = rows_of<WireExecution>(
+            body, storage.executions, [](wire::ondemand::value value) { return read_execution(value); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }

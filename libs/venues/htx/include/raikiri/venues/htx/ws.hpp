@@ -51,11 +51,9 @@ public:
     };
 
     // {"sub":"market.BTC-USDT.bbo","id":"1"}
-    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::string_view code,
-                                                                     std::string_view suffix);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::string_view code, std::string_view suffix);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::string_view code,
-                                                                       std::string_view suffix);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::string_view code, std::string_view suffix);
 
     // {"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"1"}
     [[nodiscard]] std::expected<Frame, WsBuildError> funding_subscribe_frame(std::string_view code);
@@ -67,20 +65,16 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError> spot_pong_frame(std::string_view ts);
 
     // signs the rest canonical string with the notification socket's path
-    [[nodiscard]] std::expected<Frame, WsBuildError> swap_auth_frame(const net::Signer& signer,
-                                                                     UnixNanos now);
+    [[nodiscard]] std::expected<Frame, WsBuildError> swap_auth_frame(const net::Signer& signer, UnixNanos now);
 
     // spot v2 names the parameters in lowerCamelCase and uses signatureVersion "2.1"
-    [[nodiscard]] std::expected<Frame, WsBuildError> spot_auth_frame(const net::Signer& signer,
-                                                                     UnixNanos now);
+    [[nodiscard]] std::expected<Frame, WsBuildError> spot_auth_frame(const net::Signer& signer, UnixNanos now);
 
     // {"op":"sub","topic":"orders_cross.*","cid":"1"}
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    swap_private_subscribe_frame(std::string_view topic);
+    [[nodiscard]] std::expected<Frame, WsBuildError> swap_private_subscribe_frame(std::string_view topic);
 
     // {"action":"sub","ch":"orders#*"}
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    spot_private_subscribe_frame(std::string_view channel);
+    [[nodiscard]] std::expected<Frame, WsBuildError> spot_private_subscribe_frame(std::string_view channel);
 
     // for tests: the bytes signed by the last auth frame
     [[nodiscard]] std::string_view last_auth_message() const noexcept;
@@ -89,8 +83,7 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     request(std::string_view op, std::string_view code, std::string_view suffix);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError> pong(std::string_view head,
-                                                          std::string_view ts);
+    [[nodiscard]] std::expected<Frame, WsBuildError> pong(std::string_view head, std::string_view ts);
 
     // one topic per message; BufferTooSmall drops a subscription silently
     std::array<char, 256> frame_{};

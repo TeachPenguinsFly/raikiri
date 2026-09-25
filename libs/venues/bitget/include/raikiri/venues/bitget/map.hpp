@@ -21,8 +21,7 @@ namespace raikiri::venues::bitget {
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
 // both read the same ticker frame
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // nullopt when the frame quotes no rate
 [[nodiscard]] std::optional<FundingUpdate>
@@ -42,17 +41,15 @@ map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts
 [[nodiscard]] Side side_from(std::string_view text) noexcept;
 
 // a push with an inline trade becomes Filled; a status change alone becomes the lifecycle event
-[[nodiscard]] std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
-                                                         const exec::InstrumentTable& table,
-                                                         UnixNanos ts_init);
+[[nodiscard]] std::optional<OrderEvent>
+map_order_update(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // nullopt for an order that is no longer working
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrderUpdate& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrderUpdate& wire,
+                                                                    const exec::InstrumentTable& table);
 
 // neither fills endpoint carries a clientOid, so this joins by venue order id
-[[nodiscard]] std::optional<exec::FillReport> map_fill_report(const WireFill& wire,
-                                                              const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::FillReport> map_fill_report(const WireFill& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);

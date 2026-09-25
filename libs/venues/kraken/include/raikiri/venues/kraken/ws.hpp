@@ -40,10 +40,7 @@ struct OwnedSubscription {
 };
 
 // keeps each feed's entries contiguous so subscribe_frame batches them
-void add_subscription(std::vector<OwnedSubscription>& set,
-                      std::string_view feed,
-                      std::string_view product_id);
-
+void add_subscription(std::vector<OwnedSubscription>& set, std::string_view feed, std::string_view product_id);
 
 // private feeds use a second connection so a public reconnect skips the challenge
 inline constexpr std::string_view k_feed_open_orders = "open_orders";
@@ -56,26 +53,22 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions);
 
     // step one of the private handshake; subscribe nothing until the challenge arrives
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    challenge_request_frame(std::string_view api_key);
+    [[nodiscard]] std::expected<Frame, WsBuildError> challenge_request_frame(std::string_view api_key);
 
     // step two: signed_challenge is the authent chain over the challenge uuid alone
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    private_subscribe_frame(std::string_view feed,
-                            std::string_view api_key,
-                            std::string_view original_challenge,
-                            std::string_view signed_challenge);
+    [[nodiscard]] std::expected<Frame, WsBuildError> private_subscribe_frame(std::string_view feed,
+                                                                             std::string_view api_key,
+                                                                             std::string_view original_challenge,
+                                                                             std::string_view signed_challenge);
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    event_frame(std::string_view event, std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> event_frame(std::string_view event,
+                                                                 std::span<const Subscription> subscriptions);
 
     std::array<char, 4096> frame_{};
 };

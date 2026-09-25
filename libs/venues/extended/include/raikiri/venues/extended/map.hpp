@@ -21,8 +21,7 @@ inline constexpr std::string_view k_perp_quote = "USDC";
 
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType market);
 
-[[nodiscard]] std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 // Rate and mark arrive on two streams and the next settlement time on REST;
 // the shm cell is written whole, so each publish is the merge of all three.

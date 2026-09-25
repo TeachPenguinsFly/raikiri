@@ -56,8 +56,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -73,8 +72,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             break; // nothing to accumulate into, and nothing to publish
         }
         auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
-        if (const auto funding = map_funding(*wire, state.instruments, memo, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
         break;
@@ -84,8 +82,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -109,8 +106,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!state.sink->wants_depth(base_of(*instrument).id, received)) {
             break;
         }
-        if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
-            depth.has_value()) {
+        if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received); depth.has_value()) {
             state.sink->on_depth(*depth);
         }
         break;
@@ -132,8 +128,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             break;
         }
         auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
-        if (const auto funding = map_mark_price(*wire, state.instruments, memo, received);
-            funding.has_value()) {
+        if (const auto funding = map_mark_price(*wire, state.instruments, memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
         break;
@@ -215,16 +210,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto channel = channel_for(kind);
         if (channel.empty()) {
@@ -274,8 +265,7 @@ public:
 
 private:
     [[nodiscard]] static std::unexpected<exec::VenueError> pool_full() {
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "okx: connection pool is full")};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "okx: connection pool is full")};
     }
 
     // false only at the pool's ceiling
@@ -302,8 +292,7 @@ private:
                 continue;
             }
             // find so no book is seeded for a key nothing feeds
-            if (const auto entry = state_->books.find(base_of(*instrument).id);
-                entry != state_->books.end()) {
+            if (const auto entry = state_->books.find(base_of(*instrument).id); entry != state_->books.end()) {
                 entry->second.invalidate();
             }
         }
@@ -333,8 +322,7 @@ private:
                 frames.emplace_back(on->text);
             }
             if (frames.size() == 2 && pool_.requeue(key_of(depth, symbol), std::move(frames))) {
-                RLOG_WARN("okx: {} book broke its seqId chain ({} gaps), resubscribing", symbol,
-                          book.gaps());
+                RLOG_WARN("okx: {} book broke its seqId chain ({} gaps), resubscribing", symbol, book.gaps());
             }
         }
     }
@@ -349,8 +337,7 @@ private:
             }
         }
         const auto quote = channel_for(exec::SubKind::Bbo);
-        std::ranges::stable_partition(
-            views, [quote](const Subscription& one) { return one.channel == quote; });
+        std::ranges::stable_partition(views, [quote](const Subscription& one) { return one.channel == quote; });
 
         std::vector<std::string> frames;
         std::size_t built = 0;

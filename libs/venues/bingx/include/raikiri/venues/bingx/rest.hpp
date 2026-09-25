@@ -89,11 +89,9 @@ public:
     amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
     // symbol omitted, so this sweeps the account
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
-                                                                          UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> position_mode(UnixNanos now);
 
@@ -101,15 +99,12 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> balance(UnixNanos now);
 
     // no incomeType filter, so fee rows come back too
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> funding_income(UnixNanos since,
-                                                                             UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> funding_income(UnixNanos since, UnixNanos now);
 
     // post mints, put extends by an hour, delete closes; signed although bingx's curl example is not
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_create(UnixNanos now);
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    listen_key_keepalive(std::string_view key, UnixNanos now);
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_close(std::string_view key,
-                                                                               UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_keepalive(std::string_view key, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_close(std::string_view key, UnixNanos now);
 
     // for tests: the bytes last signed, identical to the query sent
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

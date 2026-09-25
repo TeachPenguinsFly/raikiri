@@ -117,8 +117,7 @@ std::string Secret::fingerprint() const {
     }
     std::string out = "sha256:";
     if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) == 1 &&
-        EVP_DigestUpdate(ctx, k_salt.data(), k_salt.size()) == 1 &&
-        EVP_DigestUpdate(ctx, buf_, len_) == 1 &&
+        EVP_DigestUpdate(ctx, k_salt.data(), k_salt.size()) == 1 && EVP_DigestUpdate(ctx, buf_, len_) == 1 &&
         EVP_DigestFinal_ex(ctx, md.data(), &md_len) == 1 && md_len >= 4) {
         char hex[9];
         std::snprintf(hex, sizeof hex, "%02x%02x%02x%02x", md[0], md[1], md[2], md[3]);
@@ -181,8 +180,7 @@ std::expected<void, SecretError> DefaultSecretProvider::resolve(const SecretRef&
     case SecretRef::Scheme::File: {
         const int fd = ::open(ref.payload.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0) {
-            return std::unexpected{errno == ENOENT ? SecretError::NotFound
-                                                   : SecretError::ReadFailed};
+            return std::unexpected{errno == ENOENT ? SecretError::NotFound : SecretError::ReadFailed};
         }
         std::array<char, Secret::k_max_bytes + 1> buf{};
         const auto n = ::read(fd, buf.data(), buf.size());

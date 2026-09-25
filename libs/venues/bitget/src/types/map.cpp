@@ -154,8 +154,7 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
-std::optional<Bbo>
-map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -226,8 +225,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -249,8 +247,7 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-std::optional<BookSnapshot>
-map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<BookSnapshot> map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (!wire.snapshot) {
         return std::nullopt;
     }
@@ -268,8 +265,7 @@ map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts
         out.venue_seq = static_cast<std::uint64_t>(wire.seq_id);
     }
 
-    const auto fill = [&](std::span<const WireLevel> src,
-                          std::array<BookLevel, k_book_levels>& dst) {
+    const auto fill = [&](std::span<const WireLevel> src, std::array<BookLevel, k_book_levels>& dst) {
         std::uint32_t n = 0;
         for (const auto& level : src) {
             if (n == k_book_levels) {
@@ -298,9 +294,8 @@ Side side_from(std::string_view text) noexcept {
     return text == "sell" ? Side::Sell : Side::Buy;
 }
 
-std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
-                                           const exec::InstrumentTable& table,
-                                           UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_order_update(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt; // an instrument this process never loaded
@@ -335,10 +330,9 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
         out.liquidity = liquidity_from(wire.trade_scope);
         out.fee = charge_from(wire.fill_fee);
         // bitget publishes no remaining qty; it is size less filled
-        out.leaves_qty = wire.status == WireOrderStatus::Filled ? QtyLots::from_raw(0)
-                         : (total.has_value() && filled.has_value())
-                             ? QtyLots::from_raw(total->raw - filled->raw)
-                             : QtyLots::from_raw(0);
+        out.leaves_qty = wire.status == WireOrderStatus::Filled      ? QtyLots::from_raw(0)
+                         : (total.has_value() && filled.has_value()) ? QtyLots::from_raw(total->raw - filled->raw)
+                                                                     : QtyLots::from_raw(0);
         out.ts_event = ms_to_unix(wire.fill_ms != 0 ? wire.fill_ms : wire.update_ms, ts_init);
         return out;
     }
@@ -363,16 +357,14 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
     if (total.has_value()) {
         out.qty = *total;
     }
-    out.leaves_qty = out.type == OrderEventType::Canceled ? QtyLots::from_raw(0)
-                     : (total.has_value() && filled.has_value())
-                         ? QtyLots::from_raw(total->raw - filled->raw)
-                         : total.value_or(QtyLots::from_raw(0));
+    out.leaves_qty = out.type == OrderEventType::Canceled        ? QtyLots::from_raw(0)
+                     : (total.has_value() && filled.has_value()) ? QtyLots::from_raw(total->raw - filled->raw)
+                                                                 : total.value_or(QtyLots::from_raw(0));
     out.ts_event = ms_to_unix(wire.update_ms, ts_init);
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrderUpdate& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrderUpdate& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -414,8 +406,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrderUpdate& wir
     return out;
 }
 
-std::optional<exec::FillReport> map_fill_report(const WireFill& wire,
-                                                const exec::InstrumentTable& table) {
+std::optional<exec::FillReport> map_fill_report(const WireFill& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -443,8 +434,7 @@ std::optional<exec::FillReport> map_fill_report(const WireFill& wire,
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -544,8 +534,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     return PerpInstrument{base, interval_s};
 }
 
-std::optional<LedgerEntry>
-map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<LedgerEntry> map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.business_type != "contract_settle_fee") {
         // other rows are trades, transfers or margin moves, already booked or not trading money
         return std::nullopt;

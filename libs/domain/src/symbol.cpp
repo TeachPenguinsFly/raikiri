@@ -51,8 +51,7 @@ std::optional<SymbolText> canonical_symbol(std::string_view base, std::string_vi
     return symbol.has_value() ? std::optional{*symbol} : std::nullopt;
 }
 
-std::optional<std::pair<AssetCode, AssetCode>> split_symbol(std::string_view symbol,
-                                                            char separator) noexcept {
+std::optional<std::pair<AssetCode, AssetCode>> split_symbol(std::string_view symbol, char separator) noexcept {
     const auto cut = symbol.find(separator);
     if (cut == std::string_view::npos) {
         return std::nullopt;

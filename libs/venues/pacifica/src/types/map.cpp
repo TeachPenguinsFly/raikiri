@@ -33,8 +33,8 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     const auto lot = parse_decimal_e9(wire.lot);
     const auto symbol = SymbolText::from(wire.symbol);
     const auto local = canonical_symbol(wire.symbol, k_perp_quote);
-    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 ||
-        !symbol.has_value() || !local.has_value()) {
+    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 || !symbol.has_value() ||
+        !local.has_value()) {
         return std::nullopt;
     }
 
@@ -57,8 +57,8 @@ std::optional<Bbo> map_bbo(const WireBbo& wire, const InstrumentBase& base, Unix
     const auto bid_qty = steps_of(wire.bid_qty, base.lot_size);
     const auto ask = steps_of(wire.ask, base.tick_size);
     const auto ask_qty = steps_of(wire.ask_qty, base.lot_size);
-    if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() || !ask_qty.has_value() ||
-        *bid_qty == 0 || *ask_qty == 0) {
+    if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() || !ask_qty.has_value() || *bid_qty == 0 ||
+        *ask_qty == 0) {
         return std::nullopt;
     }
     return Bbo{.instrument = base.id,
@@ -83,8 +83,7 @@ std::optional<WireBbo> top_of(const WireBook& wire) noexcept {
                    .ask_qty = wire.asks.front().qty};
 }
 
-std::optional<BookSnapshot>
-map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<BookSnapshot> map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init) {
     BookSnapshot out{};
     out.instrument = base.id;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
@@ -117,8 +116,7 @@ map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init) {
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
     Side aggressor{};
     if (wire.direction == "open_long" || wire.direction == "close_short") {
         aggressor = Side::Buy;
@@ -142,8 +140,7 @@ map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) 
     return out;
 }
 
-std::optional<FundingUpdate>
-map_funding(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<FundingUpdate> map_funding(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto rate = parse_rate_e9(wire.funding);
     if (!rate.has_value()) {
         return std::nullopt;
@@ -173,8 +170,8 @@ void FundingRoll::apply(FundingUpdate& update) noexcept {
         hold_until_ns = now_hour * k_interval_ns + k_roll_hold_ns;
         held = funding;
     }
-    if (hold_until_ns != 0 && (at >= hold_until_ns || update.rate != held ||
-                               (update.rate == next && update.predicted_rate != next))) {
+    if (hold_until_ns != 0 &&
+        (at >= hold_until_ns || update.rate != held || (update.rate == next && update.predicted_rate != next))) {
         hold_until_ns = 0;
     }
     hour = now_hour;
@@ -186,8 +183,7 @@ void FundingRoll::apply(FundingUpdate& update) noexcept {
     }
 }
 
-std::optional<TickerStats>
-map_ticker_stats(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TickerStats> map_ticker_stats(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto quote = parse_turnover_e6(wire.volume_24h);
     if (!quote.has_value()) {
         return std::nullopt;

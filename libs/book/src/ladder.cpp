@@ -38,9 +38,8 @@ void Ladder::truncate(std::size_t depth) {
 }
 
 void Ladder::drop_beyond(PriceTicks worst) {
-    const auto keep = std::partition_point(levels_.begin(), levels_.end(), [&](const Level& level) {
-        return !precedes(worst, level.price);
-    });
+    const auto keep = std::partition_point(
+        levels_.begin(), levels_.end(), [&](const Level& level) { return !precedes(worst, level.price); });
     levels_.erase(keep, levels_.end());
 }
 
@@ -51,10 +50,8 @@ std::optional<std::pair<Level, Level>> Ladders::touch() const noexcept {
     return std::pair{bids_.levels().front(), asks_.levels().front()};
 }
 
-std::optional<BookSnapshot> Ladders::snapshot(InstrumentId instrument,
-                                              std::uint64_t venue_seq,
-                                              UnixNanos ts_event,
-                                              UnixNanos ts_init) const {
+std::optional<BookSnapshot>
+Ladders::snapshot(InstrumentId instrument, std::uint64_t venue_seq, UnixNanos ts_event, UnixNanos ts_init) const {
     if (bids_.empty() || asks_.empty()) {
         return std::nullopt;
     }

@@ -39,8 +39,7 @@ struct WireOrderBook {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame,
-                                                                       LevelBuffer& storage);
+[[nodiscard]] std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Resynced,

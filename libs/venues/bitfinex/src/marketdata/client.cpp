@@ -62,8 +62,7 @@ void forget(VenueState& state, ChannelRegistry& registry) noexcept {
         if (instrument == nullptr) {
             continue;
         }
-        if (const auto entry = state.books.find(base_of(*instrument).id.packed);
-            entry != state.books.end()) {
+        if (const auto entry = state.books.find(base_of(*instrument).id.packed); entry != state.books.end()) {
             entry->second.invalidate();
         }
     }
@@ -76,8 +75,7 @@ void handle_subscribed(ChannelRegistry& registry, std::string_view frame) noexce
         return;
     }
     const auto kind = channel_kind(ack->channel, ack->key);
-    const auto text =
-        kind == ChannelKind::DerivStatus ? symbol_from_deriv_key(ack->key) : ack->symbol;
+    const auto text = kind == ChannelKind::DerivStatus ? symbol_from_deriv_key(ack->key) : ack->symbol;
     const auto symbol = SymbolText::from(text);
     if (kind == ChannelKind::Unknown || !symbol.has_value() || symbol->empty()) {
         return;
@@ -102,13 +100,11 @@ void handle_data(VenueState& state,
         if (!wire.has_value()) {
             return;
         }
-        if (const auto bbo =
-                map_bbo(*wire, binding->symbol.view(), state.instruments, ts_event, received);
+        if (const auto bbo = map_bbo(*wire, binding->symbol.view(), state.instruments, ts_event, received);
             bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
-        if (const auto stats = map_ticker_stats(
-                *wire, binding->symbol.view(), state.instruments, ts_event, received);
+        if (const auto stats = map_ticker_stats(*wire, binding->symbol.view(), state.instruments, ts_event, received);
             stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
@@ -124,8 +120,7 @@ void handle_data(VenueState& state,
             return;
         }
         for (const auto& entry : wire->trades) {
-            if (const auto trade =
-                    map_trade(entry, binding->symbol.view(), state.instruments, received);
+            if (const auto trade = map_trade(entry, binding->symbol.view(), state.instruments, received);
                 trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
@@ -137,8 +132,7 @@ void handle_data(VenueState& state,
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding =
-                map_funding(*wire, binding->symbol.view(), state.instruments, received);
+        if (const auto funding = map_funding(*wire, binding->symbol.view(), state.instruments, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
         }
@@ -176,10 +170,7 @@ void handle_data(VenueState& state,
 }
 
 // noexcept though it allocates; an escape here aborts
-void handle_frame(VenueState& state,
-                  ChannelRegistry& registry,
-                  std::string_view frame,
-                  UnixNanos received) noexcept {
+void handle_frame(VenueState& state, ChannelRegistry& registry, std::string_view frame, UnixNanos received) noexcept {
     const auto info = parse_frame(frame);
     if (!info.has_value()) {
         return; // unknown shapes are ignored, never fatal
@@ -219,8 +210,7 @@ void handle_frame(VenueState& state,
 // one connection's handler; there is a pool per socket
 class SocketHandler final : public net::WsHandler {
 public:
-    SocketHandler(VenueState& state, ChannelRegistry& registry)
-        : state_{&state}, registry_{&registry} {}
+    SocketHandler(VenueState& state, ChannelRegistry& registry) : state_{&state}, registry_{&registry} {}
 
     // the pool resubscribes on open, which reseeds each book with a snapshot
     void on_open() override {
@@ -263,20 +253,15 @@ public:
     }
 
     [[nodiscard]] bool connected() const noexcept override {
-        return std::ranges::any_of(sockets_,
-                                   [](const auto& socket) { return socket->pool->connected(); });
+        return std::ranges::any_of(sockets_, [](const auto& socket) { return socket->pool->connected(); });
     }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto channel = kind_for(kind);
         if (channel == ChannelKind::Unknown) {
@@ -287,8 +272,7 @@ public:
         }
         const auto owned = SymbolText::from(symbol);
         if (!owned.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "symbol too long")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "symbol too long")};
         }
         if (!state_->add_subscription(channel, *owned)) {
             return {}; // funding and mark price share one status key
@@ -344,16 +328,16 @@ private:
             }
         }
         if (sockets_.size() >= k_max_connections) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "bitfinex: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bitfinex: connection pool is full")};
         }
         auto& opened = *sockets_.emplace_back(make_socket());
         if (started_) {
             opened.pool->start();
         }
         if (!opened.pool->subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "bitfinex: a fresh socket refused a key")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bitfinex: a fresh socket refused a key")};
         }
         return {};
     }
@@ -382,8 +366,7 @@ private:
             }
         }
         // book first: with paced sends the tail lags, and the book feeds the bbo
-        std::ranges::stable_partition(
-            views, [](const Subscription& one) { return one.kind == ChannelKind::Book; });
+        std::ranges::stable_partition(views, [](const Subscription& one) { return one.kind == ChannelKind::Book; });
 
         std::vector<std::string> frames;
         frames.reserve(views.size() + 1);

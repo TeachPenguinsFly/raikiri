@@ -67,8 +67,7 @@ std::vector<std::string_view> ask_order(std::span<const std::string> channels) {
     return order;
 }
 
-std::string_view
-channel_name(exec::SubKind kind, std::uint32_t market_id, std::span<char> out) noexcept {
+std::string_view channel_name(exec::SubKind kind, std::uint32_t market_id, std::span<char> out) noexcept {
     const auto channel = channel_for(kind);
     if (channel.empty() || out.size() < channel.size() + 1) {
         return {};
@@ -96,13 +95,11 @@ std::expected<std::string_view, WsBuildError> Protocol::subscribe_frame(std::str
     return frame("subscribe", channel);
 }
 
-std::expected<std::string_view, WsBuildError>
-Protocol::unsubscribe_frame(std::string_view channel) {
+std::expected<std::string_view, WsBuildError> Protocol::unsubscribe_frame(std::string_view channel) {
     return frame("unsubscribe", channel);
 }
 
-std::expected<std::string_view, WsBuildError> Protocol::frame(std::string_view type,
-                                                              std::string_view channel) {
+std::expected<std::string_view, WsBuildError> Protocol::frame(std::string_view type, std::string_view channel) {
     constexpr std::string_view k_open = R"({"type":")";
     constexpr std::string_view k_mid = R"(","channel":")";
     constexpr std::string_view k_close = R"("})";

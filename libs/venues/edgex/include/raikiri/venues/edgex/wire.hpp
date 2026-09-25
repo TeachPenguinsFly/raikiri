@@ -34,11 +34,11 @@ struct ContractBuffer {
     std::array<WireContract, k_max_contracts> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_perp_catalogue(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_perp_catalogue(std::string_view body,
+                                                                                           ContractBuffer& storage);
 
-[[nodiscard]] std::expected<std::span<const WireContract>, WireError>
-parse_spot_catalogue(std::string_view body, ContractBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_spot_catalogue(std::string_view body,
+                                                                                           ContractBuffer& storage);
 
 enum class EventKind : std::uint8_t {
     Depth,
@@ -89,8 +89,7 @@ struct WireDepth {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage);
 
 struct WirePrint {
     std::uint32_t contract_id{0};
@@ -106,8 +105,8 @@ struct PrintBuffer {
     std::array<WirePrint, k_max_prints> prints{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePrint>, WireError>
-parse_trades(std::string_view frame, PrintBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
+                                                                                PrintBuffer& storage);
 
 struct WireTicker {
     std::uint32_t contract_id{0};
@@ -125,8 +124,8 @@ struct TickerBuffer {
     std::array<WireTicker, k_max_tickers> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTicker>, WireError>
-parse_tickers(std::string_view frame, TickerBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view frame,
+                                                                                  TickerBuffer& storage);
 
 inline constexpr std::string_view k_ticker_all = "ticker.all.1s";
 inline constexpr std::string_view k_depth_prefix = "depth.";
@@ -147,11 +146,9 @@ enum class WsBuildError : std::uint8_t {
 
 class Protocol {
 public:
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    subscribe_frame(std::string_view channel);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> subscribe_frame(std::string_view channel);
 
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    unsubscribe_frame(std::string_view channel);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> unsubscribe_frame(std::string_view channel);
 
     [[nodiscard]] std::expected<std::string_view, WsBuildError> pong_frame(std::string_view time);
 

@@ -55,8 +55,7 @@ std::optional<Field> Reader::next() noexcept {
         }
         std::uint64_t value = 0;
         for (std::size_t i = 0; i < 8; ++i) {
-            value |= static_cast<std::uint64_t>(static_cast<std::uint8_t>(buf_[pos_ + i]))
-                     << (8U * i);
+            value |= static_cast<std::uint64_t>(static_cast<std::uint8_t>(buf_[pos_ + i])) << (8U * i);
         }
         pos_ += 8;
         out.type = WireType::Fixed64;
@@ -79,8 +78,7 @@ std::optional<Field> Reader::next() noexcept {
         }
         std::uint64_t value = 0;
         for (std::size_t i = 0; i < 4; ++i) {
-            value |= static_cast<std::uint64_t>(static_cast<std::uint8_t>(buf_[pos_ + i]))
-                     << (8U * i);
+            value |= static_cast<std::uint64_t>(static_cast<std::uint8_t>(buf_[pos_ + i])) << (8U * i);
         }
         pos_ += 4;
         out.type = WireType::Fixed32;
@@ -93,8 +91,7 @@ std::optional<Field> Reader::next() noexcept {
     }
 }
 
-std::optional<std::string_view> bytes_field(std::string_view buffer,
-                                            std::uint32_t number) noexcept {
+std::optional<std::string_view> bytes_field(std::string_view buffer, std::uint32_t number) noexcept {
     Reader reader{buffer};
     while (const auto field = reader.next()) {
         if (field->number == number && field->type == WireType::Bytes) {

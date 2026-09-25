@@ -55,14 +55,12 @@ TEST(BybitWs, SubscribeFrameShape) {
 
     const auto frame = protocol.subscribe_frame(topics);
     ASSERT_TRUE(frame.has_value()) << to_string(frame.error());
-    EXPECT_EQ(frame->text,
-              R"({"op":"subscribe","args":["orderbook.50.BTCUSDT","publicTrade.BTCUSDT"]})");
+    EXPECT_EQ(frame->text, R"({"op":"subscribe","args":["orderbook.50.BTCUSDT","publicTrade.BTCUSDT"]})");
     EXPECT_EQ(frame->consumed, 2U);
 
     const auto unsub = protocol.unsubscribe_frame(topics);
     ASSERT_TRUE(unsub.has_value());
-    EXPECT_EQ(unsub->text,
-              R"({"op":"unsubscribe","args":["orderbook.50.BTCUSDT","publicTrade.BTCUSDT"]})");
+    EXPECT_EQ(unsub->text, R"({"op":"unsubscribe","args":["orderbook.50.BTCUSDT","publicTrade.BTCUSDT"]})");
 }
 
 TEST(BybitWs, TheBuilderTakesWhatItIsHandedAndTheCallerSlicesByTheTable) {
@@ -80,8 +78,7 @@ TEST(BybitWs, TheBuilderTakesWhatItIsHandedAndTheCallerSlicesByTheTable) {
     int frames = 0;
     while (sent < topics.size()) {
         const auto count = std::min<std::size_t>(10, topics.size() - sent);
-        const auto frame = protocol.subscribe_frame(
-            std::span<const std::string_view>{topics}.subspan(sent, count));
+        const auto frame = protocol.subscribe_frame(std::span<const std::string_view>{topics}.subspan(sent, count));
         ASSERT_TRUE(frame.has_value());
         EXPECT_EQ(frame->consumed, count);
         sent += frame->consumed;
@@ -111,11 +108,9 @@ TEST(BybitWs, AuthSignsTheFixedPrefixAndAFutureExpiry) {
     EXPECT_EQ(protocol.last_auth_message(), "GET/realtime1700000005000");
 
     std::array<char, net::k_hex_bytes> reference{};
-    const auto expected =
-        net::hmac_sha256_hex("testsecret", "GET/realtime1700000005000", reference);
+    const auto expected = net::hmac_sha256_hex("testsecret", "GET/realtime1700000005000", reference);
     EXPECT_EQ(*frame,
-              std::string{R"({"op":"auth","args":["TESTKEY",1700000005000,")"} +
-                  std::string{expected} + R"("]})");
+              std::string{R"({"op":"auth","args":["TESTKEY",1700000005000,")"} + std::string{expected} + R"("]})");
 
     // the expiry is a json number; bybit rejects the quoted form
     EXPECT_EQ(frame->find(R"("1700000005000")"), std::string_view::npos);

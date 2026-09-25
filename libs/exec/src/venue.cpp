@@ -19,8 +19,7 @@ void register_venue(VenueId venue, VenueFactory factory) noexcept {
     }
 }
 
-std::expected<VenueAdapter, MakeError>
-make_venue(const VenueConfig& config, GatewaySink& sink, const Clock& clock) {
+std::expected<VenueAdapter, MakeError> make_venue(const VenueConfig& config, GatewaySink& sink, const Clock& clock) {
     const auto idx = static_cast<std::size_t>(config.venue);
     if (idx == 0 || idx >= g_factories.size()) {
         return std::unexpected{MakeError::UnknownVenue};

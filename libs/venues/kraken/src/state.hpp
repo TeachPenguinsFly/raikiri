@@ -74,8 +74,7 @@ struct VenueState {
 
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     void remember(std::string_view order_id, const LiveOrder& order) {
@@ -95,8 +94,7 @@ struct VenueState {
     }
 
     Book& book_for(const InstrumentBase& base) {
-        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
-            .first->second;
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
     }
 
     void add_subscription(std::string_view feed, std::string_view product_id) {

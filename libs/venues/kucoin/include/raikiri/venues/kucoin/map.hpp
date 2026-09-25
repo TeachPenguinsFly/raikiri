@@ -24,8 +24,7 @@ namespace raikiri::venues::kucoin {
 // parse_decimal_e9 plus an optional E±n suffix; tick sizes reach 1.0E-10
 [[nodiscard]] std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept;
 
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
@@ -48,29 +47,24 @@ map_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& table,
                                                        UnixNanos ts_init);
 
 // the mark arrives on its own subject and is merged with the funding memo
-[[nodiscard]] std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
-                                                          const exec::InstrumentTable& table,
-                                                          FundingMemo& memo,
-                                                          UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
 
 // a filled notice yields nullopt; its fills already arrived as match
-[[nodiscard]] std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
-                                                         const exec::InstrumentTable& table,
-                                                         UnixNanos ts_init);
+[[nodiscard]] std::optional<OrderEvent>
+map_order_change(const WireOrderChange& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::OrderStatusReport>
-map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                                    const exec::InstrumentTable& table);
 
-[[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire,
-                                                       const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::InstrumentTable& table);
 
 // avg_entry kept only when it lands on a tick
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
 
 // total is marginBalance, which excludes unrealised pnl; ts_init stands in for the missing venue time
-[[nodiscard]] std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire,
-                                                                UnixNanos ts_init);
+[[nodiscard]] std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire, UnixNanos ts_init);
 
 // nullopt unless open, perpetual, linear and its steps parse
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);

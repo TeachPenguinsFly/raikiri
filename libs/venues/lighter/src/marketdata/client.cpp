@@ -4,11 +4,11 @@
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/lighter/book.hpp>
-#include <raikiri/venues/lighter/outbox.hpp>
 #include <raikiri/venues/lighter/envelope.hpp>
 #include <raikiri/venues/lighter/errors.hpp>
 #include <raikiri/venues/lighter/map.hpp>
 #include <raikiri/venues/lighter/market_data.hpp>
+#include <raikiri/venues/lighter/outbox.hpp>
 #include <raikiri/venues/lighter/ws.hpp>
 
 #include <array>
@@ -43,8 +43,7 @@ public:
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { on_socket_open(keys); }},
           outbox_{net::process_ip_meters()} {
-        pool_.set_admit(
-            [this](std::string_view frame) { return outbox_.admit(frame, state_->clock->mono()); });
+        pool_.set_admit([this](std::string_view frame) { return outbox_.admit(frame, state_->clock->mono()); });
     }
 
     std::expected<void, exec::VenueError> start() override {
@@ -61,16 +60,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto market = state_->market_of.find(instrument.packed);
         if (market == state_->market_of.end()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::string channel;
         switch (kind) {
@@ -101,9 +96,7 @@ public:
         if (!pool_.subscribe(one)) {
             state_->channels.erase(channel);
             return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal,
-                0,
-                "lighter: the one socket this IP's message budget allows is full")};
+                exec::ErrorClass::Terminal, 0, "lighter: the one socket this IP's message budget allows is full")};
         }
         return {};
     }
@@ -127,9 +120,8 @@ private:
         explicit Handler(LighterData& owner) : owner_{&owner} {}
 
         void on_open() override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
         void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -137,9 +129,8 @@ private:
         }
 
         void on_close(net::WsCloseReason) override {
-            owner_->state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
-                                                   .stream_id = 0,
-                                                   .ts = owner_->state_->clock->wall()});
+            owner_->state_->sink->on_connectivity(
+                {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = owner_->state_->clock->wall()});
         }
 
     private:
@@ -156,8 +147,7 @@ private:
             const auto cut = key.rfind('/');
             std::uint32_t market_id = 0;
             const auto digits = std::string_view{key}.substr(cut + 1);
-            if (std::from_chars(digits.data(), digits.data() + digits.size(), market_id).ec !=
-                std::errc{}) {
+            if (std::from_chars(digits.data(), digits.data() + digits.size(), market_id).ec != std::errc{}) {
                 continue;
             }
             if (const auto book = state_->books.find(market_id); book != state_->books.end()) {
@@ -214,9 +204,7 @@ private:
             return;
         }
         const auto& base = base_of(*instrument);
-        auto& book =
-            state_->books.try_emplace(wire->market_id, base.id, base.tick_size, base.lot_size)
-                .first->second;
+        auto& book = state_->books.try_emplace(wire->market_id, base.id, base.tick_size, base.lot_size).first->second;
         const auto result = book.apply(*wire);
         if (result == BookResult::Gap) {
             resubscribe_book(wire->market_id);
@@ -229,8 +217,7 @@ private:
         if (const auto top = book.top(ts_event, received); top.has_value()) {
             state_->sink->on_bbo(*top);
         }
-        if (!state_->depth_wanted.contains(base.id.packed) ||
-            !state_->sink->wants_depth(base.id, received)) {
+        if (!state_->depth_wanted.contains(base.id.packed) || !state_->sink->wants_depth(base.id, received)) {
             return;
         }
         if (const auto depth = book.snapshot(ts_event, received); depth.has_value()) {
@@ -275,8 +262,7 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto trade = map_trade(print, base_of(*instrument), received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(print, base_of(*instrument), received); trade.has_value()) {
                 state_->sink->on_trade(*trade);
                 state_->traded.insert(print.market_id);
             }
@@ -298,13 +284,11 @@ private:
             if (!state_->funding_wanted.contains(base.id.packed)) {
                 continue;
             }
-            if (const auto funding = map_funding(row, base, stats->ts_ms, received);
-                funding.has_value()) {
+            if (const auto funding = map_funding(row, base, stats->ts_ms, received); funding.has_value()) {
                 state_->sink->on_funding(*funding);
                 state_->funded.insert(row.market_id);
             }
-            if (const auto ticker = map_ticker_stats(row, base, stats->ts_ms, received);
-                ticker.has_value()) {
+            if (const auto ticker = map_ticker_stats(row, base, stats->ts_ms, received); ticker.has_value()) {
                 state_->sink->on_ticker_stats(*ticker);
             }
         }
@@ -340,9 +324,7 @@ private:
                   "minute for this IP, so the rest of the catalogue is not priced yet",
                   queued,
                   pool_.key_count(),
-                  net::process_ws_limits().ip_messages.empty()
-                      ? 0U
-                      : net::process_ws_limits().ip_messages.front().max);
+                  net::process_ws_limits().ip_messages.empty() ? 0U : net::process_ws_limits().ip_messages.front().max);
     }
 
     void report_final() const noexcept {

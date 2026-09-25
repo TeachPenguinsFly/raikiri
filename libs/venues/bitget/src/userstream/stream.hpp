@@ -21,12 +21,10 @@ public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        const auto login = state_->protocol.login_frame(
-            state_->signer, state_->passphrase.view(), state_->venue_now());
+        const auto login = state_->protocol.login_frame(state_->signer, state_->passphrase.view(), state_->venue_now());
         if (!login.has_value() || !client_->send(*login)) {
-            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                           .stream_id = 1,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::AuthFailed, .stream_id = 1, .ts = state_->clock->wall()});
         }
     }
 
@@ -49,8 +47,7 @@ public:
                 return;
             }
             for (const auto& wire : *updates) {
-                if (const auto mapped = map_order_update(wire, state_->instruments, received);
-                    mapped.has_value()) {
+                if (const auto mapped = map_order_update(wire, state_->instruments, received); mapped.has_value()) {
                     state_->sink->on_order_event(*mapped);
                 }
             }
@@ -64,9 +61,8 @@ public:
             state_->last_error_code = err->code;
             if (is_login_failure(err->code)) {
                 // bitget closes the socket on a failed login, so reconnects fail the same way
-                state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                               .stream_id = 1,
-                                               .ts = state_->clock->wall()});
+                state_->sink->on_connectivity(
+                    {.state = exec::ConnState::AuthFailed, .stream_id = 1, .ts = state_->clock->wall()});
             } else {
                 ++state_->subscribe_refusals;
             }
@@ -90,10 +86,9 @@ public:
 
 private:
     void subscribe_orders() noexcept {
-        const std::array<Subscription, 1> orders{
-            Subscription{.inst_type = inst_type(state_->market, state_->testnet),
-                         .channel = k_channel_orders,
-                         .inst_id = k_all_instruments}};
+        const std::array<Subscription, 1> orders{Subscription{.inst_type = inst_type(state_->market, state_->testnet),
+                                                              .channel = k_channel_orders,
+                                                              .inst_id = k_all_instruments}};
         if (const auto frame = state_->protocol.subscribe_frame(orders); frame.has_value()) {
             (void)client_->send(frame->text);
         }

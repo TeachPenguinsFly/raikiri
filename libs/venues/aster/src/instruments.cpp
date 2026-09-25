@@ -40,16 +40,14 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     }
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.clock_offset_ns =
-        static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
+    state.clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
 }
 
 class AsterInstruments final : public exec::InstrumentSource {
 public:
     explicit AsterInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
         // a refusal here stops gateway start; there is no retry tick
         meter_market_data(*state_, rest_);
     }
@@ -60,17 +58,14 @@ public:
 
         const auto response = await_response(*state_, rest_, state_->builder.instruments(), 20'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        if (const auto err = parse_rest_error(response->body);
-            err.has_value() && err->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(err->code), err->code, err->msg)};
+        if (const auto err = parse_rest_error(response->body); err.has_value() && err->code != k_ok) {
+            return std::unexpected{exec::VenueError::make(classify(err->code), err->code, err->msg)};
         }
 
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
@@ -78,8 +73,7 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_exchange_info(response->body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         // on failure every interval stays 0 and the catalogue still loads

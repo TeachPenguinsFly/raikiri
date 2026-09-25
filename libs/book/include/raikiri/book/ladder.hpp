@@ -71,10 +71,8 @@ public:
 
     [[nodiscard]] std::optional<std::pair<Level, Level>> touch() const noexcept;
 
-    [[nodiscard]] std::optional<BookSnapshot> snapshot(InstrumentId instrument,
-                                                       std::uint64_t venue_seq,
-                                                       UnixNanos ts_event,
-                                                       UnixNanos ts_init) const;
+    [[nodiscard]] std::optional<BookSnapshot>
+    snapshot(InstrumentId instrument, std::uint64_t venue_seq, UnixNanos ts_event, UnixNanos ts_init) const;
 
 private:
     Ladder bids_;
@@ -82,8 +80,7 @@ private:
 };
 
 // a value off the step means the venue changed a filter; a delta book must then be invalidated
-[[nodiscard]] constexpr std::optional<std::int64_t> exact_steps(FixedE9 value,
-                                                                FixedE9 step) noexcept {
+[[nodiscard]] constexpr std::optional<std::int64_t> exact_steps(FixedE9 value, FixedE9 step) noexcept {
     if (step.raw <= 0 || value.raw % step.raw != 0) {
         return std::nullopt;
     }

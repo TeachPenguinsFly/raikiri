@@ -23,8 +23,7 @@ inline constexpr std::size_t k_max_unanswered = 512;
 // rest order entry; no private socket, so executions are not observed live (see fill_reports)
 class CoinbaseExec final : public exec::ExecutionClient {
 public:
-    explicit CoinbaseExec(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, api_{*state_} {}
+    explicit CoinbaseExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
         if (!state_->signer.has_credentials() || state_->passphrase.empty()) {
@@ -56,13 +55,10 @@ public:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -89,18 +85,17 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
@@ -109,10 +104,9 @@ private:
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
-        const auto request =
-            kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
-                                   : api_.builder().amend_order(cmd, state_->instruments, now);
+        const auto request = kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
+                             : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
+                                                    : api_.builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
@@ -125,9 +119,7 @@ private:
                 on_response(std::move(response), cmd, kind);
             })) {
             // never sent, so nothing is in doubt
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded before the callback because the callback may never run
@@ -147,13 +139,12 @@ private:
         }
         if (response.transport_failed()) {
             // a transport failure is not a rejection: the order may have reached the matcher
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         if (response.status < 200 || response.status >= 300) {
@@ -169,16 +160,11 @@ private:
             // POST /orders returns the whole order, so acceptance and immediate rejection are both read here
             const auto order = parse_order(response.body);
             if (!order.has_value()) {
-                emit_reject(
-                    cmd,
-                    kind,
-                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable order row"));
+                emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable order row"));
                 return;
             }
-            if (const auto event = map_order_event(*order,
-                                                   state_->instruments,
-                                                   cmd.exchange_client_order_id,
-                                                   state_->clock->wall());
+            if (const auto event = map_order_event(
+                    *order, state_->instruments, cmd.exchange_client_order_id, state_->clock->wall());
                 event.has_value()) {
                 state_->sink->on_order_event(*event);
             }

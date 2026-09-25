@@ -55,7 +55,8 @@ InstrumentBase base_for(std::string_view name) {
 }
 
 TEST(ExtendedCatalogue, ReadsTheAssetClassOffTheSubCategory) {
-    const std::string body = R"({"status":"OK","data":[)"
+    const std::string body =
+        R"({"status":"OK","data":[)"
         R"({"name":"TSLA_24_5-USD","category":"RWA","subCategory":"Equity","type":"PERPETUAL","status":"ACTIVE","isRfq":false,)"
         R"("marketStats":{},"tradingConfig":{"minOrderSize":"0.1","minOrderSizeChange":"0.1","minPriceChange":"0.01"}},)"
         R"({"name":"XAU-USD","category":"RWA","subCategory":"Commodity","type":"PERPETUAL","status":"ACTIVE","isRfq":false,)"
@@ -236,9 +237,7 @@ TEST(ExtendedFunding, RateAndMarkArriveApartAndPublishTogether) {
     EXPECT_EQ(update.next_funding_time.ns, 1'790'316'000'000'000'000ULL);
     EXPECT_FALSE(update.mark_price.is_undef());
     // A settlement already past is not published.
-    EXPECT_TRUE(
-        merged(btc, memo, UnixNanos{1'790'316'000'000'000'001ULL}, k_ingest).next_funding_time.ns ==
-        0);
+    EXPECT_TRUE(merged(btc, memo, UnixNanos{1'790'316'000'000'000'001ULL}, k_ingest).next_funding_time.ns == 0);
 }
 
 TEST(ExtendedFunding, MarkIsTruncatedOntoTheTickAndTakesTheFrameTime) {

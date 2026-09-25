@@ -175,8 +175,7 @@ std::optional<BookSnapshot> map_spot_book(const StreamBook& wire,
     return out;
 }
 
-std::optional<Bbo>
-map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (!wire.snapshot || wire.bids.empty() || wire.asks.empty()) {
         return std::nullopt;
     }
@@ -203,8 +202,7 @@ map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_
     return out;
 }
 
-std::optional<BookSnapshot>
-map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<BookSnapshot> map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (!wire.snapshot) {
         return std::nullopt;
     }
@@ -221,8 +219,7 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts
         out.venue_seq = static_cast<std::uint64_t>(wire.version);
     }
 
-    const auto fill = [&](std::span<const WireLevel> src,
-                          std::array<BookLevel, k_book_levels>& dst) {
+    const auto fill = [&](std::span<const WireLevel> src, std::array<BookLevel, k_book_levels>& dst) {
         std::uint32_t n = 0;
         for (const auto& level : src) {
             if (n == k_book_levels) {
@@ -247,8 +244,7 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -368,9 +364,8 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
-std::optional<TickerStats> map_spot_ticker_stats(const WireSpotTicker& wire,
-                                                 const exec::InstrumentTable& table,
-                                                 UnixNanos ts_init) {
+std::optional<TickerStats>
+map_spot_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -393,8 +388,7 @@ namespace {
 
 [[nodiscard]] AssetClass asset_class_of(std::string_view plates) noexcept {
     const auto has = [&](std::string_view zone) {
-        return plates.find(std::string{"\"mc-trade-zone-"} + std::string{zone} + "\"") !=
-               std::string_view::npos;
+        return plates.find(std::string{"\"mc-trade-zone-"} + std::string{zone} + "\"") != std::string_view::npos;
     };
     if (has("ETF")) {
         return AssetClass::Equity;
@@ -454,9 +448,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract_size;
-    base.kind = !wire.settle_coin.empty() && wire.settle_coin != wire.quote_coin
-                    ? ContractKind::Inverse
-                    : ContractKind::Linear;
+    base.kind = !wire.settle_coin.empty() && wire.settle_coin != wire.quote_coin ? ContractKind::Inverse
+                                                                                 : ContractKind::Linear;
     base.asset_class = asset_class_of(wire.concept_plate);
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
@@ -560,9 +553,8 @@ Side side_from_futures(std::int64_t side) noexcept {
     return (side == 1 || side == 2) ? Side::Buy : Side::Sell;
 }
 
-std::optional<OrderEvent> map_futures_order_event(const WireFuturesOrder& wire,
-                                                  const exec::InstrumentTable& table,
-                                                  UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_futures_order_event(const WireFuturesOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -603,8 +595,7 @@ std::optional<OrderEvent> map_futures_order_event(const WireFuturesOrder& wire,
     if (const auto qty = to_lots(wire.vol, *base); qty.has_value()) {
         out.qty = *qty;
     }
-    out.leaves_qty =
-        type == OrderEventType::Accepted ? out.qty : leaves_from(wire.vol, wire.deal_vol, *base);
+    out.leaves_qty = type == OrderEventType::Accepted ? out.qty : leaves_from(wire.vol, wire.deal_vol, *base);
     out.ts_event = ms_to_unix(wire.update_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -630,8 +621,7 @@ std::optional<OrderEvent> map_futures_deal(const WireFuturesDeal& wire,
     out.instrument = base->id;
     out.side = side_from_futures(wire.side);
     out.exchange_client_order_id = client_id;
-    if (!copy_id(wire.order_id, out.exchange_order_id) ||
-        !copy_exec_id(wire.deal_id, out.exec_id)) {
+    if (!copy_id(wire.order_id, out.exchange_order_id) || !copy_exec_id(wire.deal_id, out.exec_id)) {
         return std::nullopt;
     }
     out.price = *price;
@@ -641,8 +631,7 @@ std::optional<OrderEvent> map_futures_deal(const WireFuturesDeal& wire,
         out.fee = *fee;
     }
     // unknown liquidity stays Unknown
-    out.liquidity = wire.liquidity_known ? (wire.taker ? Liquidity::Taker : Liquidity::Maker)
-                                         : Liquidity::Unknown;
+    out.liquidity = wire.liquidity_known ? (wire.taker ? Liquidity::Taker : Liquidity::Maker) : Liquidity::Unknown;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -698,8 +687,7 @@ std::optional<exec::PositionReport> map_futures_position(const WireFuturesPositi
     exec::PositionReport out{};
     out.instrument = base->id;
     // holdVol is unsigned; positionType gives the direction
-    out.net_qty =
-        QtyLots::from_raw(wire.position_type == k_position_short ? -size->raw : size->raw);
+    out.net_qty = QtyLots::from_raw(wire.position_type == k_position_short ? -size->raw : size->raw);
     if (const auto entry = to_ticks(wire.hold_avg_price, *base); entry.has_value()) {
         out.avg_entry = *entry;
     }
@@ -707,9 +695,8 @@ std::optional<exec::PositionReport> map_futures_position(const WireFuturesPositi
     return out;
 }
 
-std::optional<OrderEvent> map_spot_order_event(const WireSpotOrder& wire,
-                                               const exec::InstrumentTable& table,
-                                               UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_spot_order_event(const WireSpotOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -755,9 +742,7 @@ std::optional<OrderEvent> map_spot_order_event(const WireSpotOrder& wire,
     if (const auto qty = to_lots(wire.orig_qty, *base); qty.has_value()) {
         out.qty = *qty;
     }
-    out.leaves_qty = type == OrderEventType::Accepted
-                         ? out.qty
-                         : leaves_from(wire.orig_qty, wire.executed_qty, *base);
+    out.leaves_qty = type == OrderEventType::Accepted ? out.qty : leaves_from(wire.orig_qty, wire.executed_qty, *base);
     out.ts_event = ms_to_unix(wire.update_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -812,10 +797,8 @@ std::optional<exec::OrderStatusReport> map_spot_open_order(const WireSpotOrder& 
     return out;
 }
 
-std::optional<OrderEvent> map_spot_trade(const WireSpotTrade& wire,
-                                         const exec::InstrumentTable& table,
-                                         QtyLots leaves,
-                                         UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_spot_trade(const WireSpotTrade& wire, const exec::InstrumentTable& table, QtyLots leaves, UnixNanos ts_init) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -831,8 +814,7 @@ std::optional<OrderEvent> map_spot_trade(const WireSpotTrade& wire,
     out.instrument = base->id;
     out.side = wire.is_buyer ? Side::Buy : Side::Sell;
     copy_client_id(wire.client_order_id, out.exchange_client_order_id);
-    if (!copy_id(wire.order_id, out.exchange_order_id) ||
-        !copy_exec_id(wire.trade_id, out.exec_id)) {
+    if (!copy_id(wire.order_id, out.exchange_order_id) || !copy_exec_id(wire.trade_id, out.exec_id)) {
         return std::nullopt;
     }
     out.price = *price;
@@ -847,9 +829,8 @@ std::optional<OrderEvent> map_spot_trade(const WireSpotTrade& wire,
     return out;
 }
 
-std::optional<LedgerEntry> map_funding_record(const WireFundingRecord& wire,
-                                              const exec::InstrumentTable& table,
-                                              UnixNanos ts_init) {
+std::optional<LedgerEntry>
+map_funding_record(const WireFundingRecord& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -877,10 +858,8 @@ std::optional<LedgerEntry> map_funding_record(const WireFundingRecord& wire,
     charge.settled_at = ms_to_unix(wire.settle_ms, UnixNanos{});
     // mexc's row id separates settlements with the same stamp
     std::array<char, 24> buf{};
-    if (const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), wire.id);
-        ec == std::errc{}) {
-        if (const auto id = ExecId::from(
-                std::string_view{buf.data(), static_cast<std::size_t>(stop - buf.data())});
+    if (const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), wire.id); ec == std::errc{}) {
+        if (const auto id = ExecId::from(std::string_view{buf.data(), static_cast<std::size_t>(stop - buf.data())});
             id.has_value()) {
             charge.reference = *id;
         }

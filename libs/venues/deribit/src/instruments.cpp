@@ -27,8 +27,7 @@ class DeribitInstruments final : public exec::InstrumentSource {
 public:
     explicit DeribitInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
 
@@ -43,8 +42,8 @@ public:
             kind = "option";
             break;
         case MarketType::Spot:
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "deribit spot is not modelled")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "deribit spot is not modelled")};
         }
 
         rest_.start();
@@ -52,20 +51,18 @@ public:
 
         std::vector<Instrument> loaded;
         for (const auto currency : k_currencies) {
-            const auto response =
-                await_response(*state_, rest_, state_->builder.instruments(currency, kind), 20'000);
+            const auto response = await_response(*state_, rest_, state_->builder.instruments(currency, kind), 20'000);
             if (!response.has_value()) {
                 return std::unexpected{exec::VenueError::make(
                     exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
             }
             if (response->transport_failed()) {
-                return std::unexpected{
-                    exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
             }
             const auto envelope = parse_response(response->body);
             if (!envelope.has_value()) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
             }
             if (envelope->failed()) {
                 return std::unexpected{exec::VenueError::make(
@@ -77,8 +74,7 @@ public:
             auto& storage = *storage_owner;
             const auto wire = parse_instruments(response->body, storage);
             if (!wire.has_value()) {
-                return std::unexpected{
-                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
             }
             state_->instruments.reserve(state_->instruments.size() + wire->size());
             for (const auto& entry : *wire) {

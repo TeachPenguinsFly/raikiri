@@ -252,8 +252,7 @@ std::optional<Bbo> map_bbo(const WireTicker& wire,
     if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
         return std::nullopt;
     }
-    if (bid->raw <= 0 || ask->raw <= 0 || bid_qty->raw <= 0 || ask_qty->raw <= 0 ||
-        bid->raw >= ask->raw) {
+    if (bid->raw <= 0 || ask->raw <= 0 || bid_qty->raw <= 0 || ask_qty->raw <= 0 || bid->raw >= ask->raw) {
         return std::nullopt;
     }
 
@@ -291,10 +290,8 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
     return out;
 }
 
-std::optional<TradeTick> map_trade(const WireTrade& wire,
-                                   std::string_view symbol,
-                                   const exec::InstrumentTable& table,
-                                   UnixNanos ts_init) {
+std::optional<TradeTick>
+map_trade(const WireTrade& wire, std::string_view symbol, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -451,8 +448,7 @@ std::optional<OrderEvent> map_order_event(const WireOrder& wire,
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -497,8 +493,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     case WireOrderStatus::Unknown:
         return std::nullopt;
     }
-    out.ts_venue =
-        ms_to_unix(wire.mts_update != 0 ? wire.mts_update : wire.mts_create, UnixNanos{0});
+    out.ts_venue = ms_to_unix(wire.mts_update != 0 ? wire.mts_update : wire.mts_create, UnixNanos{0});
     return out;
 }
 
@@ -531,15 +526,13 @@ std::optional<OrderEvent> map_execution(const WireExecution& wire,
     out.leaves_qty = context.leaves;
     out.fee = fee_e9(wire.fee);
     // maker is 1 or -1; otherwise liquidity stays Unknown
-    out.liquidity = wire.liquidity_known ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
-                                         : Liquidity::Unknown;
+    out.liquidity = wire.liquidity_known ? (wire.maker ? Liquidity::Maker : Liquidity::Taker) : Liquidity::Unknown;
     out.ts_event = ms_to_unix(wire.mts, ts_init);
     out.ts_init = ts_init;
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
     if (wire.status != "ACTIVE") {
         return std::nullopt;
     }

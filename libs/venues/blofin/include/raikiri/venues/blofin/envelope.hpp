@@ -48,8 +48,7 @@ struct RestEnvelope {
 [[nodiscard]] std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body);
 
 template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError>
-read_data(std::string_view body, std::span<Entry> into, Read&& read) {
+std::expected<std::span<const Entry>, WireError> read_data(std::string_view body, std::span<Entry> into, Read&& read) {
     return wire::guarded([&]() -> std::expected<std::span<const Entry>, WireError> {
         auto root = wire::session().open_object(body);
         if (!root.has_value()) {

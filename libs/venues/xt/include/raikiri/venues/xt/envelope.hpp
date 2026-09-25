@@ -12,13 +12,13 @@
 namespace raikiri::venues::xt {
 
 enum class EventKind : std::uint8_t {
-    Depth, // top-N snapshot, the bbo and book source
+    Depth,       // top-N snapshot, the bbo and book source
     DepthUpdate, // incremental deltas
     Trade,
     MarkPrice,
     Ticker, // rolling 24-hour window
-    Ack, // {"code":0,...}, accepted subscription
-    Error, // {"code":1,...}, refused subscription
+    Ack,    // {"code":0,...}, accepted subscription
+    Error,  // {"code":1,...}, refused subscription
     Unknown,
 };
 
@@ -78,7 +78,7 @@ enum class PrivateTopic : std::uint8_t {
     Trade,
     Position,
     Balance,
-    Ack, // {"id":..,"code":0,"msg":"success"}
+    Ack,     // {"id":..,"code":0,"msg":"success"}
     Refusal, // the same shape with a non-zero code; msg names the failure
     Unknown,
 };
@@ -93,24 +93,19 @@ struct PrivateFrame {
 
 // opt_ms and opt_i64 shadow raikiri::wire names with different meanings; use these inside this venue
 
-[[nodiscard]] std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj,
-                                                             std::string_view key);
-[[nodiscard]] std::expected<bool, WireError> req_bool(wire::ondemand::object& obj,
-                                                      std::string_view key);
+[[nodiscard]] std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<bool, WireError> req_bool(wire::ondemand::object& obj, std::string_view key);
 
 // epoch ms as a json number; parse_decimal_e9 would overflow on it
-[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
-                                                             std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj, std::string_view key);
 
 // digit-string sequence ids; anything else yields 0
-[[nodiscard]] std::expected<std::uint64_t, WireError> req_digits(wire::ondemand::object& obj,
-                                                                 std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> req_digits(wire::ondemand::object& obj, std::string_view key);
 
 // a number keeps its token, a string loses its quotes, null reads empty
 [[nodiscard]] std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value);
 
-[[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
-                                                                    std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj, std::string_view key);
 
 // the private dtos use negative sentinels for absent fields
 [[nodiscard]] std::expected<std::int64_t, WireError>
@@ -132,8 +127,8 @@ take(wire::ondemand::object& obj, std::string_view key, std::string_view& into) 
 
 // public payloads sit in a data object
 template <typename Fn>
-[[nodiscard]] auto with_data(wire::ondemand::object& root, Fn&& fn)
-    -> decltype(fn(std::declval<wire::ondemand::object&>())) {
+[[nodiscard]] auto with_data(wire::ondemand::object& root,
+                             Fn&& fn) -> decltype(fn(std::declval<wire::ondemand::object&>())) {
     auto data = wire::req_object(root, "data");
     if (!data.has_value()) {
         return std::unexpected(data.error());

@@ -49,12 +49,10 @@ std::string_view stream_host(bool testnet) noexcept {
 }
 
 std::string_view stream_path(exec::SubKind kind) noexcept {
-    return kind == exec::SubKind::MarkPrice || kind == exec::SubKind::Funding ? ep::k_ws_market
-                                                                               : ep::k_ws_combined;
+    return kind == exec::SubKind::MarkPrice || kind == exec::SubKind::Funding ? ep::k_ws_market : ep::k_ws_combined;
 }
 
-std::string_view
-stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
+std::string_view stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
     const auto suffix = suffix_for(kind);
     if (suffix.empty() || exchange_symbol.empty()) {
         return {};
@@ -71,8 +69,8 @@ stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char
     return {out.data(), len};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::method_frame(std::string_view method, std::span<const std::string_view> streams) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::method_frame(std::string_view method,
+                                                                    std::span<const std::string_view> streams) {
     if (streams.empty()) {
         return std::unexpected{WsBuildError::TooManyStreams};
     }
@@ -119,13 +117,11 @@ Protocol::method_frame(std::string_view method, std::span<const std::string_view
     return Frame{.text = {frame_.data(), len}, .consumed = batch};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const std::string_view> streams) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const std::string_view> streams) {
     return method_frame("SUBSCRIBE", streams);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const std::string_view> streams) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const std::string_view> streams) {
     return method_frame("UNSUBSCRIBE", streams);
 }
 

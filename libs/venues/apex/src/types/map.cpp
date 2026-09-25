@@ -29,8 +29,8 @@ UnixNanos us_to_unix(std::uint64_t us, UnixNanos fallback) noexcept {
 }
 
 std::optional<UnixNanos> parse_utc(std::string_view text) noexcept {
-    if (text.size() != 20 || text[4] != '-' || text[7] != '-' || text[10] != 'T' ||
-        text[13] != ':' || text[16] != ':' || text[19] != 'Z') {
+    if (text.size() != 20 || text[4] != '-' || text[7] != '-' || text[10] != 'T' || text[13] != ':' ||
+        text[16] != ':' || text[19] != 'Z') {
         return std::nullopt;
     }
     const auto year = digits(text, 0, 4);
@@ -39,8 +39,7 @@ std::optional<UnixNanos> parse_utc(std::string_view text) noexcept {
     const auto hour = digits(text, 11, 2);
     const auto minute = digits(text, 14, 2);
     const auto second = digits(text, 17, 2);
-    if (!year || !month || !day || !hour || !minute || !second || *hour > 23 || *minute > 59 ||
-        *second > 59) {
+    if (!year || !month || !day || !hour || !minute || !second || *hour > 23 || *minute > 59 || *second > 59) {
         return std::nullopt;
     }
     const std::chrono::year_month_day date{std::chrono::year{*year},
@@ -65,8 +64,8 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     const auto lot = parse_decimal_e9(wire.step_size);
     const auto symbol = SymbolText::from(wire.cross_symbol);
     const auto local = canonical_symbol(wire.base, wire.settle);
-    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 ||
-        !symbol.has_value() || !local.has_value()) {
+    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0 || !symbol.has_value() ||
+        !local.has_value()) {
         return std::nullopt;
     }
     InstrumentBase base{};
@@ -88,8 +87,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     return perp;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = steps_of(wire.price, base.tick_size);
     const auto qty = steps_of(wire.size, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -105,10 +103,8 @@ map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init) 
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(const WireTicker& wire,
-                                         const PerpInstrument& perp,
-                                         FundingMemo& memo,
-                                         UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding(const WireTicker& wire, const PerpInstrument& perp, FundingMemo& memo, UnixNanos ts_init) {
     const auto& base = perp.base;
     bool told = false;
     if (const auto rate = parse_rate_e9(wire.funding_rate); rate.has_value()) {
@@ -116,8 +112,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
         told = true;
     }
     // the mark is quoted finer than the tick, so it is truncated onto the grid
-    if (const auto mark = parse_decimal_e9(wire.mark_price);
-        mark.has_value() && base.tick_size.raw > 0) {
+    if (const auto mark = parse_decimal_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
         memo.mark = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
         told = true;
     }
@@ -140,8 +135,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
     return out;
 }
 
-std::optional<TickerStats>
-map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
     if (wire.volume_24h.empty() && wire.turnover_24h.empty()) {
         return std::nullopt;
     }

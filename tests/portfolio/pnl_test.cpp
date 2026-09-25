@@ -5,10 +5,7 @@
 namespace raikiri::portfolio {
 namespace {
 
-InstrumentBase make(ContractKind kind,
-                    std::string_view tick,
-                    std::string_view lot,
-                    std::string_view contract_value) {
+InstrumentBase make(ContractKind kind, std::string_view tick, std::string_view lot, std::string_view contract_value) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Binance, MarketType::Perp, SymbolId{1});
     base.local_symbol = *SymbolText::from("X");
@@ -79,8 +76,7 @@ TEST(Pnl, InverseSettlesInBaseNotQuote) {
                                  (static_cast<int128_t>(1000) * k_e9 * k_e9) / 60'000 / k_e9;
     const auto realized_long = entry.raw - exit_.raw;
     EXPECT_LE(std::abs(realized_long - static_cast<std::int64_t>(closed_form)), 1)
-        << "realized " << realized_long << " vs closed form "
-        << static_cast<std::int64_t>(closed_form);
+        << "realized " << realized_long << " vs closed form " << static_cast<std::int64_t>(closed_form);
     EXPECT_NEAR(realized_long, 3'333'333, 1); // 0.003333... BTC
 }
 

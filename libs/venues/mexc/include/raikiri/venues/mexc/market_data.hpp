@@ -43,8 +43,8 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 // the only source of the settlement schedule; collect_cycle_h is in hours
 struct WireFundingRate {
@@ -82,8 +82,8 @@ struct StreamTradeBuffer {
     std::array<StreamTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const StreamTrade>, WireError>
-parse_stream_trades(std::string_view payload, StreamTradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const StreamTrade>, WireError> parse_stream_trades(std::string_view payload,
+                                                                                         StreamTradeBuffer& storage);
 
 // every spot pair's 24h window in one answer
 struct WireSpotTicker {
@@ -97,7 +97,7 @@ struct SpotTickerBuffer {
     std::array<WireSpotTicker, 4096> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotTicker>, WireError>
-parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                                           SpotTickerBuffer& storage);
 
 } // namespace raikiri::venues::mexc

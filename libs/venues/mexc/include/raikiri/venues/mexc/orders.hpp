@@ -34,7 +34,7 @@ struct WireFuturesOrder {
     std::string_view order_id;
     std::string_view external_oid; // our ulid, echoed back
     std::string_view price;
-    std::string_view vol; // contracts ordered
+    std::string_view vol;      // contracts ordered
     std::string_view deal_vol; // contracts filled so far
     std::string_view deal_avg_price;
     std::int64_t side{0};
@@ -114,12 +114,12 @@ struct SpotTradeBuffer {
 };
 
 // spot bodies have no envelope
-[[nodiscard]] std::expected<std::span<const WireSpotOrder>, WireError>
-parse_spot_orders(std::string_view body, SpotOrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotOrder>, WireError> parse_spot_orders(std::string_view body,
+                                                                                         SpotOrderBuffer& storage);
 
 [[nodiscard]] std::expected<WireSpotOrder, WireError> parse_spot_order(std::string_view body);
 
-[[nodiscard]] std::expected<std::span<const WireSpotTrade>, WireError>
-parse_spot_trades(std::string_view body, SpotTradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotTrade>, WireError> parse_spot_trades(std::string_view body,
+                                                                                         SpotTradeBuffer& storage);
 
 } // namespace raikiri::venues::mexc

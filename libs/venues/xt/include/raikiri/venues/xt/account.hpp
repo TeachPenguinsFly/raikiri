@@ -28,7 +28,8 @@ struct FuturesBalanceBuffer {
 [[nodiscard]] std::expected<std::span<const WireFuturesBalance>, WireError>
 parse_futures_balances(std::string_view body, FuturesBalanceBuffer& storage);
 
-// amount is already signed and side only cross-checks it; FUND and FEE are booked, CLOSE_POSITION is pnl the fill booked
+// amount is already signed and side only cross-checks it; FUND and FEE are booked, CLOSE_POSITION is pnl the fill
+// booked
 struct WireBill {
     std::string_view id;
     std::string_view symbol; // lowercase, as the catalogue spells it

@@ -25,7 +25,7 @@ struct PositionBuffer {
     std::array<WirePosition, k_max_positions> positions{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view body, PositionBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
+                                                                                      PositionBuffer& storage);
 
 } // namespace raikiri::venues::kraken

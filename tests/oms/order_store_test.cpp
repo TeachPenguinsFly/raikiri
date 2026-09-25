@@ -12,8 +12,7 @@
 namespace raikiri::oms {
 namespace {
 
-constexpr InstrumentId k_instrument =
-    InstrumentId::make(VenueId::Binance, MarketType::Perp, SymbolId{1});
+constexpr InstrumentId k_instrument = InstrumentId::make(VenueId::Binance, MarketType::Perp, SymbolId{1});
 
 OrderCmd make_cmd(ClientOrderId cid, std::int64_t qty = 10, std::int64_t price = 100) {
     OrderCmd cmd{};
@@ -131,9 +130,7 @@ TEST_F(OrderStoreTest, FastFillBeforeAckRoutesByEcoid) {
     Order* order = mk(5);
     ASSERT_NE(order, nullptr);
     const auto ecoid = order->exchange_client_order_id();
-    ASSERT_TRUE(
-        store_.apply_event(client_event(OrderEventType::Submitted, order->client_order_id()))
-            .has_value());
+    ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::Submitted, order->client_order_id())).has_value());
 
     auto fill = ecoid_event(OrderEventType::Filled, ecoid);
     fill.qty = QtyLots::from_raw(5);
@@ -214,8 +211,7 @@ TEST_F(OrderStoreTest, UnknownIdsReportNotFound) {
     Order* order = mk(10);
     ASSERT_NE(order, nullptr);
 
-    const auto unknown_cid =
-        store_.apply_event(client_event(OrderEventType::Accepted, ClientOrderId::make(9, 999)));
+    const auto unknown_cid = store_.apply_event(client_event(OrderEventType::Accepted, ClientOrderId::make(9, 999)));
     ASSERT_FALSE(unknown_cid.has_value());
     EXPECT_EQ(unknown_cid.error(), ApplyError::NotFound);
 
@@ -224,8 +220,7 @@ TEST_F(OrderStoreTest, UnknownIdsReportNotFound) {
     ASSERT_FALSE(unknown_ecoid.has_value());
     EXPECT_EQ(unknown_ecoid.error(), ApplyError::NotFound);
 
-    const auto unknown_exchange =
-        store_.apply_event(exchange_event(OrderEventType::Canceled, "EX-UNKNOWN"));
+    const auto unknown_exchange = store_.apply_event(exchange_event(OrderEventType::Canceled, "EX-UNKNOWN"));
     ASSERT_FALSE(unknown_exchange.has_value());
     EXPECT_EQ(unknown_exchange.error(), ApplyError::NotFound);
 
@@ -253,8 +248,7 @@ TEST_F(OrderStoreTest, EventAfterTerminalReportsNotFound) {
 TEST_F(OrderStoreTest, BadTransitionLeavesOrderUntouched) {
     Order* order = mk(10);
     ASSERT_NE(order, nullptr);
-    const auto res =
-        store_.apply_event(client_event(OrderEventType::Accepted, order->client_order_id()));
+    const auto res = store_.apply_event(client_event(OrderEventType::Accepted, order->client_order_id()));
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), ApplyError::BadTransition);
     EXPECT_EQ(order->status(), OrderStatus::Initialized);
@@ -299,8 +293,7 @@ TEST_F(OrderStoreTest, ForEachOpenVisitsExactlyTheLiveSet) {
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
     ASSERT_NE(c, nullptr);
-    ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::Canceled, b->client_order_id()))
-                    .has_value());
+    ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::Canceled, b->client_order_id())).has_value());
 
     std::vector<ClientOrderId> seen;
     store_.for_each_open([&seen](const Order& order) { seen.push_back(order.client_order_id()); });
@@ -322,15 +315,13 @@ TEST(OrderStoreCapacity, FullThenFreeListReuse) {
     }
     EXPECT_EQ(store.open_count(), std::size_t{4});
 
-    const auto full =
-        store.create(make_cmd(ids.next_client_id()), ids.next_exchange_client_id(wall));
+    const auto full = store.create(make_cmd(ids.next_client_id()), ids.next_exchange_client_id(wall));
     ASSERT_FALSE(full.has_value());
     EXPECT_EQ(full.error(), StoreError::Full);
 
     ASSERT_TRUE(store.apply_event(client_event(OrderEventType::Canceled, cids[0])).has_value());
     EXPECT_EQ(store.open_count(), std::size_t{3});
-    const auto reused =
-        store.create(make_cmd(ids.next_client_id()), ids.next_exchange_client_id(wall));
+    const auto reused = store.create(make_cmd(ids.next_client_id()), ids.next_exchange_client_id(wall));
     ASSERT_TRUE(reused.has_value());
     EXPECT_EQ(store.open_count(), std::size_t{4});
 }

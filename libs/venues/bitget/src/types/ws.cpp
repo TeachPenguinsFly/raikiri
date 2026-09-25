@@ -18,9 +18,8 @@ constexpr std::string_view k_login_path = "/user/verify";
 
 std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     const auto [end, ec] = std::to_chars(out.data(), out.data() + out.size(), value);
-    return ec == std::errc{}
-               ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
-               : std::string_view{};
+    return ec == std::errc{} ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
+                             : std::string_view{};
 }
 
 } // namespace
@@ -88,8 +87,8 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
     return {};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::op_frame(std::string_view op, std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view op,
+                                                                std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -134,13 +133,11 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     return Frame{.text = {frame_.data(), len}, .consumed = batch};
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("subscribe", subscriptions);
 }
 
-std::expected<Protocol::Frame, WsBuildError>
-Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("unsubscribe", subscriptions);
 }
 
@@ -178,8 +175,7 @@ Protocol::login_frame(const net::Signer& signer, std::string_view passphrase, Un
     }
     login_msg_len_ = len;
 
-    const auto signature =
-        signer.sign(last_login_message(), net::Signer::Encoding::Base64, signature_);
+    const auto signature = signer.sign(last_login_message(), net::Signer::Encoding::Base64, signature_);
     if (signature.empty()) {
         return std::unexpected{WsBuildError::NotSigned};
     }

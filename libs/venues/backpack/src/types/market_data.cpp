@@ -68,8 +68,7 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data) 
     });
 }
 
-std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body,
-                                                                    TickerBuffer& storage) {
+std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body, TickerBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {

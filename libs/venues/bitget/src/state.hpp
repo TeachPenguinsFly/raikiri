@@ -30,10 +30,7 @@ struct OwnedSubscription {
 
 // single threaded: the gateway loop is the only caller
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref,
-               const Clock& clock_ref,
-               bool testnet_flag,
-               MarketType market_type)
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag, MarketType market_type)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag}, market{market_type} {}
 
     exec::GatewaySink* sink;
@@ -64,8 +61,7 @@ struct VenueState {
     // bitget refuses a signature more than 30 s from its clock
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     [[nodiscard]] std::string_view product() const noexcept { return product_type(testnet); }
@@ -91,27 +87,23 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 }
 
 // keeps an empty result distinguishable from a refused call
-inline std::expected<std::string, exec::VenueError> fetch_checked(VenueState& state,
-                                                                  net::RestClient& rest,
-                                                                  const net::RestRequest& request,
-                                                                  std::uint64_t timeout_ms) {
+inline std::expected<std::string, exec::VenueError>
+fetch_checked(VenueState& state, net::RestClient& rest, const net::RestRequest& request, std::uint64_t timeout_ms) {
     const auto response = await_response(state, rest, request, timeout_ms);
     if (!response.has_value()) {
-        return std::unexpected{exec::VenueError::make(
-            exec::ErrorClass::Connectivity, 0, "no response before deadline")};
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response before deadline")};
     }
     if (response->transport_failed()) {
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
     }
     const auto envelope = parse_rest_envelope(response->body);
     if (!envelope.has_value()) {
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
     }
     if (envelope->code != k_ok) {
-        return std::unexpected{exec::VenueError::make(
-            classify(envelope->code), code_number(envelope->code), envelope->msg)};
+        return std::unexpected{
+            exec::VenueError::make(classify(envelope->code), code_number(envelope->code), envelope->msg)};
     }
     return response->body;
 }

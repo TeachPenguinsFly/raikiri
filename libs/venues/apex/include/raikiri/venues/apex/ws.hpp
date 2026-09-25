@@ -36,8 +36,8 @@ public:
     [[nodiscard]] std::expected<std::string_view, WsBuildError> pong_frame(std::string_view value);
 
 private:
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    op_frame(std::string_view op, std::span<const std::string_view> args);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> op_frame(std::string_view op,
+                                                                         std::span<const std::string_view> args);
 
     std::array<char, 512> frame_{};
 };

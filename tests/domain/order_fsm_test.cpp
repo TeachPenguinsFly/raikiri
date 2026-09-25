@@ -79,8 +79,7 @@ TEST(OrderFsm, CancelFillRace) {
 
 TEST(OrderFsm, PendingCancelResolution) {
     EXPECT_EQ(*transition(S::PendingCancel, E::Canceled), S::Canceled);
-    EXPECT_EQ(*transition(S::PendingCancel, E::CancelRejected, false, S::PartiallyFilled),
-              S::PartiallyFilled);
+    EXPECT_EQ(*transition(S::PendingCancel, E::CancelRejected, false, S::PartiallyFilled), S::PartiallyFilled);
     EXPECT_EQ(*transition(S::PendingCancel, E::Filled, true), S::Filled);
     EXPECT_EQ(*transition(S::PendingCancel, E::Filled, false), S::PendingCancel);
 }
@@ -88,8 +87,7 @@ TEST(OrderFsm, PendingCancelResolution) {
 TEST(OrderFsm, ModifyResolution) {
     EXPECT_EQ(*transition(S::Accepted, E::PendingUpdate), S::PendingUpdate);
     EXPECT_EQ(*transition(S::PendingUpdate, E::Updated, false, S::Accepted), S::Accepted);
-    EXPECT_EQ(*transition(S::PendingUpdate, E::ModifyRejected, false, S::PartiallyFilled),
-              S::PartiallyFilled);
+    EXPECT_EQ(*transition(S::PendingUpdate, E::ModifyRejected, false, S::PartiallyFilled), S::PartiallyFilled);
     EXPECT_EQ(*transition(S::PendingUpdate, E::Filled, true), S::Filled);
 }
 
@@ -123,10 +121,8 @@ TEST(OrderFsmProperty, TerminalStatusesHaveNoExits) {
             if (e == E::ReconGap) {
                 continue;
             }
-            EXPECT_FALSE(transition(s, e, true).has_value())
-                << to_string(s) << " + " << to_string(e);
-            EXPECT_FALSE(transition(s, e, false).has_value())
-                << to_string(s) << " + " << to_string(e);
+            EXPECT_FALSE(transition(s, e, true).has_value()) << to_string(s) << " + " << to_string(e);
+            EXPECT_FALSE(transition(s, e, false).has_value()) << to_string(s) << " + " << to_string(e);
         }
     }
 }

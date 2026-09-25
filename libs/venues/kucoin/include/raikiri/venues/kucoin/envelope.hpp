@@ -79,20 +79,16 @@ struct WireBullet {
 [[nodiscard]] std::expected<std::string_view, WireError> decimal_of(wire::ondemand::value value);
 [[nodiscard]] std::int64_t i64_of_digits(std::string_view text) noexcept;
 
-[[nodiscard]] std::expected<std::string_view, WireError> opt_decimal(wire::ondemand::object& obj,
-                                                                     std::string_view key);
-[[nodiscard]] std::expected<std::string_view, WireError> req_decimal(wire::ondemand::object& obj,
-                                                                     std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> opt_decimal(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::string_view, WireError> req_decimal(wire::ondemand::object& obj, std::string_view key);
 
-[[nodiscard]] std::expected<std::uint64_t, WireError> opt_u64(wire::ondemand::object& obj,
-                                                              std::string_view key);
-[[nodiscard]] std::expected<std::int64_t, WireError> opt_i64(wire::ondemand::object& obj,
-                                                             std::string_view key);
+[[nodiscard]] std::expected<std::uint64_t, WireError> opt_u64(wire::ondemand::object& obj, std::string_view key);
+[[nodiscard]] std::expected<std::int64_t, WireError> opt_i64(wire::ondemand::object& obj, std::string_view key);
 
 // data is a single object on every channel and singleton rest read
 template <typename Fn>
-[[nodiscard]] auto with_data(wire::ondemand::object& root, Fn&& fn)
-    -> decltype(fn(std::declval<wire::ondemand::object&>())) {
+[[nodiscard]] auto with_data(wire::ondemand::object& root,
+                             Fn&& fn) -> decltype(fn(std::declval<wire::ondemand::object&>())) {
     auto obj = wire::req_object(root, "data");
     if (!obj.has_value()) {
         return std::unexpected(obj.error());

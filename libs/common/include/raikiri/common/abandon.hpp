@@ -8,11 +8,12 @@ namespace raikiri {
 
 class AbandonScope {
 public:
-    explicit AbandonScope(const std::function<bool()>& abandon) noexcept
-        : abandon_{&abandon}, outer_{innermost()} {
+    explicit AbandonScope(const std::function<bool()>& abandon) noexcept : abandon_{&abandon}, outer_{innermost()} {
         innermost() = this;
     }
+
     ~AbandonScope() { innermost() = outer_; }
+
     AbandonScope(const AbandonScope&) = delete;
     AbandonScope& operator=(const AbandonScope&) = delete;
 

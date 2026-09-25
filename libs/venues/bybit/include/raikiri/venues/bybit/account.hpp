@@ -18,8 +18,8 @@ struct WireLedgerEntry {
     std::string_view id;
     std::string_view symbol;
     std::string_view type;     // SETTLEMENT | TRADE | TRANSFER_IN | ...
-    std::string_view funding; // signed: positive received, negative paid
-    std::string_view fee; // signed the same way; a rebate stays negative
+    std::string_view funding;  // signed: positive received, negative paid
+    std::string_view fee;      // signed the same way; a rebate stays negative
     std::string_view trade_id; // what a fee row's comparison keys on
     std::string_view currency; // the settlement asset, never assumed
     std::uint64_t transaction_ms{0};

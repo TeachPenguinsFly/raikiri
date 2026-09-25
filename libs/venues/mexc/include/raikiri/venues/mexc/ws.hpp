@@ -52,19 +52,15 @@ public:
         std::size_t consumed{0}; // always 1: `param` names a single symbol
     };
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    subscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::span<const Subscription> subscriptions);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    spot_subscribe_frame(const Subscription& subscription);
+    [[nodiscard]] std::expected<Frame, WsBuildError> spot_subscribe_frame(const Subscription& subscription);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    unsubscribe_frame(std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions);
 
     // the login rides /edge and personal pushes follow unbidden;
     // the digest covers apiKey + reqTime only
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    login_frame(const net::Signer& signer, UnixNanos now);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> login_frame(const net::Signer& signer, UnixNanos now);
 
     // for tests: the bytes the last login_frame signed
     [[nodiscard]] std::string_view last_login_message() const noexcept;
@@ -72,11 +68,10 @@ public:
     [[nodiscard]] static std::string_view ping_frame() noexcept { return R"({"method":"ping"})"; }
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    spot_op_frame(std::string_view op, const Subscription& subscription);
+    [[nodiscard]] std::expected<Frame, WsBuildError> spot_op_frame(std::string_view op,
+                                                                   const Subscription& subscription);
 
-    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op,
-                                                              const Subscription& subscription);
+    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op, const Subscription& subscription);
 
     std::array<char, 256> frame_{};
     std::array<char, 256> login_frame_{};

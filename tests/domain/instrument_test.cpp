@@ -68,10 +68,8 @@ TEST(Instrument, VariantForcesOptionHandling) {
     EXPECT_EQ(market_of(instrument), MarketType::Perp);
     EXPECT_EQ(base_of(instrument).local_symbol.view(), "BTC/USDT");
 
-    const Instrument option = OptionInstrument{btc_perp_base(),
-                                               PriceTicks::from_raw(500'000),
-                                               UnixNanos{1'800'000'000'000'000'000ULL},
-                                               PutCall::Call};
+    const Instrument option = OptionInstrument{
+        btc_perp_base(), PriceTicks::from_raw(500'000), UnixNanos{1'800'000'000'000'000'000ULL}, PutCall::Call};
     EXPECT_EQ(std::get<OptionInstrument>(option).put_call, PutCall::Call);
 }
 

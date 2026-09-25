@@ -34,17 +34,15 @@ struct Subscription {
 class Protocol {
 public:
     // {"method":"subscribe","subscription":{"type":"bbo","coin":"BTC"}}
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    subscribe_frame(const Subscription& subscription);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> subscribe_frame(const Subscription& subscription);
 
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    unsubscribe_frame(const Subscription& subscription);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> unsubscribe_frame(const Subscription& subscription);
 
     [[nodiscard]] static std::string_view ping_frame() noexcept { return R"({"method":"ping"})"; }
 
 private:
-    [[nodiscard]] std::expected<std::string_view, WsBuildError>
-    method_frame(std::string_view method, const Subscription& subscription);
+    [[nodiscard]] std::expected<std::string_view, WsBuildError> method_frame(std::string_view method,
+                                                                             const Subscription& subscription);
 
     std::array<char, 256> frame_{};
 };

@@ -39,8 +39,7 @@ struct Listed {
 [[nodiscard]] std::optional<std::int64_t> real_steps(std::string_view text, FixedE9 step) noexcept;
 
 // Ep/Ev: an already-scaled integer, exactly on the scaled step or refused.
-[[nodiscard]] std::optional<std::int64_t> scaled_steps(std::int64_t value,
-                                                       std::int64_t step) noexcept;
+[[nodiscard]] std::optional<std::int64_t> scaled_steps(std::int64_t value, std::int64_t step) noexcept;
 
 // Er/Ev scaled by 10^scale, as e9.
 [[nodiscard]] std::optional<FixedE9> scaled_e9(std::int64_t value, std::uint32_t scale) noexcept;
@@ -52,8 +51,7 @@ struct Listed {
 
 // nullopt unless Listed with a grid that maps
 [[nodiscard]] std::optional<Listed> map_linear_perp(const WirePerp& wire);
-[[nodiscard]] std::optional<Listed> map_inverse_perp(const WireProduct& wire,
-                                                     std::uint32_t settle_scale);
+[[nodiscard]] std::optional<Listed> map_inverse_perp(const WireProduct& wire, std::uint32_t settle_scale);
 [[nodiscard]] std::optional<Listed>
 map_spot(const WireProduct& wire, std::uint32_t base_scale, std::uint32_t quote_scale);
 
@@ -66,41 +64,29 @@ struct MappedCatalogue {
 [[nodiscard]] MappedCatalogue map_catalogue(const WireCatalogue& wire, MarketType market);
 
 // nullopt when any level is off the grid
-[[nodiscard]] std::optional<std::size_t> to_levels(std::span<const WireRealLevel> wire,
-                                                   const InstrumentBase& base,
-                                                   std::span<book::Level> out);
-[[nodiscard]] std::optional<std::size_t> to_levels(std::span<const WireScaledLevel> wire,
-                                                   const Listing& listing,
-                                                   std::span<book::Level> out);
+[[nodiscard]] std::optional<std::size_t>
+to_levels(std::span<const WireRealLevel> wire, const InstrumentBase& base, std::span<book::Level> out);
+[[nodiscard]] std::optional<std::size_t>
+to_levels(std::span<const WireScaledLevel> wire, const Listing& listing, std::span<book::Level> out);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireRealPrint& wire, const InstrumentBase& base, UnixNanos ts_init);
-[[nodiscard]] std::optional<TradeTick> map_trade(const WireScaledPrint& wire,
-                                                 const InstrumentBase& base,
-                                                 const Listing& listing,
-                                                 UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick>
+map_trade(const WireScaledPrint& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<FundingUpdate> map_funding(const WirePackRow& wire,
                                                        const InstrumentBase& base,
                                                        const Listing& listing,
                                                        std::uint64_t ts_ns,
                                                        UnixNanos ts_init);
-[[nodiscard]] std::optional<FundingUpdate> map_funding(const WireInverseTicker& wire,
-                                                       const InstrumentBase& base,
-                                                       const Listing& listing,
-                                                       UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_funding(const WireInverseTicker& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WirePackRow& wire,
-                                                          const InstrumentBase& base,
-                                                          std::uint64_t ts_ns,
-                                                          UnixNanos ts_init);
-[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireInverseTicker& wire,
-                                                          const InstrumentBase& base,
-                                                          const Listing& listing,
-                                                          UnixNanos ts_init);
-[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
-                                                          const InstrumentBase& base,
-                                                          const Listing& listing,
-                                                          UnixNanos ts_init);
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WirePackRow& wire, const InstrumentBase& base, std::uint64_t ts_ns, UnixNanos ts_init);
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireInverseTicker& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init);
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireSpotTicker& wire, const InstrumentBase& base, const Listing& listing, UnixNanos ts_init);
 
 } // namespace raikiri::venues::phemex

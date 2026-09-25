@@ -94,8 +94,7 @@ TEST(Ladder, DropBeyondAgreesWithAScanFromTheTouchAtEveryBandEdge) {
             }
             std::vector<Level> expected;
             for (const auto& level : ladder.levels()) {
-                const bool beyond =
-                    side == Side::Bid ? level.price.raw < edge : level.price.raw > edge;
+                const bool beyond = side == Side::Bid ? level.price.raw < edge : level.price.raw > edge;
                 if (beyond) {
                     break;
                 }

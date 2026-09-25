@@ -41,8 +41,7 @@ WireContract row(std::string_view file, std::uint32_t id) {
     const bool spot = file == "rest_meta_spot.json";
     auto& body = spot ? spot_body : perp_body;
     body = fixture(file);
-    const auto rows =
-        spot ? parse_spot_catalogue(body, storage) : parse_perp_catalogue(body, storage);
+    const auto rows = spot ? parse_spot_catalogue(body, storage) : parse_perp_catalogue(body, storage);
     EXPECT_TRUE(rows.has_value());
     for (const auto& one : *rows) {
         if (one.id == id) {
@@ -117,8 +116,7 @@ TEST(EdgexCatalogue, ADisabledRowAndOtherMarketsAreRefused) {
 
 TEST(EdgexCatalogue, EmptySuccessIsNotACatalogue) {
     ContractBuffer storage;
-    const auto empty = parse_perp_catalogue(
-        R"({"code":"SUCCESS","data":{"coinList":[],"contractList":[]}})", storage);
+    const auto empty = parse_perp_catalogue(R"({"code":"SUCCESS","data":{"coinList":[],"contractList":[]}})", storage);
     ASSERT_TRUE(empty.has_value());
     EXPECT_TRUE(empty->empty());
     const auto failed = parse_perp_catalogue(R"({"code":"FAILED","data":null})", storage);
@@ -201,9 +199,8 @@ TEST(EdgexEnvelope, ARefusalNamesItsChannelOnlyInsideTheEchoedRequest) {
 
 // SOLUSDC: tick 0.01, step 0.1
 Book sol_book(FixedE9 tick = FixedE9::from_raw(10'000'000)) {
-    return Book{InstrumentId::make(VenueId::Edgex, MarketType::Perp, SymbolId{3}),
-                tick,
-                FixedE9::from_raw(100'000'000)};
+    return Book{
+        InstrumentId::make(VenueId::Edgex, MarketType::Perp, SymbolId{3}), tick, FixedE9::from_raw(100'000'000)};
 }
 
 WireDepth parsed(const std::string& text, LevelBuffer& storage) {
@@ -235,11 +232,9 @@ TEST(EdgexBook, TheSnapshotArrivesOnTheSocket) {
 TEST(EdgexBook, DeltasChainOnVersions) {
     const auto storage = std::make_unique<LevelBuffer>();
     auto book = sol_book();
-    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)),
-              BookResult::Resynced);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)), BookResult::Resynced);
     ASSERT_EQ(book.apply(parsed(fixture("ws_depth_changed.json"), *storage)), BookResult::Applied);
-    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_changed_next.json"), *storage)),
-              BookResult::Applied);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_changed_next.json"), *storage)), BookResult::Applied);
     EXPECT_EQ(book.version(), 1'146'145'602ULL);
     EXPECT_EQ(book.bids().size(), 15U);
     EXPECT_EQ(book.asks().size(), 15U);
@@ -254,22 +249,19 @@ TEST(EdgexBook, DeltasChainOnVersions) {
 TEST(EdgexBook, AMissedDeltaDarkensTheBookUntilTheNextSnapshot) {
     const auto storage = std::make_unique<LevelBuffer>();
     auto book = sol_book();
-    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)),
-              BookResult::Resynced);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)), BookResult::Resynced);
     EXPECT_EQ(book.apply(parsed(fixture("ws_depth_changed_next.json"), *storage)), BookResult::Gap);
     EXPECT_FALSE(book.synced());
     EXPECT_EQ(book.gaps(), 1U);
     EXPECT_FALSE(book.top(k_ingest, k_ingest).has_value());
     EXPECT_EQ(book.apply(parsed(fixture("ws_depth_changed.json"), *storage)), BookResult::Ignored);
-    EXPECT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)),
-              BookResult::Resynced);
+    EXPECT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)), BookResult::Resynced);
 }
 
 TEST(EdgexBook, ADeltaAlreadyInsideTheBookIsIgnored) {
     const auto storage = std::make_unique<LevelBuffer>();
     auto book = sol_book();
-    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)),
-              BookResult::Resynced);
+    ASSERT_EQ(book.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)), BookResult::Resynced);
     ASSERT_EQ(book.apply(parsed(fixture("ws_depth_changed.json"), *storage)), BookResult::Applied);
     EXPECT_EQ(book.apply(parsed(fixture("ws_depth_changed.json"), *storage)), BookResult::Ignored);
     EXPECT_TRUE(book.synced());
@@ -295,8 +287,7 @@ TEST(EdgexBook, ACrossedTopIsDroppedNotPublished) {
 TEST(EdgexBook, ALevelOffTheGridDropsTheBook) {
     const auto storage = std::make_unique<LevelBuffer>();
     auto coarse = sol_book(FixedE9::from_raw(100'000'000));
-    EXPECT_EQ(coarse.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)),
-              BookResult::BadLevel);
+    EXPECT_EQ(coarse.apply(parsed(fixture("ws_depth_snapshot.json"), *storage)), BookResult::BadLevel);
     EXPECT_FALSE(coarse.synced());
 }
 
@@ -397,8 +388,7 @@ TEST(EdgexFunding, TheTwentyFourHourWindowRidesTheSameRow) {
     const auto text = fixture("ws_ticker_all.json");
     const auto rows = parse_tickers(text, storage);
     ASSERT_TRUE(rows.has_value());
-    const auto stats =
-        map_ticker_stats(ticker_of(*rows, 30000001), base_of(perp(30000001)), k_ingest);
+    const auto stats = map_ticker_stats(ticker_of(*rows, 30000001), base_of(perp(30000001)), k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("4729.559"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("397100885.7883"));

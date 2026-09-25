@@ -147,32 +147,26 @@ WireOrderStatus order_status_from(std::string_view text) noexcept {
     return WireOrderStatus::Unknown;
 }
 
-std::expected<std::span<const WireOrderUpdate>, WireError>
-parse_order_updates(std::string_view frame, OrderUpdateBuffer& storage) {
-    return guarded(
-        [&] { return read_rows<WireOrderUpdate>(frame, {}, storage.updates, read_order); });
+std::expected<std::span<const WireOrderUpdate>, WireError> parse_order_updates(std::string_view frame,
+                                                                               OrderUpdateBuffer& storage) {
+    return guarded([&] { return read_rows<WireOrderUpdate>(frame, {}, storage.updates, read_order); });
 }
 
-std::expected<std::span<const WireOrderUpdate>, WireError>
-parse_spot_orders(std::string_view body, OrderUpdateBuffer& storage) {
-    return guarded(
-        [&] { return read_rows<WireOrderUpdate>(body, {}, storage.updates, read_order); });
+std::expected<std::span<const WireOrderUpdate>, WireError> parse_spot_orders(std::string_view body,
+                                                                             OrderUpdateBuffer& storage) {
+    return guarded([&] { return read_rows<WireOrderUpdate>(body, {}, storage.updates, read_order); });
 }
 
-std::expected<std::span<const WireOrderUpdate>, WireError>
-parse_mix_orders(std::string_view body, OrderUpdateBuffer& storage) {
-    return guarded([&] {
-        return read_rows<WireOrderUpdate>(body, "entrustedList", storage.updates, read_order);
-    });
+std::expected<std::span<const WireOrderUpdate>, WireError> parse_mix_orders(std::string_view body,
+                                                                            OrderUpdateBuffer& storage) {
+    return guarded([&] { return read_rows<WireOrderUpdate>(body, "entrustedList", storage.updates, read_order); });
 }
 
-std::expected<std::span<const WireFill>, WireError> parse_spot_fills(std::string_view body,
-                                                                     FillBuffer& storage) {
+std::expected<std::span<const WireFill>, WireError> parse_spot_fills(std::string_view body, FillBuffer& storage) {
     return guarded([&] { return read_rows<WireFill>(body, {}, storage.fills, read_fill); });
 }
 
-std::expected<std::span<const WireFill>, WireError> parse_mix_fills(std::string_view body,
-                                                                    FillBuffer& storage) {
+std::expected<std::span<const WireFill>, WireError> parse_mix_fills(std::string_view body, FillBuffer& storage) {
     return guarded([&] { return read_rows<WireFill>(body, "fillList", storage.fills, read_fill); });
 }
 
@@ -204,12 +198,10 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body) {
     });
 }
 
-std::expected<std::span<const WireBatchFailure>, WireError>
-parse_batch_failures(std::string_view body, BatchFailureBuffer& storage) {
-    return guarded([&] {
-        return read_rows<WireBatchFailure>(
-            body, "failureList", storage.failures, read_batch_failure);
-    });
+std::expected<std::span<const WireBatchFailure>, WireError> parse_batch_failures(std::string_view body,
+                                                                                 BatchFailureBuffer& storage) {
+    return guarded(
+        [&] { return read_rows<WireBatchFailure>(body, "failureList", storage.failures, read_batch_failure); });
 }
 
 } // namespace raikiri::venues::bitget

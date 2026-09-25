@@ -46,12 +46,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -63,8 +61,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -114,8 +111,7 @@ constexpr char k_key_sep = '\x1f';
     if (cut == std::string_view::npos) {
         return std::nullopt;
     }
-    return Subscription{
-        .inst_type = type, .channel = key.substr(0, cut), .inst_id = key.substr(cut + 1)};
+    return Subscription{.inst_type = type, .channel = key.substr(0, cut), .inst_id = key.substr(cut + 1)};
 }
 
 class PublicHandler final : public net::WsHandler {
@@ -167,16 +163,12 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
-        return state_->subscribe_refusals;
-    }
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto channel = channel_for(kind);
         if (channel.empty()) {
@@ -188,8 +180,8 @@ public:
         // the pool places it, opening another socket if none fits
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "bitget: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bitget: connection pool is full")};
         }
         return {};
     }
@@ -224,15 +216,13 @@ private:
         }
         // ticker first; with paced sends the last frames may lag
         const auto quote = channel_for(exec::SubKind::Bbo);
-        std::ranges::stable_partition(
-            views, [quote](const Subscription& one) { return one.channel == quote; });
+        std::ranges::stable_partition(views, [quote](const Subscription& one) { return one.channel == quote; });
 
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < views.size()) {
-            const auto frame =
-                state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
-                    built, std::min(net::frame_subscriptions(), views.size() - built)));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
+                built, std::min(net::frame_subscriptions(), views.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

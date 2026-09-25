@@ -46,10 +46,10 @@ struct FundingInfoBuffer {
     std::array<WireFundingInfo, k_max_funding_info> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_exchange_info(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(std::string_view body,
+                                                                                            InstrumentBuffer& storage);
 
-[[nodiscard]] std::expected<std::span<const WireFundingInfo>, WireError>
-parse_funding_info(std::string_view body, FundingInfoBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFundingInfo>, WireError> parse_funding_info(std::string_view body,
+                                                                                            FundingInfoBuffer& storage);
 
 } // namespace raikiri::venues::aster

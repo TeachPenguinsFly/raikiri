@@ -49,8 +49,7 @@ public:
     };
 
     // {"id":"1","reqType":"sub","dataType":"BTC-USDT@bookTicker"}
-    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::string_view symbol,
-                                                                     std::string_view suffix);
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_frame(std::string_view symbol, std::string_view suffix);
 
     [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::string_view symbol,
                                                                        std::string_view suffix);

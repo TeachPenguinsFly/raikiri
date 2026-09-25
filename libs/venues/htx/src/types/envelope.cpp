@@ -64,8 +64,7 @@ std::string_view unquote(std::string_view raw) noexcept {
     return raw;
 }
 
-std::expected<std::string_view, WireError> num_of(wire::ondemand::object& obj,
-                                                  std::string_view key) {
+std::expected<std::string_view, WireError> num_of(wire::ondemand::object& obj, std::string_view key) {
     const auto raw = wire::opt_raw(obj, key);
     if (!raw.has_value()) {
         return std::unexpected(raw.error());
@@ -74,8 +73,7 @@ std::expected<std::string_view, WireError> num_of(wire::ondemand::object& obj,
     return text == "null" ? std::string_view{} : text;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms_str(wire::ondemand::object& obj,
-                                                   std::string_view key) {
+std::expected<std::uint64_t, WireError> opt_ms_str(wire::ondemand::object& obj, std::string_view key) {
     const auto text = wire::opt_str(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -113,28 +111,27 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         Text ts{std::string_view{}};
         Text err_code{std::string_view{}};
         std::expected<std::int64_t, WireError> code{0};
-        const auto walked = wire::for_each_field(
-            *root, [&](std::string_view key, wire::ondemand::value& value) {
-                if (key == "ch") {
-                    ch = wire::str_of(value);
-                } else if (key == "ts") {
-                    ts = wire::raw_of(value);
-                } else if (key == "op") {
-                    op = wire::str_of(value);
-                } else if (key == "action") {
-                    action = wire::str_of(value);
-                } else if (key == "topic") {
-                    topic = wire::str_of(value);
-                } else if (key == "ping") {
-                    ping = wire::raw_of(value);
-                } else if (key == "status") {
-                    status = wire::str_of(value);
-                } else if (key == "err-code") {
-                    err_code = wire::raw_of(value);
-                } else if (key == "code") {
-                    code = wire::i64_of(value);
-                }
-            });
+        const auto walked = wire::for_each_field(*root, [&](std::string_view key, wire::ondemand::value& value) {
+            if (key == "ch") {
+                ch = wire::str_of(value);
+            } else if (key == "ts") {
+                ts = wire::raw_of(value);
+            } else if (key == "op") {
+                op = wire::str_of(value);
+            } else if (key == "action") {
+                action = wire::str_of(value);
+            } else if (key == "topic") {
+                topic = wire::str_of(value);
+            } else if (key == "ping") {
+                ping = wire::raw_of(value);
+            } else if (key == "status") {
+                status = wire::str_of(value);
+            } else if (key == "err-code") {
+                err_code = wire::raw_of(value);
+            } else if (key == "code") {
+                code = wire::i64_of(value);
+            }
+        });
         if (!walked.has_value()) {
             return std::unexpected(walked.error());
         }
@@ -169,8 +166,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             if (!err_code.has_value()) {
                 return std::unexpected(err_code.error());
             }
-            info.kind =
-                (*op == "sub" && *err_code == "0") ? EventKind::SubscribeAck : EventKind::Error;
+            info.kind = (*op == "sub" && *err_code == "0") ? EventKind::SubscribeAck : EventKind::Error;
             return info;
         }
 

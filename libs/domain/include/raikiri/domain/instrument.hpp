@@ -25,7 +25,7 @@ enum class ConvError : std::uint8_t {
 // says what contract_value means; unknown is 0 so a zeroed instrument fails validate()
 enum class ContractKind : std::uint8_t {
     Unknown = 0,
-    Linear, // contract_value is base units per contract; pnl settles in quote
+    Linear,  // contract_value is base units per contract; pnl settles in quote
     Inverse, // contract_value is quote units per contract; pnl settles in base
 };
 
@@ -48,8 +48,8 @@ struct InstrumentBase {
     ContractKind kind{ContractKind::Unknown}; // rides padding; see the asserts below
     AssetClass asset_class{AssetClass::Unknown};
     UnderlyingText underlying{}; // venue-neutral key within asset_class: "TSLA", "XAU"
-    FixedE9 tick_size{};                      // price step, decimal e9
-    FixedE9 lot_size{};                       // qty step, decimal e9
+    FixedE9 tick_size{};         // price step, decimal e9
+    FixedE9 lot_size{};          // qty step, decimal e9
     FixedE9 min_notional{};
     FixedE9 contract_value{}; // units per contract; `kind` says which units
     FixedE9 maker_fee{};
@@ -79,7 +79,6 @@ struct PerpInstrument {
     FixedE9 funding_cap{};
     FixedE9 funding_floor{};
 };
-
 
 struct FutureInstrument {
     InstrumentBase base{};

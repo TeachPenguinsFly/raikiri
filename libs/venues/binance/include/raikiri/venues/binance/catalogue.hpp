@@ -16,9 +16,9 @@ struct WireInstrument {
     std::string_view symbol;
     std::string_view base_asset;
     std::string_view quote_asset;
-    std::string_view contract_type; // PERPETUAL, TRADIFI_PERPETUAL, CURRENT_QUARTER, ...
+    std::string_view contract_type;   // PERPETUAL, TRADIFI_PERPETUAL, CURRENT_QUARTER, ...
     std::string_view underlying_type; // COIN, EQUITY, COMMODITY, INDEX, FX, ...
-    std::string_view status;        // TRADING, SETTLING, PENDING_TRADING, ...
+    std::string_view status;          // TRADING, SETTLING, PENDING_TRADING, ...
     std::string_view tick_size;
     std::string_view step_size;
     std::string_view min_notional;
@@ -48,10 +48,10 @@ struct FundingInfoBuffer {
     std::array<WireFundingInfo, k_max_funding_info> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_exchange_info(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(std::string_view body,
+                                                                                            InstrumentBuffer& storage);
 
-[[nodiscard]] std::expected<std::span<const WireFundingInfo>, WireError>
-parse_funding_info(std::string_view body, FundingInfoBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFundingInfo>, WireError> parse_funding_info(std::string_view body,
+                                                                                            FundingInfoBuffer& storage);
 
 } // namespace raikiri::venues::binance

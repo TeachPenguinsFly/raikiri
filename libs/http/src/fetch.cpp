@@ -18,10 +18,8 @@ using tcp = boost::asio::ip::tcp;
 
 } // namespace
 
-std::optional<Fetched> fetch(std::string_view host,
-                             std::uint16_t port,
-                             std::string_view target,
-                             std::uint32_t timeout_ms) noexcept {
+std::optional<Fetched>
+fetch(std::string_view host, std::uint16_t port, std::string_view target, std::uint32_t timeout_ms) noexcept {
     try {
         boost::asio::io_context ioc;
         beast::tcp_stream stream{ioc};
@@ -31,8 +29,7 @@ std::optional<Fetched> fetch(std::string_view host,
         const auto endpoints = resolver.resolve(std::string{host}, std::to_string(port));
         stream.connect(endpoints);
 
-        beast_http::request<beast_http::empty_body> req{
-            beast_http::verb::get, std::string{target}, 11};
+        beast_http::request<beast_http::empty_body> req{beast_http::verb::get, std::string{target}, 11};
         req.set(beast_http::field::host, std::string{host});
         beast_http::write(stream, req);
 

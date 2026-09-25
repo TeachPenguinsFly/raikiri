@@ -25,9 +25,7 @@ public:
     // the value is valid only while this call runs
     using Install = std::function<void(std::string_view)>;
 
-    Credentials(std::string_view key_spec,
-                std::string_view secret_spec,
-                std::string_view passphrase_spec = {}) noexcept
+    Credentials(std::string_view key_spec, std::string_view secret_spec, std::string_view passphrase_spec = {}) noexcept
         : key_spec_{key_spec}, secret_spec_{secret_spec}, passphrase_spec_{passphrase_spec} {}
 
     Credentials& key(Install install);

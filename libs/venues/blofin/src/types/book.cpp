@@ -63,8 +63,7 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
 }
 
 // seqId is a digit string; an absent or unreadable one cannot be chained
-std::expected<std::uint64_t, WireError> sequence(wire::ondemand::object& obj,
-                                                 std::string_view key) {
+std::expected<std::uint64_t, WireError> sequence(wire::ondemand::object& obj, std::string_view key) {
     const auto text = wire::req_str(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());

@@ -61,8 +61,7 @@ enum class BuildError : std::uint8_t {
 
 // spot uses "EXCHANGE LIMIT"; plain "LIMIT" on a spot pair opens a margin position
 // ioc and fok replace limit in the type; post-only is a flag
-[[nodiscard]] std::string_view
-order_type(MarketType market, OrderType type, TimeInForce tif) noexcept;
+[[nodiscard]] std::string_view order_type(MarketType market, OrderType type, TimeInForce tif) noexcept;
 
 [[nodiscard]] std::int64_t order_flags(OrderFlags flags) noexcept;
 
@@ -89,14 +88,12 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
-                                                                          UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     my_trades(MarketType market, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // for tests: the bytes last signed
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

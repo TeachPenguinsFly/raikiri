@@ -20,43 +20,39 @@ constexpr std::uint32_t k_catalogue_timeout_ms = 15'000;
 class PhemexInstruments final : public exec::InstrumentSource {
 public:
     explicit PhemexInstruments(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
-                                .port = "443",
-                                .pool_size = 1,
-                                .timeout_ms = k_catalogue_timeout_ms}} {
+        : state_{std::move(state)}, rest_{state_->io,
+                                          net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
+                                                          .port = "443",
+                                                          .pool_size = 1,
+                                                          .timeout_ms = k_catalogue_timeout_ms}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        const net::RestRequest request{
-            .method = net::HttpMethod::Get, .target = ep::k_products, .body = {}};
+        const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_products, .body = {}};
         const auto response = net::await_response(
             state_->io, *state_->clock, rest_, request, rest_.max_wait_ms() + 1'000);
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status == 429) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::RateLimited, response->status, "catalogue: rate limited")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::RateLimited, response->status, "catalogue: rate limited")};
         }
         if (response->status != 200) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, response->status, "catalogue: unexpected status")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, response->status, "catalogue: unexpected status")};
         }
 
         const auto storage = std::make_unique<CatalogueBuffer>();
         const auto wire = parse_products(response->body, *storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         auto mapped = map_catalogue(*wire, market);
 

@@ -166,9 +166,9 @@ struct RowBatch {
     std::uint64_t last_seq{0}; // highest journal seq contributing to this batch
 
     [[nodiscard]] std::size_t size() const noexcept {
-        return order_events.size() + order_upserts.size() + executions.size() +
-               pnl_increments.size() + recon_breaks.size() + positions.size() + funding.size() +
-               instruments.size() + connectivity.size() + latency.size();
+        return order_events.size() + order_upserts.size() + executions.size() + pnl_increments.size() +
+               recon_breaks.size() + positions.size() + funding.size() + instruments.size() + connectivity.size() +
+               latency.size();
     }
 
     void clear() noexcept {

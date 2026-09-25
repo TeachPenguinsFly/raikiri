@@ -105,21 +105,19 @@ std::expected<WireBooks, WireError> parse_books(std::string_view frame, LevelBuf
             return std::unexpected(action.error());
         }
         const bool snapshot = *action == "snapshot";
-        return with_first_data(
-            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBooks, WireError> {
-                WireBooks out{};
-                out.inst_id = *inst_id;
-                out.snapshot = snapshot;
-                if (const auto ok = read_book_body(obj, storage, out); !ok.has_value()) {
-                    return std::unexpected(ok.error());
-                }
-                return out;
-            });
+        return with_first_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBooks, WireError> {
+            WireBooks out{};
+            out.inst_id = *inst_id;
+            out.snapshot = snapshot;
+            if (const auto ok = read_book_body(obj, storage, out); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            return out;
+        });
     });
 }
 
-std::expected<WireBooks, WireError> parse_rest_orderbook(std::string_view body,
-                                                         LevelBuffer& storage) {
+std::expected<WireBooks, WireError> parse_rest_orderbook(std::string_view body, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireBooks, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {

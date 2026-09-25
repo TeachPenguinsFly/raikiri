@@ -22,8 +22,7 @@ inline constexpr std::size_t k_max_unanswered = 512;
 // orders go out over rest and come back on the private socket; this class ages out unanswered ones
 class OkxExec final : public exec::ExecutionClient {
 public:
-    explicit OkxExec(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
+    explicit OkxExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();
@@ -42,9 +41,7 @@ public:
     [[nodiscard]] bool connected() const noexcept override { return stream_.connected(); }
 
     void submit(const OrderCmd& cmd) noexcept override {
-        fire(api_.builder().create_order(cmd, state_->instruments, state_->venue_now()),
-             cmd,
-             OrderEventType::Rejected);
+        fire(api_.builder().create_order(cmd, state_->instruments, state_->venue_now()), cmd, OrderEventType::Rejected);
     }
 
     void cancel(const OrderCmd& cmd) noexcept override {
@@ -77,8 +74,7 @@ public:
         for (const auto& cmd : cmds.subspan(sent)) {
             emit(cmd,
                  OrderEventType::CancelRejected,
-                 exec::VenueError::make(
-                     exec::ErrorClass::Terminal, 0, "batch would not take this cancel"));
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "batch would not take this cancel"));
         }
     }
 
@@ -87,28 +83,26 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
-    std::expected<std::vector<BalanceReport>, exec::VenueError>
-    balance_reports(MarketType market) override {
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
         return api_.balance_reports(market);
     }
 
@@ -124,13 +118,10 @@ private:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -150,9 +141,7 @@ private:
               const OrderCmd& cmd,
               OrderEventType on_failure) noexcept {
         if (!request.has_value()) {
-            emit(cmd,
-                 on_failure,
-                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
+            emit(cmd, on_failure, exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const auto captured = cmd;
@@ -169,9 +158,7 @@ private:
             }
         });
         if (!sent) {
-            emit(cmd,
-                 on_failure,
-                 exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit(cmd, on_failure, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         (void)unanswered_.add({.client_order_id = cmd.client_order_id,
@@ -187,8 +174,7 @@ private:
         std::vector<OrderCmd> captured{chunk.begin(), chunk.end()};
         const bool sent = api_.send(request, [this, captured](net::RestResponse&& r) {
             for (const auto& cmd : captured) {
-                const auto refusal =
-                    verdict(r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
+                const auto refusal = verdict(r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
                 // the venue may have taken every cancel in the chunk
                 if (refusal.has_value() && refusal->cls == exec::ErrorClass::Connectivity) {
                     state_->sink->on_order_error(cmd.client_order_id, *refusal);
@@ -216,12 +202,10 @@ private:
     }
 
     // a refused order answers envelope code 1 with the reason in data[].sCode; absent means accepted
-    [[nodiscard]] std::optional<exec::VenueError> verdict(const net::RestResponse& response,
-                                                          const ExchangeClientOrderId& id,
-                                                          OrderEventType on_failure) const {
+    [[nodiscard]] std::optional<exec::VenueError>
+    verdict(const net::RestResponse& response, const ExchangeClientOrderId& id, OrderEventType on_failure) const {
         if (response.transport_failed()) {
-            return exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "no response from venue");
+            return exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue");
         }
         const auto envelope = parse_rest_envelope(response.body);
         if (!envelope.has_value()) {

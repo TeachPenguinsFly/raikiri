@@ -31,8 +31,8 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                                          InstrumentBuffer& storage);
 
 // price precision is a scale (`quotePrecision`), quantity a step
 // (`baseSizePrecision`); no price or lot filters
@@ -40,7 +40,7 @@ struct WireSpotSymbol {
     std::string_view symbol;
     std::string_view base_asset; // the spot symbol `BTCUSDT` states no pair
     std::string_view quote_asset;
-    std::string_view status; // "1" is trading, as a string
+    std::string_view status;          // "1" is trading, as a string
     std::string_view base_size_step;  // baseSizePrecision, a decimal step
     std::int64_t quote_precision{-1}; // price decimals
     bool spot_trading_allowed{false};
@@ -52,7 +52,7 @@ struct SpotSymbolBuffer {
     std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                                           SpotSymbolBuffer& storage);
 
 } // namespace raikiri::venues::mexc

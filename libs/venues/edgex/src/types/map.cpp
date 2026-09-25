@@ -64,8 +64,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
 }
 
 PriceTicks mark_ticks(std::string_view text, FixedE9 tick_size) noexcept {
-    if (const auto dot = text.find('.');
-        dot != std::string_view::npos && text.size() - dot - 1 > k_e9_places) {
+    if (const auto dot = text.find('.'); dot != std::string_view::npos && text.size() - dot - 1 > k_e9_places) {
         text = text.substr(0, dot + 1 + k_e9_places);
     }
     const auto mark = parse_decimal_e9(text);
@@ -75,8 +74,7 @@ PriceTicks mark_ticks(std::string_view text, FixedE9 tick_size) noexcept {
     return PriceTicks::from_raw(mark->raw / tick_size.raw);
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto price = steps_of(wire.price, base.tick_size);
     const auto qty = steps_of(wire.size, base.lot_size);
     if (!price.has_value() || !qty.has_value()) {
@@ -92,8 +90,7 @@ map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init) 
     return out;
 }
 
-std::optional<FundingUpdate>
-map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_init) {
+std::optional<FundingUpdate> map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_init) {
     const auto* perp = std::get_if<PerpInstrument>(&instrument);
     if (perp == nullptr || wire.funding_rate.empty()) {
         return std::nullopt;
@@ -114,11 +111,9 @@ map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_i
     return out;
 }
 
-std::optional<TickerStats>
-map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
+std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto volume = wire.volume_base.empty() ? std::nullopt : parse_amount_e9(wire.volume_base);
-    const auto turnover =
-        wire.volume_quote.empty() ? std::nullopt : parse_turnover_e6(wire.volume_quote);
+    const auto turnover = wire.volume_quote.empty() ? std::nullopt : parse_turnover_e6(wire.volume_quote);
     if (!volume.has_value() && !turnover.has_value()) {
         return std::nullopt;
     }

@@ -66,10 +66,9 @@ exec::InstrumentTable table_with_btc() {
 
 // a 64-byte key behind a printable base64 secret, as coinbase issues
 constexpr std::string_view k_key = "raikiri-coinbase-test-key";
-constexpr std::string_view k_secret_b64 =
-    "cmFpa2lyaS1jb2luYmFzZS10ZXN0LXNlY3JldC1rZXktbWF0ZXJpYWwtMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NQ==";
-constexpr std::string_view k_secret_raw =
-    "raikiri-coinbase-test-secret-key-material-0123456789abcdef012345";
+constexpr std::string_view
+    k_secret_b64 = "cmFpa2lyaS1jb2luYmFzZS10ZXN0LXNlY3JldC1rZXktbWF0ZXJpYWwtMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NQ==";
+constexpr std::string_view k_secret_raw = "raikiri-coinbase-test-secret-key-material-0123456789abcdef012345";
 constexpr std::string_view k_passphrase = "raikiri-passphrase";
 
 // the ulid the oms mints and the uuid it must become, computed independently
@@ -112,8 +111,7 @@ TEST(CoinbaseVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter =
-        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Coinbase);
     EXPECT_NE(adapter->data, nullptr);
@@ -131,8 +129,7 @@ TEST(CoinbaseVenue, OrderEntryWithoutCredentialsFailsAtTheConfigNotTheVenue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // missing credentials are AuthFailure
@@ -161,8 +158,7 @@ TEST(CoinbaseVenue, PullsThisApiCannotPerformAreRefusedByName) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // a coin balance maps to no position
@@ -184,8 +180,7 @@ TEST(CoinbaseVenue, PerpCatalogueIsRefusedNotEmptied) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter =
-        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto perps = adapter->instruments->fetch_all(MarketType::Perp);
     ASSERT_FALSE(perps.has_value());
@@ -198,14 +193,11 @@ TEST(CoinbaseVenue, MarketsTheCapsRowDeniesAreRefusedAtBuild) {
     CaptureSink sink;
     const LiveClock clock;
     for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option}) {
-        const auto adapter =
-            exec::make_venue({.venue = VenueId::Coinbase, .market = market}, sink, clock);
+        const auto adapter = exec::make_venue({.venue = VenueId::Coinbase, .market = market}, sink, clock);
         ASSERT_FALSE(adapter.has_value()) << to_string(market);
         EXPECT_EQ(adapter.error(), exec::MakeError::UnsupportedMarket) << to_string(market);
     }
-    EXPECT_TRUE(
-        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock)
-            .has_value());
+    EXPECT_TRUE(exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock).has_value());
 }
 
 TEST(CoinbaseWire, EventDispatchResolvesKindAndProduct) {
@@ -726,8 +718,7 @@ TEST(CoinbaseBook, ASizeOfZeroDeletesTheLevel) {
     const auto next_down = before->bids[1].price.raw;
 
     // a zero size removes the touch
-    const std::array<WireChange, 1> gone{
-        WireChange{.price = "64017.28", .qty = "0.00000000", .bid = true}};
+    const std::array<WireChange, 1> gone{WireChange{.price = "64017.28", .qty = "0.00000000", .bid = true}};
     WireL2Update lift{};
     lift.product_id = "BTC-USD";
     lift.changes = gone;
@@ -747,8 +738,7 @@ TEST(CoinbaseBook, ALevelOffTheIncrementInvalidatesTheWholeBook) {
     BookFrame snapshot_frame;
     EXPECT_EQ(book.reset(snapshot_of(snapshot_frame)), BookResult::Resynced);
 
-    const std::array<WireChange, 1> off_tick{
-        WireChange{.price = "64017.285", .qty = "1.0", .bid = true}};
+    const std::array<WireChange, 1> off_tick{WireChange{.price = "64017.285", .qty = "1.0", .bid = true}};
     WireL2Update bad{};
     bad.product_id = "BTC-USD";
     bad.changes = off_tick;
@@ -760,8 +750,7 @@ TEST(CoinbaseBook, ALevelOffTheIncrementInvalidatesTheWholeBook) {
     auto again = book_for(table);
     BookFrame again_snapshot;
     EXPECT_EQ(again.reset(snapshot_of(again_snapshot)), BookResult::Resynced);
-    const std::array<WireChange, 1> sub_lot{
-        WireChange{.price = "64017.28", .qty = "0.000000005", .bid = true}};
+    const std::array<WireChange, 1> sub_lot{WireChange{.price = "64017.28", .qty = "0.000000005", .bid = true}};
     WireL2Update fine{};
     fine.product_id = "BTC-USD";
     fine.changes = sub_lot;
@@ -782,10 +771,9 @@ TEST(CoinbaseWs, ChannelsCoverExactlyWhatThisVenueStreams) {
 
 TEST(CoinbaseWs, SubscribeFrameGroupsProductsUnderOneChannel) {
     Protocol protocol;
-    const std::array<Subscription, 3> subs{
-        Subscription{.channel = "ticker", .product_id = "BTC-USD"},
-        Subscription{.channel = "matches", .product_id = "BTC-USD"},
-        Subscription{.channel = "ticker", .product_id = "ETH-USD"}};
+    const std::array<Subscription, 3> subs{Subscription{.channel = "ticker", .product_id = "BTC-USD"},
+                                           Subscription{.channel = "matches", .product_id = "BTC-USD"},
+                                           Subscription{.channel = "ticker", .product_id = "ETH-USD"}};
     const auto frame = protocol.subscribe_frame(subs);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 3U);
@@ -796,19 +784,16 @@ TEST(CoinbaseWs, SubscribeFrameGroupsProductsUnderOneChannel) {
 
 TEST(CoinbaseWs, UnsubscribeDiffersOnlyByType) {
     Protocol protocol;
-    const std::array<Subscription, 1> subs{
-        Subscription{.channel = "ticker", .product_id = "BTC-USD"}};
+    const std::array<Subscription, 1> subs{Subscription{.channel = "ticker", .product_id = "BTC-USD"}};
     const auto frame = protocol.unsubscribe_frame(subs);
     ASSERT_TRUE(frame.has_value());
-    EXPECT_EQ(frame->text,
-              R"({"type":"unsubscribe","channels":[{"name":"ticker","product_ids":["BTC-USD"]}]})");
+    EXPECT_EQ(frame->text, R"({"type":"unsubscribe","channels":[{"name":"ticker","product_ids":["BTC-USD"]}]})");
 }
 
 TEST(CoinbaseWs, DeclinedKindsNeverReachTheWire) {
     // subscribing to "" gets a "Failed to subscribe"
     Protocol protocol;
-    const std::array<Subscription, 1> empty_channel{
-        Subscription{.channel = {}, .product_id = "BTC-USD"}};
+    const std::array<Subscription, 1> empty_channel{Subscription{.channel = {}, .product_id = "BTC-USD"}};
     EXPECT_FALSE(protocol.subscribe_frame(empty_channel).has_value());
     EXPECT_FALSE(protocol.subscribe_frame({}).has_value());
 }
@@ -858,8 +843,7 @@ TEST(CoinbaseClientOid, TheUlidBecomesAUuidBecauseAnythingElseIsIgnored) {
 
     // version 4, variant 1
     EXPECT_EQ((*uuid)[14], '4');
-    EXPECT_TRUE((*uuid)[19] == '8' || (*uuid)[19] == '9' || (*uuid)[19] == 'a' ||
-                (*uuid)[19] == 'b');
+    EXPECT_TRUE((*uuid)[19] == '8' || (*uuid)[19] == '9' || (*uuid)[19] == 'a' || (*uuid)[19] == 'b');
     // lowercase hyphenated, grouped 8-4-4-4-12
     EXPECT_EQ((*uuid)[8], '-');
     EXPECT_EQ((*uuid)[13], '-');
@@ -873,11 +857,9 @@ TEST(CoinbaseClientOid, TheUlidBecomesAUuidBecauseAnythingElseIsIgnored) {
     EXPECT_FALSE(client_oid_of(ExchangeClientOrderId{}).has_value());
     EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("too-short")).has_value());
     // 'I', 'L', 'O' and 'U' are not in Crockford's alphabet.
-    EXPECT_FALSE(
-        client_oid_of(*ExchangeClientOrderId::from("01K3QW9F2H6M5N8P0R2T4V6XIL")).has_value());
+    EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("01K3QW9F2H6M5N8P0R2T4V6XIL")).has_value());
     // a first character above 7 would carry more than 128 bits
-    EXPECT_FALSE(
-        client_oid_of(*ExchangeClientOrderId::from("Z1K3QW9F2H6M5N8P0R2T4V6X8Z")).has_value());
+    EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("Z1K3QW9F2H6M5N8P0R2T4V6X8Z")).has_value());
 }
 
 TEST(CoinbaseSign, TheSecretIsBase64AndTheHmacKeyIsItsBytes) {
@@ -923,11 +905,9 @@ TEST(CoinbaseSignedRest, CreateOrderSignsTheBodyItActuallySends) {
               R"({"client_oid":"0198efc4-bc51-450b-9458-181689b3751f","product_id":"BTC-USD",)"
               R"("side":"buy","type":"limit","size":"0.5","price":"63500",)"
               R"("time_in_force":"GTC","post_only":true})");
-    EXPECT_EQ(builder.last_prehash(),
-              std::string{"1787751010POST/orders"} + std::string{request->body});
+    EXPECT_EQ(builder.last_prehash(), std::string{"1787751010POST/orders"} + std::string{request->body});
     // digest computed independently with the decoded key
-    EXPECT_EQ(header_of(*request, "CB-ACCESS-SIGN"),
-              "A9Hfp8A4oD2YiaHt7OFP8wO/ebpnLYOT74HEGwy7fDk=");
+    EXPECT_EQ(header_of(*request, "CB-ACCESS-SIGN"), "A9Hfp8A4oD2YiaHt7OFP8wO/ebpnLYOT74HEGwy7fDk=");
     EXPECT_EQ(header_of(*request, "CB-ACCESS-KEY"), k_key);
     EXPECT_EQ(header_of(*request, "CB-ACCESS-TIMESTAMP"), "1787751010");
     EXPECT_EQ(header_of(*request, "CB-ACCESS-PASSPHRASE"), k_passphrase);
@@ -976,12 +956,9 @@ TEST(CoinbaseSignedRest, CancelPrefersTheVenueIdAndNamespacesTheClientOne) {
     const auto by_client = builder.cancel_order(cmd, table, now);
     ASSERT_TRUE(by_client.has_value());
     // the client: prefix marks the id as ours; the bare form is read as a venue id
-    EXPECT_EQ(by_client->target,
-              "/orders/client:0198efc4-bc51-450b-9458-181689b3751f?product_id=BTC-USD");
-    EXPECT_EQ(builder.last_prehash(),
-              std::string{"1787751010DELETE"} + std::string{by_client->target});
-    EXPECT_EQ(header_of(*by_client, "CB-ACCESS-SIGN"),
-              "177FdGidwD6bETBLZQwxC80ykHNmC7iqvzCFEyYZn+I=");
+    EXPECT_EQ(by_client->target, "/orders/client:0198efc4-bc51-450b-9458-181689b3751f?product_id=BTC-USD");
+    EXPECT_EQ(builder.last_prehash(), std::string{"1787751010DELETE"} + std::string{by_client->target});
+    EXPECT_EQ(header_of(*by_client, "CB-ACCESS-SIGN"), "177FdGidwD6bETBLZQwxC80ykHNmC7iqvzCFEyYZn+I=");
 
     cmd.target_exchange_order_id = *ExchangeOrderId::from("a9625b04-fc66-4999-a876-543c3684d702");
     const auto by_id = builder.cancel_order(cmd, table, now);
@@ -1001,11 +978,9 @@ TEST(CoinbaseSignedRest, PullsAndRefusalsAreNamedRatherThanImplied) {
     const UnixNanos now{1'787'751'010'667'000'000ULL};
 
     // `status` is required, and pending belongs beside open
-    EXPECT_EQ(builder.open_orders(MarketType::Spot, now)->target,
-              "/orders?status=open&status=pending&limit=1000");
-    EXPECT_EQ(
-        builder.query_order(*ExchangeClientOrderId::from(k_ulid), MarketType::Spot, now)->target,
-        "/orders/client:0198efc4-bc51-450b-9458-181689b3751f");
+    EXPECT_EQ(builder.open_orders(MarketType::Spot, now)->target, "/orders?status=open&status=pending&limit=1000");
+    EXPECT_EQ(builder.query_order(*ExchangeClientOrderId::from(k_ulid), MarketType::Spot, now)->target,
+              "/orders/client:0198efc4-bc51-450b-9458-181689b3751f");
 
     auto cmd = order_for(table, "BTC-USD");
     cmd.qty = QtyLots::from_raw(50'000'000);
@@ -1102,8 +1077,7 @@ TEST(CoinbaseMap, AMarketOrderCarriesNoPriceAndItStaysUndefined) {
     ASSERT_TRUE(order.has_value());
     EXPECT_TRUE(order->price.empty());
 
-    const auto event =
-        map_order_event(*order, table, *ExchangeClientOrderId::from(k_ulid), k_ingest);
+    const auto event = map_order_event(*order, table, *ExchangeClientOrderId::from(k_ulid), k_ingest);
     ASSERT_TRUE(event.has_value());
     // undef, not zero
     EXPECT_TRUE(event->price.is_undef());

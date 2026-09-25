@@ -74,8 +74,7 @@ struct WireOrderAck {
     std::string_view client_order_id;
 };
 
-[[nodiscard]] std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body,
-                                                                     MarketType market);
+[[nodiscard]] std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body, MarketType market);
 
 // swap answers ok even when a cancel failed (see data.errors); spot answers state 0 for an unknown id
 struct WireCancelOutcome {
@@ -83,12 +82,11 @@ struct WireCancelOutcome {
     std::string_view code; // the venue's own refusal code, when it named one
 };
 
-[[nodiscard]] std::expected<WireCancelOutcome, WireError>
-parse_cancel_outcome(std::string_view body, MarketType market);
+[[nodiscard]] std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_view body,
+                                                                               MarketType market);
 
 // one order per frame with its trades inline
-[[nodiscard]] std::expected<WireOrder, WireError> parse_swap_order_push(std::string_view frame,
-                                                                        OrderBuffer& storage);
+[[nodiscard]] std::expected<WireOrder, WireError> parse_swap_order_push(std::string_view frame, OrderBuffer& storage);
 
 // one order per frame and never a fee
 [[nodiscard]] std::expected<WireOrder, WireError> parse_spot_order_push(std::string_view frame);

@@ -1,7 +1,6 @@
-#include <raikiri/exec/instrument_source.hpp>
-
 #include <raikiri/common/abandon.hpp>
 #include <raikiri/domain/asset_class.hpp>
+#include <raikiri/exec/instrument_source.hpp>
 
 #include <algorithm>
 #include <random>
@@ -9,13 +8,12 @@
 
 namespace raikiri::exec {
 
-std::expected<std::vector<Instrument>, VenueError> load_catalogue(
-    InstrumentSource& source,
-    MarketType market,
-    const std::function<bool()>& stopping,
-    const std::function<void(const VenueError&, std::uint32_t, std::chrono::milliseconds)>&
-        on_retry,
-    CatalogueBackoff backoff) {
+std::expected<std::vector<Instrument>, VenueError>
+load_catalogue(InstrumentSource& source,
+               MarketType market,
+               const std::function<bool()>& stopping,
+               const std::function<void(const VenueError&, std::uint32_t, std::chrono::milliseconds)>& on_retry,
+               CatalogueBackoff backoff) {
     using std::chrono::milliseconds;
     using std::chrono::steady_clock;
     const AbandonScope abandon{stopping};
@@ -41,8 +39,7 @@ std::expected<std::vector<Instrument>, VenueError> load_catalogue(
             if (stopping()) {
                 return loaded;
             }
-            std::this_thread::sleep_for(
-                std::min<steady_clock::duration>(milliseconds{100}, until - now));
+            std::this_thread::sleep_for(std::min<steady_clock::duration>(milliseconds{100}, until - now));
         }
         delay = std::min(delay * 2, backoff.cap);
     }

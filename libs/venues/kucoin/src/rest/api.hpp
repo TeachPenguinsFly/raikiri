@@ -53,9 +53,8 @@ public:
     [[nodiscard]] static exec::VenueError market_not_enabled(MarketType market) noexcept {
         return exec::VenueError::make(exec::ErrorClass::Terminal,
                                       0,
-                                      market == MarketType::Spot
-                                          ? "kucoin spot is not enabled on this gateway"
-                                          : "kucoin futures is not enabled on this gateway");
+                                      market == MarketType::Spot ? "kucoin spot is not enabled on this gateway"
+                                                                 : "kucoin futures is not enabled on this gateway");
     }
 
     // single-connection ticket from a signed post; an auth failure is final
@@ -63,8 +62,8 @@ public:
         const auto request = builder_.bullet_private(market_, state_->venue_now());
         if (!request.has_value()) {
             // no credentials: retrying cannot produce them
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::AuthFailure, 0, to_string(request.error()))};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, to_string(request.error()))};
         }
         const auto body = usable_body(await_response(*state_, rest_, *request, 10'000));
         if (!body.has_value()) {
@@ -73,20 +72,17 @@ public:
         // WireBullet views into body, so build the endpoint while body is alive
         const auto bullet = parse_bullet(*body);
         if (!bullet.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bullet.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bullet.error()))};
         }
         auto endpoint = make_endpoint(bullet->endpoint, bullet->token, state_->next_connect_id());
         if (!endpoint.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "bullet names no usable endpoint")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bullet names no usable endpoint")};
         }
-        return PrivateTicket{.endpoint = std::move(*endpoint),
-                             .ping_interval_ms = bullet->ping_interval_ms};
+        return PrivateTicket{.endpoint = std::move(*endpoint), .ping_interval_ms = bullet->ping_interval_ms};
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType market) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         switch (market) {
         case MarketType::Spot:
             if (!serves(market)) {
@@ -105,8 +101,8 @@ public:
         return std::unexpected{exec::not_implemented("kucoin options order entry")};
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) {
         // neither host reads by clientOid with this signature, so sweep actives
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
@@ -117,12 +113,10 @@ public:
                 return report;
             }
         }
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
-                                                                                UnixNanos since) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
         switch (market) {
         case MarketType::Spot:
         case MarketType::Perp:
@@ -146,8 +140,7 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_fills(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<exec::FillReport> reports;
         reports.reserve(wire->size());
@@ -183,20 +176,18 @@ public:
         }
         const auto wire = parse_account_overview(*body);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         const auto balance = map_account_overview(*wire, state_->venue_now());
         if (!balance.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "kucoin: account overview names no currency")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kucoin: account overview names no currency")};
         }
         // one settle currency per gateway
         return std::vector<BalanceReport>{*balance};
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         switch (market) {
         case MarketType::Spot:
             // spot has no positions; an empty list would read as flat
@@ -222,8 +213,7 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_positions(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(wire->size());
@@ -249,8 +239,7 @@ private:
         auto& storage = *storage_owner;
         const auto wire = parse_futures_orders(*body, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         return collect(*wire);
     }
@@ -269,14 +258,12 @@ private:
         auto& symbol_storage = *symbol_storage_owner;
         const auto symbols = parse_active_symbols(*symbols_body, symbol_storage);
         if (!symbols.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(symbols.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(symbols.error()))};
         }
 
         std::vector<exec::OrderStatusReport> reports;
         for (const auto symbol : *symbols) {
-            const auto request =
-                builder_.open_orders(MarketType::Spot, symbol, state_->venue_now());
+            const auto request = builder_.open_orders(MarketType::Spot, symbol, state_->venue_now());
             if (!request.has_value()) {
                 return std::unexpected{build_failed(request.error())};
             }
@@ -289,8 +276,7 @@ private:
             auto& storage = *storage_owner;
             const auto wire = parse_spot_orders(*body, storage);
             if (!wire.has_value()) {
-                return std::unexpected{
-                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
             }
             for (const auto& row : *wire) {
                 if (auto report = map_open_order(row, state_->instruments); report.has_value()) {

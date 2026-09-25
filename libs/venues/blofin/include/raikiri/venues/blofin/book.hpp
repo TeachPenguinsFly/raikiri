@@ -38,8 +38,7 @@ struct WireBooks {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Resynced,
@@ -65,13 +64,9 @@ public:
 
     [[nodiscard]] std::uint64_t gaps() const noexcept { return gaps_; }
 
-    [[nodiscard]] std::span<const book::Level> bids() const noexcept {
-        return ladders_.bids().levels();
-    }
+    [[nodiscard]] std::span<const book::Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const book::Level> asks() const noexcept {
-        return ladders_.asks().levels();
-    }
+    [[nodiscard]] std::span<const book::Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
     [[nodiscard]] bool apply_side(std::span<const WireLevel> levels, book::Ladder& side) const;

@@ -100,13 +100,11 @@ std::int64_t i64_of_digits(std::string_view text) noexcept {
     return (ec == std::errc{} && stop == end) ? out : std::int64_t{0};
 }
 
-std::expected<std::string_view, WireError> opt_decimal(wire::ondemand::object& obj,
-                                                       std::string_view key) {
+std::expected<std::string_view, WireError> opt_decimal(wire::ondemand::object& obj, std::string_view key) {
     return lookup(obj, key, decimal_of);
 }
 
-std::expected<std::string_view, WireError> req_decimal(wire::ondemand::object& obj,
-                                                       std::string_view key) {
+std::expected<std::string_view, WireError> req_decimal(wire::ondemand::object& obj, std::string_view key) {
     auto text = opt_decimal(obj, key);
     if (text.has_value() && text->empty()) {
         return std::unexpected(WireError::MissingField);
@@ -114,8 +112,7 @@ std::expected<std::string_view, WireError> req_decimal(wire::ondemand::object& o
     return text;
 }
 
-std::expected<std::uint64_t, WireError> opt_u64(wire::ondemand::object& obj,
-                                                std::string_view key) {
+std::expected<std::uint64_t, WireError> opt_u64(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_decimal(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -123,8 +120,7 @@ std::expected<std::uint64_t, WireError> opt_u64(wire::ondemand::object& obj,
     return wire::digits_to_u64(*text);
 }
 
-std::expected<std::int64_t, WireError> opt_i64(wire::ondemand::object& obj,
-                                               std::string_view key) {
+std::expected<std::int64_t, WireError> opt_i64(wire::ondemand::object& obj, std::string_view key) {
     const auto text = opt_decimal(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -142,16 +138,15 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         Text type{std::unexpected(WireError::MissingField)};
         Text subject{std::unexpected(WireError::MissingField)};
         Text topic{std::unexpected(WireError::MissingField)};
-        const auto walked = wire::for_each_field(
-            *root, [&](std::string_view key, wire::ondemand::value& value) {
-                if (key == "type") {
-                    type = wire::str_of(value);
-                } else if (key == "subject") {
-                    subject = wire::str_of(value);
-                } else if (key == "topic") {
-                    topic = wire::str_of(value);
-                }
-            });
+        const auto walked = wire::for_each_field(*root, [&](std::string_view key, wire::ondemand::value& value) {
+            if (key == "type") {
+                type = wire::str_of(value);
+            } else if (key == "subject") {
+                subject = wire::str_of(value);
+            } else if (key == "topic") {
+                topic = wire::str_of(value);
+            }
+        });
         if (!walked.has_value()) {
             return std::unexpected(walked.error());
         }
@@ -266,36 +261,35 @@ std::expected<WireBullet, WireError> parse_bullet(std::string_view body) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_data(
-            *root, [](wire::ondemand::object& obj) -> std::expected<WireBullet, WireError> {
-                WireBullet out{};
-                const auto token = wire::req_str(obj, "token");
-                if (!token.has_value()) {
-                    return std::unexpected(token.error());
+        return with_data(*root, [](wire::ondemand::object& obj) -> std::expected<WireBullet, WireError> {
+            WireBullet out{};
+            const auto token = wire::req_str(obj, "token");
+            if (!token.has_value()) {
+                return std::unexpected(token.error());
+            }
+            out.token = *token;
+            auto servers = wire::req_array(obj, "instanceServers");
+            if (!servers.has_value()) {
+                return std::unexpected(servers.error());
+            }
+            for (auto entry : *servers) {
+                wire::ondemand::object server;
+                if (const auto ec = entry.get_object().get(server); ec != simdjson::SUCCESS) {
+                    return std::unexpected(wire::map_error(ec));
                 }
-                out.token = *token;
-                auto servers = wire::req_array(obj, "instanceServers");
-                if (!servers.has_value()) {
-                    return std::unexpected(servers.error());
+                const auto endpoint = wire::req_str(server, "endpoint");
+                const auto interval = opt_u64(server, "pingInterval");
+                const auto timeout = opt_u64(server, "pingTimeout");
+                if (!endpoint.has_value() || !interval.has_value() || !timeout.has_value()) {
+                    return std::unexpected(WireError::MissingField);
                 }
-                for (auto entry : *servers) {
-                    wire::ondemand::object server;
-                    if (const auto ec = entry.get_object().get(server); ec != simdjson::SUCCESS) {
-                        return std::unexpected(wire::map_error(ec));
-                    }
-                    const auto endpoint = wire::req_str(server, "endpoint");
-                    const auto interval = opt_u64(server, "pingInterval");
-                    const auto timeout = opt_u64(server, "pingTimeout");
-                    if (!endpoint.has_value() || !interval.has_value() || !timeout.has_value()) {
-                        return std::unexpected(WireError::MissingField);
-                    }
-                    out.endpoint = *endpoint;
-                    out.ping_interval_ms = *interval;
-                    out.ping_timeout_ms = *timeout;
-                    return out;
-                }
-                return std::unexpected(WireError::MissingField);
-            });
+                out.endpoint = *endpoint;
+                out.ping_interval_ms = *interval;
+                out.ping_timeout_ms = *timeout;
+                return out;
+            }
+            return std::unexpected(WireError::MissingField);
+        });
     });
 }
 

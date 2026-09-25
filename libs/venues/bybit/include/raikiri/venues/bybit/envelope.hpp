@@ -50,11 +50,8 @@ struct WireRestEnvelope {
 
 // a {"list": [...]} array under a rest result, read into caller storage
 template <typename Entry, typename Read>
-[[nodiscard]] std::expected<std::span<const Entry>, WireError> read_list(std::string_view frame,
-                                                                         std::string_view key,
-                                                                         Entry* storage,
-                                                                         std::size_t capacity,
-                                                                         Read&& read) {
+[[nodiscard]] std::expected<std::span<const Entry>, WireError>
+read_list(std::string_view frame, std::string_view key, Entry* storage, std::size_t capacity, Read&& read) {
     auto& session = wire::session();
     auto root = session.open_object(frame);
     if (!root.has_value()) {

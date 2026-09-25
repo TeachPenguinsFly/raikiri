@@ -42,10 +42,9 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             const auto period = wire::opt_str(obj, "settlement_period");
             const auto business = wire::opt_str(obj, "business_type");
             const auto type = wire::opt_str(obj, "contract_type");
-            if (!symbol.has_value() || !code.has_value() || !size.has_value() ||
-                !tick.has_value() || !delivery.has_value() || !status.has_value() ||
-                !settlement.has_value() || !period.has_value() || !business.has_value() ||
-                !type.has_value()) {
+            if (!symbol.has_value() || !code.has_value() || !size.has_value() || !tick.has_value() ||
+                !delivery.has_value() || !status.has_value() || !settlement.has_value() || !period.has_value() ||
+                !business.has_value() || !type.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             out.symbol = *symbol;
@@ -70,8 +69,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
     });
 }
 
-std::expected<std::span<const WireSpotSymbol>, WireError>
-parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
+std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std::string_view body,
+                                                                             SpotSymbolBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotSymbol>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -96,18 +95,16 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             const auto price_precision = wire::opt_u64(obj, "price-precision");
             const auto amount_precision = wire::opt_u64(obj, "amount-precision");
             const auto min_value = num_of(obj, "min-order-value");
-            if (!symbol.has_value() || !state.has_value() || !trading.has_value() ||
-                !price_precision.has_value() || !amount_precision.has_value() ||
-                !min_value.has_value()) {
+            if (!symbol.has_value() || !state.has_value() || !trading.has_value() || !price_precision.has_value() ||
+                !amount_precision.has_value() || !min_value.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
-            storage.symbols[count] = {
-                .symbol = *symbol,
-                .state = *state,
-                .api_trading = *trading,
-                .min_order_value = *min_value,
-                .price_precision = static_cast<std::uint32_t>(*price_precision),
-                .amount_precision = static_cast<std::uint32_t>(*amount_precision)};
+            storage.symbols[count] = {.symbol = *symbol,
+                                      .state = *state,
+                                      .api_trading = *trading,
+                                      .min_order_value = *min_value,
+                                      .price_precision = static_cast<std::uint32_t>(*price_precision),
+                                      .amount_precision = static_cast<std::uint32_t>(*amount_precision)};
             ++count;
         }
         return std::span<const WireSpotSymbol>{storage.symbols.data(), count};

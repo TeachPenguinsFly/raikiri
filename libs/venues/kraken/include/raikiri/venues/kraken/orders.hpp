@@ -22,8 +22,7 @@ struct WireOrderStatus {
     std::uint64_t received_ms{0};
 };
 
-[[nodiscard]] std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view body,
-                                                                           StatusKind kind);
+[[nodiscard]] std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view body, StatusKind kind);
 
 // batchStatus answers one status per element in request order
 inline constexpr std::size_t k_max_batch = 50;
@@ -32,8 +31,8 @@ struct BatchStatusBuffer {
     std::array<WireOrderStatus, k_max_batch> statuses{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireOrderStatus>, WireError>
-parse_batch_status(std::string_view body, BatchStatusBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOrderStatus>, WireError> parse_batch_status(std::string_view body,
+                                                                                            BatchStatusBuffer& storage);
 
 // unfilledSize is what is left and filledSize what traded; the original size is not stated
 struct WireOpenOrder {
@@ -56,8 +55,8 @@ struct OpenOrderBuffer {
     std::array<WireOpenOrder, k_max_open_orders> orders{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireOpenOrder>, WireError>
-parse_open_orders(std::string_view body, OpenOrderBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireOpenOrder>, WireError> parse_open_orders(std::string_view body,
+                                                                                         OpenOrderBuffer& storage);
 
 // fill_time is kept as text to echo as the lastFillTime cursor
 struct WireFill {
@@ -114,8 +113,8 @@ struct OrderSnapshotBuffer {
     std::array<WireWsOrder, k_max_open_orders> orders{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireWsOrder>, WireError>
-parse_order_snapshot(std::string_view frame, OrderSnapshotBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireWsOrder>, WireError> parse_order_snapshot(std::string_view frame,
+                                                                                          OrderSnapshotBuffer& storage);
 
 // fee_paid is signed, in base on PI_ and quote on PF_
 struct WireWsFill {
@@ -138,7 +137,7 @@ struct WsFillBuffer {
 };
 
 // fills and fills_snapshot share one shape
-[[nodiscard]] std::expected<std::span<const WireWsFill>, WireError>
-parse_ws_fills(std::string_view frame, WsFillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireWsFill>, WireError> parse_ws_fills(std::string_view frame,
+                                                                                   WsFillBuffer& storage);
 
 } // namespace raikiri::venues::kraken

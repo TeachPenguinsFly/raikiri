@@ -34,8 +34,7 @@ void PgSink::exec_file(const std::string& path) {
 
 std::uint64_t PgSink::load_cursor(const std::string& journal) {
     pqxx::work tx{impl_->conn};
-    const auto row = tx.exec("SELECT last_seq FROM raikiri.persist_cursors WHERE journal = $1",
-                             pqxx::params{journal});
+    const auto row = tx.exec("SELECT last_seq FROM raikiri.persist_cursors WHERE journal = $1", pqxx::params{journal});
     tx.commit();
     if (row.empty()) {
         return 0;
@@ -44,9 +43,8 @@ std::uint64_t PgSink::load_cursor(const std::string& journal) {
 }
 
 std::int64_t PgSink::count_rows(const std::string& table) {
-    if (table.empty() || !std::ranges::all_of(table, [](unsigned char c) {
-            return (c >= 'a' && c <= 'z') || c == '_';
-        })) {
+    if (table.empty() ||
+        !std::ranges::all_of(table, [](unsigned char c) { return (c >= 'a' && c <= 'z') || c == '_'; })) {
         throw std::invalid_argument{"count_rows: not a bare table name"};
     }
     pqxx::work tx{impl_->conn};
@@ -167,12 +165,7 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 " local_qty_lots, venue_qty_lots, detail)"
                 " VALUES ($1,$2,$3,$4,$5,$6)"
                 " ON CONFLICT (venue, exchange_symbol, ts_seen) DO NOTHING",
-                pqxx::params{r.venue,
-                             r.exchange_symbol,
-                             r.ts_seen,
-                             r.local_qty_lots,
-                             r.venue_qty_lots,
-                             r.detail});
+                pqxx::params{r.venue, r.exchange_symbol, r.ts_seen, r.local_qty_lots, r.venue_qty_lots, r.detail});
     }
 
     // upsert; the ts_updated guard keeps the newer row under out-of-order replay

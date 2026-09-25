@@ -42,12 +42,11 @@ using ep::Stream;
 class ExtendedData final : public exec::DataClient {
 public:
     explicit ExtendedData(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{ep::host(state_->testnet)},
-                                .port = "443",
-                                .pool_size = 1,
-                                .timeout_ms = k_poll_timeout_ms}} {
+        : state_{std::move(state)}, rest_{state_->io,
+                                          net::RestConfig{.host = std::string{ep::host(state_->testnet)},
+                                                          .port = "443",
+                                                          .pool_size = 1,
+                                                          .timeout_ms = k_poll_timeout_ms}} {
         for (std::size_t i = 0; i < ep::k_stream_count; ++i) {
             sockets_[i] = std::make_unique<Socket>(*this, static_cast<Stream>(i));
         }
@@ -76,17 +75,15 @@ public:
     }
 
     [[nodiscard]] bool connected() const noexcept override {
-        return std::ranges::all_of(sockets_, [](const auto& socket) {
-            return !socket->wanted || socket->client.connected();
-        }) && std::ranges::any_of(sockets_, [](const auto& socket) { return socket->wanted; });
+        return std::ranges::all_of(sockets_,
+                                   [](const auto& socket) { return !socket->wanted || socket->client.connected(); }) &&
+               std::ranges::any_of(sockets_, [](const auto& socket) { return socket->wanted; });
     }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         auto* market = state_->market_of(instrument);
         if (market == nullptr || state_->instruments.find(instrument) == nullptr) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         switch (kind) {
         case exec::SubKind::Bbo:
@@ -115,8 +112,7 @@ public:
         return DataClient::subscribe(kind, instrument);
     }
 
-    std::expected<void, exec::VenueError> unsubscribe(exec::SubKind kind,
-                                                      InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> unsubscribe(exec::SubKind kind, InstrumentId instrument) override {
         auto* market = state_->market_of(instrument);
         if (market == nullptr) {
             return {};
@@ -196,10 +192,7 @@ private:
                 ++gaps;
                 restart = true;
                 if (has_logger()) {
-                    RLOG_WARN("extended: {} jumped from seq {} to {}, reconnecting",
-                              name_of(stream),
-                              last_seq,
-                              seq);
+                    RLOG_WARN("extended: {} jumped from seq {} to {}, reconnecting", name_of(stream), last_seq, seq);
                 }
                 return false;
             }
@@ -302,8 +295,7 @@ private:
         if (market == nullptr || (!market->quote && !market->depth)) {
             return;
         }
-        auto& book = state_->books.try_emplace(base->id.symbol().raw, base->id, base->tick_size,
-                                               base->lot_size)
+        auto& book = state_->books.try_emplace(base->id.symbol().raw, base->id, base->tick_size, base->lot_size)
                          .first->second;
         const auto result = book.apply(*wire);
         if (result == BookResult::BadLevel) {
@@ -336,8 +328,7 @@ private:
         if (market == nullptr || !market->quote) {
             return;
         }
-        if (const auto top = map_top(*wire, base->id, base->tick_size, base->lot_size, received);
-            top.has_value()) {
+        if (const auto top = map_top(*wire, base->id, base->tick_size, base->lot_size, received); top.has_value()) {
             state_->sink->on_bbo(*top);
             market->fast_quote = true;
             market->priced = true;
@@ -379,8 +370,7 @@ private:
         if (market == nullptr || !market->funding || !note_rate(*wire, market->memo)) {
             return;
         }
-        state_->sink->on_funding(
-            merged(*base, market->memo, ms_to_unix(wire->ts_ms, received), received));
+        state_->sink->on_funding(merged(*base, market->memo, ms_to_unix(wire->ts_ms, received), received));
         market->funded = true;
     }
 
@@ -393,8 +383,7 @@ private:
         if (market == nullptr || !market->funding || !note_mark(*wire, *base, market->memo)) {
             return;
         }
-        state_->sink->on_funding(
-            merged(*base, market->memo, ms_to_unix(wire->ts_ms, received), received));
+        state_->sink->on_funding(merged(*base, market->memo, ms_to_unix(wire->ts_ms, received), received));
     }
 
     // The catalogue again, for what no stream carries: the next settlement
@@ -404,12 +393,9 @@ private:
             return;
         }
         poll_in_flight_ = true;
-        const net::RestRequest request{
-            .method = net::HttpMethod::Get, .target = ep::k_markets, .body = {}};
+        const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_markets, .body = {}};
         try {
-            if (!rest_.send(request, [this](net::RestResponse&& response) {
-                    on_markets(response);
-                })) {
+            if (!rest_.send(request, [this](net::RestResponse&& response) { on_markets(response); })) {
                 poll_in_flight_ = false;
                 return;
             }

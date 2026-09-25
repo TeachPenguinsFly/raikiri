@@ -43,8 +43,8 @@ struct PremiumBuffer {
     std::array<WireMarkPrice, k_max_premium_rows> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireMarkPrice>, WireError>
-parse_premium_index(std::string_view body, PremiumBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireMarkPrice>, WireError> parse_premium_index(std::string_view body,
+                                                                                           PremiumBuffer& storage);
 
 struct WireTicker24h {
     std::string_view symbol;
@@ -59,7 +59,7 @@ struct Ticker24hBuffer {
     std::array<WireTicker24h, k_max_ticker_rows> rows{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTicker24h>, WireError>
-parse_ticker_24h(std::string_view body, Ticker24hBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTicker24h>, WireError> parse_ticker_24h(std::string_view body,
+                                                                                        Ticker24hBuffer& storage);
 
 } // namespace raikiri::venues::aster

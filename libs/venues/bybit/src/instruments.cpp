@@ -24,9 +24,7 @@ class BybitInstruments final : public exec::InstrumentSource {
 public:
     explicit BybitInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{
-              state_->io,
-              net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)}, .port = "443"}} {
+          rest_{state_->io, net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)}, .port = "443"}} {
         // unsigned /v5/market reads spend the shared bucket; capacity 0 means unlimited
         rest_.set_admit([this](std::string_view target) noexcept {
             if (state_->budget == nullptr) {
@@ -67,23 +65,22 @@ private:
         const auto response = await_response(*state_, rest_, request, 15'000);
         if (refused_) {
             // a budget refusal is not a timeout; the caller retries without reconnecting
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::RateLimited, 0, "catalogue: local rate budget spent")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::RateLimited, 0, "catalogue: local rate budget spent")};
         }
         if (!response.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
         }
         if (response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         const auto envelope = parse_envelope(response->body);
         if (!envelope.has_value() || envelope->ret_code != k_ret_ok) {
-            return std::unexpected{exec::VenueError::make(
-                envelope.has_value() ? classify(envelope->ret_code) : exec::ErrorClass::Terminal,
-                envelope.has_value() ? envelope->ret_code : 0,
-                "catalogue refused")};
+            return std::unexpected{
+                exec::VenueError::make(envelope.has_value() ? classify(envelope->ret_code) : exec::ErrorClass::Terminal,
+                                       envelope.has_value() ? envelope->ret_code : 0,
+                                       "catalogue refused")};
         }
 
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
@@ -91,14 +88,12 @@ private:
         auto& storage = *storage_owner;
         const auto wire = parse_instruments(envelope->result, storage);
         if (!wire.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
         const auto next = parse_page_cursor(envelope->result);
         if (!next.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(next.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(next.error()))};
         }
         loaded.reserve(loaded.size() + wire->size());
         state_->instruments.reserve(loaded.size() + wire->size());

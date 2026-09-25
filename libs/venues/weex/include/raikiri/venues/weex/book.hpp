@@ -44,8 +44,7 @@ struct WireDepth {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // book advanced and is publishable

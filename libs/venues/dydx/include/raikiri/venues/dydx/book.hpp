@@ -31,10 +31,8 @@ public:
 
     Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
-    [[nodiscard]] BookResult reset(std::span<const WireLevel> bids,
-                                   std::span<const WireLevel> asks);
-    [[nodiscard]] BookResult apply(std::span<const WireLevel> bids,
-                                   std::span<const WireLevel> asks);
+    [[nodiscard]] BookResult reset(std::span<const WireLevel> bids, std::span<const WireLevel> asks);
+    [[nodiscard]] BookResult apply(std::span<const WireLevel> bids, std::span<const WireLevel> asks);
 
     // Nullopt while unsynced, crossed or one-sided.
     [[nodiscard]] std::optional<Bbo> top(UnixNanos ts_event, UnixNanos ts_init) const;

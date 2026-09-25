@@ -48,13 +48,10 @@ public:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -81,18 +78,17 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
@@ -136,8 +132,7 @@ private:
 };
 
 BitfinexExec::BitfinexExec(std::shared_ptr<VenueState> state, MarketType market)
-    : state_{std::move(state)}, api_{*state_}, spot_{market == MarketType::Spot},
-      perp_{market == MarketType::Perp} {}
+    : state_{std::move(state)}, api_{*state_}, spot_{market == MarketType::Spot}, perp_{market == MarketType::Perp} {}
 
 std::expected<void, exec::VenueError> BitfinexExec::start() {
     api_.start();
@@ -171,10 +166,9 @@ bool BitfinexExec::connected() const noexcept {
 
 void BitfinexExec::fire(const OrderCmd& cmd, Kind kind) noexcept {
     const auto now = state_->clock->wall();
-    const auto request =
-        kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
-        : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
-                               : api_.builder().amend_order(cmd, state_->instruments, now);
+    const auto request = kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
+                         : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
+                                                : api_.builder().amend_order(cmd, state_->instruments, now);
     if (!request.has_value()) {
         emit_reject(cmd, kind, build_failure(request.error()));
         return;
@@ -185,12 +179,10 @@ void BitfinexExec::fire(const OrderCmd& cmd, Kind kind) noexcept {
             state_->remember_cid(*cid, cmd.exchange_client_order_id);
         }
     }
-    if (!api_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
-            on_response(std::move(response), cmd, kind);
-        })) {
+    if (!api_.send(*request,
+                   [this, cmd, kind](net::RestResponse&& response) { on_response(std::move(response), cmd, kind); })) {
         // never sent, so nothing is in doubt
-        emit_reject(
-            cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+        emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         return;
     }
     // recorded before the callback that may never run
@@ -210,13 +202,12 @@ void BitfinexExec::on_response(net::RestResponse&& response, const OrderCmd& cmd
     }
     if (response.transport_failed()) {
         // the request may have reached the matcher, so report an error only
-        state_->sink->on_order_error(
-            cmd.client_order_id,
-            exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                   0,
-                                   response.error.empty()
-                                       ? std::string_view{"no response from venue"}
-                                       : std::string_view{response.error}));
+        state_->sink->on_order_error(cmd.client_order_id,
+                                     exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                            0,
+                                                            response.error.empty()
+                                                                ? std::string_view{"no response from venue"}
+                                                                : std::string_view{response.error}));
         return;
     }
     // ["error",code,text] is the other refusal shape
@@ -227,31 +218,24 @@ void BitfinexExec::on_response(net::RestResponse&& response, const OrderCmd& cmd
     // bitfinex answers http 200 to a refused order; the notification status decides
     const auto notification = parse_notification(response.body);
     if (!notification.has_value()) {
-        emit_reject(
-            cmd,
-            kind,
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(notification.error())));
+        emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(notification.error())));
         return;
     }
     if (!notification_ok(*notification)) {
-        emit_reject(cmd,
-                    kind,
-                    exec::VenueError::make(
-                        classify(notification->code), notification->code, notification->text));
+        emit_reject(
+            cmd, kind, exec::VenueError::make(classify(notification->code), notification->code, notification->text));
         return;
     }
     if (kind == Kind::Create && notification->has_order) {
         // seeding the memo lets a fill that beats the on push state its leaves
-        state_->remember(notification->order.id,
-                         {.client_order_id = cmd.exchange_client_order_id, .leaves = cmd.qty});
+        state_->remember(notification->order.id, {.client_order_id = cmd.exchange_client_order_id, .leaves = cmd.qty});
     }
     // the socket push carries the lifecycle
 }
 
 } // namespace
 
-std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state,
-                                                             MarketType market) {
+std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state, MarketType market) {
     return std::make_unique<BitfinexExec>(std::move(state), market);
 }
 

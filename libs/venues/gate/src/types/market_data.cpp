@@ -17,8 +17,7 @@ std::expected<WireTrade, WireError> read_futures_trade(wire::ondemand::object& o
     const auto ts = num_u64(obj, "create_time_ms");
     const auto price = req_num(obj, "price");
     const auto contract = wire::req_str(obj, "contract");
-    if (!trade_id.has_value() || !size.has_value() || !ts.has_value() || !price.has_value() ||
-        !contract.has_value()) {
+    if (!trade_id.has_value() || !size.has_value() || !ts.has_value() || !price.has_value() || !contract.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     // the sign of size is the side
@@ -41,8 +40,8 @@ std::expected<WireTrade, WireError> read_spot_trade(wire::ondemand::object& obj)
     const auto price = req_num(obj, "price");
     const auto pair = wire::req_str(obj, "currency_pair");
     const auto side = wire::req_str(obj, "side");
-    if (!trade_id.has_value() || !amount.has_value() || !ts.has_value() || !price.has_value() ||
-        !pair.has_value() || !side.has_value()) {
+    if (!trade_id.has_value() || !amount.has_value() || !ts.has_value() || !price.has_value() || !pair.has_value() ||
+        !side.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     if (*side != "buy" && *side != "sell") {
@@ -132,9 +131,8 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             const auto next_apply = num_u64(obj, "funding_next_apply");
             const auto index = opt_num(obj, "index_price");
             const auto ts = num_u64(obj, "t");
-            if (!mark.has_value() || !rate.has_value() || !indicative.has_value() ||
-                !interval.has_value() || !next_apply.has_value() || !index.has_value() ||
-                !ts.has_value()) {
+            if (!mark.has_value() || !rate.has_value() || !indicative.has_value() || !interval.has_value() ||
+                !next_apply.has_value() || !index.has_value() || !ts.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.mark_price = *mark;

@@ -32,8 +32,7 @@ std::expected<void, WireError> read_ctx_fields(wire::ondemand::object& ctx, Wire
 
 } // namespace
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -82,23 +81,22 @@ std::expected<WireAssetCtx, WireError> parse_asset_ctx(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_data_object(
-            *root, [](wire::ondemand::object& obj) -> std::expected<WireAssetCtx, WireError> {
-                WireAssetCtx out{};
-                const auto coin = wire::req_str(obj, "coin");
-                if (!coin.has_value()) {
-                    return std::unexpected(coin.error());
-                }
-                out.coin = *coin;
-                auto ctx = wire::req_object(obj, "ctx");
-                if (!ctx.has_value()) {
-                    return std::unexpected(ctx.error());
-                }
-                if (const auto ok = read_ctx_fields(*ctx, out); !ok.has_value()) {
-                    return std::unexpected(ok.error());
-                }
-                return out;
-            });
+        return with_data_object(*root, [](wire::ondemand::object& obj) -> std::expected<WireAssetCtx, WireError> {
+            WireAssetCtx out{};
+            const auto coin = wire::req_str(obj, "coin");
+            if (!coin.has_value()) {
+                return std::unexpected(coin.error());
+            }
+            out.coin = *coin;
+            auto ctx = wire::req_object(obj, "ctx");
+            if (!ctx.has_value()) {
+                return std::unexpected(ctx.error());
+            }
+            if (const auto ok = read_ctx_fields(*ctx, out); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            return out;
+        });
     });
 }
 

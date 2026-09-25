@@ -15,7 +15,6 @@ namespace raikiri::venues::bingx {
 [[nodiscard]] std::string_view client_id_text(const ExchangeClientOrderId& id) noexcept;
 
 // the echo uppercased; nullopt for an id this adapter did not mint
-[[nodiscard]] std::optional<ExchangeClientOrderId>
-client_id_from_text(std::string_view text) noexcept;
+[[nodiscard]] std::optional<ExchangeClientOrderId> client_id_from_text(std::string_view text) noexcept;
 
 } // namespace raikiri::venues::bingx

@@ -144,9 +144,8 @@ std::expected<PageQuery, http::Response> read_page_query(const http::Request& re
     if (const auto text = http::query_param(req.query, "cursor"); !text.empty()) {
         auto cursor = Cursor::decode(text);
         if (!cursor.has_value()) {
-            return std::unexpected(problem(400,
-                                           "not a cursor this server issued",
-                                           "take it verbatim from a previous page's next_cursor"));
+            return std::unexpected(
+                problem(400, "not a cursor this server issued", "take it verbatim from a previous page's next_cursor"));
         }
         query.cursor = *cursor;
     }
@@ -263,8 +262,7 @@ http::Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNano
     const auto done = desk->cancel(ClientOrderId{*raw}, now);
     if (!done.has_value()) {
         const auto error = done.error();
-        return problem(
-            error == DeskError::NoSuchOrder ? 404 : status_for(error), "refused", describe(error));
+        return problem(error == DeskError::NoSuchOrder ? 404 : status_for(error), "refused", describe(error));
     }
     const OrderAcceptedBody accepted{.client_order_id = std::to_string(*raw)};
     auto answer = json(accepted);
@@ -280,18 +278,13 @@ http::Handler make_router(const Registry& registry,
                           std::function<MonoNanos()> now,
                           std::function<UnixNanos()> wall,
                           std::map<std::string, std::uint16_t> upstreams) {
-    return [&registry,
-            history,
-            desk,
-            now = std::move(now),
-            wall = std::move(wall),
-            upstreams = std::move(upstreams)](const http::Request& req) -> http::Response {
+    return [&registry, history, desk, now = std::move(now), wall = std::move(wall), upstreams = std::move(upstreams)](
+               const http::Request& req) -> http::Response {
         if (req.method == "POST" && req.path == "/v1/orders") {
             return place_order(desk, req, wall());
         }
         if (req.method == "DELETE" && req.path.starts_with("/v1/orders/")) {
-            return cancel_order(
-                desk, req.path.substr(std::string_view{"/v1/orders/"}.size()), wall());
+            return cancel_order(desk, req.path.substr(std::string_view{"/v1/orders/"}.size()), wall());
         }
         if (req.method != "GET") {
             return problem(405, "method not allowed", "this path serves reads");
@@ -307,8 +300,7 @@ http::Handler make_router(const Registry& registry,
                 // an unconfigured upstream is a 404
                 return problem(404, "no such upstream", req.path);
             }
-            const auto target = slash == std::string_view::npos ? std::string{"/"}
-                                                                : std::string{tail.substr(slash)};
+            const auto target = slash == std::string_view::npos ? std::string{"/"} : std::string{tail.substr(slash)};
             const auto answer = http::fetch("127.0.0.1", found->second, target, 250);
             if (!answer.has_value()) {
                 return problem(503,
@@ -317,8 +309,7 @@ http::Handler make_router(const Registry& registry,
                                "would have returned is current. An empty answer would say it "
                                "ran and found nothing, which is a different fact.");
             }
-            return {
-                .status = answer->status, .content_type = "application/json", .body = answer->body};
+            return {.status = answer->status, .content_type = "application/json", .body = answer->body};
         }
         if (req.path == "/v1/health") {
             auto health = registry.health(now(), wall());
@@ -344,8 +335,7 @@ http::Handler make_router(const Registry& registry,
         if (req.path == "/v1/markets") {
             const auto query = http::query_param(req.query, "q");
             // no limit by default; the board browses the whole catalogue
-            return json(
-                registry.markets(query, read_markets_limit(http::query_param(req.query, "limit"))));
+            return json(registry.markets(query, read_markets_limit(http::query_param(req.query, "limit"))));
         }
 
         if (req.path == "/v1/instruments") {

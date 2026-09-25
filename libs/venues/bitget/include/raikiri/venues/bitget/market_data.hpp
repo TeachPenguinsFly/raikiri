@@ -46,8 +46,8 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
+                                                                                TradeBuffer& storage);
 
 // nextUpdate here is the ticker's nextFundingTime; fundingRateInterval is in hours
 struct WireFundingRate {
@@ -59,7 +59,6 @@ struct WireFundingRate {
     std::uint64_t next_update_ms{0};
 };
 
-[[nodiscard]] std::expected<WireFundingRate, WireError>
-parse_current_fund_rate(std::string_view body);
+[[nodiscard]] std::expected<WireFundingRate, WireError> parse_current_fund_rate(std::string_view body);
 
 } // namespace raikiri::venues::bitget

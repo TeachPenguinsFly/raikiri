@@ -78,9 +78,8 @@ private:
 
 [[nodiscard]] std::string_view render_i64(std::int64_t value, std::span<char> out) noexcept {
     const auto [stop, ec] = std::to_chars(out.data(), out.data() + out.size(), value);
-    return ec == std::errc{}
-               ? std::string_view{out.data(), static_cast<std::size_t>(stop - out.data())}
-               : std::string_view{};
+    return ec == std::errc{} ? std::string_view{out.data(), static_cast<std::size_t>(stop - out.data())}
+                             : std::string_view{};
 }
 
 // only limit, post_only, ioc and fok may carry a price
@@ -133,8 +132,7 @@ private:
 }
 
 // swap volume is an integer count of contracts; fractional counts are refused, not rounded
-[[nodiscard]] std::optional<std::int64_t> whole_contracts(QtyLots lots,
-                                                          const InstrumentBase& base) noexcept {
+[[nodiscard]] std::optional<std::int64_t> whole_contracts(QtyLots lots, const InstrumentBase& base) noexcept {
     const auto qty = base.lots_to_qty(lots);
     if (qty.is_undef() || qty.raw <= 0 || qty.raw % k_e9 != 0) {
         return std::nullopt;
@@ -298,8 +296,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::spot_accounts(
     return sign(net::HttpMethod::Get, MarketType::Spot, ep::k_spot_accounts, query, {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -387,12 +385,11 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         return std::unexpected{BuildError::BufferTooSmall};
     }
     sign::Query query;
-    return sign(
-        net::HttpMethod::Post, cmd.instrument.market(), path.view(), query, json.view(), now);
+    return sign(net::HttpMethod::Post, cmd.instrument.market(), path.view(), query, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -421,8 +418,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     }
     case MarketType::Spot: {
         if (!cmd.target_exchange_order_id.empty()) {
-            path << ep::k_spot_orders << "/" << cmd.target_exchange_order_id.view()
-                 << ep::k_spot_submit_cancel_suffix;
+            path << ep::k_spot_orders << "/" << cmd.target_exchange_order_id.view() << ep::k_spot_submit_cancel_suffix;
             break;
         }
         const auto coid = cmd.exchange_client_order_id.view();
@@ -442,12 +438,11 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         return std::unexpected{BuildError::BufferTooSmall};
     }
     sign::Query query;
-    return sign(
-        net::HttpMethod::Post, cmd.instrument.market(), path.view(), query, json.view(), now);
+    return sign(net::HttpMethod::Post, cmd.instrument.market(), path.view(), query, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     (void)table;
     (void)now;
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
@@ -456,8 +451,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     return std::unexpected{BuildError::AmendUnsupported};
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
-    std::span<const OrderCmd> cmds, const exec::InstrumentTable& table, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::cancel_batch(std::span<const OrderCmd> cmds, const exec::InstrumentTable& table, UnixNanos now) {
     if (cmds.empty()) {
         return std::unexpected{BuildError::NoOrderTarget};
     }
@@ -494,8 +489,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
             return std::unexpected{BuildError::BufferTooSmall};
         }
         // a comma-separated string; an array is refused
-        body << R"({"contract_code":")" << symbol << R"(","client_order_id":")" << ids.view()
-             << R"("})";
+        body << R"({"contract_code":")" << symbol << R"(","client_order_id":")" << ids.view() << R"("})";
         path << ep::k_swap_cancel;
         break;
     }
@@ -556,20 +550,15 @@ SignedRequestBuilder::open_orders(MarketType market, std::uint32_t page, UnixNan
     if (!json.ok() || !path.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return sign(method,
-                market,
-                path.view(),
-                query,
-                method == net::HttpMethod::Post ? json.view() : std::string_view{},
-                now);
+    return sign(
+        method, market, path.view(), query, method == net::HttpMethod::Post ? json.view() : std::string_view{}, now);
 }
 
-std::expected<net::RestRequest, BuildError>
-SignedRequestBuilder::query_order(const ExchangeClientOrderId& id,
-                                  std::int64_t numeric_id,
-                                  std::string_view contract_code,
-                                  MarketType market,
-                                  UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(const ExchangeClientOrderId& id,
+                                                                              std::int64_t numeric_id,
+                                                                              std::string_view contract_code,
+                                                                              MarketType market,
+                                                                              UnixNanos now) {
     net::JsonWriter json{body_};
     Appender path{path_};
     sign::Query query;
@@ -604,16 +593,11 @@ SignedRequestBuilder::query_order(const ExchangeClientOrderId& id,
     if (!json.ok() || !path.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return sign(method,
-                market,
-                path.view(),
-                query,
-                method == net::HttpMethod::Post ? json.view() : std::string_view{},
-                now);
+    return sign(
+        method, market, path.view(), query, method == net::HttpMethod::Post ? json.view() : std::string_view{}, now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(MarketType market,
-                                                                            UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(MarketType market, UnixNanos now) {
     net::JsonWriter json{body_};
     Appender path{path_};
     switch (market) {
@@ -650,8 +634,7 @@ SignedRequestBuilder::financial_record(MarketType market, UnixNanos since, UnixN
     }
 
     const auto now_ms = now.ns / 1'000'000ULL;
-    const auto floor_ms =
-        now_ms > k_financial_record_window_ms ? now_ms - k_financial_record_window_ms : 0;
+    const auto floor_ms = now_ms > k_financial_record_window_ms ? now_ms - k_financial_record_window_ms : 0;
     const auto since_ms = since.ns / 1'000'000ULL;
 
     net::JsonWriter json{body_};

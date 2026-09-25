@@ -618,8 +618,7 @@ TEST(OkxMap, QuantitiesOffTheLotAreRefusedRatherThanRounded) {
 
     // an exec id that does not fit is no dedupe key
     wire = partly_filled_order();
-    wire.trade_id = std::string_view{
-        "744876981744876981744876981744876981744876981744876981744876981744876981"};
+    wire.trade_id = std::string_view{"744876981744876981744876981744876981744876981744876981744876981744876981"};
     EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
 }
 
@@ -643,10 +642,8 @@ TEST(OkxMap, OnlyWorkingOrdersBecomeStatusReports) {
     EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
     EXPECT_EQ(report->leaves.raw, 300);
 
-    for (const auto state : {WireOrderState::Filled,
-                             WireOrderState::Canceled,
-                             WireOrderState::MmpCanceled,
-                             WireOrderState::Unknown}) {
+    for (const auto state :
+         {WireOrderState::Filled, WireOrderState::Canceled, WireOrderState::MmpCanceled, WireOrderState::Unknown}) {
         wire.state = state;
         EXPECT_FALSE(map_open_order(wire, table).has_value());
     }
@@ -772,10 +769,8 @@ TEST(OkxErrors, BenignCancelRacesAreRecognised) {
 
 TEST(OkxErrors, OrderEntryRefusalsAreTerminalNotRetried) {
     // these are final answers
-    for (const auto code : {k_duplicate_param,
-                            k_tier_too_low_for_channel,
-                            k_post_only_would_take,
-                            k_operation_failed}) {
+    for (const auto code :
+         {k_duplicate_param, k_tier_too_low_for_channel, k_post_only_would_take, k_operation_failed}) {
         EXPECT_EQ(classify(code), exec::ErrorClass::Terminal) << code;
     }
 }
@@ -880,7 +875,6 @@ TEST(OkxMap, BalanceWithoutACurrencyIsDropped) {
     wire.ccy = "TWENTYONECHARACTERSXX";
     EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest).has_value());
 }
-
 
 InstrumentBase classified_swap(std::string_view inst_id, std::string_view inst_category) {
     WireInstrument row{};

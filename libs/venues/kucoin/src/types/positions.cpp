@@ -23,15 +23,12 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             return std::unexpected(array.error());
         }
         const auto count = read_rows<WirePosition>(
-            *array,
-            storage.positions,
-            [](auto& obj, WirePosition& row) -> std::expected<void, WireError> {
+            *array, storage.positions, [](auto& obj, WirePosition& row) -> std::expected<void, WireError> {
                 const auto symbol = req_decimal(obj, "symbol");
                 const auto qty = opt_decimal(obj, "currentQty");
                 const auto entry = opt_decimal(obj, "avgEntryPrice");
                 const auto ts = opt_u64(obj, "currentTimestamp");
-                if (!symbol.has_value() || !qty.has_value() || !entry.has_value() ||
-                    !ts.has_value()) {
+                if (!symbol.has_value() || !qty.has_value() || !entry.has_value() || !ts.has_value()) {
                     return std::unexpected(WireError::WrongType);
                 }
                 row.symbol = *symbol;

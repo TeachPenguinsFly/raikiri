@@ -48,8 +48,7 @@ public:
     }
 
 private:
-    [[nodiscard]] static std::expected<void, VenueError> unsupported(SubKind kind,
-                                                                     InstrumentId) noexcept {
+    [[nodiscard]] static std::expected<void, VenueError> unsupported(SubKind kind, InstrumentId) noexcept {
         return std::unexpected{VenueError::make(ErrorClass::Terminal, 0, to_string(kind))};
     }
 };

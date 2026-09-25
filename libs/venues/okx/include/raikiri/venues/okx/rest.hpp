@@ -84,14 +84,11 @@ public:
     [[nodiscard]] std::expected<Batch, BuildError>
     cancel_batch(std::span<const OrderCmd> cmds, const exec::InstrumentTable& table, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
-                                                                          UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    fills(MarketType market, UnixNanos since, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(MarketType market, UnixNanos since, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
-                                                                        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // no type filter: funding and fees come from one read
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
@@ -112,8 +109,7 @@ private:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     signed_get(std::string_view path, std::string_view query, UnixNanos now);
 
-    [[nodiscard]] std::vector<net::HttpHeader> headers(std::string_view timestamp,
-                                                       std::string_view signature) const;
+    [[nodiscard]] std::vector<net::HttpHeader> headers(std::string_view timestamp, std::string_view signature) const;
 
     const net::Signer* signer_{nullptr};
     std::string_view passphrase_;

@@ -31,8 +31,7 @@ inline constexpr std::array<std::string_view, 2> k_currencies{"BTC", "ETH"};
 
 // deribit caps label at 64 chars
 inline constexpr std::size_t k_max_label = 64;
-static_assert(k_max_label >= sizeof(ExchangeClientOrderId::data),
-              "Deribit `label` must carry a whole 26-char ULID");
+static_assert(k_max_label >= sizeof(ExchangeClientOrderId::data), "Deribit `label` must carry a whole 26-char ULID");
 
 enum class BuildError : std::uint8_t {
     UnknownInstrument, // not in the table: we never loaded it
@@ -53,8 +52,7 @@ enum class BuildError : std::uint8_t {
 
 class RequestBuilder {
 public:
-    [[nodiscard]] net::RestRequest instruments(std::string_view currency,
-                                               std::string_view kind) noexcept;
+    [[nodiscard]] net::RestRequest instruments(std::string_view currency, std::string_view kind) noexcept;
 
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
@@ -98,8 +96,7 @@ public:
     inline static constexpr std::uint32_t k_max_trade_page = 1000;
 
 private:
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign(std::string_view target,
-                                                                   UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign(std::string_view target, UnixNanos now);
 
     const net::Signer* signer_;
     std::uint64_t nonce_counter_{0};

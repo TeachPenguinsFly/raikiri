@@ -23,11 +23,8 @@ std::string_view join(std::string_view channel, std::string_view symbol, std::sp
 
 } // namespace
 
-std::string_view channel_key(exec::SubKind kind,
-                             MarketType market,
-                             Encoding encoding,
-                             std::string_view symbol,
-                             std::span<char> out) noexcept {
+std::string_view channel_key(
+    exec::SubKind kind, MarketType market, Encoding encoding, std::string_view symbol, std::span<char> out) noexcept {
     const bool real = encoding == Encoding::Real;
     switch (kind) {
     case exec::SubKind::Bbo:

@@ -12,10 +12,9 @@
 namespace raikiri::journal {
 
 JournalReader::JournalReader(JournalReader&& other) noexcept
-    : dir_{std::move(other.dir_)}, prefix_{std::move(other.prefix_)},
-      header_{std::exchange(other.header_, nullptr)}, base_{std::exchange(other.base_, nullptr)},
-      map_size_{std::exchange(other.map_size_, 0)}, segment_seq_{other.segment_seq_},
-      read_off_{other.read_off_}, last_seq_{other.last_seq_},
+    : dir_{std::move(other.dir_)}, prefix_{std::move(other.prefix_)}, header_{std::exchange(other.header_, nullptr)},
+      base_{std::exchange(other.base_, nullptr)}, map_size_{std::exchange(other.map_size_, 0)},
+      segment_seq_{other.segment_seq_}, read_off_{other.read_off_}, last_seq_{other.last_seq_},
       have_segment_{std::exchange(other.have_segment_, false)} {}
 
 JournalReader& JournalReader::operator=(JournalReader&& other) noexcept {
@@ -47,8 +46,7 @@ void JournalReader::close_segment() noexcept {
     have_segment_ = false;
 }
 
-std::expected<JournalReader, JournalError> JournalReader::open(std::string dir,
-                                                               std::string prefix) {
+std::expected<JournalReader, JournalError> JournalReader::open(std::string dir, std::string prefix) {
     JournalReader r;
     r.dir_ = std::move(dir);
     r.prefix_ = std::move(prefix);
@@ -86,7 +84,9 @@ bool JournalReader::open_segment(std::uint64_t segment_seq) noexcept {
     if (fd < 0) {
         return false;
     }
-    struct stat st{};
+
+    struct stat st {};
+
     if (::fstat(fd, &st) != 0 || st.st_size < static_cast<off_t>(k_header_bytes)) {
         ::close(fd);
         return false;
@@ -119,8 +119,7 @@ ReadResult JournalReader::next(FrameView& out) noexcept {
 
     const auto committed = header_->committed_bytes.load(std::memory_order_acquire);
     if (read_off_ >= committed) {
-        if (header_->sealed.load(std::memory_order_acquire) != 0 &&
-            open_segment(segment_seq_ + 1)) {
+        if (header_->sealed.load(std::memory_order_acquire) != 0 && open_segment(segment_seq_ + 1)) {
             return next(out);
         }
         return ReadResult::Empty;

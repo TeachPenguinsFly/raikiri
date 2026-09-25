@@ -45,8 +45,7 @@ public:
     [[nodiscard]] Order* find_by_exchange_id(const ExchangeOrderId& id) noexcept;
     [[nodiscard]] const Order* find_by_exchange_id(const ExchangeOrderId& id) const noexcept;
 
-    [[nodiscard]] std::expected<const Order*, ApplyError>
-    apply_event(const OrderEvent& event) noexcept;
+    [[nodiscard]] std::expected<const Order*, ApplyError> apply_event(const OrderEvent& event) noexcept;
 
     [[nodiscard]] std::size_t open_count() const noexcept { return slots_.size() - free_.size(); }
 

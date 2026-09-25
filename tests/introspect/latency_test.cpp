@@ -20,14 +20,10 @@ TEST(OffsetEstimator, KeepsTheShortestRoundTrip) {
     OffsetEstimator est;
     EXPECT_EQ(est.estimate().method, ClockMethod::None);
     // server 5 ms ahead; the slow probe's asymmetric queueing skews it
-    EXPECT_TRUE(est.add({.sent_ns = 1000 * k_ms,
-                         .received_ns = 1100 * k_ms,
-                         .server_ns = 1090 * k_ms,
-                         .resolution_ns = 0}));
-    EXPECT_TRUE(est.add({.sent_ns = 2000 * k_ms,
-                         .received_ns = 2010 * k_ms,
-                         .server_ns = 2010 * k_ms,
-                         .resolution_ns = 0}));
+    EXPECT_TRUE(
+        est.add({.sent_ns = 1000 * k_ms, .received_ns = 1100 * k_ms, .server_ns = 1090 * k_ms, .resolution_ns = 0}));
+    EXPECT_TRUE(
+        est.add({.sent_ns = 2000 * k_ms, .received_ns = 2010 * k_ms, .server_ns = 2010 * k_ms, .resolution_ns = 0}));
     const auto e = est.estimate();
     EXPECT_EQ(e.method, ClockMethod::RestProbe);
     EXPECT_EQ(e.offset_ns, static_cast<std::int64_t>(5 * k_ms));
@@ -38,10 +34,8 @@ TEST(OffsetEstimator, KeepsTheShortestRoundTrip) {
 
 TEST(OffsetEstimator, ChargesHalfTheStampResolution) {
     OffsetEstimator est;
-    ASSERT_TRUE(est.add({.sent_ns = 100 * k_ms,
-                         .received_ns = 104 * k_ms,
-                         .server_ns = 99 * k_ms,
-                         .resolution_ns = k_ms}));
+    ASSERT_TRUE(
+        est.add({.sent_ns = 100 * k_ms, .received_ns = 104 * k_ms, .server_ns = 99 * k_ms, .resolution_ns = k_ms}));
     const auto e = est.estimate();
     EXPECT_EQ(e.offset_ns, -static_cast<std::int64_t>(2'500'000));
     EXPECT_EQ(e.uncertainty_ns, 2'500'000U);
@@ -143,6 +137,7 @@ public:
     int reads{0};
 
     [[nodiscard]] std::string endpoint() const override { return "test/time"; }
+
     [[nodiscard]] std::optional<OffsetSample> read() override {
         ++reads;
         auto next = answers.front();
@@ -154,19 +149,16 @@ public:
 TEST(ProbeClock, BurstsThenPacesAndHonoursTheBudget) {
     ScriptedSource source;
     for (int i = 0; i < 4; ++i) {
-        source.answers.push_back(OffsetSample{
-            .sent_ns = 10, .received_ns = 30, .server_ns = 25, .resolution_ns = 0});
+        source.answers.push_back(OffsetSample{.sent_ns = 10, .received_ns = 30, .server_ns = 25, .resolution_ns = 0});
     }
     std::uint64_t now = 0;
     bool admit = false;
-    ProbeClock probe{source,
-                     [&] { return now; },
-                     [&] { return admit; },
-                     [](std::uint64_t lo, std::uint64_t) { return lo; },
-                     ProbeSchedule{.burst = 2,
-                                   .burst_gap_ns = 1 * k_s,
-                                   .period_min_ns = 30 * k_s,
-                                   .period_max_ns = 60 * k_s}};
+    ProbeClock probe{
+        source,
+        [&] { return now; },
+        [&] { return admit; },
+        [](std::uint64_t lo, std::uint64_t) { return lo; },
+        ProbeSchedule{.burst = 2, .burst_gap_ns = 1 * k_s, .period_min_ns = 30 * k_s, .period_max_ns = 60 * k_s}};
     EXPECT_EQ(probe.tick(), 1 * k_s);
     EXPECT_EQ(source.reads, 0);
     admit = true;
@@ -181,19 +173,13 @@ TEST(ProbeClock, BurstsThenPacesAndHonoursTheBudget) {
 }
 
 TEST(ServerTime, ParsesEachShape) {
-    EXPECT_EQ(parse_server_time(R"({"serverTime":1700000000123})", "serverTime", k_ms),
+    EXPECT_EQ(parse_server_time(R"({"serverTime":1700000000123})", "serverTime", k_ms), 1700000000123ULL * k_ms);
+    EXPECT_EQ(parse_server_time(R"({"code":"0","data":[{"ts":"1700000000123"}],"msg":""})", "ts", k_ms),
               1700000000123ULL * k_ms);
-    EXPECT_EQ(parse_server_time(R"({"code":"0","data":[{"ts":"1700000000123"}],"msg":""})",
-                                "ts",
-                                k_ms),
-              1700000000123ULL * k_ms);
-    EXPECT_EQ(parse_server_time(
-                  R"({"result":{"timeSecond":"1700000000","timeNano":"1700000000123456789"}})",
-                  "timeNano",
-                  1),
-              1700000000123456789ULL);
-    EXPECT_EQ(parse_server_time(R"({"status":"ok","tss":1,"ts":1700000000123})", "ts", k_ms),
-              1700000000123ULL * k_ms);
+    EXPECT_EQ(
+        parse_server_time(R"({"result":{"timeSecond":"1700000000","timeNano":"1700000000123456789"}})", "timeNano", 1),
+        1700000000123456789ULL);
+    EXPECT_EQ(parse_server_time(R"({"status":"ok","tss":1,"ts":1700000000123})", "ts", k_ms), 1700000000123ULL * k_ms);
     EXPECT_EQ(parse_server_time("1700000000123", "", k_ms), 1700000000123ULL * k_ms);
     EXPECT_FALSE(parse_server_time(R"({"msg":"busy"})", "serverTime", k_ms).has_value());
     EXPECT_FALSE(parse_server_time(R"({"data":null})", "data", k_ms).has_value());
@@ -217,6 +203,7 @@ public:
         }
         return out;
     }
+
     [[nodiscard]] std::optional<SnapshotRecord> read(std::string_view account) const override {
         const auto it = records.find(std::string{account});
         return it == records.end() ? std::nullopt : std::optional{it->second};
@@ -290,12 +277,18 @@ TEST_F(ExportTest, MetricsAreGroupedPrometheusText) {
     const auto& body = answer->body;
     EXPECT_NE(body.find(R"(raikiri_clock_offset_seconds{account="okx",venue="okx",method="rest_probe"} -0.0015)"),
               std::string::npos);
-    EXPECT_NE(body.find(R"(raikiri_latency_seconds_bucket{account="okx",venue="okx",channel="bbo",stage="feed",le="1e-06"} 1)"),
-              std::string::npos);
-    EXPECT_NE(body.find(R"(raikiri_latency_seconds_bucket{account="okx",venue="okx",channel="bbo",stage="feed",le="0.001585"} 40)"),
-              std::string::npos);
-    EXPECT_NE(body.find(R"(raikiri_latency_seconds_bucket{account="okx",venue="okx",channel="bbo",stage="feed",le="+Inf"} 40)"),
-              std::string::npos);
+    EXPECT_NE(
+        body.find(
+            R"(raikiri_latency_seconds_bucket{account="okx",venue="okx",channel="bbo",stage="feed",le="1e-06"} 1)"),
+        std::string::npos);
+    EXPECT_NE(
+        body.find(
+            R"(raikiri_latency_seconds_bucket{account="okx",venue="okx",channel="bbo",stage="feed",le="0.001585"} 40)"),
+        std::string::npos);
+    EXPECT_NE(
+        body.find(
+            R"(raikiri_latency_seconds_bucket{account="okx",venue="okx",channel="bbo",stage="feed",le="+Inf"} 40)"),
+        std::string::npos);
     EXPECT_NE(body.find("# TYPE raikiri_latency_seconds histogram"), std::string::npos);
     EXPECT_NE(body.find(R"(raikiri_latency_seconds_count{account="okx",venue="okx",channel="bbo",stage="feed"} 40)"),
               std::string::npos);

@@ -65,8 +65,7 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
             return;
         }
         for (const auto& wire : *trades) {
-            if (const auto trade = map_trade(wire, state.instruments, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(wire, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
         }
@@ -83,12 +82,10 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
             break;
         }
         auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
-        if (const auto funding = map_funding(*ticker, state.instruments, memo, received);
-            funding.has_value()) {
+        if (const auto funding = map_funding(*ticker, state.instruments, memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
-        if (const auto stats = map_ticker_stats(*ticker, state.instruments, received);
-            stats.has_value()) {
+        if (const auto stats = map_ticker_stats(*ticker, state.instruments, received); stats.has_value()) {
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -113,9 +110,8 @@ public:
     }
 
     void on_close(net::WsCloseReason reason) override {
-        state_->sink->on_connectivity({.state = reason == net::WsCloseReason::Requested
-                                                    ? exec::ConnState::Disconnected
-                                                    : exec::ConnState::Disconnected,
+        state_->sink->on_connectivity({.state = reason == net::WsCloseReason::Requested ? exec::ConnState::Disconnected
+                                                                                        : exec::ConnState::Disconnected,
                                        .stream_id = 0,
                                        .ts = state_->clock->wall()});
     }
@@ -154,12 +150,10 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::array<char, 64> buf{};
         const auto topic = topic_name(kind, symbol, buf, state_->book_depth);
@@ -174,8 +168,8 @@ public:
         // the pool opens another socket when none has room
         const std::array<std::string, 1> one{std::string{topic}};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "bybit: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bybit: connection pool is full")};
         }
         return {};
     }
@@ -228,15 +222,13 @@ private:
             topics.push_back(key);
         }
         // orderbook first: it carries the quote, and with paced sends the last topics wait longest
-        std::ranges::stable_partition(
-            topics, [](std::string_view topic) { return topic.starts_with("orderbook."); });
+        std::ranges::stable_partition(topics, [](std::string_view topic) { return topic.starts_with("orderbook."); });
 
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < topics.size()) {
-            const auto frame =
-                state_->protocol.subscribe_frame(std::span<const std::string_view>{topics}.subspan(
-                    built, std::min(net::frame_subscriptions(), topics.size() - built)));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const std::string_view>{topics}.subspan(
+                built, std::min(net::frame_subscriptions(), topics.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
@@ -252,8 +244,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state,
-                                                   MarketType market) {
+std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state, MarketType market) {
     return std::make_unique<BybitData>(std::move(state), market);
 }
 

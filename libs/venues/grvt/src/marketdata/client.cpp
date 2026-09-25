@@ -36,8 +36,8 @@ constexpr std::array<std::string_view, 4> k_stream_order{
     ep::k_quote_stream, ep::k_trade_stream, ep::k_book_stream, ep::k_ticker_stream};
 
 [[nodiscard]] bool states_top(const WireQuote& quote) noexcept {
-    return quote.bid_price.has_value() || quote.bid_size.has_value() ||
-           quote.ask_price.has_value() || quote.ask_size.has_value();
+    return quote.bid_price.has_value() || quote.bid_size.has_value() || quote.ask_price.has_value() ||
+           quote.ask_size.has_value();
 }
 
 [[nodiscard]] bool has_logger() noexcept {
@@ -96,12 +96,10 @@ public:
 
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return refusals_; }
 
-    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
-                                                    InstrumentId instrument) override {
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
         const auto* listed = state_->instruments.find(instrument);
         if (listed == nullptr) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const auto& base = base_of(*listed);
         std::string_view stream;
@@ -137,8 +135,8 @@ public:
         }
         const std::array<std::string, 1> one{std::move(key)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "grvt: connection pool is full")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "grvt: connection pool is full")};
         }
         return {};
     }
@@ -218,8 +216,7 @@ private:
             if (feed.sequence == 0) {
                 return;
             }
-            if (const auto trade = map_trade(feed.print, *base, ts_event, received);
-                trade.has_value()) {
+            if (const auto trade = map_trade(feed.print, *base, ts_event, received); trade.has_value()) {
                 state_->sink->on_trade(*trade);
             }
             break;
@@ -228,12 +225,10 @@ private:
             if (listed == nullptr) {
                 return;
             }
-            if (const auto funding = map_funding(feed.ticker, *listed, ts_event, received);
-                funding.has_value()) {
+            if (const auto funding = map_funding(feed.ticker, *listed, ts_event, received); funding.has_value()) {
                 state_->sink->on_funding(*funding);
             }
-            if (const auto stats = map_ticker_stats(feed.ticker, *base, ts_event, received);
-                stats.has_value()) {
+            if (const auto stats = map_ticker_stats(feed.ticker, *base, ts_event, received); stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
             break;
@@ -243,10 +238,7 @@ private:
         }
     }
 
-    void on_quote(const WireFeed& feed,
-                  const InstrumentBase& base,
-                  UnixNanos ts_event,
-                  UnixNanos received) noexcept {
+    void on_quote(const WireFeed& feed, const InstrumentBase& base, UnixNanos ts_event, UnixNanos received) noexcept {
         const auto found = quotes_.find(base.id.packed);
         if (found == quotes_.end()) {
             return;
@@ -281,10 +273,7 @@ private:
         }
     }
 
-    void on_book(const WireFeed& feed,
-                 const InstrumentBase& base,
-                 UnixNanos ts_event,
-                 UnixNanos received) noexcept {
+    void on_book(const WireFeed& feed, const InstrumentBase& base, UnixNanos ts_event, UnixNanos received) noexcept {
         const auto found = books_.find(base.id.packed);
         if (found == books_.end()) {
             return;
@@ -313,8 +302,7 @@ private:
         if (!state_->sink->wants_depth(base.id, received)) {
             return;
         }
-        if (const auto snapshot = book.snapshot(book.sequence.last(), ts_event, received);
-            snapshot.has_value()) {
+        if (const auto snapshot = book.snapshot(book.sequence.last(), ts_event, received); snapshot.has_value()) {
             state_->sink->on_depth(*snapshot);
         }
     }
@@ -329,8 +317,7 @@ private:
         }
     }
 
-    [[nodiscard]] std::string frame(std::string_view stream,
-                                    std::span<const std::string_view> selectors) {
+    [[nodiscard]] std::string frame(std::string_view stream, std::span<const std::string_view> selectors) {
         std::string out{R"({"jsonrpc":"2.0","method":"subscribe","params":{"stream":")"};
         out.append(stream);
         out.append(R"(","selectors":[)");
@@ -372,8 +359,8 @@ private:
         if (!has_logger()) {
             return;
         }
-        const auto live_books = static_cast<std::size_t>(std::ranges::count_if(
-            books_, [](const auto& entry) { return entry.second.sequence.live(); }));
+        const auto live_books = static_cast<std::size_t>(
+            std::ranges::count_if(books_, [](const auto& entry) { return entry.second.sequence.live(); }));
         std::uint64_t gaps = 0;
         for (const auto& [packed, quote] : quotes_) {
             gaps += quote.sequence.gaps();

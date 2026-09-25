@@ -128,10 +128,8 @@ enum class Liveness : std::uint8_t { Up, Stale, Down };
 [[nodiscard]] std::string_view to_string(Liveness state) noexcept;
 
 // down wins over stale
-[[nodiscard]] Liveness classify(std::uint64_t taken_ns,
-                                bool process_alive,
-                                std::uint64_t now_ns,
-                                std::uint64_t max_age_ns) noexcept;
+[[nodiscard]] Liveness
+classify(std::uint64_t taken_ns, bool process_alive, std::uint64_t now_ns, std::uint64_t max_age_ns) noexcept;
 
 struct GatewayView {
     GatewayStats stats;

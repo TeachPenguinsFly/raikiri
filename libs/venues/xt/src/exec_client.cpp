@@ -89,28 +89,26 @@ public:
         return api_.open_order_reports(market);
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) override {
         return api_.query_order(id, market);
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
+                                                                                UnixNanos since) override {
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::vector<BalanceReport>, exec::VenueError>
-    balance_reports(MarketType market) override {
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
         return api_.balance_reports(market);
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError>
-    funding_charges(MarketType market, UnixNanos since) override {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
         return api_.funding_charges(market, since);
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) override {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }
 
@@ -122,13 +120,10 @@ private:
         if (state_->order_answer_timeout_ns == 0) {
             return;
         }
-        for (const auto& stale :
-             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+        for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       "no answer from the venue; outcome unknown"));
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
             event.instrument = stale.instrument;
@@ -147,10 +142,9 @@ private:
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto market = cmd.instrument.market();
         const auto now = state_->venue_now(market);
-        const auto request =
-            kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
-                                   : api_.builder().amend_order(cmd, state_->instruments, now);
+        const auto request = kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
+                             : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
+                                                    : api_.builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
@@ -158,9 +152,7 @@ private:
         if (!api_.send(*request, market, [this, cmd, kind, market](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind, market);
             })) {
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
         // recorded before sending since the callback may never run
@@ -173,27 +165,26 @@ private:
                                .sent = state_->clock->mono()});
     }
 
-    void
-    on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
+    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
         // any answer settles it; the table tracks silence
         if (!response.transport_failed()) {
             (void)unanswered_.resolve(cmd.client_order_id);
         }
         if (response.transport_failed()) {
             // not a rejection: the request may have reached the matcher
-            state_->sink->on_order_error(
-                cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                       0,
-                                       response.error.empty()
-                                           ? std::string_view{"no response from venue"}
-                                           : std::string_view{response.error}));
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
             return;
         }
         const bool http_ok = response.status >= 200 && response.status < 300;
         if (http_ok && envelope_ok(response.body, market)) {
             if (kind == Kind::Create) {
-                // the ack carries only the venue order id; seed the memo so a fill that beats the NEW push knows side and leaves
+                // the ack carries only the venue order id; seed the memo so a fill that beats the NEW push knows side
+                // and leaves
                 if (const auto id = parse_order_ack(response.body); id.has_value()) {
                     state_->remember(*id,
                                      {.client_order_id = cmd.exchange_client_order_id,
@@ -205,14 +196,13 @@ private:
             return; // the socket's push carries the lifecycle
         }
         if (kind == Kind::Cancel) {
-            const auto code =
-                market == MarketType::Spot
-                    ? parse_spot_envelope(response.body).transform([](const SpotEnvelope& e) {
-                          return e.mc;
-                      })
-                    : parse_rest_envelope(response.body).transform([](const RestEnvelope& e) {
-                          return e.code;
-                      });
+            const auto code = market == MarketType::Spot
+                                  ? parse_spot_envelope(response.body).transform([](const SpotEnvelope& e) {
+                                        return e.mc;
+                                    })
+                                  : parse_rest_envelope(response.body).transform([](const RestEnvelope& e) {
+                                        return e.code;
+                                    });
             if (code.has_value() && is_benign_cancel_failure(*code)) {
                 return; // the order already finished; reconciliation settles it
             }
@@ -245,17 +235,15 @@ private:
     // minted synchronously only at start(); a failure marks the key stale for poll to re-mint
     [[nodiscard]] bool mint_listen_key() {
         const auto request = api_.builder().listen_key(state_->venue_now(MarketType::Perp));
-        const auto key =
-            request.has_value()
-                ? api_.fetch(*request, MarketType::Perp).and_then([](const std::string& body) {
-                      const auto parsed = parse_listen_key(body);
-                      return parsed.has_value()
-                                 ? std::expected<std::string, exec::VenueError>{std::string{
-                                       *parsed}}
-                                 : std::unexpected{exec::VenueError::make(
-                                       exec::ErrorClass::Terminal, 0, "no key")};
-                  })
-                : std::unexpected{build_failure(request.error())};
+        const auto key = request.has_value()
+                             ? api_.fetch(*request, MarketType::Perp).and_then([](const std::string& body) {
+                                   const auto parsed = parse_listen_key(body);
+                                   return parsed.has_value()
+                                              ? std::expected<std::string, exec::VenueError>{std::string{*parsed}}
+                                              : std::unexpected{
+                                                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "no key")};
+                               })
+                             : std::unexpected{build_failure(request.error())};
         state_->perp_key_stale = !key.has_value();
         if (!key.has_value()) {
             return false;
@@ -266,17 +254,15 @@ private:
 
     [[nodiscard]] bool mint_ws_token() {
         const auto request = api_.builder().ws_token(state_->venue_now(MarketType::Spot));
-        const auto token =
-            request.has_value()
-                ? api_.fetch(*request, MarketType::Spot).and_then([](const std::string& body) {
-                      const auto parsed = parse_spot_ws_token(body);
-                      return parsed.has_value()
-                                 ? std::expected<std::string, exec::VenueError>{std::string{
-                                       *parsed}}
-                                 : std::unexpected{exec::VenueError::make(
-                                       exec::ErrorClass::Terminal, 0, "no token")};
-                  })
-                : std::unexpected{build_failure(request.error())};
+        const auto token = request.has_value()
+                               ? api_.fetch(*request, MarketType::Spot).and_then([](const std::string& body) {
+                                     const auto parsed = parse_spot_ws_token(body);
+                                     return parsed.has_value()
+                                                ? std::expected<std::string, exec::VenueError>{std::string{*parsed}}
+                                                : std::unexpected{exec::VenueError::make(
+                                                      exec::ErrorClass::Terminal, 0, "no token")};
+                                 })
+                               : std::unexpected{build_failure(request.error())};
         state_->spot_key_stale = !token.has_value();
         if (!token.has_value()) {
             return false;
@@ -293,8 +279,7 @@ private:
             return;
         }
         const auto now = state_->venue_now(market);
-        const auto request = market == MarketType::Spot ? api_.builder().ws_token(now)
-                                                        : api_.builder().listen_key(now);
+        const auto request = market == MarketType::Spot ? api_.builder().ws_token(now) : api_.builder().listen_key(now);
         if (!request.has_value()) {
             return; // no credentials: nothing to retry with
         }
@@ -309,8 +294,7 @@ private:
     void on_key(net::RestResponse&& response, MarketType market) {
         auto* stream = market == MarketType::Spot ? spot_stream_.get() : perp_stream_.get();
         (market == MarketType::Spot ? spot_key_in_flight_ : perp_key_in_flight_) = false;
-        if (stream == nullptr || response.transport_failed() ||
-            !envelope_ok(response.body, market)) {
+        if (stream == nullptr || response.transport_failed() || !envelope_ok(response.body, market)) {
             return; // still stale; the next poll tries again
         }
         const auto key = market == MarketType::Spot ? parse_spot_ws_token(response.body)
@@ -353,8 +337,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state,
-                                                             MarketType market) {
+std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state, MarketType market) {
     return std::make_unique<XtExec>(std::move(state), market);
 }
 

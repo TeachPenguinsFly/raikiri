@@ -3,7 +3,6 @@
 #include <gtest/gtest.h>
 
 #include <glaze/glaze.hpp>
-
 #include <map>
 #include <string>
 #include <vector>

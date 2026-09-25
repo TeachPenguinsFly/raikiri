@@ -24,7 +24,7 @@ struct WireInstrument {
     std::string_view min_size;
     std::string_view ct_val;
     std::string_view ct_mult;
-    std::string_view ct_type; // linear | inverse; empty on SPOT and OPTION rows
+    std::string_view ct_type;       // linear | inverse; empty on SPOT and OPTION rows
     std::string_view inst_category; // 1 crypto, 3 stocks, 4 commodities, 5 forex
 };
 
@@ -35,7 +35,7 @@ struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
-parse_instruments(std::string_view body, InstrumentBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std::string_view body,
+                                                                                          InstrumentBuffer& storage);
 
 } // namespace raikiri::venues::okx

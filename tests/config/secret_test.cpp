@@ -93,8 +93,7 @@ TEST(DefaultProvider, EnvScheme) {
     EXPECT_EQ(s.view(), "env-secret");
 
     ::unsetenv("RAIKIRI_TEST_KEY");
-    EXPECT_EQ(provider.resolve(*SecretRef::parse("env:RAIKIRI_TEST_KEY"), s).error(),
-              SecretError::NotFound);
+    EXPECT_EQ(provider.resolve(*SecretRef::parse("env:RAIKIRI_TEST_KEY"), s).error(), SecretError::NotFound);
 }
 
 TEST(DefaultProvider, FileScheme) {
@@ -109,8 +108,7 @@ TEST(DefaultProvider, FileScheme) {
     EXPECT_EQ(s.view(), "file-secret");
     ::unlink(path.c_str());
 
-    EXPECT_EQ(provider.resolve(*SecretRef::parse("file:" + path), s).error(),
-              SecretError::NotFound);
+    EXPECT_EQ(provider.resolve(*SecretRef::parse("file:" + path), s).error(), SecretError::NotFound);
 }
 
 TEST(DefaultProvider, ExecSchemeIsHowSecretManagersPlugIn) {
@@ -120,8 +118,7 @@ TEST(DefaultProvider, ExecSchemeIsHowSecretManagersPlugIn) {
     ASSERT_TRUE(provider.resolve(*SecretRef::parse("exec:printf exec-secret"), s).has_value());
     EXPECT_EQ(s.view(), "exec-secret");
 
-    EXPECT_EQ(provider.resolve(*SecretRef::parse("exec:exit 3"), s).error(),
-              SecretError::CommandFailed);
+    EXPECT_EQ(provider.resolve(*SecretRef::parse("exec:exit 3"), s).error(), SecretError::CommandFailed);
     EXPECT_EQ(provider.resolve(*SecretRef::parse("exec:true"), s).error(), SecretError::NotFound);
 }
 

@@ -64,88 +64,82 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
 
 } // namespace
 
-std::expected<WireDepth, WireError>
-parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
+std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
     const bool spot = market == MarketType::Spot;
     return guarded([&]() -> std::expected<WireDepth, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_data(
-            *root, [&](wire::ondemand::object& data) -> std::expected<WireDepth, WireError> {
-                WireDepth out{};
-                const auto symbol = wire::req_str(data, "s");
-                if (!symbol.has_value()) {
-                    return std::unexpected(symbol.error());
-                }
-                out.symbol = *symbol;
-                // futures stamps digit-string id, spot numeric i
-                const auto update_id = spot ? wire::opt_u64(data, "i") : req_digits(data, "id");
-                if (!update_id.has_value()) {
-                    return std::unexpected(update_id.error());
-                }
-                out.update_id = *update_id;
-                const auto bids = read_levels(data, "b", storage.bids);
-                if (!bids.has_value()) {
-                    return std::unexpected(bids.error());
-                }
-                const auto asks = read_levels(data, "a", storage.asks);
-                if (!asks.has_value()) {
-                    return std::unexpected(asks.error());
-                }
-                const auto ts = opt_ms(data, "t");
-                if (!ts.has_value()) {
-                    return std::unexpected(ts.error());
-                }
-                out.ts_ms = *ts;
-                out.bids = {storage.bids.data(), *bids};
-                out.asks = {storage.asks.data(), *asks};
-                return out;
-            });
+        return with_data(*root, [&](wire::ondemand::object& data) -> std::expected<WireDepth, WireError> {
+            WireDepth out{};
+            const auto symbol = wire::req_str(data, "s");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            out.symbol = *symbol;
+            // futures stamps digit-string id, spot numeric i
+            const auto update_id = spot ? wire::opt_u64(data, "i") : req_digits(data, "id");
+            if (!update_id.has_value()) {
+                return std::unexpected(update_id.error());
+            }
+            out.update_id = *update_id;
+            const auto bids = read_levels(data, "b", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            const auto asks = read_levels(data, "a", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            const auto ts = opt_ms(data, "t");
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            out.ts_ms = *ts;
+            out.bids = {storage.bids.data(), *bids};
+            out.asks = {storage.asks.data(), *asks};
+            return out;
+        });
     });
 }
 
-std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view frame,
-                                                             LevelBuffer& storage) {
+std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireDepthUpdate, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_data(
-            *root,
-            [&](wire::ondemand::object& data) -> std::expected<WireDepthUpdate, WireError> {
-                WireDepthUpdate out{};
-                const auto symbol = wire::req_str(data, "s");
-                const auto first = req_digits(data, "fu");
-                const auto prev = req_digits(data, "pu");
-                const auto update_id = req_digits(data, "u");
-                if (!symbol.has_value() || !first.has_value() || !prev.has_value() ||
-                    !update_id.has_value()) {
-                    return std::unexpected(WireError::WrongType);
-                }
-                out.symbol = *symbol;
-                out.first_update_id = *first;
-                out.prev_update_id = *prev;
-                out.update_id = *update_id;
-                const auto bids = read_levels(data, "b", storage.bids);
-                if (!bids.has_value()) {
-                    return std::unexpected(bids.error());
-                }
-                const auto asks = read_levels(data, "a", storage.asks);
-                if (!asks.has_value()) {
-                    return std::unexpected(asks.error());
-                }
-                const auto ts = opt_ms(data, "t");
-                if (!ts.has_value()) {
-                    return std::unexpected(ts.error());
-                }
-                out.ts_ms = *ts;
-                out.bids = {storage.bids.data(), *bids};
-                out.asks = {storage.asks.data(), *asks};
-                return out;
-            });
+        return with_data(*root, [&](wire::ondemand::object& data) -> std::expected<WireDepthUpdate, WireError> {
+            WireDepthUpdate out{};
+            const auto symbol = wire::req_str(data, "s");
+            const auto first = req_digits(data, "fu");
+            const auto prev = req_digits(data, "pu");
+            const auto update_id = req_digits(data, "u");
+            if (!symbol.has_value() || !first.has_value() || !prev.has_value() || !update_id.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.symbol = *symbol;
+            out.first_update_id = *first;
+            out.prev_update_id = *prev;
+            out.update_id = *update_id;
+            const auto bids = read_levels(data, "b", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            const auto asks = read_levels(data, "a", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            const auto ts = opt_ms(data, "t");
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            out.ts_ms = *ts;
+            out.bids = {storage.bids.data(), *bids};
+            out.asks = {storage.asks.data(), *asks};
+            return out;
+        });
     });
 }
 

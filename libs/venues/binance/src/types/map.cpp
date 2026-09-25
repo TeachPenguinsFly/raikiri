@@ -13,8 +13,7 @@ namespace {
     if (underlying_type == "COIN" || underlying_type == "INDEX") { // BTCDOM, DEFI, ALL
         return AssetClass::Crypto;
     }
-    if (underlying_type == "EQUITY" || underlying_type.ends_with("_EQUITY") ||
-        underlying_type == "PREMARKET") {
+    if (underlying_type == "EQUITY" || underlying_type.ends_with("_EQUITY") || underlying_type == "PREMARKET") {
         return AssetClass::Equity;
     }
     if (underlying_type == "COMMODITY") {
@@ -63,8 +62,7 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
-std::optional<Bbo>
-map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -89,8 +87,7 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -127,8 +124,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = to_e9(wire.funding_rate);
-    if (const auto mark = parse_decimal_e9(wire.mark_price);
-        mark.has_value() && base.tick_size.raw > 0) {
+    if (const auto mark = parse_decimal_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
@@ -293,9 +289,8 @@ map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, 
     return out;
 }
 
-std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
-                                          const exec::InstrumentTable& table,
-                                          UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -324,11 +319,9 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
         return std::nullopt;
     }
     std::array<char, 24> id_text{};
-    if (const auto [stop, ec] =
-            std::to_chars(id_text.data(), id_text.data() + id_text.size(), wire.order_id);
+    if (const auto [stop, ec] = std::to_chars(id_text.data(), id_text.data() + id_text.size(), wire.order_id);
         ec == std::errc{}) {
-        if (!copy_id({id_text.data(), static_cast<std::size_t>(stop - id_text.data())},
-                     out.exchange_order_id)) {
+        if (!copy_id({id_text.data(), static_cast<std::size_t>(stop - id_text.data())}, out.exchange_order_id)) {
             return std::nullopt;
         }
     }
@@ -343,16 +336,13 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
         }
         out.price = PriceTicks::from_raw(*price);
         out.qty = QtyLots::from_raw(*qty);
-        out.leaves_qty =
-            QtyLots::from_raw(cum.has_value() && total.has_value() ? *total - *cum : 0);
+        out.leaves_qty = QtyLots::from_raw(cum.has_value() && total.has_value() ? *total - *cum : 0);
         out.fee = to_e9(wire.commission);
         out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;
         std::array<char, 24> exec_text{};
-        if (const auto [stop, ec] =
-                std::to_chars(exec_text.data(), exec_text.data() + exec_text.size(), wire.trade_id);
+        if (const auto [stop, ec] = std::to_chars(exec_text.data(), exec_text.data() + exec_text.size(), wire.trade_id);
             ec == std::errc{}) {
-            if (const auto id = ExecId::from(
-                    {exec_text.data(), static_cast<std::size_t>(stop - exec_text.data())});
+            if (const auto id = ExecId::from({exec_text.data(), static_cast<std::size_t>(stop - exec_text.data())});
                 id.has_value()) {
                 out.exec_id = *id;
             }
@@ -363,8 +353,7 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
         const auto cum = exact_steps(wire.cum_filled_qty, base.lot_size);
         out.price = PriceTicks::from_raw(price.value_or(0));
         out.qty = QtyLots::from_raw(qty.value_or(0));
-        out.leaves_qty =
-            QtyLots::from_raw(qty.has_value() && cum.has_value() ? *qty - *cum : qty.value_or(0));
+        out.leaves_qty = QtyLots::from_raw(qty.has_value() && cum.has_value() ? *qty - *cum : qty.value_or(0));
     }
 
     out.ts_event = ms_to_unix(wire.trade_ms != 0 ? wire.trade_ms : wire.event_ms, ts_init);
@@ -372,8 +361,7 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
     return out;
 }
 
-std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
-                                                      const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -387,11 +375,9 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
         return std::nullopt;
     }
     std::array<char, 24> id_text{};
-    if (const auto [stop, ec] =
-            std::to_chars(id_text.data(), id_text.data() + id_text.size(), wire.order_id);
+    if (const auto [stop, ec] = std::to_chars(id_text.data(), id_text.data() + id_text.size(), wire.order_id);
         ec == std::errc{}) {
-        if (!copy_id({id_text.data(), static_cast<std::size_t>(stop - id_text.data())},
-                     out.exchange_order_id)) {
+        if (!copy_id({id_text.data(), static_cast<std::size_t>(stop - id_text.data())}, out.exchange_order_id)) {
             return std::nullopt;
         }
     }
@@ -408,8 +394,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     return out;
 }
 
-std::optional<exec::FillReport> map_user_trade(const WireTrade& wire,
-                                               const exec::InstrumentTable& table) {
+std::optional<exec::FillReport> map_user_trade(const WireTrade& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -428,21 +413,16 @@ std::optional<exec::FillReport> map_user_trade(const WireTrade& wire,
     out.fee = to_e9(wire.commission);
     out.liquidity = wire.maker ? Liquidity::Maker : Liquidity::Taker;
     std::array<char, 24> text{};
-    if (const auto [stop, ec] =
-            std::to_chars(text.data(), text.data() + text.size(), wire.trade_id);
+    if (const auto [stop, ec] = std::to_chars(text.data(), text.data() + text.size(), wire.trade_id);
         ec == std::errc{}) {
-        if (const auto id =
-                ExecId::from({text.data(), static_cast<std::size_t>(stop - text.data())});
-            id.has_value()) {
+        if (const auto id = ExecId::from({text.data(), static_cast<std::size_t>(stop - text.data())}); id.has_value()) {
             out.exec_id = *id;
         }
     }
     std::array<char, 24> order_text{};
-    if (const auto [stop, ec] =
-            std::to_chars(order_text.data(), order_text.data() + order_text.size(), wire.order_id);
+    if (const auto [stop, ec] = std::to_chars(order_text.data(), order_text.data() + order_text.size(), wire.order_id);
         ec == std::errc{}) {
-        if (!copy_id({order_text.data(), static_cast<std::size_t>(stop - order_text.data())},
-                     out.exchange_order_id)) {
+        if (!copy_id({order_text.data(), static_cast<std::size_t>(stop - order_text.data())}, out.exchange_order_id)) {
             return std::nullopt;
         }
     }
@@ -495,8 +475,7 @@ std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool mult
     return out;
 }
 
-std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire,
-                                                 const exec::InstrumentTable& table) {
+std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -509,8 +488,7 @@ std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire,
     exec::PositionReport out{};
     out.instrument = base.id;
     out.net_qty = QtyLots::from_raw(*qty);
-    if (const auto entry = parse_decimal_e9(wire.entry_price);
-        entry.has_value() && base.tick_size.raw > 0) {
+    if (const auto entry = parse_decimal_e9(wire.entry_price); entry.has_value() && base.tick_size.raw > 0) {
         out.avg_entry = PriceTicks::from_raw(entry->raw / base.tick_size.raw);
     }
     return out;

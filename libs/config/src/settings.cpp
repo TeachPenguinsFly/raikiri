@@ -3,9 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
-#include <set>
 #include <glaze/glaze.hpp>
 #include <glaze/yaml.hpp>
+#include <set>
 
 namespace raikiri::config {
 namespace {

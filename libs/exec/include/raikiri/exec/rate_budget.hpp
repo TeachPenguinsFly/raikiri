@@ -35,15 +35,12 @@ struct RateCost {
 
 class RateBudget {
 public:
-    RateBudget(std::vector<RateLimit> limits,
-               std::vector<RateCost> costs,
-               std::uint32_t default_cost = 1);
+    RateBudget(std::vector<RateLimit> limits, std::vector<RateCost> costs, std::uint32_t default_cost = 1);
 
     // the most specific matching cost rule, else the default
     [[nodiscard]] std::uint32_t cost(std::string_view target) const noexcept;
 
-    [[nodiscard]] std::expected<void, RateDenied>
-    take(std::string_view target, MonoNanos now, RateClass cls) noexcept;
+    [[nodiscard]] std::expected<void, RateDenied> take(std::string_view target, MonoNanos now, RateClass cls) noexcept;
 
     // the venue refused: hold every limit the target spends from
     void penalize(std::string_view target, MonoNanos now, std::uint64_t backoff_ns) noexcept;
@@ -59,6 +56,7 @@ public:
         std::uint64_t calls{0};
         std::uint64_t denied{0};
     };
+
     [[nodiscard]] std::vector<Usage> usage();
 
 private:
@@ -79,11 +77,9 @@ private:
 };
 
 // the admit gate a market-data rest client asks before each send; a null budget is unlimited
-[[nodiscard]] inline std::function<bool(std::string_view)> market_data_gate(RateBudget* budget,
-                                                                           const Clock& clock) {
+[[nodiscard]] inline std::function<bool(std::string_view)> market_data_gate(RateBudget* budget, const Clock& clock) {
     return [budget, clock = &clock](std::string_view target) {
-        return budget == nullptr ||
-               budget->take(target, clock->mono(), RateClass::Poll).has_value();
+        return budget == nullptr || budget->take(target, clock->mono(), RateClass::Poll).has_value();
     };
 }
 

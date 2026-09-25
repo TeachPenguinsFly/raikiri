@@ -11,7 +11,6 @@
 #include <raikiri/domain/order_events.hpp>
 
 #include <cstdint>
-
 #include <expected>
 
 namespace raikiri::oms {
@@ -21,11 +20,10 @@ public:
     Order() noexcept = default;
 
     Order(const OrderCmd& cmd, const ExchangeClientOrderId& exchange_client_order_id) noexcept
-        : instrument_{cmd.instrument}, side_{cmd.side}, order_type_{cmd.order_type}, tif_{cmd.tif},
-          flags_{cmd.flags}, price_{cmd.price}, qty_{cmd.qty}, filled_{QtyLots::from_raw(0)},
-          leaves_{cmd.qty}, client_order_id_{cmd.client_order_id},
-          exchange_client_order_id_{exchange_client_order_id}, ts_created_{cmd.ts_created},
-          ts_updated_{cmd.ts_created} {}
+        : instrument_{cmd.instrument}, side_{cmd.side}, order_type_{cmd.order_type}, tif_{cmd.tif}, flags_{cmd.flags},
+          price_{cmd.price}, qty_{cmd.qty}, filled_{QtyLots::from_raw(0)}, leaves_{cmd.qty},
+          client_order_id_{cmd.client_order_id}, exchange_client_order_id_{exchange_client_order_id},
+          ts_created_{cmd.ts_created}, ts_updated_{cmd.ts_created} {}
 
     [[nodiscard]] std::expected<void, TransitionError> apply(const OrderEvent& event) noexcept {
         // a pulled fill has undef leaves, so its own size comes off what was left
@@ -33,8 +31,7 @@ public:
         if (event.type == OrderEventType::Filled) {
             if (event.leaves_qty.is_undef()) {
                 const auto size = event.qty.is_undef() ? std::int64_t{0} : event.qty.raw;
-                remaining =
-                    QtyLots::from_raw(leaves_.raw > size ? leaves_.raw - size : std::int64_t{0});
+                remaining = QtyLots::from_raw(leaves_.raw > size ? leaves_.raw - size : std::int64_t{0});
             } else {
                 remaining = event.leaves_qty;
             }
@@ -93,9 +90,7 @@ public:
         return exchange_client_order_id_;
     }
 
-    [[nodiscard]] const ExchangeOrderId& exchange_order_id() const noexcept {
-        return exchange_order_id_;
-    }
+    [[nodiscard]] const ExchangeOrderId& exchange_order_id() const noexcept { return exchange_order_id_; }
 
     [[nodiscard]] UnixNanos ts_created() const noexcept { return ts_created_; }
 

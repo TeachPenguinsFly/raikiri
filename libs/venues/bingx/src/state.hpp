@@ -34,8 +34,7 @@ struct OwnedSubscription {
 
 // single threaded: the gateway loop is the only caller
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
-        : sink{&sink_ref}, clock{&clock_ref} {}
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref) : sink{&sink_ref}, clock{&clock_ref} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;
@@ -90,8 +89,7 @@ struct VenueState {
 
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = clock->wall();
-        return UnixNanos{
-            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+        return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     void remember(std::string_view order_id, const ExchangeClientOrderId& coid) {

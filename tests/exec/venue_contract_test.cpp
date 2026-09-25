@@ -20,9 +20,7 @@ public:
 
     void on_funding(const FundingUpdate& funding) noexcept override { fundings.push_back(funding); }
 
-    void on_order_event(const OrderEvent& event) noexcept override {
-        order_events.push_back(event);
-    }
+    void on_order_event(const OrderEvent& event) noexcept override { order_events.push_back(event); }
 
     void on_connectivity(const ConnEvent& event) noexcept override { conn_events.push_back(event); }
 
@@ -83,21 +81,18 @@ public:
 
     void cancel(const OrderCmd&) noexcept override { ++cancels; }
 
-    std::expected<std::vector<OrderStatusReport>, VenueError>
-    open_order_reports(MarketType) override {
+    std::expected<std::vector<OrderStatusReport>, VenueError> open_order_reports(MarketType) override {
         return std::vector<OrderStatusReport>{};
     }
 
-    std::expected<OrderStatusReport, VenueError> query_order(const ExchangeClientOrderId& id,
-                                                             MarketType) override {
+    std::expected<OrderStatusReport, VenueError> query_order(const ExchangeClientOrderId& id, MarketType) override {
         OrderStatusReport report{};
         report.exchange_client_order_id = id;
         report.status = OrderStatus::Accepted;
         return report;
     }
 
-    std::expected<std::vector<FillReport>, VenueError> fill_reports(MarketType,
-                                                                    UnixNanos) override {
+    std::expected<std::vector<FillReport>, VenueError> fill_reports(MarketType, UnixNanos) override {
         return std::vector<FillReport>{};
     }
 
@@ -137,8 +132,7 @@ protected:
 };
 
 TEST_F(VenueContract, RegistryBuildsRegisteredVenue) {
-    const auto adapter =
-        make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
+    const auto adapter = make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Sim);
     EXPECT_NE(adapter->data, nullptr);
@@ -156,8 +150,7 @@ TEST_F(VenueContract, UnknownAndUnsupportedConfigsRefusedAtStartup) {
     ASSERT_FALSE(unregistered.has_value());
     EXPECT_EQ(unregistered.error(), MakeError::UnknownVenue);
 
-    const auto spot_on_sim =
-        make_venue({.venue = VenueId::Sim, .market = MarketType::Spot}, sink, clock);
+    const auto spot_on_sim = make_venue({.venue = VenueId::Sim, .market = MarketType::Spot}, sink, clock);
     ASSERT_FALSE(spot_on_sim.has_value());
     EXPECT_EQ(spot_on_sim.error(), MakeError::UnsupportedMarket);
 }
@@ -168,8 +161,7 @@ TEST_F(VenueContract, TheCapsRowDecidesEveryMarket) {
         ASSERT_FALSE(refused.has_value()) << to_string(market);
         EXPECT_EQ(refused.error(), MakeError::UnsupportedMarket) << to_string(market);
     }
-    EXPECT_TRUE(
-        make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock).has_value());
+    EXPECT_TRUE(make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock).has_value());
 }
 
 TEST_F(VenueContract, AVenueThatSignsWithThreeCredentialsRefusesOnTwo) {
@@ -181,13 +173,12 @@ TEST_F(VenueContract, AVenueThatSignsWithThreeCredentialsRefusesOnTwo) {
             continue;
         }
         // a market the row serves, so an UnsupportedMarket refusal cannot pass the loop
-        const auto refused =
-            make_venue({.venue = id,
-                        .market = caps.markets.perp ? MarketType::Perp : MarketType::Spot,
-                        .api_key_env = "env:KEY",
-                        .api_secret_env = "env:SECRET"},
-                       sink,
-                       clock);
+        const auto refused = make_venue({.venue = id,
+                                         .market = caps.markets.perp ? MarketType::Perp : MarketType::Spot,
+                                         .api_key_env = "env:KEY",
+                                         .api_secret_env = "env:SECRET"},
+                                        sink,
+                                        clock);
         ASSERT_FALSE(refused.has_value()) << to_string(id);
         EXPECT_EQ(refused.error(), MakeError::PassphraseRequired) << to_string(id);
     }
@@ -201,9 +192,7 @@ TEST_F(VenueContract, MarketDataAloneNeedsNoPassphrase) {
             continue;
         }
         const auto built = make_venue(
-            {.venue = id, .market = caps.markets.perp ? MarketType::Perp : MarketType::Spot},
-            sink,
-            clock);
+            {.venue = id, .market = caps.markets.perp ? MarketType::Perp : MarketType::Spot}, sink, clock);
         if (!built.has_value()) {
             EXPECT_NE(built.error(), MakeError::PassphraseRequired) << to_string(id);
         }
@@ -238,8 +227,7 @@ TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
         const auto& caps = caps_of(id);
         if (caps.max_client_order_id_len == 0) {
             EXPECT_EQ(caps.user_stream, UserStreamModel::None) << to_string(id);
-            EXPECT_FALSE(caps.position_pull.any() || caps.order_pull.any() || caps.fill_pull.any())
-                << to_string(id);
+            EXPECT_FALSE(caps.position_pull.any() || caps.order_pull.any() || caps.fill_pull.any()) << to_string(id);
             continue;
         }
         EXPECT_GE(caps.max_client_order_id_len, k_min_client_order_id_len) << to_string(id);
@@ -257,8 +245,7 @@ TEST_F(VenueContract, ARowThatCannotCarryTheUlidIsRefusedOnlyToATrader) {
                                    clock);
     ASSERT_FALSE(trader.has_value());
     EXPECT_EQ(trader.error(), MakeError::ClientOrderIdTooShort);
-    const auto reader =
-        make_venue({.venue = VenueId::Lighter, .market = MarketType::Perp}, sink, clock);
+    const auto reader = make_venue({.venue = VenueId::Lighter, .market = MarketType::Perp}, sink, clock);
     ASSERT_FALSE(reader.has_value());
     EXPECT_EQ(reader.error(), MakeError::UnknownVenue);
 }
@@ -310,8 +297,7 @@ TEST_F(VenueContract, NoPullReachesPastTheMarketsItsAdapterServes) {
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
         const auto id = static_cast<VenueId>(v);
         const auto& caps = caps_of(id);
-        for (const auto market :
-             {MarketType::Spot, MarketType::Perp, MarketType::Future, MarketType::Option}) {
+        for (const auto market : {MarketType::Spot, MarketType::Perp, MarketType::Future, MarketType::Option}) {
             if (caps.serves(market)) {
                 continue;
             }
@@ -358,12 +344,8 @@ TEST_F(VenueContract, EveryPerpPullTheAdaptersHadIsStillClaimed) {
         EXPECT_TRUE(caps_of(id).position_pull.has(MarketType::Perp)) << to_string(id);
         EXPECT_TRUE(caps_of(id).order_pull.has(MarketType::Perp)) << to_string(id);
     }
-    for (const auto id : {VenueId::Binance,
-                          VenueId::Okx,
-                          VenueId::Gate,
-                          VenueId::Kucoin,
-                          VenueId::Bingx,
-                          VenueId::Xt}) {
+    for (const auto id :
+         {VenueId::Binance, VenueId::Okx, VenueId::Gate, VenueId::Kucoin, VenueId::Bingx, VenueId::Xt}) {
         EXPECT_TRUE(caps_of(id).balance_pull.has(MarketType::Perp)) << to_string(id);
     }
     // these share one wallet across spot and perp
@@ -460,8 +442,7 @@ TEST_F(VenueContract, AWrongMarketIdResolvesToNothingRatherThanTheWrongInstrumen
         EXPECT_EQ(table.find(other), nullptr) << static_cast<int>(wrong);
         EXPECT_TRUE(table.exchange_symbol(other).empty()) << static_cast<int>(wrong);
     }
-    EXPECT_EQ(table.find(InstrumentId::make(VenueId::Okx, MarketType::Perp, id->symbol())),
-              nullptr);
+    EXPECT_EQ(table.find(InstrumentId::make(VenueId::Okx, MarketType::Perp, id->symbol())), nullptr);
 }
 
 TEST_F(VenueContract, OneTableHoldsBothMarketsOfASharedSymbol) {

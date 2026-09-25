@@ -33,19 +33,15 @@ exec::VenueError rest_failure(std::string_view body) {
 
 exec::VenueError build_failure(BuildError err) noexcept {
     // a build refusal is terminal: rebuilding gives the same result
-    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                               : exec::ErrorClass::Terminal,
-                                  0,
-                                  to_string(err));
+    return exec::VenueError::make(
+        err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure : exec::ErrorClass::Terminal, 0, to_string(err));
 }
 
 class RestApi {
 public:
     RestApi(VenueState& state, MarketType market)
-        : state_{&state},
-          perp_rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          spot_rest_{state.io,
-                     net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
+        : state_{&state}, perp_rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+          spot_rest_{state.io, net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
           builder_{state.signer}, spot_enabled_{market == MarketType::Spot} {}
 
     std::expected<void, exec::VenueError> start() {
@@ -54,8 +50,8 @@ public:
         sync_clock(*state_, perp_rest_);
         if (spot_enabled_ && !load_spot_account()) {
             // without the account id every spot order is refused
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::AuthFailure, 0, "htx: spot account id unavailable")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, "htx: spot account id unavailable")};
         }
         return {};
     }
@@ -73,13 +69,11 @@ public:
 
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
-    [[nodiscard]] bool
-    send(const net::RestRequest& request, MarketType market, net::RestCallback on_done) {
+    [[nodiscard]] bool send(const net::RestRequest& request, MarketType market, net::RestCallback on_done) {
         return rest_for(market).send(request, std::move(on_done));
     }
 
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType market) {
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -97,8 +91,7 @@ public:
         auto& storage = *storage_owner;
         const auto orders = parse_rest_orders(*body, storage, market);
         if (!orders.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
         }
         std::vector<exec::OrderStatusReport> reports;
         reports.reserve(orders->size());
@@ -111,8 +104,8 @@ public:
         return reports;
     }
 
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId& id, MarketType market) {
+    std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
+                                                                         MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -122,14 +115,13 @@ public:
             const auto it = state_->swap_targets.find(std::string{id.view()});
             if (it == state_->swap_targets.end()) {
                 // the swap never saw this ulid; the pairing lives only in this process
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, "htx swap: client order id not minted here")};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "htx swap: client order id not minted here")};
             }
             numeric = it->second.client_order_id;
             contract = it->second.contract_code;
         }
-        const auto request =
-            builder_.query_order(id, numeric, contract, market, state_->venue_now());
+        const auto request = builder_.query_order(id, numeric, contract, market, state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failure(request.error())};
         }
@@ -143,19 +135,16 @@ public:
         auto& storage = *storage_owner;
         const auto orders = parse_rest_orders(*body, storage, market);
         if (!orders.has_value() || orders->empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not readable")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not readable")};
         }
         auto report = map_open_order(orders->front(), state_->instruments);
         if (!report.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
         }
         return *report;
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
-                                                                                UnixNanos since) {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
         (void)since;
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
@@ -164,8 +153,7 @@ public:
         return std::unexpected{exec::not_implemented("htx fill pull is per-contract")};
     }
 
-    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
-                                                                              UnixNanos since) {
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -188,23 +176,20 @@ public:
         const auto rows = parse_financial_records(*body, storage);
         if (!rows.has_value()) {
             // an unreadable ledger is not an empty one; v3 refusals say code instead of status and land here
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
         const auto received = state_->clock->wall();
         std::vector<LedgerEntry> charges;
         charges.reserve(rows->size());
         for (const auto& wire : *rows) {
-            if (const auto charge = map_financial_record(wire, state_->instruments, received);
-                charge.has_value()) {
+            if (const auto charge = map_financial_record(wire, state_->instruments, received); charge.has_value()) {
                 charges.push_back(*charge);
             }
         }
         return charges;
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType market) {
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
@@ -226,8 +211,7 @@ public:
         auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());
@@ -240,16 +224,15 @@ public:
     }
 
 private:
-    [[nodiscard]] std::expected<std::string, exec::VenueError>
-    fetch(const net::RestRequest& request, MarketType market) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& request,
+                                                                     MarketType market) {
         const auto response = await_response(*state_, rest_for(market), request);
         if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
         if (response->status < 200 || response->status >= 300) {
-            return std::unexpected{exec::VenueError::make(
-                classify_http(response->status), response->status, "http error")};
+            return std::unexpected{
+                exec::VenueError::make(classify_http(response->status), response->status, "http error")};
         }
         // htx refuses with http 200 and status "error"
         const auto envelope = parse_rest_envelope(response->body);
@@ -276,8 +259,7 @@ private:
             return false;
         }
         const auto id = parse_spot_account_id(*body);
-        if (!id.has_value() ||
-            *id > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        if (!id.has_value() || *id > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
             return false;
         }
         builder_.set_spot_account_id(static_cast<std::int64_t>(*id));

@@ -27,8 +27,8 @@ struct PrintBuffer {
     std::array<WirePrint, k_max_prints> prints{};
 };
 
-[[nodiscard]] std::expected<std::span<const WirePrint>, WireError>
-parse_trades(std::string_view frame, PrintBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
+                                                                                PrintBuffer& storage);
 
 // current_funding_rate accrues now; funding_rate was paid at funding_timestamp,
 // the last hour mark. Both are percent per hour.
@@ -54,7 +54,6 @@ struct WireStatsFrame {
 };
 
 // An `…/all` update carries only the markets that changed; an absent one is not delisted.
-[[nodiscard]] std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view frame,
-                                                                          StatsBuffer& storage);
+[[nodiscard]] std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view frame, StatsBuffer& storage);
 
 } // namespace raikiri::venues::lighter

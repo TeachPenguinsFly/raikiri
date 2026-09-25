@@ -25,8 +25,7 @@ namespace ondemand = wire::ondemand;
     return 0;
 }
 
-[[nodiscard]] WireOrderState terminal_state(std::string_view finish_as,
-                                            bool left_is_zero) noexcept {
+[[nodiscard]] WireOrderState terminal_state(std::string_view finish_as, bool left_is_zero) noexcept {
     if (finish_as == "filled") {
         return WireOrderState::Filled;
     }
@@ -42,10 +41,8 @@ namespace ondemand = wire::ondemand;
 }
 
 // _new and _update are websocket-only and not terminal
-[[nodiscard]] WireOrderState futures_state(std::string_view status,
-                                           std::string_view finish_as,
-                                           bool left_is_zero,
-                                           bool& accepted) noexcept {
+[[nodiscard]] WireOrderState
+futures_state(std::string_view status, std::string_view finish_as, bool left_is_zero, bool& accepted) noexcept {
     if (finish_as == "_new") {
         accepted = true;
         return WireOrderState::Open;
@@ -128,10 +125,8 @@ std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireOrd
     out.sell = size.negative;
 
     out.ts_ms = timestamp_ms(obj);
-    out.state = futures_state(text_field(obj, "status"),
-                              text_field(obj, "finish_as"),
-                              is_zero_qty(out.left),
-                              out.accepted);
+    out.state = futures_state(
+        text_field(obj, "status"), text_field(obj, "finish_as"), is_zero_qty(out.left), out.accepted);
     return {};
 }
 
@@ -163,8 +158,7 @@ std::expected<void, WireError> read_spot_order(ondemand::object& obj, WireOrder&
     return {};
 }
 
-std::expected<void, WireError>
-read_order(ondemand::object& obj, WireOrder& out, MarketType market) {
+std::expected<void, WireError> read_order(ondemand::object& obj, WireOrder& out, MarketType market) {
     switch (market) {
     case MarketType::Perp:
         return read_futures_order(obj, out);
@@ -178,8 +172,7 @@ read_order(ondemand::object& obj, WireOrder& out, MarketType market) {
     return std::unexpected{WireError::UnknownMessage};
 }
 
-std::expected<void, WireError>
-read_user_trade(ondemand::object& obj, WireUserTrade& out, MarketType market) {
+std::expected<void, WireError> read_user_trade(ondemand::object& obj, WireUserTrade& out, MarketType market) {
     switch (market) {
     case MarketType::Perp: {
         const auto contract = wire::req_str(obj, "contract");
@@ -229,10 +222,9 @@ parse_ws_orders(std::string_view frame, OrderBuffer& storage, MarketType market)
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
-        return read_array<WireOrder>(
-            *result, storage.orders, [market](ondemand::object& obj, WireOrder& out) {
-                return read_order(obj, out, market);
-            });
+        return read_array<WireOrder>(*result, storage.orders, [market](ondemand::object& obj, WireOrder& out) {
+            return read_order(obj, out, market);
+        });
     });
 }
 
@@ -247,10 +239,9 @@ parse_ws_user_trades(std::string_view frame, UserTradeBuffer& storage, MarketTyp
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
-        return read_array<WireUserTrade>(
-            *result, storage.trades, [market](ondemand::object& obj, WireUserTrade& out) {
-                return read_user_trade(obj, out, market);
-            });
+        return read_array<WireUserTrade>(*result, storage.trades, [market](ondemand::object& obj, WireUserTrade& out) {
+            return read_user_trade(obj, out, market);
+        });
     });
 }
 
@@ -261,10 +252,9 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return read_array<WireOrder>(
-            *root, storage.orders, [market](ondemand::object& obj, WireOrder& out) {
-                return read_order(obj, out, market);
-            });
+        return read_array<WireOrder>(*root, storage.orders, [market](ondemand::object& obj, WireOrder& out) {
+            return read_order(obj, out, market);
+        });
     });
 }
 
@@ -326,10 +316,9 @@ parse_rest_user_trades(std::string_view body, UserTradeBuffer& storage, MarketTy
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return read_array<WireUserTrade>(
-            *root, storage.trades, [market](ondemand::object& obj, WireUserTrade& out) {
-                return read_user_trade(obj, out, market);
-            });
+        return read_array<WireUserTrade>(*root, storage.trades, [market](ondemand::object& obj, WireUserTrade& out) {
+            return read_user_trade(obj, out, market);
+        });
     });
 }
 

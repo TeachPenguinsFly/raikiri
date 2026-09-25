@@ -64,8 +64,7 @@ int main(int argc, char** argv) {
             const std::string_view spec{argv[++i]};
             if (const auto eq = spec.find('='); eq != std::string_view::npos) {
                 upstreams.emplace(std::string{spec.substr(0, eq)},
-                                  static_cast<std::uint16_t>(
-                                      std::atoi(std::string{spec.substr(eq + 1)}.c_str())));
+                                  static_cast<std::uint16_t>(std::atoi(std::string{spec.substr(eq + 1)}.c_str())));
             }
         } else if (arg == "--port" && i + 1 < argc) {
             port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
@@ -123,8 +122,7 @@ int main(int argc, char** argv) {
     // one desk per process; two would mint colliding client order ids
     admin::ManualDesk desk{registry};
 
-    const introspect::FileStatsSource stats_source{
-        introspect::stats_dir(platform::runtime_dir())};
+    const introspect::FileStatsSource stats_source{introspect::stats_dir(platform::runtime_dir())};
     const auto wall_ns = [&clock] { return clock.wall().ns; };
     const introspect::GetMachineStats machine_stats{stats_source, wall_ns};
     const introspect::GetGatewayStats gateway_stats{stats_source, wall_ns};
@@ -174,9 +172,7 @@ int main(int argc, char** argv) {
             rescan_due = mono + k_rescan_ns;
             if (const auto found = registry.discover(shm_dir, ::getpid()); found > attached) {
                 for (const auto& account : registry.accounts(clock.mono(), clock.wall())) {
-                    RLOG_INFO("admind: attached to {} — {} instruments",
-                              account.account,
-                              account.gateway.instruments);
+                    RLOG_INFO("admind: attached to {} — {} instruments", account.account, account.gateway.instruments);
                 }
                 attached = found;
             }

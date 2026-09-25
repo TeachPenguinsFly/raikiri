@@ -58,8 +58,7 @@ std::expected<WireMatch, WireError> parse_match(std::string_view frame) {
         const auto size = wire::req_str(*root, "size");
         const auto time = wire::req_str(*root, "time");
         const auto side = wire::req_str(*root, "side");
-        if (!product.has_value() || !price.has_value() || !size.has_value() || !time.has_value() ||
-            !side.has_value()) {
+        if (!product.has_value() || !price.has_value() || !size.has_value() || !time.has_value() || !side.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.product_id = *product;

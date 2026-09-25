@@ -24,8 +24,7 @@ struct EnvVar {
 
 TEST(Credentials, NothingNamedIsAPublicGatewayRatherThanAFailure) {
     bool installed = false;
-    const auto failures =
-        Credentials{"", "", ""}.key([&](std::string_view) { installed = true; }).resolve();
+    const auto failures = Credentials{"", "", ""}.key([&](std::string_view) { installed = true; }).resolve();
 
     EXPECT_TRUE(failures.empty());
     EXPECT_FALSE(installed) << "nothing was named, so nothing may be installed";

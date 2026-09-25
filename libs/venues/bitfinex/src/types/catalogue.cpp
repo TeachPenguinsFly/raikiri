@@ -14,8 +14,7 @@ constexpr std::size_t k_conf_results = 1;
 
 } // namespace
 
-std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::string_view body,
-                                                                        PairBuffer& storage) {
+std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::string_view body, PairBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePairInfo>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {
