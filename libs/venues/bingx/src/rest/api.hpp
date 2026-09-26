@@ -36,7 +36,8 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
 class RestApi {
 public:
     explicit RestApi(VenueState& state)
-        : state_{&state}, rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+        : state_{&state},
+          rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .pool_size = net::k_order_pool_size}},
           builder_{state.signer} {}
 
     void start() {

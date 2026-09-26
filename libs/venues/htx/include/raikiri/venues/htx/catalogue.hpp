@@ -1,7 +1,7 @@
 #pragma once
 
-// What the venue lists, on both trees: swap contracts from api.hbdm.com and
-// spot pairs from api.huobi.pro. The two state their trading limits in
+// What the venue lists, on both trees: swap contracts from api.hbdm.vn and
+// spot pairs from api-aws.huobi.pro. The two state their trading limits in
 // different units, which is why they are separate rows rather than one.
 
 #include <raikiri/venues/htx/errors.hpp>

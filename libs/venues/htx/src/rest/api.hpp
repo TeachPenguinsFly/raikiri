@@ -40,8 +40,10 @@ exec::VenueError build_failure(BuildError err) noexcept {
 class RestApi {
 public:
     RestApi(VenueState& state, MarketType market)
-        : state_{&state}, perp_rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          spot_rest_{state.io, net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
+        : state_{&state},
+          perp_rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .pool_size = net::k_order_pool_size}},
+          spot_rest_{state.io,
+                     net::RestConfig{.host = std::string{spot_rest_host()}, .pool_size = net::k_order_pool_size}},
           builder_{state.signer}, spot_enabled_{market == MarketType::Spot} {}
 
     std::expected<void, exec::VenueError> start() {

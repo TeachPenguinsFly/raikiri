@@ -68,8 +68,10 @@ bool envelope_ok(std::string_view body, MarketType market) {
 class RestApi {
 public:
     RestApi(VenueState& state, MarketType market)
-        : state_{&state}, rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          spot_rest_{state.io, net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
+        : state_{&state},
+          rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .pool_size = net::k_order_pool_size}},
+          spot_rest_{state.io,
+                     net::RestConfig{.host = std::string{spot_rest_host()}, .pool_size = net::k_order_pool_size}},
           builder_{state.signer}, spot_{market == MarketType::Spot}, perp_{market == MarketType::Perp} {}
 
     // each tree's clock offset is measured against its own host

@@ -42,7 +42,8 @@ class RestApi {
 public:
     RestApi(VenueState& state, MarketType market)
         : state_{&state}, market_{market},
-          rest_{state.io, net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
+          rest_{state.io,
+                net::RestConfig{.host = std::string{private_rest_host()}, .pool_size = net::k_order_pool_size}},
           builder_{state.signer} {}
 
     // each tree checks requests against its own clock

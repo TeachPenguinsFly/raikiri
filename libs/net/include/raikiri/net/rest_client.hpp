@@ -17,6 +17,9 @@ class IoContext;
 
 enum class HttpMethod : std::uint8_t { Get, Post, Put, Delete, Patch };
 
+// an order client answers cancel-all and two-sided quotes without waiting a round trip for a free connection
+inline constexpr std::size_t k_order_pool_size = 4;
+
 struct RestConfig {
     std::string host;
     std::string port{"443"};

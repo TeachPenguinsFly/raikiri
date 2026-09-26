@@ -738,11 +738,11 @@ TEST(HtxWs, RefusesToBuildAFrameItCannotName) {
 }
 
 TEST(HtxWs, NamesTheTwoEndpointsOnOneHost) {
-    EXPECT_EQ(stream_host(), "api.hbdm.com");
+    EXPECT_EQ(stream_host(), "api.hbdm.vn");
     EXPECT_EQ(stream_port(), "443");
     EXPECT_EQ(market_path(), "/linear-swap-ws");
     EXPECT_EQ(notify_path(), "/linear-swap-notification");
-    EXPECT_EQ(rest_host(), "api.hbdm.com");
+    EXPECT_EQ(rest_host(), "api.hbdm.vn");
 }
 
 TEST(HtxRest, BuildsUnauthenticatedReads) {

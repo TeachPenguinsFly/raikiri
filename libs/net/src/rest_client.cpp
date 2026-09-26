@@ -342,6 +342,8 @@ private:
             on_setup_failed(idx, ec);
             return;
         }
+        boost::system::error_code nodelay_ec;
+        beast::get_lowest_layer(conn->stream).socket().set_option(tcp::no_delay{true}, nodelay_ec);
         if (!is_ip_literal(cfg_.host) && !internal::set_sni_host(conn->stream.native_handle(), cfg_.host.c_str())) {
             on_setup_failed(idx, beast::error_code{asio::error::invalid_argument});
             return;

@@ -6,11 +6,11 @@
 
 namespace raikiri::venues::htx::ep {
 
-// htx has no testnet on either product
-inline constexpr std::string_view k_rest_futures = "api.hbdm.com";
-inline constexpr std::string_view k_rest_spot = "api.huobi.pro";
-inline constexpr std::string_view k_stream_futures = "api.hbdm.com";
-inline constexpr std::string_view k_stream_spot = "api.huobi.pro";
+// htx has no testnet on either product; these are the hosts htx serves inside aws
+inline constexpr std::string_view k_rest_futures = "api.hbdm.vn";
+inline constexpr std::string_view k_rest_spot = "api-aws.huobi.pro";
+inline constexpr std::string_view k_stream_futures = "api.hbdm.vn";
+inline constexpr std::string_view k_stream_spot = "api-aws.huobi.pro";
 
 // funding_rate is served only on the notification socket
 inline constexpr std::string_view k_ws_market = "/linear-swap-ws";
