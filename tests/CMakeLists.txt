@@ -43,7 +43,7 @@ set(malformed_srcs wire/malformed/harness.cpp wire/malformed/wire.cpp)
 set(malformed_libs raikiri::wire)
 foreach(venue IN ITEMS apex aster backpack binance bingx bitfinex bitget blofin bybit coinbase
     cryptocom deribit dydx edgex extended gate grvt htx hyperliquid kraken kucoin lighter mexc
-    okx pacifica phemex weex xt)
+    lbank okx pacifica phemex weex xt)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wire/malformed/${venue}.cpp)
     list(APPEND malformed_srcs wire/malformed/${venue}.cpp)
     list(APPEND malformed_libs raikiri::venue_${venue})
@@ -95,6 +95,7 @@ raikiri_add_test(dydx_venue_test SRCS venues/dydx/venue_test.cpp LIBS raikiri::v
 raikiri_add_test(phemex_venue_test SRCS venues/phemex/venue_test.cpp LIBS raikiri::venue_phemex raikiri::exec)
 raikiri_add_test(extended_venue_test SRCS venues/extended/venue_test.cpp LIBS raikiri::venue_extended raikiri::exec)
 raikiri_add_test(pacifica_venue_test SRCS venues/pacifica/venue_test.cpp LIBS raikiri::venue_pacifica raikiri::exec)
+raikiri_add_test(lbank_venue_test SRCS venues/lbank/venue_test.cpp LIBS raikiri::venue_lbank raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 

@@ -1,0 +1,1 @@
+{"action":"RecvTopicAction","requestNo":0,"errorCode":5,"errorMsg":"InvalidValue:NotFoundInstrumentID","result":[{"table":"TopicAction","data":{"Action":"1","LocalNo":"4","TopicID":"25","FilterValue":"Exchange_NOPEUSDT_0.1","ResumeNo":"-1"}}]}

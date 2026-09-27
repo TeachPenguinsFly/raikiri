@@ -41,6 +41,7 @@
 #include <raikiri/venues/hyperliquid/hyperliquid_venue.hpp>
 #include <raikiri/venues/kraken/kraken_venue.hpp>
 #include <raikiri/venues/kucoin/kucoin_venue.hpp>
+#include <raikiri/venues/lbank/lbank_venue.hpp>
 #include <raikiri/venues/lighter/lighter_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
@@ -986,6 +987,7 @@ int main(int argc, char** argv) {
     venues::phemex::register_adapter();
     venues::extended::register_adapter();
     venues::pacifica::register_adapter();
+    venues::lbank::register_adapter();
     // one budget shared with the account poller; a venue missing from the file is unlimited
     std::optional<exec::RateBudget> budget;
     // an absent venue still gets the default answer timeout; zero would never report an unanswered order

@@ -67,6 +67,7 @@ running a gateway and adding a venue.
 | `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `kraken` | CEX | perp | REST + WS | ✓ | – | AuthSubscribe | – |
 | `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | – |
+| `lbank` | CEX | spot · perp | **market data only** | – | – | – | – |
 | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – |
 | `mexc` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
 | `okx` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |

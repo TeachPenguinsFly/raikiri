@@ -8,7 +8,7 @@ declare -A MARKET=(
   [okx]=perp [bingx]=perp [bitget]=perp [deribit-opt]=option [deribit]=perp
 )
 
-SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex"
+SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex lbank"
 
 # spot gateways serve the carry board and need only bbo and funding
 SPOT_CHANNELS="bbo,funding"
