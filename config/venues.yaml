@@ -318,3 +318,11 @@ venues:
       - { name: ws_subscribe_perp, kind: ws_messages, scope: socket, market: perp, window_ms: 400, max: 1 }
       - { name: ws_subscribe_spot, kind: ws_messages, scope: socket, market: spot, window_ms: 50, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 1 }
+  bitunix:
+    order_answer_timeout_ms: 15000
+    limits:
+      - { name: requests, window_ms: 1000, max: 8, reserve: 2 }
+      - { name: ws_streams, kind: ws_streams, max: 280 }
+      - { name: ws_sockets, kind: ws_sockets, max: 12 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
+      - { name: ws_frame, kind: ws_frame, max: 50 }

@@ -157,6 +157,7 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Mexc, "XAUT_USDT", AssetClass::Crypto, "XAUT"},
     {VenueId::Mexc, "COINBASE_USDT", AssetClass::Equity, "COIN"},
     {VenueId::Mexc, "ROBINHOOD_USDT", AssetClass::Equity, "HOOD"},
+    {VenueId::Bitunix, "QQQUSDT", AssetClass::Equity, "QQQ"},
     {VenueId::Pacifica, "CL", AssetClass::Commodity, "CL"},
     {VenueId::Pacifica, "COPPER", AssetClass::Commodity, "COPPER"},
     {VenueId::Pacifica, "CRCL", AssetClass::Equity, "CRCL"},

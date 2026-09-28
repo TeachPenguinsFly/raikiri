@@ -27,6 +27,7 @@
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
 #include <raikiri/venues/bitget/bitget_venue.hpp>
+#include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
@@ -988,6 +989,7 @@ int main(int argc, char** argv) {
     venues::extended::register_adapter();
     venues::pacifica::register_adapter();
     venues::lbank::register_adapter();
+    venues::bitunix::register_adapter();
     // one budget shared with the account poller; a venue missing from the file is unlimited
     std::optional<exec::RateBudget> budget;
     // an absent venue still gets the default answer timeout; zero would never report an unanswered order

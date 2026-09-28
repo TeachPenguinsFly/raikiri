@@ -75,6 +75,7 @@
       <validValue name="Extended">29</validValue>
       <validValue name="Pacifica">30</validValue>
       <validValue name="Lbank">31</validValue>
+      <validValue name="Bitunix">32</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

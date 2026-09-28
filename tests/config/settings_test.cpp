@@ -111,7 +111,7 @@ TEST(Settings, EveryPooledVenueSizesItsSocketsFromTheTable) {
     for (const auto& name :
          {"binance",  "aster",    "bybit",     "gate", "kucoin",      "xt",      "htx",     "weex", "bingx",
           "bitget",   "backpack", "cryptocom", "apex", "blofin",      "grvt",    "edgex",   "dydx", "phemex",
-          "coinbase", "pacifica", "okx",       "mexc", "hyperliquid", "deribit", "lighter", "lbank"}) {
+          "coinbase", "pacifica", "okx",       "mexc", "hyperliquid", "deribit", "lighter", "lbank", "bitunix"}) {
         ASSERT_TRUE(file->venues.contains(name)) << name;
         const auto& venue = file->venues.at(name);
         EXPECT_NE(find_limit(venue, "ws_streams"), nullptr) << name;

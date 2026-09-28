@@ -8,7 +8,7 @@ using raikiri::VenueId;
 using raikiri::gatewayd::private_pulls_enabled;
 
 TEST(GatewaydPrivatePulls, AGatewayWithoutCredentialsSchedulesNoPrivatePulls) {
-    for (const auto venue : {VenueId::Binance, VenueId::Weex, VenueId::Pacifica}) {
+    for (const auto venue : {VenueId::Binance, VenueId::Weex, VenueId::Pacifica, VenueId::Bitunix}) {
         EXPECT_FALSE(private_pulls_enabled(venue, true, false));
         EXPECT_TRUE(private_pulls_enabled(venue, true, true));
         EXPECT_FALSE(private_pulls_enabled(venue, false, true));
