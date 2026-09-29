@@ -5,6 +5,7 @@
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/net/signer.hpp>
 #include <raikiri/venues/bitunix/endpoints.hpp>
 
 #include <cstdint>
@@ -33,6 +34,7 @@ struct VenueState {
 
     net::IoContext io;
     exec::InstrumentTable instruments;
+    net::Signer signer;
     std::vector<Market> markets;
     std::uint64_t subscribe_refusals{0};
 

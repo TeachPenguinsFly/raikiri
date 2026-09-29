@@ -34,13 +34,16 @@ hmac_sha256_base64(std::string_view key, std::string_view message, std::span<cha
 // sha512 keyed and unkeyed, lowercase hex; gate's signature embeds a plain sha512 of the body
 [[nodiscard]] std::string_view sha512_hex(std::string_view message, std::span<char> out) noexcept;
 
+[[nodiscard]] std::string_view sha256_hex(std::string_view message, std::span<char> out) noexcept;
+
 [[nodiscard]] std::string_view
 hmac_sha512_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept;
 
 // holds a venue's credentials; the secret never leaves this object
 class Signer {
 public:
-    enum class Encoding : std::uint8_t { Hex, Base64, Hex512 };
+    // Salted is a bare sha256 of the message followed by the secret, in hex
+    enum class Encoding : std::uint8_t { Hex, Base64, Hex512, Salted };
 
     Signer() = default;
     Signer(const Signer&) = delete;

@@ -81,6 +81,36 @@ std::string_view sha512_hex(std::string_view message, std::span<char> out) noexc
     return {out.data(), k_hex512_bytes};
 }
 
+namespace {
+
+std::string_view sha256_pair_hex(std::string_view first, std::string_view second, std::span<char> out) noexcept {
+    if (out.size() < k_hex_bytes) {
+        return {};
+    }
+    std::array<std::uint8_t, k_hmac_bytes> digest{};
+    unsigned int len = 0;
+    auto* ctx = ::EVP_MD_CTX_new();
+    if (ctx == nullptr) {
+        return {};
+    }
+    const bool ok = ::EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) == 1 &&
+                    ::EVP_DigestUpdate(ctx, first.data(), first.size()) == 1 &&
+                    ::EVP_DigestUpdate(ctx, second.data(), second.size()) == 1 &&
+                    ::EVP_DigestFinal_ex(ctx, digest.data(), &len) == 1 && len == k_hmac_bytes;
+    ::EVP_MD_CTX_free(ctx);
+    if (!ok) {
+        return {};
+    }
+    to_hex(digest, out.data());
+    return {out.data(), k_hex_bytes};
+}
+
+} // namespace
+
+std::string_view sha256_hex(std::string_view message, std::span<char> out) noexcept {
+    return sha256_pair_hex(message, {}, out);
+}
+
 std::string_view hmac_sha512_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept {
     if (out.size() < k_hex512_bytes) {
         return {};
@@ -130,6 +160,8 @@ std::string_view Signer::sign(std::string_view message, Encoding encoding, std::
         return hmac_sha256_base64(secret_.view(), message, out);
     case Encoding::Hex512:
         return hmac_sha512_hex(secret_.view(), message, out);
+    case Encoding::Salted:
+        return sha256_pair_hex(message, secret_.view(), out);
     }
     return {};
 }

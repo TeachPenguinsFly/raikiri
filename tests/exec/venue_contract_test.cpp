@@ -271,6 +271,7 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
                                              "bingx",
                                              "bitfinex",
                                              "bitget",
+                                             "bitunix",
                                              "bybit",
                                              "deribit",
                                              "gate",

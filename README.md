@@ -53,7 +53,7 @@ running a gateway and adding a venue.
 | `bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 | `bitfinex` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | – |
 | `bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `bitunix` | CEX | spot · perp | **market data only** | – | – | – | – |
+| `bitunix` | CEX | spot · perp | REST | – | – | – | – |
 | `blofin` | CEX | perp | **market data only** | – | – | – | – |
 | `bybit` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `coinbase` | CEX | spot | REST | – | – | AuthSubscribe | – |

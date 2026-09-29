@@ -1,6 +1,10 @@
+#include <raikiri/common/time.hpp>
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/bitunix/endpoints.hpp>
 #include <raikiri/venues/bitunix/map.hpp>
+#include <raikiri/venues/bitunix/orders.hpp>
+#include <raikiri/venues/bitunix/trade.hpp>
 #include <raikiri/venues/bitunix/wire.hpp>
 
 #include <gtest/gtest.h>
@@ -11,6 +15,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace raikiri::venues::bitunix {
 namespace {
@@ -217,12 +222,241 @@ TEST(BitunixStream, PrintsTakeTheEnvelopeMillisecond) {
     EXPECT_EQ(trade->ts_event.ns, 1'790'964'212'024'000'000ULL);
 }
 
-TEST(BitunixCaps, ServesPerpAndSpotMarketData) {
+TEST(BitunixCaps, ServesPerpAndSpotMarketDataAndPerpOrdersOverRest) {
     const auto& caps = exec::caps_of(VenueId::Bitunix);
     EXPECT_EQ(caps.venue, VenueId::Bitunix);
     EXPECT_TRUE(caps.markets.perp);
     EXPECT_TRUE(caps.markets.spot);
     EXPECT_FALSE(caps.fix_order_entry);
+    EXPECT_FALSE(caps.ws_order_entry);
+    EXPECT_TRUE(caps.amend_order);
+    EXPECT_TRUE(caps.order_pull.perp);
+    EXPECT_FALSE(caps.order_pull.spot);
+}
+
+void credentials(net::Signer& signer, std::string_view key, std::string_view secret) {
+    signer.set_api_key(key);
+    ASSERT_TRUE(signer.secret().assign(secret).has_value());
+}
+
+TEST(BitunixSigner, MatchesTheOfficialSdkVector) {
+    net::Signer signer;
+    credentials(signer, "11111111111111111", "22222222222222222");
+    std::array<char, net::k_hex_bytes> digest{};
+    EXPECT_EQ(net::sha256_hex("33333333333333333174710471126211111111111111111marginCoinUSDT", digest),
+              "ea0f6d6bc37d102c41ccbd820f4cfbb10663f3675a75aea80a353e0e317fcdcc");
+    std::array<char, net::k_hex_bytes> out{};
+    EXPECT_EQ(sign_request(signer, "33333333333333333", "1747104711262", "marginCoinUSDT", "", out),
+              "40e87256554e263e39201a3979469b7fbb640d1c7c41759abf5c6a18f937f922");
+}
+
+TEST(BitunixSigner, SignsTheBodyOfTheDocumentedExample) {
+    net::Signer signer;
+    credentials(signer, "yourApiKey", "yourSecretKey");
+    std::array<char, net::k_hex_bytes> out{};
+    EXPECT_EQ(sign_request(signer,
+                           "123456",
+                           "20241120123045",
+                           "id1uid200",
+                           R"({"uid":"2899","arr":[{"id":1,"name":"maple"},{"id":2,"name":"lily"}]})",
+                           out),
+              "00397cd1e52c7dce3258067324363b6361fabc9178a0912b330c138db8745655");
+}
+
+exec::InstrumentTable table_of_btc() {
+    exec::InstrumentTable table;
+    const auto instrument = map_pair(pair("BTCUSDT"), MarketType::Perp);
+    EXPECT_TRUE(instrument.has_value() && table.add(*instrument).has_value());
+    return table;
+}
+
+std::string_view header(const net::RestRequest& request, std::string_view name) {
+    for (const auto& h : request.headers) {
+        if (h.name == name) {
+            return h.value;
+        }
+    }
+    return {};
+}
+
+TEST(BitunixOrders, PlacesALimitWithItsClientIdAndSignsTheCompactBody) {
+    net::Signer signer;
+    credentials(signer, "key", "secret");
+    const auto table = table_of_btc();
+    RequestBuilder builder{signer};
+    OrderCmd cmd{};
+    cmd.instrument = base_of(*table.find("BTCUSDT")).id;
+    cmd.side = Side::Sell;
+    cmd.flags = OrderFlags::PostOnly;
+    cmd.price = PriceTicks::from_raw(848123);
+    cmd.qty = QtyLots::from_raw(16);
+    const auto client_id = ExchangeClientOrderId::from("01JABCDEFGHJKMNPQRSTVWXYZ0");
+    ASSERT_TRUE(client_id.has_value());
+    cmd.exchange_client_order_id = *client_id;
+    const auto request = builder.place(cmd, table, k_ingest);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->target, ep::k_place_order);
+    EXPECT_EQ(request->body,
+              R"({"symbol":"BTCUSDT","qty":"0.0016","price":"84812.3","effect":"POST_ONLY",)"
+              R"("side":"SELL","orderType":"LIMIT","clientId":"01JABCDEFGHJKMNPQRSTVWXYZ0",)"
+              R"("reduceOnly":false})");
+    EXPECT_EQ(header(*request, "timestamp"), "1790964213000");
+    EXPECT_EQ(header(*request, "nonce").size(), 32U);
+    std::array<char, net::k_hex_bytes> expect{};
+    EXPECT_EQ(header(*request, "sign"),
+              sign_request(signer, header(*request, "nonce"), "1790964213000", "", request->body, expect));
+}
+
+TEST(BitunixOrders, CancelsAndModifiesByVenueIdWhenItHasOne) {
+    net::Signer signer;
+    credentials(signer, "key", "secret");
+    const auto table = table_of_btc();
+    RequestBuilder builder{signer};
+    OrderCmd cmd{};
+    cmd.instrument = base_of(*table.find("BTCUSDT")).id;
+    const auto order_id = ExchangeOrderId::from("11111");
+    ASSERT_TRUE(order_id.has_value());
+    cmd.target_exchange_order_id = *order_id;
+    cmd.price = PriceTicks::from_raw(600000);
+    cmd.qty = QtyLots::from_raw(5000);
+    const auto cancel = builder.cancel(cmd, table, k_ingest);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(cancel->body, R"({"symbol":"BTCUSDT","orderList":[{"orderId":"11111"}]})");
+    const auto modify = builder.modify(cmd, table, k_ingest);
+    ASSERT_TRUE(modify.has_value());
+    EXPECT_EQ(modify->target, ep::k_modify_order);
+    EXPECT_EQ(modify->body, R"({"orderId":"11111","symbol":"BTCUSDT","qty":"0.5","price":"60000"})");
+    const auto account = builder.account(k_ingest);
+    ASSERT_TRUE(account.has_value());
+    EXPECT_EQ(account->target, "/api/v1/futures/account?marginCoin=USDT");
+}
+
+TEST(BitunixOrders, NothingIsBuiltWithoutCredentials) {
+    net::Signer signer;
+    RequestBuilder builder{signer};
+    const auto table = table_of_btc();
+    OrderCmd cmd{};
+    cmd.instrument = base_of(*table.find("BTCUSDT")).id;
+    cmd.qty = QtyLots::from_raw(1);
+    cmd.price = PriceTicks::from_raw(1);
+    EXPECT_EQ(builder.place(cmd, table, k_ingest).error(), BuildError::NotSigned);
+    EXPECT_EQ(builder.pending_orders(k_ingest).error(), BuildError::NotSigned);
+}
+
+class CaptureSink final : public exec::GatewaySink {
+public:
+    void on_bbo(const Bbo&) noexcept override {}
+
+    void on_trade(const TradeTick&) noexcept override {}
+
+    void on_funding(const FundingUpdate&) noexcept override {}
+
+    void on_order_event(const OrderEvent& event) noexcept override { events.push_back(event); }
+
+    void on_connectivity(const exec::ConnEvent&) noexcept override {}
+
+    std::vector<OrderEvent> events;
+};
+
+TEST(BitunixVenue, ExecutionRefusesEveryCallWithoutCredentials) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    const exec::VenueConfig config{.venue = VenueId::Bitunix, .market = MarketType::Perp};
+    auto adapter = exec::make_venue(config, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+    EXPECT_FALSE(adapter->execution->connected());
+    OrderCmd cmd{};
+    cmd.instrument = InstrumentId::make(VenueId::Bitunix, MarketType::Perp, SymbolId{0});
+    cmd.client_order_id = ClientOrderId::make(1, 42);
+    cmd.qty = QtyLots::from_raw(7);
+    adapter->execution->submit(cmd);
+    adapter->execution->cancel(cmd);
+    adapter->execution->amend(cmd);
+    ASSERT_EQ(sink.events.size(), 3U);
+    EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
+    EXPECT_EQ(sink.events[0].leaves_qty.raw, 0);
+    EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
+    EXPECT_EQ(sink.events[2].type, OrderEventType::ModifyRejected);
+    const auto open = adapter->execution->open_order_reports(MarketType::Perp);
+    ASSERT_FALSE(open.has_value());
+    EXPECT_EQ(open.error().cls, exec::ErrorClass::AuthFailure);
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
+    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{}).has_value());
+    EXPECT_FALSE(adapter->execution->balance_reports(MarketType::Perp).has_value());
+}
+
+TEST(BitunixOrders, ClassifiesTheOverloadCodeAsRateLimited) {
+    EXPECT_EQ(classify(k_rate_limited), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify(10006), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify(10007), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify(30042), exec::ErrorClass::Terminal);
+}
+
+TEST(BitunixOrders, ReadsTheDocumentedAnswers) {
+    const auto table = table_of_btc();
+    const auto place = fixture("doc_place_order.json");
+    const auto ack = parse_ack(place);
+    ASSERT_TRUE(ack.has_value());
+    EXPECT_EQ(ack->order_id, "11111");
+
+    const auto cancel_body = fixture("doc_cancel_orders.json");
+    CancelBuffer cancels;
+    const auto rows = parse_cancels(cancel_body, cancels);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    EXPECT_TRUE((*rows)[0].ok);
+    EXPECT_FALSE((*rows)[1].ok);
+    EXPECT_EQ((*rows)[1].error_code, 10013);
+
+    const auto orders_body = fixture("doc_pending_orders.json");
+    const auto orders = std::make_unique<OrderBuffer>();
+    const auto open = parse_orders(orders_body, *orders);
+    ASSERT_TRUE(open.has_value());
+    ASSERT_EQ(open->size(), 1U);
+    EXPECT_FALSE(map_order((*open)[0], table).has_value()) << "the documented row names no side";
+    WireOrder sided_order = (*open)[0];
+    sided_order.side = "BUY";
+    const auto report = map_order(sided_order, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(report->leaves.raw, 5000);
+
+    const auto fills_body = fixture("doc_history_trades.json");
+    const auto fills = std::make_unique<FillBuffer>();
+    const auto trades = parse_fills(fills_body, *fills);
+    ASSERT_TRUE(trades.has_value());
+    ASSERT_EQ(trades->size(), 1U);
+    EXPECT_EQ((*trades)[0].role, "TAKER");
+    EXPECT_EQ((*trades)[0].ctime_ms, 1'597'026'383'085ULL);
+    WireFill sided = (*trades)[0];
+    sided.side = "BUY";
+    const auto fill = map_fill(sided, table);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->liquidity, Liquidity::Taker);
+    EXPECT_EQ(fill->qty.raw, 10000);
+    EXPECT_EQ(fill->price.raw, 600000);
+    EXPECT_EQ(fill->fee, e9("0.01"));
+
+    const auto positions_body = fixture("doc_pending_positions.json");
+    const auto positions = std::make_unique<PositionBuffer>();
+    const auto held = parse_positions(positions_body, *positions);
+    ASSERT_TRUE(held.has_value());
+    ASSERT_EQ(held->size(), 1U);
+    EXPECT_EQ(map_position((*held)[0], table)->net_qty.raw, 5000);
+    WirePosition short_one = (*held)[0];
+    short_one.side = "SHORT";
+    EXPECT_EQ(map_position(short_one, table)->net_qty.raw, -5000);
+
+    const auto account_body = fixture("doc_account.json");
+    BalanceBuffer balances;
+    const auto coins = parse_balances(account_body, balances);
+    ASSERT_TRUE(coins.has_value());
+    const auto balance = map_balance((*coins)[0], k_ingest);
+    ASSERT_TRUE(balance.has_value());
+    EXPECT_EQ(balance->available, e9("1000"));
+    EXPECT_EQ(balance->total, e9("1010"));
+    EXPECT_EQ(balance->unrealized, e9("2"));
 }
 
 } // namespace

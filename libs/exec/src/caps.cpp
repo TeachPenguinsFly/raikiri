@@ -689,23 +689,26 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Bitunix)] = {
         .venue = VenueId::Bitunix,
+        // order entry is perpetual only; spot is polled market data
         .markets = {.spot = true, .perp = true},
+        // the futures api places over rest alone: its sockets carry no orders and there is no fix
         .ws_order_entry = false,
         .fix_order_entry = false,
-        .cancel_by_client_order_id = false,
+        .cancel_by_client_order_id = true,
         .batch_cancel = false,
-        .amend_order = false,
-        .native_post_only = false,
+        .amend_order = true,
+        .native_post_only = true,
         .book_checksum = false,
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
-        .balance_pull = {},
+        .position_pull = {.perp = true},
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
+        .balance_pull = {.perp = true},
         .funding_charge = {},
         .ticker_stats = true,
         .user_stream = UserStreamModel::None,
-        .max_client_order_id_len = 0,
-        .headline_order_rate_per_s = 0,
+        // the venue states no limit; the ulids minted here are 26 characters
+        .max_client_order_id_len = 32,
+        .headline_order_rate_per_s = 10,
     };
     return table;
 }();

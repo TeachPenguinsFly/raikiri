@@ -12,6 +12,14 @@ inline constexpr std::string_view k_trading_pairs = "/api/v1/futures/market/trad
 inline constexpr std::string_view k_funding_batch = "/api/v1/futures/market/funding_rate/batch";
 inline constexpr std::string_view k_tickers = "/api/v1/futures/market/tickers";
 
+inline constexpr std::string_view k_place_order = "/api/v1/futures/trade/place_order";
+inline constexpr std::string_view k_cancel_orders = "/api/v1/futures/trade/cancel_orders";
+inline constexpr std::string_view k_modify_order = "/api/v1/futures/trade/modify_order";
+inline constexpr std::string_view k_pending_orders = "/api/v1/futures/trade/get_pending_orders";
+inline constexpr std::string_view k_history_trades = "/api/v1/futures/trade/get_history_trades";
+inline constexpr std::string_view k_positions = "/api/v1/futures/position/get_pending_positions";
+inline constexpr std::string_view k_account = "/api/v1/futures/account";
+
 inline constexpr std::string_view k_spot_pairs = "/api/spot/v1/common/coin_pair/list";
 inline constexpr std::string_view k_spot_depth = "/api/spot/v1/market/depth";
 

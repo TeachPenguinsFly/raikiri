@@ -321,7 +321,10 @@ venues:
   bitunix:
     order_answer_timeout_ms: 15000
     limits:
-      - { name: requests, window_ms: 1000, max: 8, reserve: 2 }
+      - { name: market, window_ms: 1000, max: 8, match: ["/api/v1/futures/market", "/api/spot/"] }
+      - { name: place, window_ms: 1000, max: 9, match: ["/api/v1/futures/trade/place_order", "/api/v1/futures/trade/modify_order"] }
+      - { name: cancel, window_ms: 1000, max: 4, match: ["/api/v1/futures/trade/cancel_orders"] }
+      - { name: reads, window_ms: 1000, max: 8, match: ["/api/v1/futures/trade/get_", "/api/v1/futures/position/", "/api/v1/futures/account"] }
       - { name: ws_streams, kind: ws_streams, max: 280 }
       - { name: ws_sockets, kind: ws_sockets, max: 12 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }

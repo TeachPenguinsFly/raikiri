@@ -16,3 +16,17 @@ Rows are kept verbatim; long lists are cut to the rows a test names.
 | `ws_pong.json` | the answer to `{"op":"ping","ping":<unix s>}` |
 | `ws_depth_book1.json`, `ws_depth_book15.json` | `depth_book1` and `depth_book15`, BTCUSDT |
 | `ws_trade.json` | `trade`, BTCUSDT |
+
+The `doc_*` files are the response examples printed in the official API docs,
+copied verbatim on 2026-10-02: no key has reached the private endpoints, so no
+live answer exists. Pages under https://www.bitunix.com/api-docs/futures/:
+
+| file | source |
+|---|---|
+| `doc_place_order.json` | `POST /api/v1/futures/trade/place_order`, trade/place_order.html |
+| `doc_modify_order.json` | `POST /api/v1/futures/trade/modify_order`, trade/modify_order.html |
+| `doc_cancel_orders.json` | `POST /api/v1/futures/trade/cancel_orders`, trade/cancel_orders.html |
+| `doc_pending_orders.json` | `GET /api/v1/futures/trade/get_pending_orders`, trade/get_pending_orders.html; the row states no `side` |
+| `doc_history_trades.json` | `GET /api/v1/futures/trade/get_history_trades`, trade/get_history_trades.html; the row states no `side` |
+| `doc_pending_positions.json` | `GET /api/v1/futures/position/get_pending_positions`, position/get_pending_positions.html |
+| `doc_account.json` | `GET /api/v1/futures/account?marginCoin=USDT`, account/get_single_account.html |

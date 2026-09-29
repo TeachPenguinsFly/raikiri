@@ -1,0 +1,1 @@
+{"code":0,"data":{"tradeList":[{"tradeId":"123","orderId":"11111","qty":"1","price":"60000","symbol":"BTCUSDT","positionMode":"HEDGE","marginMode":"ISOLATION","leverage":15,"fee":"0.01","realizedPNL":"1.78","type":"LIMIT","effect":"GTC","reduceOnly":false,"clientId":"22222","source":"api","ctime":1597026383085,"roleType":"TAKER"}],"total":10},"msg":"Success"}
