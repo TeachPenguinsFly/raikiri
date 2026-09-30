@@ -125,7 +125,7 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
       const palette: Record<string, string> = {
         kraken: '#5741d9', kucoin: '#23af91', bitget: '#00f0ff', bingx: '#2f7bff', mexc: '#1972f5',
         coinbase: '#0052ff', htx: '#1d72f3', coinex: '#15b08e', bitmart: '#15c0e6', cryptocom: '#103f9e',
-        deribit: '#15b079', dydx: '#6966ff', lighter: '#9aa0a6', bitfinex: '#16b157', weex: '#f5b500', phemex: '#2d5af0', bitmex: '#e0413d', backpack: '#e44d2e', pacifica: '#3b82f6', bitunix: '#b9f641', lbank: '#f0b90b',
+        deribit: '#15b079', dydx: '#6966ff', lighter: '#9aa0a6', bitfinex: '#16b157', weex: '#f5b500', phemex: '#2d5af0', bitmex: '#e0413d', backpack: '#e44d2e', pacifica: '#3b82f6', bitunix: '#b9f641', toobit: '#1fc7d4', lbank: '#f0b90b',
       }
       const fill = palette[venue] ?? '#475569'
       return (

@@ -300,6 +300,24 @@ venues:
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1200, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 64 }
 
+  toobit:
+    order_answer_timeout_ms: 15000
+    limits:
+      - { name: weight, window_ms: 60000, max: 2700, reserve: 270 }
+      - { name: orders, window_ms: 2000, max: 54, reserve: 10, match: ["/api/v1/futures/order"] }
+      - { name: ws_streams, kind: ws_streams, max: 1000 }
+      - { name: ws_sockets, kind: ws_sockets, max: 8 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
+      - { name: ws_frame, kind: ws_frame, max: 50 }
+    default_cost: 1
+    costs:
+      - { match: "/api/v1/futures/positions", cost: 5 }
+      - { match: "/api/v1/futures/balance", cost: 5 }
+      - { match: "/api/v1/futures/userTrades", cost: 5 }
+      - { match: "/api/v1/futures/order/update", cost: 2 }
+      - { match: "/quote/v1/contract/ticker/24hr", cost: 40 }
+      - { match: "/quote/v1/ticker/24hr", cost: 40 }
+
   pacifica:
     order_answer_timeout_ms: 15000
     limits:

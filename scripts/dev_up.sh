@@ -60,7 +60,7 @@ if [[ -f "$ENV_FILE" && -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_
     echo "op is not on PATH — running public only" >&2
 fi
 
-VENUES="${VENUES:-binance bybit okx gate kucoin bingx xt mexc hyperliquid bitget htx bitfinex kraken weex aster grvt lighter backpack cryptocom blofin apex edgex dydx phemex extended pacifica lbank bitunix deribit deribit-opt}"
+VENUES="${VENUES:-binance bybit okx gate kucoin bingx xt mexc hyperliquid bitget htx bitfinex kraken weex aster grvt lighter backpack cryptocom blofin apex edgex dydx phemex extended pacifica lbank bitunix toobit deribit deribit-opt}"
 
 # spot follows VENUES; SPOT=none for none, SPOT="okx bybit" for exactly these
 SPOT="${SPOT-auto}"

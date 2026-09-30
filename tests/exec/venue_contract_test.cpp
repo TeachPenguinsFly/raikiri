@@ -282,6 +282,7 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
                                              "mexc",
                                              "okx",
                                              "sim",
+                                             "toobit",
                                              "weex",
                                              "xt"}));
 }

@@ -76,6 +76,7 @@
       <validValue name="Pacifica">30</validValue>
       <validValue name="Lbank">31</validValue>
       <validValue name="Bitunix">32</validValue>
+      <validValue name="Toobit">33</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

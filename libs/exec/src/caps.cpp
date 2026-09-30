@@ -710,6 +710,28 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .max_client_order_id_len = 32,
         .headline_order_rate_per_s = 10,
     };
+
+    table[static_cast<std::size_t>(VenueId::Toobit)] = {
+        .venue = VenueId::Toobit,
+        // orders reach usdt perps only; spot is market data.
+        .markets = {.spot = true, .perp = true},
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = false,
+        .amend_order = true,
+        .native_post_only = true,
+        .book_checksum = false,
+        .position_pull = {.perp = true},
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
+        .balance_pull = {.perp = true},
+        .funding_charge = {},
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::ListenKey,
+        .max_client_order_id_len = 26,
+        .headline_order_rate_per_s = 30,
+    };
     return table;
 }();
 

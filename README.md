@@ -74,6 +74,7 @@ running a gateway and adding a venue.
 | `okx` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `pacifica` | DEX | perp | **market data only** | – | – | – | – |
 | `phemex` | CEX | spot · perp | **market data only** | – | – | – | – |
+| `toobit` | CEX | spot · perp | REST | – | – | ListenKey | – |
 | `weex` | CEX | perp | REST | – | – | – | ✓ |
 | `xt` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 <!-- venues:end -->

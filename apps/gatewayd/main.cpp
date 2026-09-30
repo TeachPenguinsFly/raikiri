@@ -49,6 +49,7 @@
 #include <raikiri/venues/pacifica/pacifica_venue.hpp>
 #include <raikiri/venues/phemex/phemex_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
+#include <raikiri/venues/toobit/toobit_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
 
@@ -990,6 +991,7 @@ int main(int argc, char** argv) {
     venues::pacifica::register_adapter();
     venues::lbank::register_adapter();
     venues::bitunix::register_adapter();
+    venues::toobit::register_adapter();
     // one budget shared with the account poller; a venue missing from the file is unlimited
     std::optional<exec::RateBudget> budget;
     // an absent venue still gets the default answer timeout; zero would never report an unanswered order

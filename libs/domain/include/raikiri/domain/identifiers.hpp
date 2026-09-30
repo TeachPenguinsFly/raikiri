@@ -44,9 +44,10 @@ enum class VenueId : std::uint8_t {
     Pacifica,
     Lbank,
     Bitunix,
+    Toobit,
 };
 
-inline constexpr std::size_t k_venue_count = 33; // including Invalid and the retired
+inline constexpr std::size_t k_venue_count = 34; // including Invalid and the retired
 
 [[nodiscard]] constexpr bool is_retired(VenueId venue) noexcept {
     return venue == VenueId::RetiredBitmex;
