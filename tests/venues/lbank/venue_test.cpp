@@ -81,6 +81,8 @@ TEST(LbankIdentity, IsVenueThirtyOneWithBothMarketsAndNoOrderEntry) {
     EXPECT_TRUE(caps.markets.perp);
     EXPECT_FALSE(caps.ws_order_entry);
     EXPECT_FALSE(caps.fix_order_entry);
+    EXPECT_TRUE(caps.manual_only.perp);
+    EXPECT_FALSE(caps.manual_only.spot);
 }
 
 TEST(LbankPerpCatalogue, MapsTheTicksAndLeavesTheSuspendedContractOut) {

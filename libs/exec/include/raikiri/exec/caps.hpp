@@ -46,6 +46,9 @@ struct VenueCaps {
 
     [[nodiscard]] constexpr bool serves(MarketType market) const noexcept { return markets.has(market); }
 
+    // markets the venue publishes no order api for; an opportunity there is for a person to take by hand
+    MarketSet manual_only{};
+
     bool ws_order_entry{false};  // orders placeable over a WS trade API
     bool fix_order_entry{false}; // FIX offered at any access tier
     bool cancel_by_client_order_id{false};

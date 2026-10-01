@@ -7,9 +7,9 @@ A low-latency, multi-process crypto trading framework in C++23
 [![License](https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square)](LICENSE)
 [![Latency](https://img.shields.io/badge/cross--process%20p50-167%20ns-2da44e?style=flat-square)](docs/README.md#performance)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
-[![Venues](https://img.shields.io/badge/venues-28%20live-2da44e?style=flat-square)](#venues)
+[![Venues](https://img.shields.io/badge/venues-31%20live-2da44e?style=flat-square)](#venues)
 [![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
-[![Tests](https://img.shields.io/badge/tests-2067-2da44e?style=flat-square)](docs/README.md#build-and-test)
+[![Tests](https://img.shields.io/badge/tests-2122-2da44e?style=flat-square)](docs/README.md#build-and-test)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](docs/README.md#build-and-test)
 
 [Documentation](docs/README.md) · [Venues](#venues) ·
@@ -68,7 +68,7 @@ running a gateway and adding a venue.
 | `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `kraken` | CEX | perp | REST + WS | ✓ | – | AuthSubscribe | – |
 | `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | – |
-| `lbank` | CEX | spot · perp | **market data only** | – | – | – | – |
+| `lbank` | CEX | spot · perp | **market data only**, no perp order API | – | – | – | – |
 | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – |
 | `mexc` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
 | `okx` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |

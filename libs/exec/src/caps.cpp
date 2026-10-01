@@ -669,6 +669,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::Lbank)] = {
         .venue = VenueId::Lbank,
         .markets = {.spot = true, .perp = true},
+        .manual_only = {.perp = true},
         .ws_order_entry = false,
         .fix_order_entry = false,
         .cancel_by_client_order_id = false,
