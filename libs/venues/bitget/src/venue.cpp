@@ -45,10 +45,8 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest) {
 
 namespace {
 
-// credentials are references; one that does not resolve leaves the adapter unsigned
-void load_credentials(const exec::VenueConfig& config, VenueState& state) {
-    // a venue factory cannot report a bad reference, so a typo reads as a revoked key
-    (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
+std::vector<config::CredentialError> load_credentials(const exec::VenueConfig& config, VenueState& state) {
+    return config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
         .key([&](std::string_view value) { state.signer.set_api_key(value); })
         .secret(state.signer.secret())
         .passphrase([&](std::string_view value) { (void)state.passphrase.assign(value); })
@@ -59,8 +57,9 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     const auto market = config.market;
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet, market);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
-    load_credentials(config, *state);
+    const auto credential_errors = load_credentials(config, *state);
     exec::VenueAdapter adapter{};
+    adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Bitget);
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);

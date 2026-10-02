@@ -36,18 +36,20 @@ using internal::VenueState;
 namespace {
 
 // credentials are references to where secrets live; seal the passphrase after the secret loads
-void load_credentials(const exec::VenueConfig& config, VenueState& state) {
-    // a bad reference is dropped here and reads downstream as a revoked key
-    (void)config::Credentials{config.api_key_env, config.api_secret_env}
-        .key([&](std::string_view value) { state.credentials.signer().set_api_key(value); })
-        .secret(state.credentials.signer().secret())
-        .resolve();
+std::vector<config::CredentialError> load_credentials(const exec::VenueConfig& config, VenueState& state) {
+    auto errors = config::Credentials{config.api_key_env, config.api_secret_env}
+                      .key([&](std::string_view value) { state.credentials.signer().set_api_key(value); })
+                      .secret(state.credentials.signer().secret())
+                      .resolve();
     // the passphrase is sealed with the secret, so skip sealing without one
     if (!state.credentials.signer().secret().view().empty()) {
-        (void)config::Credentials{{}, {}, config.passphrase_env}
-            .passphrase([&](std::string_view value) { (void)state.credentials.seal_passphrase(value); })
-            .resolve();
+        const auto sealed = config::Credentials{{}, {}, config.passphrase_env}
+                                .passphrase(
+                                    [&](std::string_view value) { (void)state.credentials.seal_passphrase(value); })
+                                .resolve();
+        errors.insert(errors.end(), sealed.begin(), sealed.end());
     }
+    return errors;
 }
 
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
@@ -63,11 +65,12 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     } else if (!config.market_data_feed.empty()) {
         RLOG_WARN("kucoin: unknown feed '{}' — staying on the classic tree", config.market_data_feed);
     }
-    load_credentials(config, *state);
+    const auto credential_errors = load_credentials(config, *state);
 
     state->market = config.market;
 
     exec::VenueAdapter adapter{};
+    adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Kucoin);
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state, config.market);

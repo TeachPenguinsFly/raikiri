@@ -14,6 +14,15 @@ std::string_view to_string(CredentialError::Field field) noexcept {
     return "credential";
 }
 
+std::vector<std::string> describe(const std::vector<CredentialError>& errors) {
+    std::vector<std::string> out;
+    out.reserve(errors.size());
+    for (const auto& error : errors) {
+        out.push_back(std::string{to_string(error.field)} + ": " + std::string{to_string(error.error)});
+    }
+    return out;
+}
+
 Credentials& Credentials::key(Install install) {
     steps_.push_back(
         {.field = CredentialError::Field::Key, .spec = key_spec_, .install = std::move(install), .into = nullptr});

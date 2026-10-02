@@ -44,6 +44,13 @@ TEST(Credentials, EachFailureNamesTheFieldItCameFrom) {
     EXPECT_EQ(to_string(failures[1].field), "api secret");
 }
 
+TEST(Credentials, ADescriptionNamesTheFieldAndTheCauseButNotTheValue) {
+    const auto lines = describe(Credentials{"nope:key", ""}.key([](std::string_view) {}).resolve());
+
+    ASSERT_EQ(lines.size(), 1U);
+    EXPECT_EQ(lines[0], "api key: unknown secret scheme");
+}
+
 TEST(Credentials, OneBadReferenceDoesNotStopTheRest) {
     const EnvVar key{"RAIKIRI_TEST_CRED_KEY", "the-key"};
     std::string got;

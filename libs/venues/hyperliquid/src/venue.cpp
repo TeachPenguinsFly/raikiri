@@ -48,14 +48,14 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
             feed = cut == std::string_view::npos ? std::string_view{} : feed.substr(cut + 1);
         }
     }
-    // a bad credential reference is dropped here and later reads as a revoked key
-    (void)config::Credentials{config.api_key_env, config.api_secret_env}
-        // the account address rides api_key_env; it is public
-        .key([&](std::string_view value) { state->address = std::string{value}; })
-        // secp256k1 private key; without it the gateway reads but cannot trade
-        .secret([&](std::string_view value) { (void)state->wallet.load(value); })
-        .resolve();
+    const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env}
+                                       // the account address rides api_key_env; it is public
+                                       .key([&](std::string_view value) { state->address = std::string{value}; })
+                                       // secp256k1 private key; without it the gateway reads but cannot trade
+                                       .secret([&](std::string_view value) { (void)state->wallet.load(value); })
+                                       .resolve();
     exec::VenueAdapter adapter{};
+    adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Hyperliquid);
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);

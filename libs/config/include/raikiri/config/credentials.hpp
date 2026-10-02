@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -19,6 +20,9 @@ struct CredentialError {
 };
 
 [[nodiscard]] std::string_view to_string(CredentialError::Field field) noexcept;
+
+// one line per error, naming the field and why, never the value
+[[nodiscard]] std::vector<std::string> describe(const std::vector<CredentialError>& errors);
 
 class Credentials {
 public:

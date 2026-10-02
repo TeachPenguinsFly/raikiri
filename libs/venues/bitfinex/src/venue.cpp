@@ -37,12 +37,13 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    (void)config::Credentials{config.api_key_env, config.api_secret_env}
-        .key([&](std::string_view value) { state->api_key.assign(value); })
-        .secret(state->api_secret)
-        .resolve();
+    const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env}
+                                       .key([&](std::string_view value) { state->api_key.assign(value); })
+                                       .secret(state->api_secret)
+                                       .resolve();
 
     exec::VenueAdapter adapter{};
+    adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Bitfinex);
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state, config.market);

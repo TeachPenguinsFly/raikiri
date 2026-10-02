@@ -1035,6 +1035,12 @@ int main(int argc, char** argv) {
         RLOG_ERROR("gatewayd: adapter build failed — {}", exec::to_string(adapter.error()));
         return 1;
     }
+    if (!adapter->credential_errors.empty()) {
+        for (const auto& error : adapter->credential_errors) {
+            RLOG_ERROR("gatewayd: credential reference did not resolve — {}", error);
+        }
+        return 1;
+    }
     if (const auto started = adapter->data->start(); !started.has_value()) {
         RLOG_ERROR("gatewayd: market data failed to start — {}", started.error().message.view());
         return 1;

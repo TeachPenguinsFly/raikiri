@@ -80,6 +80,22 @@ TEST(HyperliquidVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->data, nullptr);
 }
 
+TEST(HyperliquidVenue, AReferenceThatDoesNotResolveReachesTheCallerNamed) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    const auto adapter = exec::make_venue({.venue = VenueId::Hyperliquid,
+                                           .market = MarketType::Perp,
+                                           .api_key_env = "env:RAIKIRI_TEST_UNSET_KEY",
+                                           .api_secret_env = "nope:secret"},
+                                          sink,
+                                          clock);
+    ASSERT_TRUE(adapter.has_value());
+    ASSERT_EQ(adapter->credential_errors.size(), 2U);
+    EXPECT_EQ(adapter->credential_errors[0], "api key: secret not found");
+    EXPECT_EQ(adapter->credential_errors[1], "api secret: unknown secret scheme");
+}
+
 TEST(HyperliquidVenue, OrderEntryWithoutAKeyRefusesThroughTheSink) {
     // without a key the refusal must arrive as an event, since nothing
     // is pushed for an unsent request

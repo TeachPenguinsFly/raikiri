@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace raikiri::exec {
 
@@ -45,6 +46,8 @@ struct VenueAdapter {
     std::unique_ptr<DataClient> data;
     std::unique_ptr<ExecutionClient> execution;
     std::unique_ptr<InstrumentSource> instruments;
+    // references that were given but did not resolve; gatewayd refuses to start on any
+    std::vector<std::string> credential_errors;
 };
 
 enum class MakeError : std::uint8_t {

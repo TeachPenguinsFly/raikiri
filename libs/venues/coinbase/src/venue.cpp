@@ -54,20 +54,21 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    // credential errors are dropped here; a typo reads downstream as a revoked key
-    (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
-        .key([&](std::string_view value) { state->signer.set_api_key(value); })
-        // decoded once: coinbase keys the hmac with the raw secret bytes
-        .secret([&](std::string_view encoded) {
-            std::array<char, k_max_secret_bytes> raw{};
-            if (const auto len = decode_secret(encoded, raw); len.has_value()) {
-                (void)state->signer.secret().assign(std::string_view{raw.data(), *len});
-            }
-        })
-        .passphrase([&](std::string_view value) { state->passphrase = std::string{value}; })
-        .resolve();
+    const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
+                                       .key([&](std::string_view value) { state->signer.set_api_key(value); })
+                                       // decoded once: coinbase keys the hmac with the raw secret bytes
+                                       .secret([&](std::string_view encoded) {
+                                           std::array<char, k_max_secret_bytes> raw{};
+                                           if (const auto len = decode_secret(encoded, raw); len.has_value()) {
+                                               (void)state->signer.secret().assign(std::string_view{raw.data(), *len});
+                                           }
+                                       })
+                                       .passphrase(
+                                           [&](std::string_view value) { state->passphrase = std::string{value}; })
+                                       .resolve();
 
     exec::VenueAdapter adapter{};
+    adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Coinbase);
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);
