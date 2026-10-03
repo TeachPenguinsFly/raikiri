@@ -1,21 +1,22 @@
 # The browser check
 
 Playwright tests that load the terminal against a running admind and check what
-the page renders. A quote can reach the socket and still not be drawn.
+the page renders. A quote can reach the socket and still not be drawn, so the
+tests read the page itself.
 
 ## Running it
 
-The stack is not started from here. Bring it up from the repo root, wait for the
+The tests do not start the stack. Bring it up from the repo root, wait for the
 gateways to attach, then run the tests against it:
 
     make up                 # repo root: gateways, admind, and vite on :5173
     cd frontend
     npm run test:e2e
 
-If nothing is listening on `127.0.0.1:5173`, or the web port is serving the app
+If nothing is listening on `127.0.0.1:5173`, or the web port serves the app
 without proxying `/v1`, the run says so and stops before launching a browser.
 
-Browsers are installed once, per machine:
+Install the browser once per machine:
 
     npx playwright install chromium
 

@@ -1,16 +1,29 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ExchangeIcon } from '@/components/shared/ExchangeIcon'
 import { Icon } from '@/components/shared/Icon'
-import { api, placeOrder } from '@/api/client'
-import { type LiveListing } from '@/lib/live'
+import { api, type AccountBalances, placeOrder } from '@/api/client'
+import { useDismiss } from '@/lib/dismiss'
+import { cn, fixed, price, spreadBp } from '@/lib/format'
+import type { LiveListing } from '@/lib/live'
 import { useQuery } from '@/lib/query'
-import { cn } from '@/lib/utils'
 
 type Kind = 'limit' | 'market'
 
-const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
-const grouped = (v: number) =>
-  v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const k_balances_refresh_ms = 10_000
+
+const k_denomination = 'USDT'
+
+const k_size_fractions = [0.25, 0.5, 1]
+
+/** a long price steps down a size so the whole figure still fits the touch */
+const touchSize = (decimal: string | null) =>
+  decimal !== null && price(decimal).length > 10 ? 'text-xs' : 'text-sm'
+
+/** a null free balance refuses sizing rather than using the committed total */
+function freeBalance(accounts: AccountBalances[], account: string): number | null {
+  const v = accounts.find((a) => a.account === account)?.assets.find((x) => x.asset === k_denomination)?.available
+  return v === undefined || v === null ? null : Number(v)
+}
 
 export function OrderTicket({
   listings,
@@ -27,14 +40,17 @@ export function OrderTicket({
   const [sent, setSent] = useState<string | null>(null)
   const [inFlight, setInFlight] = useState(false)
 
-  const balances = useQuery(() => api.balances(), [], 10_000)
+  const [seededFor, setSeededFor] = useState<string | null>(null)
+
+  const balances = useQuery(() => api.balances(), [], k_balances_refresh_ms)
 
   const listing = listings.find((l) => l.venue === venue) ?? null
 
-  // the limit price starts at the bid and moves when a touch is pressed
-  useEffect(() => {
-    if (listing?.bid != null) setLimit(price(listing.bid))
-  }, [listing?.venue, listing?.exchange_symbol, listing?.bid])
+  // the limit starts at the first bid of each instrument; after that only a touch press moves it
+  if (listing !== null && listing.bid !== null && seededFor !== listing.instrument_id) {
+    setSeededFor(listing.instrument_id)
+    setLimit(price(listing.bid))
+  }
 
   if (listing === null) {
     return (
@@ -49,27 +65,16 @@ export function OrderTicket({
 
   const base = listing.exchange_symbol.replace(/USDT.*|_.*|-.*/, '')
   // a market order works at the ask; null until the venue quotes
-  const working = kind === 'market' ? listing.ask : Number(limit)
+  const working = kind === 'market' ? listing.askValue : Number(limit)
   const notional = working === null ? null : working * Number(qty)
   const armed =
     !inFlight && Number(qty) > 0 && (kind === 'market' ? listing.ask !== null : Number(limit) > 0)
+  const free = balances.state === 'ready' ? freeBalance(balances.data, listing.account) : null
+  const spread = spreadBp(listing.bidValue, listing.askValue)
 
-  // a null free balance refuses sizing rather than using the committed total
-  const free =
-    balances.state === 'ready'
-      ? (() => {
-          const account = balances.data.find((a) => a.account === listing.account)
-          const usdt = account?.assets.find((x) => x.asset === 'USDT')
-          const v = usdt?.available
-          return v === undefined || v === null ? null : Number(v)
-        })()
-      : null
-
-  /** 202 means queued; one idempotency key per attempt, reused on retry */
   const submit = async (side: 'buy' | 'sell') => {
     if (!armed) return
     setInFlight(true)
-    const key = crypto.randomUUID()
     try {
       const accepted = await placeOrder(
         {
@@ -83,7 +88,7 @@ export function OrderTicket({
           post_only: false,
           reduce_only: false,
         },
-        key,
+        crypto.randomUUID(),
       )
       setSent(`queued ${accepted.client_order_id}`)
     } catch (err) {
@@ -108,20 +113,24 @@ export function OrderTicket({
             type="button"
             disabled={listing.bid === null}
             onClick={() => listing.bid !== null && setLimit(price(listing.bid))}
-            className="num flex h-8 flex-1 items-center justify-center rounded-sm bg-up/[0.10] text-sm text-up transition-colors duration-150 hover:bg-up/[0.16]"
+            className={cn(
+              'num flex h-8 min-w-0 flex-1 items-center justify-center rounded-sm bg-up/[0.10] text-up transition-colors duration-150 hover:bg-up/[0.16]',
+              touchSize(listing.bid),
+            )}
           >
             {listing.bid === null ? '—' : price(listing.bid)}
           </button>
           <span className="num flex w-14 shrink-0 items-center justify-center text-2xs text-fg-dim">
-            {listing.bid === null || listing.ask === null || listing.bid === 0
-              ? '—'
-              : `${(((listing.ask - listing.bid) / listing.bid) * 10_000).toFixed(1)} bp`}
+            {spread === null ? '—' : `${spread.toFixed(1)} bp`}
           </span>
           <button
             type="button"
             disabled={listing.ask === null}
             onClick={() => listing.ask !== null && setLimit(price(listing.ask))}
-            className="num flex h-8 flex-1 items-center justify-center rounded-sm bg-down/[0.10] text-sm text-down transition-colors duration-150 hover:bg-down/[0.16]"
+            className={cn(
+              'num flex h-8 min-w-0 flex-1 items-center justify-center rounded-sm bg-down/[0.10] text-down transition-colors duration-150 hover:bg-down/[0.16]',
+              touchSize(listing.ask),
+            )}
           >
             {listing.ask === null ? '—' : price(listing.ask)}
           </button>
@@ -147,7 +156,7 @@ export function OrderTicket({
 
         <Field
           label="Price"
-          unit="USDT"
+          unit={k_denomination}
           value={kind === 'market' ? '' : limit}
           placeholder={kind === 'market' && listing.ask !== null ? price(listing.ask) : ''}
           disabled={kind === 'market'}
@@ -156,7 +165,7 @@ export function OrderTicket({
         <Field label="Quantity" unit={base} value={qty} onChange={setQty} />
 
         <div className="flex gap-1" title={free === null ? 'this venue publishes no free balance' : undefined}>
-          {[0.25, 0.5, 1].map((f) => (
+          {k_size_fractions.map((f) => (
             <button
               key={f}
               type="button"
@@ -201,7 +210,7 @@ export function OrderTicket({
               </span>
               <span className={cn('num text-2xs', armed ? 'opacity-70' : 'text-fg-dim')}>
                 {notional !== null && Number.isFinite(notional) && notional > 0
-                  ? `${grouped(notional)} USDT`
+                  ? `${fixed(notional)} ${k_denomination}`
                   : `0 ${base}`}
               </span>
             </button>
@@ -225,22 +234,7 @@ function VenuePicker({
 }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const away = (e: PointerEvent) => {
-      if (box.current?.contains(e.target as Node) !== true) setOpen(false)
-    }
-    const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', away)
-    document.addEventListener('keydown', escape)
-    return () => {
-      document.removeEventListener('pointerdown', away)
-      document.removeEventListener('keydown', escape)
-    }
-  }, [open])
+  useDismiss(box, open, setOpen)
 
   return (
     <div ref={box} className="relative">
@@ -285,7 +279,7 @@ function VenuePicker({
               <span className="num ml-auto text-xs text-up">
                 {l.bid === null ? '—' : price(l.bid)}
               </span>
-              <span className="num w-[52px] text-right text-xs text-down">
+              <span className="num min-w-[52px] text-right text-xs text-down">
                 {l.ask === null ? '—' : price(l.ask)}
               </span>
             </button>

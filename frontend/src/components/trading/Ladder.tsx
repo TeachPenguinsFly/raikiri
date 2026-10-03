@@ -1,24 +1,28 @@
-import { size } from '@/lib/format'
-import { cn } from '@/lib/utils'
+import { memo } from 'react'
+import type { components } from '@/api/types'
+import { cn, midPrice, placesOf, price, size, spreadBp } from '@/lib/format'
 
-const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
+type Book = components['schemas']['Book']
 
-interface Level {
-  price: number
-  size: number
+type Level = { price: string; size: number; depth: number }
+
+/** an unparseable size counts as zero so depth stays monotonic */
+function cumulative(levels: Book['bids']): Level[] {
+  let running = 0
+  return levels.map((l) => {
+    const qty = Number(l.size) || 0
+    return { price: l.price, size: qty, depth: (running += qty) }
+  })
 }
 
-/** asks above, bids below; depth bars are cumulative from the touch */
-export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
-  const cumulative = (rows: Level[]) => {
-    let running = 0
-    return rows.map((r) => ({ ...r, depth: (running += r.size) }))
-  }
-  const bidRows = cumulative(bids)
-  const askRows = cumulative(asks)
-  const peak = Math.max(bidRows.at(-1)?.depth ?? 1, askRows.at(-1)?.depth ?? 1)
-  const spread = bids[0] !== undefined && asks[0] !== undefined ? asks[0].price - bids[0].price : null
-  const mid = bids[0] !== undefined && asks[0] !== undefined ? (asks[0].price + bids[0].price) / 2 : null
+export const Ladder = memo(function Ladder({ book }: { book: Book }) {
+  const bids = cumulative(book.bids)
+  const asks = cumulative(book.asks)
+  const peak = Math.max(bids.at(-1)?.depth ?? 1, asks.at(-1)?.depth ?? 1)
+  const places = placesOf([...bids, ...asks].map((l) => l.price))
+  const bid = book.bids[0]?.price
+  const ask = book.asks[0]?.price
+  const spread = bid === undefined || ask === undefined ? null : spreadBp(Number(bid), Number(ask))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -29,34 +33,38 @@ export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col-reverse justify-start overflow-hidden">
-        {askRows.map((r, i) => (
-          <Row key={r.price} row={r} peak={peak} tone="down" faded={i} />
+        {asks.map((r, i) => (
+          <Row key={r.price} row={r} places={places} peak={peak} tone="down" faded={i} />
         ))}
       </div>
 
       <div className="flex h-7 shrink-0 items-center justify-between bg-raised px-3">
-        <span className="num text-sm font-medium text-fg">{mid === null ? '—' : price(mid)}</span>
+        <span className="num text-sm font-medium text-fg">
+          {bid === undefined || ask === undefined ? '—' : midPrice(bid, ask)}
+        </span>
         <span className="num text-2xs text-fg-dim">
-          {spread === null || mid === null ? '—' : `${((spread / mid) * 10_000).toFixed(1)} bp`}
+          {spread === null ? '—' : `${spread.toFixed(1)} bp`}
         </span>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {bidRows.map((r, i) => (
-          <Row key={r.price} row={r} peak={peak} tone="up" faded={i} />
+        {bids.map((r, i) => (
+          <Row key={r.price} row={r} places={places} peak={peak} tone="up" faded={i} />
         ))}
       </div>
     </div>
   )
-}
+})
 
 function Row({
   row,
+  places,
   peak,
   tone,
   faded,
 }: {
-  row: Level & { depth: number }
+  row: Level
+  places: number
   peak: number
   tone: 'up' | 'down'
   faded: number
@@ -72,7 +80,7 @@ function Row({
           className={cn('w-[62px]', tone === 'up' ? 'text-up' : 'text-down')}
           style={faded === 0 ? undefined : { opacity: Math.max(0.45, 0.8 - faded * 0.02) }}
         >
-          {price(row.price)}
+          {price(row.price, places)}
         </span>
         <span className="flex-1 text-right text-fg-mid">{size(row.size)}</span>
         <span className="w-[52px] text-right text-fg-dim">{size(row.depth)}</span>

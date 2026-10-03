@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/format'
 
 type Props = { className?: string; strokeWidth?: number }
 

@@ -1,125 +1,69 @@
 # HTX fixtures
 
-Captured 2026-08-11 against production (`api.hbdm.com`, no credentials). Every
-file is a real response or a real frame; nothing here is hand-written.
+Captured 2026-08-11 from production (`api.hbdm.com`, no credentials) unless a
+row gives another date. Every file is a real response or frame except
+`rest_swap_financial_record.json`, which is built from the API reference.
 
-## How the websocket captures were taken
-
-HTX gzips every websocket frame under a binary opcode, so websocat's default
-stdout would mangle them. All captures used `websocat --base64`, driven by a
-small script that decoded each line, inflated it, and answered the server's
-ping with the exact timestamp it was given — which is what kept the sockets
-alive long enough to capture anything past the first five seconds.
-
-The `.json` files are the INFLATED text of one frame, spliced out verbatim and
-never re-serialized through a JSON library: a round trip rewrites
-`1.00000000E-10` as `1e-10` and `0.001000000000000000` as `0.001`, and the
-spellings are exactly what several tests exist to pin.
+HTX gzips every websocket frame under a binary opcode, and the server pings
+with a timestamp that must be echoed back or the socket closes within seconds.
+The captures used `websocat --base64` with a small script that decoded and
+inflated each line and answered each ping. The `.json` files are the inflated
+text of one frame, spliced out verbatim. Do not re-serialize them through a
+JSON library: that rewrites `1.00000000E-10` as `1e-10` and
+`0.001000000000000000` as `0.001`.
 
 ## Raw compressed frames
+
+The bytes off the socket, gzip header and CRC trailer included.
 
 | file | block type | inflates to |
 | --- | --- | --- |
 | `ws_bbo.frame.gz` | dynamic Huffman | `ws_bbo.json` |
 | `ws_ping.frame.gz` | fixed Huffman | `ws_ping.json` |
 
-Both are the bytes off the socket, gzip header and CRC trailer included. Two
-block types on purpose: a frame carrying quotes is large enough for HTX's
-encoder to build a dynamic Huffman table, while the 22-byte keepalive is not,
-and an inflater that only ever saw one of them would be half tested.
+## Market socket, `wss://api.hbdm.com/linear-swap-ws`
 
-## Market socket — `wss://api.hbdm.com/linear-swap-ws`
+Subscribe with `{"sub":"market.BTC-USDT.bbo","id":"id1"}` and the like.
 
-Subscribed with `{"sub":"market.BTC-USDT.bbo","id":"id1"}` and friends.
-
-| file | topic / provenance |
+| file | topic |
 | --- | --- |
 | `ws_bbo.json` | `market.BTC-USDT.bbo` |
 | `ws_trade.json` | `market.BTC-USDT.trade.detail`, one print |
 | `ws_trades_batch.json` | `market.ETH-USDT.trade.detail`, four prints off one match |
-| `ws_depth_step0.json` | `market.BTC-USDT.depth.step0`, **trimmed** (see below) |
-| `ws_depth_step0_full.json` | `market.BTC-USDT.depth.step0`, whole, 150 levels a side (2026-08-17) |
-| `ws_detail.json` | `market.BTC-USDT.detail`, the 24-hour window, captured 2026-09-04 |
+| `ws_depth_step0.json` | `market.BTC-USDT.depth.step0`, each side cut to its first five levels at the bracket boundaries |
+| `ws_depth_step0_full.json` | `market.BTC-USDT.depth.step0`, whole, 150 levels a side; first frame of a 15 s capture on 2026-08-17 |
+| `ws_detail.json` | `market.BTC-USDT.detail`, captured 2026-09-04 |
 | `ws_subscribe_ack.json` | the answer to the bbo subscribe |
 | `ws_error.json` | the answer to `{"sub":"market.BTC-USDT.NOSUCH"}` |
 | `ws_ping.json` | the server's keepalive; the client answers `{"pong":1786431113951}` |
 
-`ws_depth_step0.json` is the only edited file. The live frame carried about
-150 levels a side; each side was cut to its first five by splicing at the
-bracket boundaries, so every number is still spelled the way HTX spelled it.
+## Notification socket, `wss://api.hbdm.com/linear-swap-notification`
 
-`ws_depth_step0_full.json` is the first frame of a 15 s capture taken
-2026-08-17 with the same subscribe, kept whole so the 100-level cut has
-something to cut. All 119 depth frames in that capture carried 150 levels a
-side and none carried an action or a previous-sequence field, which is the
-measurement behind calling step0 a snapshot rather than an increment.
+Subscribe with `{"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"c1"}`.
 
-## Notification socket — `wss://api.hbdm.com/linear-swap-notification`
-
-Subscribed with `{"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"c1"}`.
-This is the only funding push HTX has: `market.{code}.funding_rate` is refused
-with "invalid topic" on both the market socket and `/ws_index`.
-
-| file | provenance |
+| file | source |
 | --- | --- |
-| `ws_notify_funding.json` | a funding notify, pushed every ~5 s per contract |
+| `ws_notify_funding.json` | a funding notify |
 | `ws_notify_sub_ack.json` | the subscribe answer, `err-code` 0 |
 | `ws_notify_error.json` | the answer for `public.NOSUCH-USDT.funding_rate` |
 | `ws_notify_ping.json` | the server's keepalive; answered `{"op":"pong","ts":"1786431124111"}` |
-
-Note the keepalive spelling: this socket quotes the timestamp and the market
-socket does not, which is why the adapter echoes the raw token rather than a
-reformatted number.
 
 ## REST
 
 | file | request |
 | --- | --- |
-| `rest_contracts.json` | `GET /linear-swap-api/v1/swap_contract_info`, **trimmed to 5 of 276 rows** |
+| `rest_contracts.json` | `GET /linear-swap-api/v1/swap_contract_info`, trimmed to whole rows for `BTC-USDT`, `ETH-USDT`, `SHIB-USDT`, `PEPE-USDT` and `CYBER-USDT` |
 | `rest_server_time.json` | `GET /api/v1/timestamp` |
 | `rest_error_bad_contract.json` | `GET /linear-swap-api/v1/swap_contract_info?contract_code=NOSUCH-USDT` |
 | `rest_error_invalid_parameter.json` | `GET /linear-swap-ex/market/depth?contract_code=BTC-USDT&type=stepXX` |
 | `rest_error_not_found.json` | `GET /linear-swap-api/v1/no_such_endpoint` (HTTP 404) |
 
-The two error files are not redundant. HTX serves market data from two
-endpoint families that spell failure differently: `linear-swap-api` answers a
-NUMERIC `err_code`, `linear-swap-ex` a hyphenated `err-code`, and an unrouted
-path answers neither — a Spring body whose `status` is the number 404 rather
-than the string "error".
-
-`rest_contracts.json` keeps whole rows spliced out of the live response:
-
-| row | why it is here |
-| --- | --- |
-| `BTC-USDT` | the ordinary case; `contract_size` 0.001, `price_tick` 0.1, 8 h funding |
-| `ETH-USDT` | a second ordinary row, used by the trade-batch mapping tests |
-| `SHIB-USDT` | `price_tick` `1.000000000E-9` — scientific notation the mapper must ACCEPT, exactly at FixedE9's finest |
-| `PEPE-USDT` | `price_tick` `1.00000000E-10` — must be REFUSED; representing it needs a scale the domain does not have |
-| `CYBER-USDT` | `contract_status` 3 with perfectly usable numbers — must be REFUSED on status alone |
-
 ## Built from the API reference
 
-`rest_swap_financial_record.json` is the one signed body here, and no
-credentials exist to capture it: it is assembled from HTX's own
-`POST /linear-swap-api/v3/swap_financial_record_exact` example. Field NAMES and
-TYPES are the doc's — including the float padding on `amount`, which is what a
-typed read would lose — and the contract codes were changed to ones
-`rest_contracts.json` carries.
-
-Five rows, each isolating one decision:
-
-- `type: 31` with a **negative** `amount` — the doc's own row. Funding
-  expenditure;
-- `type: 30` with a **positive** `amount`. The pair is the whole point: a
-  reader taking the magnitude reports every payment as income;
-- `type: 5`, an opening fee. Refused: the fill that incurred it already booked
-  it, and this copy would charge the commission twice;
-- `type: 31` with a **positive** amount. HTX states the direction twice and
-  states neither convention in prose, so a row where the two disagree is
-  refused rather than resolved by preferring one;
-- a `DOGE-USDT` row this catalogue does not carry, so the mapper is seen
-  dropping it.
-
-The envelope is v3's: `code: 200`, not the `status: "ok"` every other body in
-this directory carries, and `data` is a flat array where v1 wrapped it in
-`data.financial_record` beside page counters.
+`rest_swap_financial_record.json` is the example for
+`POST /linear-swap-api/v3/swap_financial_record_exact`, which needs credentials.
+Field names, types and float padding are the reference's; contract codes were
+changed to ones `rest_contracts.json` carries. It has five rows: the
+reference's `type: 31` row with a negative `amount`, and four written here (a
+`type: 30` with a positive amount, a `type: 5` opening fee, a `type: 31` with a
+positive amount, and a `DOGE-USDT` row the catalogue does not carry).

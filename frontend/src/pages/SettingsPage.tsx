@@ -5,7 +5,6 @@ import { Venue } from '@/components/shared/Venue'
 import { nanosToMillis } from '@/lib/format'
 import { useQuery } from '@/lib/query'
 
-/** lists attached gateways; no endpoint checks credentials */
 const k_refresh_ms = 5_000
 
 function since(nanos: string | undefined, now: number): string {

@@ -1,16 +1,14 @@
-import { api, type AccountBalances } from '@/api/client'
+import type { AccountBalances } from '@/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { Silent } from '@/components/shared/Silent'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Venue } from '@/components/shared/Venue'
 import { clockTime, nanosToMillis, toNumber } from '@/lib/format'
-import { useQuery } from '@/lib/query'
 
 /** only this denomination is summed across a venue's wallets */
 const k_denomination = 'USDT'
 
-const k_refresh_ms = 5_000
-
-const num = (v: number) =>
+const amount = (v: number) =>
   v.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: v !== 0 && Math.abs(v) < 1 ? 6 : 2,
@@ -34,29 +32,10 @@ function marketOf(account: string): string {
 const answered = (a: AccountBalances): a is AccountBalances & { reported_at: string } =>
   a.reported_at !== null && a.reported_at !== undefined
 
-/** a missing figure renders as a dash rather than zero */
 function figure(value: string | null | undefined, absent: string) {
-  if (value === undefined || value === null) {
-    return (
-      <span className="text-fg-dim" title={absent}>
-        —
-      </span>
-    )
-  }
-  return num(toNumber(value))
+  return value === undefined || value === null ? <Silent title={absent} /> : amount(toNumber(value))
 }
 
-export function BalanceTree() {
-  const balances = useQuery(() => api.balances(), [], k_refresh_ms)
-
-  if (balances.state === 'loading') return <EmptyState title="Asking the venues" />
-  if (balances.state === 'failed') {
-    return <EmptyState title={balances.title} hint={balances.detail} />
-  }
-  return <BalanceRows accounts={balances.data} />
-}
-
-/** balances grouped by venue, then account, then asset */
 export function BalanceRows({ accounts }: { accounts: AccountBalances[] }) {
   const reported = accounts.filter(answered)
   const venues = [...new Set(reported.map((a) => a.venue))]
@@ -90,14 +69,9 @@ export function BalanceRows({ accounts }: { accounts: AccountBalances[] }) {
               <Venue venue={venue} className="text-sm" />
               <span className="num ml-auto text-sm text-fg">
                 {usdt === null ? (
-                  <span
-                    className="text-fg-dim"
-                    title={`this venue published no ${k_denomination} total`}
-                  >
-                    —
-                  </span>
+                  <Silent title={`this venue published no ${k_denomination} total`} />
                 ) : (
-                  num(usdt)
+                  amount(usdt)
                 )}
               </span>
               <span className="w-12 text-right text-2xs text-fg-dim">{k_denomination}</span>

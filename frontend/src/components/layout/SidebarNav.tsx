@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router'
 import { BrandMark } from '@/components/shared/BrandMark'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/format'
 
-const NAV = [
+const k_nav = [
   { to: '/', label: 'Markets', end: true },
   { to: '/scanner', label: 'Scanner' },
   { to: '/strategies', label: 'Strategies' },
@@ -18,7 +18,7 @@ export function SidebarNav() {
       </div>
 
       <nav className="flex flex-1 flex-col overflow-y-auto py-1">
-        {NAV.map(({ to, label, end }) => (
+        {k_nav.map(({ to, label, end }) => (
           <NavLink
             key={to}
             to={to}

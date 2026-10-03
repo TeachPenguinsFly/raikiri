@@ -7,30 +7,25 @@
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
 
-  --text-2xs: 0.6875rem; /* 11 — column headers, units, counts */
+  --text-2xs: 0.6875rem;
   --text-2xs--line-height: 0.875rem;
-  --text-xs: 0.75rem; /* 12 — secondary metadata */
+  --text-xs: 0.75rem;
   --text-xs--line-height: 1rem;
-  --text-sm: 0.8125rem; /* 13 — table primary data */
+  --text-sm: 0.8125rem;
   --text-sm--line-height: 1.125rem;
-  --text-base: 0.875rem; /* 14 — section headers */
+  --text-base: 0.875rem;
   --text-base--line-height: 1.25rem;
-  --text-lg: 0.9375rem; /* 15 — page and market titles */
+  --text-lg: 0.9375rem;
   --text-lg--line-height: 1.375rem;
-  --text-xl: 1.25rem; /* 20 — headline figures */
+  --text-xl: 1.25rem;
   --text-xl--line-height: 1.625rem;
-  --text-2xl: 1.5rem; /* 24 */
-  --text-2xl--line-height: 1.875rem;
 
-  --color-canvas: #060910; /* the ground the panels sit on */
-  --color-panel: #0f141d; /* a workspace panel */
-  --color-raised: #19212c; /* popovers, inputs, title strips */
-  --color-hover: #202a37; /* a row or control under the pointer */
-  --color-active: #2a3646; /* pressed, or selected and not hovered */
-
-  /* used under a table header only */
+  --color-canvas: #060910;
+  --color-panel: #0f141d;
+  --color-raised: #19212c;
+  --color-hover: #202a37;
+  --color-active: #2a3646;
   --color-line: #1e2734;
-  --color-line-strong: #2e3a4a;
 
   --color-fg: #eef3fa;
   --color-fg-mid: #93a3b8;
@@ -41,11 +36,10 @@
   --color-down: #f0566e;
   --color-accent: #38bdf8;
   --color-amber: #e0a541;
-  --color-violet: #a98cf5;
 
-  --radius-sm: 4px; /* chips, badges, small controls */
-  --radius-md: 6px; /* buttons, inputs, rows */
-  --radius-lg: 8px; /* panels and popovers */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 }
 
 @layer base {
@@ -61,7 +55,7 @@
     @apply bg-canvas text-fg font-sans text-sm antialiased;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    font-feature-settings: 'cv05' 1; /* Inter's straight-legged l, easier at 11px */
+    font-feature-settings: 'cv05' 1;
     overscroll-behavior: none;
   }
   ::selection {
@@ -182,7 +176,7 @@
   }
 }
 
-/* from-only keyframe: the arc grows to its own attribute values */
+/* from-only: the arc grows to its own attribute values */
 @keyframes donut-grow {
   from {
     stroke-dasharray: 0 var(--circumference);

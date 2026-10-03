@@ -6,6 +6,7 @@ Captured live from `api.pacifica.fi` and `wss://ws.pacifica.fi/ws` on
 | file | source |
 |---|---|
 | `rest_info.json` | `GET /api/v1/info`, six rows kept verbatim: SOL, BTC, kBONK, CL and XAU (orderbook + RFQ), SOL-USDC (spot) |
+| `rest_info_live.json` | `GET /api/v1/info`, the whole answer (78 rows); capture date not recorded |
 | `ws_book.json` | `book` source, BTC at `agg_level` 1: ten levels a side, whole ladder |
 | `ws_bbo.json` | `bbo` source, BTC |
 | `ws_trades.json` | `trades` source, BTC: one taker across three levels |

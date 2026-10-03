@@ -16,4 +16,4 @@ keeps every string and integer as the venue sent it.
 | `ws_perp_pack_update.json` | the first incremental after it, trimmed to 3 rows; it carries no `fields` |
 | `ws_inverse_ticker.json`, `ws_spot_ticker.json` | one `market24h` (BTCUSD) and one `spot_market24h` (sBTCUSDT) frame |
 | `ws_ack.json`, `ws_pong.json` | the reply to a subscription and to `server.ping` |
-| `ws_error_subscription_limit.json` | the reply to the 102nd subscription on one socket, as printed by the limit probe |
+| `ws_error_subscription_limit.json` | the reply to the 102nd subscription on one socket |

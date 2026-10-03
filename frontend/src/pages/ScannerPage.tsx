@@ -5,20 +5,20 @@ import { SortHead, type Sort } from '@/components/shared/SortHead'
 import { Venue } from '@/components/shared/Venue'
 import { VenueFilter } from '@/components/scanner/VenueFilter'
 import { api, type UpstreamColumn } from '@/api/client'
-import { compact, nanosToMillis, toNumber } from '@/lib/format'
+import { cn, compact, nanosToMillis, toNumber } from '@/lib/format'
 import { useQuery } from '@/lib/query'
-import { cn } from '@/lib/utils'
-
-/** draws whatever tables and columns the upstream declares */
 
 /** upstream name, set with admind --upstream boards=<port> */
 const k_upstream = 'boards'
 
-type Row = Record<string, string>
+const k_refresh_ms = 2000
 
-/** cells are drawn by the column's declared kind */
+const k_compact_from = 10_000
+
+const Blank = () => <span className="text-fg-dim/40">—</span>
+
 function Cell({ column, value }: { column: UpstreamColumn; value: string | undefined }) {
-  if (value === undefined || value === '') return <span className="text-fg-dim/40">—</span>
+  if (value === undefined || value === '') return <Blank />
   switch (column.kind) {
     case 'venue':
       return <Venue venue={value} />
@@ -30,7 +30,7 @@ function Cell({ column, value }: { column: UpstreamColumn; value: string | undef
     }
     case 'duration': {
       const left = nanosToMillis(value) - Date.now()
-      if (Number.isNaN(left)) return <span className="text-fg-dim/40">—</span>
+      if (Number.isNaN(left)) return <Blank />
       if (left <= 0) return <span className="text-fg-dim">due</span>
       const minutes = Math.floor(left / 60_000)
       return (
@@ -40,7 +40,7 @@ function Cell({ column, value }: { column: UpstreamColumn; value: string | undef
       )
     }
     case 'number':
-      return <span>{Math.abs(toNumber(value)) >= 10_000 ? compact(toNumber(value)) : value}</span>
+      return <span>{Math.abs(toNumber(value)) >= k_compact_from ? compact(toNumber(value)) : value}</span>
     default:
       return <span className="text-fg">{value}</span>
   }
@@ -50,7 +50,7 @@ const numeric = (column: UpstreamColumn): boolean =>
   column.kind === 'number' || column.kind === 'signed' || column.kind === 'duration'
 
 /** opaque because a sticky tr paints nothing */
-const head = 'sticky top-0 z-10 border-b border-line bg-bg'
+const k_head = 'sticky top-0 z-10 border-b border-line bg-panel'
 
 export function ScannerPage() {
   const index = useQuery(() => api.upstreamIndex(k_upstream), [])
@@ -59,9 +59,9 @@ export function ScannerPage() {
   const active = tab ?? tables[0]?.path ?? ''
 
   const table = useQuery(
-    () => (active === '' ? Promise.reject(new Error('no table')) : api.upstreamTable(k_upstream, active)),
+    active === '' ? null : () => api.upstreamTable(k_upstream, active),
     [active],
-    2000,
+    k_refresh_ms,
   )
 
   const [sort, setSort] = useState<Sort<string>>({ key: '', desc: true })
@@ -76,7 +76,7 @@ export function ScannerPage() {
   const available = useMemo(() => {
     if (table.state !== 'ready') return []
     const seen = new Set<string>()
-    for (const row of table.data.rows as Row[]) {
+    for (const row of table.data.rows) {
       for (const key of venueKeys) {
         const v = row[key]
         if (v !== undefined && v !== '') seen.add(v)
@@ -87,7 +87,7 @@ export function ScannerPage() {
 
   const rows = useMemo(() => {
     if (table.state !== 'ready') return []
-    const kept = (table.data.rows as Row[]).filter((row) => {
+    const kept = (table.data.rows).filter((row) => {
       if (venues.size === 0) return true
       // every venue leg must pass the filter
       return venueKeys.every((key) => {
@@ -146,7 +146,7 @@ export function ScannerPage() {
         />
 
         {index.state === 'failed' && (
-          <EmptyState title={index.title} hint={index.detail ?? undefined} />
+          <EmptyState title={index.title} hint={index.detail} />
         )}
         {index.state === 'ready' && tables.length === 0 && (
           <EmptyState title="The upstream serves no tables" />
@@ -157,7 +157,7 @@ export function ScannerPage() {
         )}
 
         {table.state === 'failed' && (
-          <EmptyState title={table.title} hint={table.detail ?? undefined} />
+          <EmptyState title={table.title} hint={table.detail} />
         )}
 
         {table.state === 'ready' && rows.length === 0 && (
@@ -179,7 +179,7 @@ export function ScannerPage() {
                       sort={sort}
                       onSort={setSort}
                       right={column.align === 'right'}
-                      className={head}
+                      className={k_head}
                     >
                       {column.label}
                     </SortHead>
@@ -188,10 +188,7 @@ export function ScannerPage() {
               </thead>
               <tbody>
                 {rows.map((row, i) => (
-                  <tr
-                    key={columns.map((c) => row[c.key] ?? '').join('') + String(i)}
-                    className="border-t border-line/40 hover:bg-bg-hi/40"
-                  >
+                  <tr key={i} className="border-t border-line/40 hover:bg-hover">
                     {columns.map((column) => (
                       <td
                         key={column.key}

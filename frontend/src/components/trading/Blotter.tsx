@@ -1,27 +1,31 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { memo, useMemo, useState, type ReactNode } from 'react'
 import { api, type Fill, type Listing, type Order, type Position } from '@/api/client'
-import { BalanceTree } from '@/components/BalanceTree'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { Silent } from '@/components/shared/Silent'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Venue } from '@/components/shared/Venue'
-import { dateTime, nanosToMillis } from '@/lib/format'
-import { num } from '@/lib/live'
+import { cn, dateTime, fixed, nanosToMillis, num, signed } from '@/lib/format'
 import { useQuery, type Query } from '@/lib/query'
-import { cn } from '@/lib/utils'
 
-export type Tab = 'orders' | 'trades' | 'positions' | 'balances'
+type Tab = 'positions' | 'orders' | 'trades'
 
-const k_all: Tab[] = ['positions', 'orders', 'trades', 'balances']
+const k_tabs: Tab[] = ['positions', 'orders', 'trades']
 
-/** fixed layout and shared lead widths keep common columns still across tabs; leave one column unsized */
-const LEAD = { id: 92, venue: 128, symbol: 112 }
+const k_refresh_ms = 5_000
+
+const k_catalogue_refresh_ms = 60_000
+
+const k_fills_shown = '100'
+
+/** shared lead widths keep common columns still across tabs; one column stays unsized */
+const k_lead = { id: 92, venue: 128, symbol: 112 }
 
 function Cols({ rest }: { rest: Array<number | null> }) {
   return (
     <colgroup>
-      <col style={{ width: LEAD.id }} />
-      <col style={{ width: LEAD.venue }} />
-      <col style={{ width: LEAD.symbol }} />
+      <col style={{ width: k_lead.id }} />
+      <col style={{ width: k_lead.venue }} />
+      <col style={{ width: k_lead.symbol }} />
       {rest.map((w, i) => (
         <col key={i} style={w === null ? undefined : { width: w }} />
       ))}
@@ -29,17 +33,10 @@ function Cols({ rest }: { rest: Array<number | null> }) {
   )
 }
 
-const dp = (v: number, places = 2) =>
-  v.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places })
-const signed = (v: number, places = 2) => `${v >= 0 ? '+' : '−'}${dp(Math.abs(v), places)}`
-
-/** a figure the venue did not publish */
-const Silent = () => <span className="text-fg-dim">—</span>
-
 type Catalogue = Map<string, Listing>
 
 const useCatalogue = (): Catalogue => {
-  const markets = useQuery(() => api.markets({}), [], 60_000)
+  const markets = useQuery(() => api.markets(), [], k_catalogue_refresh_ms)
   return useMemo(() => {
     const map: Catalogue = new Map()
     if (markets.state !== 'ready') return map
@@ -68,31 +65,30 @@ function Outcome<T>({ q, empty, children }: {
   return <>{Array.isArray(q.data) && q.data.length === 0 ? <EmptyState title={empty} /> : children(q.data)}</>
 }
 
-export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
-  const [tab, setTab] = useState<Tab>(tabs[0] as Tab)
+/** no count until the query answers */
+const count = (q: Query<{ items: unknown[] } | unknown[]>): string =>
+  q.state !== 'ready' ? '' : String(Array.isArray(q.data) ? q.data.length : q.data.items.length)
+
+/** memo: it reads nothing from the market stream, so a tick must not redraw it */
+export const Blotter = memo(function Blotter() {
+  const [tab, setTab] = useState<Tab>('positions')
   const catalogue = useCatalogue()
 
   // all queries run so every tab shows its count
-  const orders = useQuery(() => api.orders({ open: true }), [], 5_000)
-  const fills = useQuery(() => api.fills({ limit: '100' }), [], 5_000)
-  const positions = useQuery(() => api.positions(), [], 5_000)
-  const balances = useQuery(() => api.balances(), [], 10_000)
-
-  // no count until the query answers
-  const count = (q: Query<{ items: unknown[] } | unknown[]>): string =>
-    q.state !== 'ready' ? '' : String(Array.isArray(q.data) ? q.data.length : q.data.items.length)
+  const orders = useQuery(() => api.openOrders(), [], k_refresh_ms)
+  const fills = useQuery(() => api.fills(k_fills_shown), [], k_refresh_ms)
+  const positions = useQuery(() => api.positions(), [], k_refresh_ms)
 
   const counts: Record<Tab, string> = {
     orders: count(orders),
     trades: count(fills),
     positions: count(positions),
-    balances: count(balances),
   }
 
   return (
     <section className="panel flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 shrink-0 items-center gap-5 px-3">
-        {tabs.map((t) => (
+        {k_tabs.map((t) => (
           <button
             key={t}
             type="button"
@@ -128,11 +124,10 @@ export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
             {(d) => <Positions rows={d} catalogue={catalogue} />}
           </Outcome>
         )}
-        {tab === 'balances' && <BalanceTree />}
       </div>
     </section>
   )
-}
+})
 
 function Grid({
   cols,
@@ -166,9 +161,6 @@ const N = ({ children, className }: { children: ReactNode; className?: string })
   <td className={cn('num px-3 text-right text-fg', className)}>{children}</td>
 )
 
-const where = (c: Catalogue, id: string) => c.get(id)
-
-/** wire timestamps are nanosecond strings, past what a double holds */
 function When({ nanos }: { nanos: string | undefined }) {
   if (nanos === undefined || nanos === '' || nanos === '0') return <Silent />
   const millis = nanosToMillis(nanos)
@@ -187,7 +179,6 @@ function Cell({ listing, id }: { listing: Listing | undefined; id: string }) {
           <Venue venue={listing.venue} market={listing.market === 'spot' ? 'spot' : 'perp'} />
         )}
       </td>
-      {/* an id the catalogue does not know is shown dimmed rather than as a symbol */}
       {listing === undefined ? (
         <td
           className="num truncate px-3 text-2xs text-fg-dim"
@@ -228,7 +219,7 @@ function Orders({ rows, catalogue }: { rows: Order[]; catalogue: Catalogue }) {
         return (
           <tr key={o.client_order_id} className="row">
             <Id>{o.client_order_id}</Id>
-            <Cell listing={where(catalogue, o.instrument_id)} id={o.instrument_id} />
+            <Cell listing={catalogue.get(o.instrument_id)} id={o.instrument_id} />
             <td className="px-3">
               <StatusBadge status={o.side} />
             </td>
@@ -241,9 +232,9 @@ function Orders({ rows, catalogue }: { rows: Order[]; catalogue: Catalogue }) {
               ) : (
                 <>
                   <span className={qty - leaves > 0 ? 'text-amber' : 'text-fg-dim'}>
-                    {dp(qty - leaves, 4)}
+                    {fixed(qty - leaves, 4)}
                   </span>
-                  <span className="text-fg-dim"> / {dp(qty, 4)}</span>
+                  <span className="text-fg-dim"> / {fixed(qty, 4)}</span>
                 </>
               )}
             </N>
@@ -281,7 +272,7 @@ function Trades({ rows, catalogue }: { rows: Fill[]; catalogue: Catalogue }) {
       {rows.map((t) => (
         <tr key={`${t.venue}:${t.exec_id}`} className="row">
           <Id>{t.exec_id}</Id>
-          <Cell listing={where(catalogue, t.instrument_id)} id={t.instrument_id} />
+          <Cell listing={catalogue.get(t.instrument_id)} id={t.instrument_id} />
           <td className="px-3">
             <StatusBadge status={t.side} />
           </td>
@@ -323,7 +314,7 @@ function Positions({ rows, catalogue }: { rows: Position[]; catalogue: Catalogue
         return (
           <tr key={`${p.strategy_id}:${p.instrument_id}`} className="row">
             <Id>{p.strategy_id}</Id>
-            <Cell listing={where(catalogue, p.instrument_id)} id={p.instrument_id} />
+            <Cell listing={catalogue.get(p.instrument_id)} id={p.instrument_id} />
             <N className={qty !== null && qty < 0 ? 'text-down' : 'text-up'}>
               {qty === null ? <Silent /> : signed(qty, 4)}
             </N>

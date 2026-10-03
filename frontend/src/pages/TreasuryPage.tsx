@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { allPnl, api, type PnlKind } from '@/api/client'
-import { BalanceRows } from '@/components/BalanceTree'
+import { BalanceRows } from '@/components/BalanceRows'
 import { ChartFrame, colorsFor, Donut, kindColor, LinePlot } from '@/components/chart'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PanelHeader } from '@/components/shared/PanelHeader'
-import { nanosToMillis, toNumber } from '@/lib/format'
+import { cn, fixed, nanosToMillis, signed, toNumber } from '@/lib/format'
 import { useQuery } from '@/lib/query'
-import { cn } from '@/lib/utils'
 
 /** only this asset is summed across venues */
 const k_denomination = 'USDT'
@@ -16,10 +15,6 @@ const k_window_hours = 96
 const k_balances_refresh_ms = 5_000
 
 const k_pnl_refresh_ms = 60_000
-
-const usd = (v: number) =>
-  v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const signed = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`
 
 /** nanoseconds as a string; past 2^53 */
 const windowStart = () => (BigInt(Date.now() - k_window_hours * 3_600_000) * 1_000_000n).toString()
@@ -53,7 +48,7 @@ export function TreasuryPage() {
   const segments = ranked.map((b) => ({
     key: b.venue,
     label: b.venue,
-    color: colors[b.venue] as string,
+    color: colors.get(b.venue) ?? '',
     value: b.total,
   }))
   const total = ranked.reduce((sum, b) => sum + b.total, 0)
@@ -76,20 +71,10 @@ export function TreasuryPage() {
   }
   const net = curve.net.at(-1) ?? 0
   const curves = [
-    { key: 'net', label: 'Net', color: kindColor['net'] as string, values: curve.net, area: true },
-    {
-      key: 'realized',
-      label: 'Realized',
-      color: kindColor['realized'] as string,
-      values: curve.realized,
-    },
-    { key: 'fee', label: 'Fees', color: kindColor['fee'] as string, values: curve.fee },
-    {
-      key: 'funding',
-      label: 'Funding',
-      color: kindColor['funding'] as string,
-      values: curve.funding,
-    },
+    { key: 'net', label: 'Net', color: kindColor.net, values: curve.net, area: true },
+    { key: 'realized', label: 'Realized', color: kindColor.realized, values: curve.realized },
+    { key: 'fee', label: 'Fees', color: kindColor.fee, values: curve.fee },
+    { key: 'funding', label: 'Funding', color: kindColor.funding, values: curve.funding },
   ]
   const drawn = pnl.state === 'ready' && x.length >= 2
 
@@ -118,7 +103,7 @@ export function TreasuryPage() {
       <div className="grid shrink-0 grid-cols-1 items-start gap-2 xl:grid-cols-[minmax(0,1fr)_380px]">
         {/* /v1/pnl is realized, fee and funding increments; this is not equity */}
         <ChartFrame
-          title={'Cumulative P&L'}
+          title="Cumulative P&L"
           note={`Realized, fees and funding, summed over ${k_window_hours}h. Not equity — no balance series is kept anywhere.`}
           readout={
             drawn ? (
@@ -182,7 +167,7 @@ export function TreasuryPage() {
                 onHover={setHover}
                 center={
                   <div className="text-center">
-                    <div className="num text-base font-semibold text-fg">{usd(total)}</div>
+                    <div className="num text-base font-semibold text-fg">{fixed(total)}</div>
                     <div className="text-2xs text-fg-dim">{k_denomination}</div>
                   </div>
                 }

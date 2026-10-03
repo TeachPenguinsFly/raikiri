@@ -1,28 +1,26 @@
 import type { ReactNode } from 'react'
 
-export interface DonutSegment {
+interface DonutSegment {
   key: string
   label: string
   color: string
-  /** non-negative */
   value: number
 }
 
 export function Donut({
   segments,
   size,
-  thickness = Math.max(14, Math.round(size * 0.11)),
   active,
   onHover,
   center,
 }: {
   segments: DonutSegment[]
   size: number
-  thickness?: number | undefined
   active?: string | null | undefined
   onHover?: ((key: string | null) => void) | undefined
   center?: ReactNode | undefined
 }) {
+  const thickness = Math.max(14, Math.round(size * 0.11))
   const radius = size / 2 - thickness / 2
   const circumference = 2 * Math.PI * radius
   const total = segments.reduce((sum, s) => sum + s.value, 0)
@@ -74,7 +72,7 @@ export function Donut({
               strokeDashoffset={-arc.offset}
               opacity={active === null || active === undefined || isActive ? 1 : 0.32}
               style={{
-                // the keyframe has only a from frame; a delay or fill mode would hold the arc at zero
+                // a delay or fill mode would hold the from-only keyframe at zero length
                 ['--circumference' as string]: `${circumference}`,
                 animation: 'donut-grow 850ms cubic-bezier(0.16,1,0.3,1)',
                 transition: 'stroke-width 180ms ease-out, opacity 180ms ease-out',

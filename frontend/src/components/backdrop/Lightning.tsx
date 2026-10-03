@@ -152,7 +152,10 @@ export default function Lightning({
       preserveDrawingBuffer: false,
       antialias: false,
     })
-    if (gl === null) return
+    const drop = () => {
+      if (host.contains(canvas)) host.removeChild(canvas)
+    }
+    if (gl === null) return drop
 
     // blend and a transparent clear, or the fresh buffer composites opaque
     gl.clearColor(0, 0, 0, 0)
@@ -161,14 +164,14 @@ export default function Lightning({
 
     const vertex = compile(gl, vertexSource, gl.VERTEX_SHADER)
     const fragment = compile(gl, fragmentSource, gl.FRAGMENT_SHADER)
-    if (vertex === null || fragment === null) return
+    if (vertex === null || fragment === null) return drop
 
     const program = gl.createProgram()
-    if (program === null) return
+    if (program === null) return drop
     gl.attachShader(program, vertex)
     gl.attachShader(program, fragment)
     gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return drop
     gl.useProgram(program)
 
     const buffer = gl.createBuffer()
@@ -237,7 +240,7 @@ export default function Lightning({
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
-      if (host.contains(canvas)) host.removeChild(canvas)
+      drop()
       gl.getExtension('WEBGL_lose_context')?.loseContext()
     }
   }, [])

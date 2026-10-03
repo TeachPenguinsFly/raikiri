@@ -1,31 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
-import { cn } from '@/lib/utils'
+import { cn, price } from '@/lib/format'
 
-/** tints the background so the side keeps its colour */
+const k_flash_ms = 600
+
 export function FlashPrice({
   value,
-  format = (v) => String(v),
+  places,
   className,
 }: {
-  value: number | null
-  format?: (v: number) => string
+  value: string
+  places: number
   className?: string
 }) {
   const previous = useRef(value)
   const [flash, setFlash] = useState<'up' | 'down' | null>(null)
 
   useEffect(() => {
-    if (value === null) return
-    if (previous.current !== null && value > previous.current) setFlash('up')
-    else if (previous.current !== null && value < previous.current) setFlash('down')
+    const before = Number(previous.current)
+    const now = Number(value)
     previous.current = value
-    const timer = setTimeout(() => setFlash(null), 600)
+    if (now === before) return
+    setFlash(now > before ? 'up' : 'down')
+    const timer = setTimeout(() => setFlash(null), k_flash_ms)
     return () => clearTimeout(timer)
   }, [value])
 
   return (
     <span
-      // keyed on the flash so a tick mid-animation restarts it
+      // a new key restarts the animation when a tick lands mid-flash
       key={`${flash}-${value}`}
       className={cn(
         'num -mx-1 inline-block rounded-sm px-1',
@@ -34,7 +36,7 @@ export function FlashPrice({
         className,
       )}
     >
-      {value === null ? '—' : format(value)}
+      {price(value, places)}
     </span>
   )
 }

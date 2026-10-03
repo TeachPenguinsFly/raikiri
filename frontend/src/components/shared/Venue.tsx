@@ -1,7 +1,9 @@
-import { cn } from '@/lib/utils'
+import { memo } from 'react'
+import { cn } from '@/lib/format'
 import { ExchangeIcon } from './ExchangeIcon'
 
-export function Venue({
+/** memo: board rows redraw on every tick and the logo never changes */
+export const Venue = memo(function Venue({
   venue,
   market,
   className,
@@ -18,4 +20,4 @@ export function Venue({
       {market === 'spot' && <span className="text-2xs text-fg-dim">spot</span>}
     </span>
   )
-}
+})

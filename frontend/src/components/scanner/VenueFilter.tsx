@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Venue } from '@/components/shared/Venue'
-import { cn } from '@/lib/utils'
+import { useDismiss } from '@/lib/dismiss'
+import { cn } from '@/lib/format'
 
 /** venues come from the data; an empty selection means all */
 export function VenueFilter({
@@ -14,16 +15,7 @@ export function VenueFilter({
 }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-
-  // close on outside click; blur fires when a checkbox inside is clicked
-  useEffect(() => {
-    if (!open) return undefined
-    const away = (e: MouseEvent) => {
-      if (box.current !== null && !box.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', away)
-    return () => document.removeEventListener('mousedown', away)
-  }, [open])
+  useDismiss(box, open, setOpen)
 
   const toggle = (venue: string) => {
     const next = new Set(selected)
@@ -50,11 +42,11 @@ export function VenueFilter({
       </button>
 
       {open && (
-        <div className="absolute right-0 z-20 mt-1 max-h-80 w-52 overflow-auto rounded border border-line bg-bg py-1 shadow-lg">
+        <div className="absolute right-0 z-20 mt-1 max-h-80 w-52 overflow-auto rounded border border-line bg-raised py-1 shadow-lg">
           <button
             type="button"
             onClick={() => onChange(new Set())}
-            className="w-full px-2 py-1 text-left text-2xs text-fg-dim hover:bg-bg-hi hover:text-fg-mid"
+            className="w-full px-2 py-1 text-left text-2xs text-fg-dim hover:bg-hover hover:text-fg-mid"
           >
             Clear — show all
           </button>
@@ -62,7 +54,7 @@ export function VenueFilter({
           {available.map((venue) => (
             <label
               key={venue}
-              className="flex cursor-pointer items-center gap-2 px-2 py-1 text-xs hover:bg-bg-hi"
+              className="flex cursor-pointer items-center gap-2 px-2 py-1 text-xs hover:bg-hover"
             >
               <input
                 type="checkbox"

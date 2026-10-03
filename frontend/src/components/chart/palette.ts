@@ -1,34 +1,14 @@
-/** one palette for every plot, tuned for the navy canvas */
-export const series = [
-  '#4c9aff', // accent azure
-  '#a78bfa', // violet
-  '#f59e0b', // amber
-  '#818cf8', // indigo
-  '#22d3ee', // sky
-  '#f472b6', // pink
-  '#c4b5fd', // pale violet
-  '#94a3b8', // slate
-] as const
+/** one ramp for every plot; green and red stay out since they mean up and down */
+const k_series = ['#4c9aff', '#a78bfa', '#f59e0b', '#818cf8', '#22d3ee', '#f472b6', '#c4b5fd', '#94a3b8']
 
-/** hashed from the name; green and red are left out since they mean up and down */
-export function colorFor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) | 0
-  return series[Math.abs(hash) % series.length] as string
-}
-
-export const kindColor: Record<string, string> = {
+export const kindColor = {
   realized: '#3fb950',
   fee: '#d8a13a',
   funding: '#4c9aff',
   net: '#e9edf4',
 }
 
-/** walks the ramp so names drawn together get distinct colours */
-export function colorsFor(names: string[]): Record<string, string> {
-  const out: Record<string, string> = {}
-  names.forEach((name, i) => {
-    out[name] = series[i % series.length] as string
-  })
-  return out
+/** walks the ramp in the order given so names drawn together get distinct colours */
+export function colorsFor(names: string[]): Map<string, string> {
+  return new Map(names.map((name, i) => [name, k_series[i % k_series.length] ?? '']))
 }

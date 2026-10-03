@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/format'
 import { useMeasuredWidth } from './scale'
 
-export interface LegendEntry {
+interface LegendEntry {
   key: string
   label: string
   color: string
@@ -18,8 +18,6 @@ interface ChartFrameProps {
   readout?: ReactNode | undefined
   height?: number | undefined
   placeholder?: string | undefined
-  footer?: ReactNode | undefined
-  className?: string | undefined
   children: (size: { width: number; height: number }) => ReactNode
 }
 
@@ -31,19 +29,12 @@ export function ChartFrame({
   readout,
   height = 240,
   placeholder,
-  footer,
-  className,
   children,
 }: ChartFrameProps) {
   const [ref, width] = useMeasuredWidth<HTMLDivElement>()
 
   return (
-    <section
-      className={cn(
-        'panel',
-        className,
-      )}
-    >
+    <section className="panel">
       <header className="flex items-start justify-between gap-4 px-3 pt-3">
         <div className="min-w-0">
           <h2 className="panel-title">{title}</h2>
@@ -92,10 +83,6 @@ export function ChartFrame({
           children({ width: width - 16, height: height - 12 })
         ) : null}
       </div>
-
-      {footer !== undefined && (
-        <div className="px-3 pb-3 text-2xs text-fg-dim">{footer}</div>
-      )}
     </section>
   )
 }

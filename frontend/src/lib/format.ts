@@ -1,24 +1,45 @@
-/** money values arrive as decimal strings; convert to number only for geometry */
-
-/** for geometry only; do not render this back */
+/** for geometry and sums only; a displayed figure is formatted from its wire string */
 export function toNumber(decimal: string | null | undefined): number {
-  if (decimal === null || decimal === undefined || decimal === '') return 0
+  return num(decimal) ?? 0
+}
+
+/** null means the venue published nothing */
+export function num(decimal: string | null | undefined): number | null {
+  if (decimal === undefined || decimal === null || decimal === '') return null
   const value = Number(decimal)
-  return Number.isFinite(value) ? value : 0
+  return Number.isFinite(value) ? value : null
 }
 
-const money = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
-
-export function usd(value: number): string {
-  return `$${money.format(value)}`
+/** pads a wire decimal with zeros, to at least `atLeast` places, and never drops a digit */
+export function price(decimal: string, atLeast = 0): string {
+  const [whole = '0', fraction = ''] = decimal.split('.')
+  const magnitude = Math.abs(Number(whole))
+  const places = Math.max(atLeast, magnitude >= 1000 ? 1 : magnitude >= 1 ? 3 : 5)
+  return `${whole}.${fraction.padEnd(places, '0')}`
 }
 
-export function usdSigned(value: number): string {
-  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
-  return `${sign}$${money.format(Math.abs(value))}`
+/** the most places among the given decimals, so a column of them can line up */
+export function placesOf(decimals: Array<string | null>): number {
+  return Math.max(0, ...decimals.map((d) => d?.split('.')[1]?.length ?? 0))
+}
+
+/** the midpoint of two wire decimals, exact to one place past the finer of them */
+export function midPrice(bid: string, ask: string): string {
+  const places = Math.max(bid.split('.')[1]?.length ?? 0, ask.split('.')[1]?.length ?? 0) + 1
+  return price(((Number(bid) + Number(ask)) / 2).toFixed(places).replace(/0$/, ''))
+}
+
+export function spreadBp(bid: number | null, ask: number | null): number | null {
+  if (bid === null || ask === null || bid + ask === 0) return null
+  return ((ask - bid) / ((bid + ask) / 2)) * 10_000
+}
+
+export function fixed(value: number, places = 2): string {
+  return value.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places })
+}
+
+export function signed(value: number, places = 2): string {
+  return `${value >= 0 ? '+' : '−'}${fixed(Math.abs(value), places)}`
 }
 
 export function compact(value: number): string {
@@ -31,7 +52,6 @@ export function compact(value: number): string {
   return value.toFixed(0)
 }
 
-/** order book size; keeps two significant decimals above a thousand */
 export function size(value: number): string {
   const magnitude = Math.abs(value)
   if (magnitude >= 1e9) return `${(value / 1e9).toFixed(2)}B`
@@ -40,21 +60,6 @@ export function size(value: number): string {
   if (magnitude >= 1) return value.toFixed(2)
   if (magnitude === 0) return '0'
   return value.toFixed(4)
-}
-
-/** only the denomination gets a currency mark */
-export function quantity(value: number, asset: string, denomination: string): string {
-  if (asset === denomination) return usd(value)
-  const magnitude = Math.abs(value)
-  const digits = magnitude === 0 ? 2 : magnitude < 1 ? 8 : magnitude < 1000 ? 4 : 2
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: digits,
-  })
-}
-
-export function percent(fraction: number): string {
-  return `${(fraction * 100).toFixed(1)}%`
 }
 
 /** bigint because nanosecond stamps exceed 2^53 */

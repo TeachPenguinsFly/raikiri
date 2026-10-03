@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { components } from '@/api/types'
 
 type Frame = components['schemas']['StreamFrame']
@@ -7,123 +7,127 @@ type Funding = components['schemas']['Funding']
 type Ticker = components['schemas']['Ticker']
 type Book = components['schemas']['Book']
 
-export type Request =
-  | { channel: 'quotes'; instruments: string[]; hz?: number }
-  | { channel: 'funding'; instruments: string[]; hz?: number }
-  | { channel: 'ticker'; instruments: string[]; hz?: number }
-  | { channel: 'book'; instrument: string; levels?: number; hz?: number }
+type Request =
+  | { channel: 'quotes' | 'funding' | 'ticker'; instruments: string[] }
+  | { channel: 'book'; instrument: string; levels: number }
 
-/** one shared socket; subscriptions are reference-counted by request */
+type Entry = { id: string; request: Request; listeners: Set<(frame: Frame) => void> }
+
+const k_reconnect_ms = 1000
+
+/** one shared socket; a subscription lives while any listener holds it */
 class Socket {
   private ws: WebSocket | null = null
-  private opening = false
+  private retry: ReturnType<typeof setTimeout> | undefined
+  private idle: ReturnType<typeof setTimeout> | undefined
   private nextId = 1
-  private readonly pending: string[] = []
-  private readonly subs = new Map<
-    string,
-    { id: string; request: Request; refs: number; listeners: Set<(frame: Frame) => void> }
-  >()
-
-  private key(request: Request): string {
-    return request.channel === 'book'
-      ? `book:${request.instrument}:${request.levels ?? ''}`
-      : `${request.channel}:${[...request.instruments].sort().join(',')}`
-  }
+  private readonly subs = new Map<string, Entry>()
+  private readonly watchers = new Set<() => void>()
+  /** true from a close until the next open */
+  down = false
 
   subscribe(request: Request, onFrame: (frame: Frame) => void): () => void {
-    const key = this.key(request)
+    const key = JSON.stringify(request)
     let entry = this.subs.get(key)
     if (entry === undefined) {
-      entry = { id: `s${this.nextId++}`, request, refs: 0, listeners: new Set() }
+      entry = { id: `s${this.nextId++}`, request, listeners: new Set() }
       this.subs.set(key, entry)
-      this.send(this.subscribeMessage(entry.id, request))
+      this.send(subscribeMessage(entry))
     }
-    entry.refs += 1
     entry.listeners.add(onFrame)
+    clearTimeout(this.idle)
     this.open()
 
     return () => {
       const live = this.subs.get(key)
       if (live === undefined) return
       live.listeners.delete(onFrame)
-      live.refs -= 1
-      if (live.refs > 0) return
+      if (live.listeners.size > 0) return
       this.subs.delete(key)
       this.send(JSON.stringify({ op: 'unsubscribe', id: live.id }))
-      if (this.subs.size === 0) this.close()
+      // deferred so a page that resubscribes in the same commit keeps the socket
+      if (this.subs.size === 0) this.idle = setTimeout(() => this.subs.size === 0 && this.close())
     }
   }
 
-  private subscribeMessage(id: string, request: Request): string {
-    const body: Record<string, unknown> = { op: 'subscribe', id }
-    if (request.channel === 'book') {
-      body.book = request.instrument
-      if (request.levels !== undefined) body.levels = request.levels
-    } else {
-      body[request.channel] = request.instruments
-    }
-    if (request.hz !== undefined) body.hz = request.hz
-    return JSON.stringify(body)
+  watch(onChange: () => void): () => void {
+    this.watchers.add(onChange)
+    return () => this.watchers.delete(onChange)
+  }
+
+  private setDown(down: boolean): void {
+    if (this.down === down) return
+    this.down = down
+    for (const watcher of this.watchers) watcher()
   }
 
   private open(): void {
-    if (this.ws !== null || this.opening) return
-    this.opening = true
-    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/v1/stream`
-    const ws = new WebSocket(url)
+    if (this.ws !== null) return
+    clearTimeout(this.retry)
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/v1/stream`)
     this.ws = ws
+    // the server forgets a closed connection, so every open resends the live set
     ws.onopen = () => {
-      this.opening = false
-      // the server forgets a closed connection, so resend every subscription on open
-      for (const entry of this.subs.values()) {
-        ws.send(this.subscribeMessage(entry.id, entry.request))
-      }
-      for (const message of this.pending.splice(0)) ws.send(message)
+      if (this.ws !== ws) return
+      this.setDown(false)
+      for (const entry of this.subs.values()) ws.send(subscribeMessage(entry))
     }
     ws.onmessage = (event) => {
-      const frame = JSON.parse(String(event.data)) as Frame & { id?: string }
+      if (this.ws !== ws) return
+      const frame = JSON.parse(String(event.data)) as Frame
       for (const entry of this.subs.values()) {
-        if (entry.id === frame.id) {
-          for (const listener of entry.listeners) listener(frame)
-        }
+        if (entry.id === frame.id) for (const listener of entry.listeners) listener(frame)
       }
     }
     ws.onclose = () => {
+      if (this.ws !== ws) return
       this.ws = null
-      this.opening = false
-      if (this.subs.size > 0) setTimeout(() => this.open(), 1000)
+      this.setDown(true)
+      if (this.subs.size > 0) this.retry = setTimeout(() => this.subs.size > 0 && this.open(), k_reconnect_ms)
     }
     ws.onerror = () => ws.close()
   }
 
   private close(): void {
-    this.ws?.close()
+    clearTimeout(this.retry)
+    const ws = this.ws
     this.ws = null
+    ws?.close()
   }
 
+  /** before the socket opens there is nothing to send; onopen sends the live set */
   private send(message: string): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(message)
-    else this.pending.push(message)
   }
+}
+
+function subscribeMessage({ id, request }: Entry): string {
+  return JSON.stringify(
+    request.channel === 'book'
+      ? { op: 'subscribe', id, book: request.instrument, levels: request.levels }
+      : { op: 'subscribe', id, [request.channel]: request.instruments },
+  )
 }
 
 const socket = new Socket()
 
-/** request is compared by value so a rebuilt object does not resubscribe */
+export function useStreamDown(): boolean {
+  return useSyncExternalStore(
+    (onChange) => socket.watch(onChange),
+    () => socket.down,
+  )
+}
+
+/** keyed by value so a rebuilt request does not resubscribe; a new request starts empty */
 function useFeed<T>(request: Request | null, read: (frame: Frame) => T | null): T | null {
   const [value, setValue] = useState<T | null>(null)
-  const readRef = useRef(read)
-  readRef.current = read
   const signature = request === null ? null : JSON.stringify(request)
 
   useEffect(() => {
-    if (signature === null) {
-      setValue(null)
-      return
-    }
-    const parsed = JSON.parse(signature) as Request
-    return socket.subscribe(parsed, (frame) => {
-      const next = readRef.current(frame)
+    setValue(null)
+    if (signature === null) return
+    return socket.subscribe(JSON.parse(signature) as Request, (frame) => {
+      const next = read(frame)
       if (next !== null) setValue(next)
     })
   }, [signature])
@@ -131,20 +135,21 @@ function useFeed<T>(request: Request | null, read: (frame: Frame) => T | null): 
   return value
 }
 
-/** merges frames in the listener into a new map; a frame carries only what moved */
+/** a frame carries only what moved, so rows merge by instrument */
 function useRows<T extends { instrument_id: string }>(
-  request: Request | null,
+  channel: 'quotes' | 'funding' | 'ticker',
+  instruments: string[],
   read: (frame: Frame) => T[] | null,
 ): Map<string, T> {
   const [rows, setRows] = useState(() => new Map<string, T>())
-  const readRef = useRef(read)
-  readRef.current = read
-  const signature = request === null ? null : JSON.stringify(request)
+  const signature =
+    instruments.length === 0 ? null : JSON.stringify({ channel, instruments: [...instruments].sort() })
 
   useEffect(() => {
+    setRows((prev) => (prev.size === 0 ? prev : new Map()))
     if (signature === null) return
     return socket.subscribe(JSON.parse(signature) as Request, (frame) => {
-      const next = readRef.current(frame)
+      const next = read(frame)
       if (next === null) return
       setRows((prev) => {
         const merged = new Map(prev)
@@ -157,32 +162,23 @@ function useRows<T extends { instrument_id: string }>(
   return rows
 }
 
-export function useQuotes(instruments: string[], hz?: number): Map<string, Quote> {
-  return useRows(
-    instruments.length === 0
-      ? null
-      : { channel: 'quotes', instruments, ...(hz === undefined ? {} : { hz }) },
-    (frame) => (frame.type === 'quotes' ? frame.quotes : null),
-  )
+const readQuotes = (frame: Frame) => (frame.type === 'quotes' ? frame.quotes : null)
+const readFunding = (frame: Frame) => (frame.type === 'funding' ? frame.funding : null)
+const readTicker = (frame: Frame) => (frame.type === 'ticker' ? frame.ticker : null)
+const readBook = (frame: Frame) => (frame.type === 'book' ? frame.book : null)
+
+export function useQuotes(instruments: string[]): Map<string, Quote> {
+  return useRows('quotes', instruments, readQuotes)
 }
 
 export function useFunding(instruments: string[]): Map<string, Funding> {
-  return useRows(
-    instruments.length === 0 ? null : { channel: 'funding', instruments },
-    (frame) => (frame.type === 'funding' ? frame.funding : null),
-  )
+  return useRows('funding', instruments, readFunding)
 }
 
 export function useTicker(instruments: string[]): Map<string, Ticker> {
-  return useRows(
-    instruments.length === 0 ? null : { channel: 'ticker', instruments },
-    (frame) => (frame.type === 'ticker' ? frame.ticker : null),
-  )
+  return useRows('ticker', instruments, readTicker)
 }
 
-export function useBook(instrument: string | null, levels = 25): Book | null {
-  return useFeed(
-    instrument === null ? null : { channel: 'book', instrument, levels },
-    (frame) => (frame.type === 'book' ? frame.book : null),
-  )
+export function useBook(instrument: string | null, levels: number): Book | null {
+  return useFeed(instrument === null ? null : { channel: 'book', instrument, levels }, readBook)
 }

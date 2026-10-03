@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '@/api/client'
-import { useQuery } from '@/lib/query'
-import { cn } from '@/lib/utils'
+import type { components } from '@/api/types'
+import { useDismiss } from '@/lib/dismiss'
+import { cn } from '@/lib/format'
+import type { Query } from '@/lib/query'
+
+type Health = Query<components['schemas']['Health']>
 
 /** utc, as venues and the journal stamp */
 function Clock() {
@@ -18,28 +21,10 @@ function Clock() {
   )
 }
 
-const k_health_refresh_ms = 5_000
-
-function GatewayStatus() {
-  const health = useQuery(() => api.health(), [], k_health_refresh_ms)
+function GatewayStatus({ health }: { health: Health }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  useDismiss(ref, open, setOpen)
 
   if (health.state === 'loading') {
     return (
@@ -69,7 +54,7 @@ function GatewayStatus() {
         <span
           className={cn('size-[5px] rounded-full', tone, (failed || alive < all) && 'pulse-dot')}
         />
-        {health.state === 'failed' ? (
+        {failed ? (
           <span className="max-w-44 truncate">{health.title}</span>
         ) : (
           <>
@@ -124,10 +109,10 @@ function GatewayStatus() {
   )
 }
 
-export function TopCommandBar() {
+export function TopCommandBar({ health }: { health: Health }) {
   return (
     <header className="flex h-10 shrink-0 items-center justify-end gap-3 px-3">
-      <GatewayStatus />
+      <GatewayStatus health={health} />
       <span className="h-4 w-px bg-line" />
       <Clock />
     </header>

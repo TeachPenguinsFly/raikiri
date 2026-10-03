@@ -17,8 +17,6 @@ A low-latency, multi-process crypto trading framework in C++23
 
 </div>
 
----
-
 ## Install
 
 CMake ≥ 3.28, Ninja, Conan 2 and a C++23 compiler (GCC 14, Clang 18 or
@@ -30,7 +28,7 @@ cd raikiri
 make deps && make build
 ```
 
-Watch a live market. Public market data needs no credentials:
+Public market data needs no credentials. To watch a live market:
 
 ```sh
 build/dev-asan/apps/gatewayd/gatewayd --venue=bybit --symbol=BTCUSDT --duration 20
@@ -38,8 +36,6 @@ build/dev-asan/apps/gatewayd/gatewayd --venue=bybit --symbol=BTCUSDT --duration 
 
 The [documentation](docs/README.md) covers the architecture, the shared-memory transport,
 running a gateway and adding a venue.
-
----
 
 ## Venues
 
@@ -79,15 +75,11 @@ running a gateway and adding a venue.
 | `xt` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 <!-- venues:end -->
 
-Generated from [`libs/exec/src/caps.cpp`](libs/exec/src/caps.cpp). Column meanings are in the
-[documentation](docs/README.md#venue-table).
-
----
+Generated from [`libs/exec/src/caps.cpp`](libs/exec/src/caps.cpp). The columns are explained
+in the [documentation](docs/README.md#venue-table).
 
 ## License
 
 LGPL-3.0, see [`LICENSE`](LICENSE). [`COPYING`](COPYING) holds the GPL-3.0 text it
-incorporates by reference. A strategy that links raikiri can stay closed; a fork of the
-framework publishes its changes.
-
-## Contact
+incorporates by reference. A strategy that links raikiri can stay closed source; a distributed
+modification of raikiri itself must publish its changes under the same license.

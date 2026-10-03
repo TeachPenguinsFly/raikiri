@@ -1,12 +1,14 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrandMark } from '@/components/shared/BrandMark'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/format'
 
 /** lazy so the shader stays out of the main bundle */
 const Lightning = lazy(() => import('@/components/backdrop/Lightning'))
 
 /** hue of the brand cyan #38bdf8 */
 const k_accent_hue = 199
+
+const k_pending_ms = 900
 
 export function Login() {
   const [pending, setPending] = useState(false)
@@ -19,10 +21,11 @@ export function Login() {
   }, [])
 
   // not wired to a backend yet
-  const startGoogle = () => {
-    setPending(true)
-    window.setTimeout(() => setPending(false), 900)
-  }
+  useEffect(() => {
+    if (!pending) return
+    const timer = setTimeout(() => setPending(false), k_pending_ms)
+    return () => clearTimeout(timer)
+  }, [pending])
 
   return (
     <div className="relative flex min-h-full items-center justify-center overflow-hidden px-6 py-12">
@@ -41,12 +44,11 @@ export function Login() {
         <BrandMark className="text-lg" />
 
         <div className="panel mt-6 w-full p-4">
-
           <SsoButton
             label="Continue with Google"
             loading={pending}
             disabled={pending}
-            onClick={startGoogle}
+            onClick={() => setPending(true)}
             icon={<GoogleIcon />}
           />
         </div>
@@ -54,7 +56,6 @@ export function Login() {
     </div>
   )
 }
-
 
 function SsoButton({
   label,

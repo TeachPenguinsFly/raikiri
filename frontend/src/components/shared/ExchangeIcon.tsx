@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/format'
 import asterIcon from '@/assets/exchanges/aster.png'
 import backpackIcon from '@/assets/exchanges/backpack.png'
 import bingxIcon from '@/assets/exchanges/bingx.png'
@@ -21,8 +21,7 @@ import phemexIcon from '@/assets/exchanges/phemex.png'
 import weexIcon from '@/assets/exchanges/weex.png'
 import xtIcon from '@/assets/exchanges/xt.png'
 
-// favicons for venues without a hand-drawn svg mark
-const FAVICONS: Record<string, string> = {
+const k_favicons: Record<string, string> = {
   aster: asterIcon,
   backpack: backpackIcon,
   bingx: bingxIcon,
@@ -46,9 +45,17 @@ const FAVICONS: Record<string, string> = {
   xt: xtIcon,
 }
 
+/** chip colours for venues with neither a favicon nor a drawn mark */
+const k_monogram: Record<string, string> = {
+  pacifica: '#3b82f6',
+  bitunix: '#b9f641',
+  toobit: '#1fc7d4',
+  lbank: '#f0b90b',
+}
+
 export function ExchangeIcon({ venue, className }: { venue: string; className?: string }) {
   const c = cn('inline-block shrink-0', className)
-  const favicon = FAVICONS[venue]
+  const favicon = k_favicons[venue]
   if (favicon) {
     return <img src={favicon} alt={venue} className={cn(c, 'rounded-sm object-cover')} />
   }
@@ -121,13 +128,7 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
         </svg>
       )
     default: {
-      // monogram chip for venues with no mark
-      const palette: Record<string, string> = {
-        kraken: '#5741d9', kucoin: '#23af91', bitget: '#00f0ff', bingx: '#2f7bff', mexc: '#1972f5',
-        coinbase: '#0052ff', htx: '#1d72f3', coinex: '#15b08e', bitmart: '#15c0e6', cryptocom: '#103f9e',
-        deribit: '#15b079', dydx: '#6966ff', lighter: '#9aa0a6', bitfinex: '#16b157', weex: '#f5b500', phemex: '#2d5af0', bitmex: '#e0413d', backpack: '#e44d2e', pacifica: '#3b82f6', bitunix: '#b9f641', toobit: '#1fc7d4', lbank: '#f0b90b',
-      }
-      const fill = palette[venue] ?? '#475569'
+      const fill = k_monogram[venue] ?? '#475569'
       return (
         <svg viewBox="0 0 24 24" className={c} role="img" aria-label={venue}>
           <rect width="24" height="24" rx="5" fill={fill} />

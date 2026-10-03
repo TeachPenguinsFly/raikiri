@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { clockTime, compact, dateTime, shortDate } from '@/lib/format'
 import { linear, niceTicks, paddedDomain } from './scale'
 
-export interface PlotSeries {
+interface PlotSeries {
   key: string
   label: string
   color: string
@@ -12,7 +12,7 @@ export interface PlotSeries {
   area?: boolean | undefined
 }
 
-const PAD = { top: 12, right: 52, bottom: 22, left: 8 }
+const k_pad = { top: 12, right: 52, bottom: 22, left: 8 }
 
 /** labels follow the tick step so neighbouring ticks never print the same text */
 function axisLabel(step: number): (value: number) => string {
@@ -27,9 +27,9 @@ function axisLabel(step: number): (value: number) => string {
 }
 
 function labelFor(span: number): (millis: number) => string {
-    if (span > 3 * 86_400_000) return shortDate
-    if (span > 6 * 3_600_000) return dateTime
-    return clockTime
+  if (span > 3 * 86_400_000) return shortDate
+  if (span > 6 * 3_600_000) return dateTime
+  return clockTime
 }
 
 function xTicks(
@@ -51,8 +51,6 @@ export function LinePlot({
   width,
   height,
   highlight,
-  format = compact,
-  baseline = 'zero',
 }: {
   /** milliseconds, ascending */
   x: number[]
@@ -60,27 +58,24 @@ export function LinePlot({
   width: number
   height: number
   highlight?: string | null | undefined
-  format?: ((value: number) => string) | undefined
-  /** zero for signed series like pnl, data for a level like a balance */
-  baseline?: 'zero' | 'data' | undefined
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
   const geometry = useMemo(() => {
     if (x.length < 2 || width < 40) return null
 
-    const plotWidth = width - PAD.left - PAD.right
+    const plotWidth = width - k_pad.left - k_pad.right
     const tickCount = Math.max(2, Math.min(5, Math.floor(plotWidth / 140)))
-    const plotHeight = height - PAD.top - PAD.bottom
-    const px = linear([x[0] as number, x[x.length - 1] as number], [PAD.left, PAD.left + plotWidth])
-    const [minY, maxY] = paddedDomain(series.flatMap((s) => s.values), baseline !== 'data')
-    const py = linear([minY, maxY], [PAD.top + plotHeight, PAD.top])
+    const plotHeight = height - k_pad.top - k_pad.bottom
+    const px = linear([x[0] as number, x[x.length - 1] as number], [k_pad.left, k_pad.left + plotWidth])
+    const [minY, maxY] = paddedDomain(series.flatMap((s) => s.values))
+    const py = linear([minY, maxY], [k_pad.top + plotHeight, k_pad.top])
 
     const paths = series.map((s) => {
       const line = s.values
         .map((v, i) => `${i === 0 ? 'M' : 'L'}${px(x[i] as number).toFixed(1)},${py(v).toFixed(1)}`)
         .join(' ')
-      const base = (baseline === 'data' ? PAD.top + plotHeight : py(Math.max(minY, Math.min(maxY, 0)))).toFixed(1)
+      const base = py(Math.max(minY, Math.min(maxY, 0))).toFixed(1)
       return {
         ...s,
         line,
@@ -104,11 +99,10 @@ export function LinePlot({
       xTicks: xTicks(x, tickCount, px),
       labelX: labelFor((x[x.length - 1] as number) - (x[0] as number)),
     }
-  }, [x, series, width, height, baseline])
+  }, [x, series, width, height])
 
   if (geometry === null) return null
 
-  // snaps to the nearest sample
   const onMove = (event: React.MouseEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const offset = event.clientX - bounds.left
@@ -150,15 +144,15 @@ export function LinePlot({
         {geometry.yTicks.map((tick) => (
           <g key={`y${tick.v}`}>
             <line
-              x1={PAD.left}
+              x1={k_pad.left}
               y1={tick.y.toFixed(1)}
-              x2={width - PAD.right}
+              x2={width - k_pad.right}
               y2={tick.y.toFixed(1)}
               stroke="#ffffff"
               strokeOpacity={0.045}
             />
             <text
-              x={width - PAD.right + 8}
+              x={width - k_pad.right + 8}
               y={tick.y + 3.5}
               fontSize={11}
               fill="#8b97ad"
@@ -171,9 +165,9 @@ export function LinePlot({
 
         {geometry.zeroY !== null && (
           <line
-            x1={PAD.left}
+            x1={k_pad.left}
             y1={geometry.zeroY.toFixed(1)}
-            x2={width - PAD.right}
+            x2={width - k_pad.right}
             y2={geometry.zeroY.toFixed(1)}
             stroke="#8b97ad"
             strokeOpacity={0.3}
@@ -217,9 +211,9 @@ export function LinePlot({
           <g>
             <line
               x1={hovered.toFixed(1)}
-              y1={PAD.top}
+              y1={k_pad.top}
               x2={hovered.toFixed(1)}
-              y2={height - PAD.bottom}
+              y2={height - k_pad.bottom}
               stroke="#e6ebf5"
               strokeOpacity={0.25}
             />
@@ -255,7 +249,7 @@ export function LinePlot({
                 <span className="text-fg-mid">{s.label}</span>
               </span>
               <span className="tnum" style={{ color: s.color }}>
-                {format(s.values[hoverIndex] as number)}
+                {compact(s.values[hoverIndex] as number)}
               </span>
             </div>
           ))}
