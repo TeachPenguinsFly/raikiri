@@ -47,14 +47,14 @@ running a gateway and adding a venue.
 | `backpack` | CEX | spot · perp | **market data only** | – | – | – | – |
 | `binance` | CEX | perp | REST + WS | ✓ | ✓ | ListenKey | ✓ |
 | `bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
-| `bitfinex` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | – |
+| `bitfinex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
 | `bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `bitunix` | CEX | spot · perp | REST | – | – | – | – |
 | `blofin` | CEX | perp | **market data only** | – | – | – | – |
 | `bybit` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `coinbase` | CEX | spot | REST | – | – | AuthSubscribe | – |
 | `cryptocom` | CEX | spot · perp | **market data only** | – | – | – | – |
-| `deribit` | CEX | perp · futures · options | REST + WS | ✓ | – | AuthSubscribe | – |
+| `deribit` | CEX | perp · futures · options | REST | – | – | AuthSubscribe | – |
 | `dydx` | DEX | perp | **market data only** | – | – | – | – |
 | `edgex` | DEX | spot · perp | **market data only** | – | – | – | – |
 | `extended` | DEX | perp | **market data only** | – | – | – | – |
@@ -62,7 +62,7 @@ running a gateway and adding a venue.
 | `grvt` | DEX | perp | **market data only** | – | – | – | – |
 | `htx` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
 | `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `kraken` | CEX | perp | REST + WS | ✓ | – | AuthSubscribe | – |
+| `kraken` | CEX | perp | REST | – | – | AuthSubscribe | – |
 | `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | – |
 | `lbank` | CEX | spot · perp | **market data only**, no perp order API | – | – | – | – |
 | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – |

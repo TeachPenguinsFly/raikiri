@@ -21,7 +21,8 @@ struct WireLevel {
     std::string_view size; // "0" deletes the level
 };
 
-inline constexpr std::size_t k_max_levels = 512;
+// a diff can clear a whole 400-level side and refill it, and one live diff carried 482 bids
+inline constexpr std::size_t k_max_levels = 1024;
 
 struct LevelBuffer {
     std::array<WireLevel, k_max_levels> bids{};

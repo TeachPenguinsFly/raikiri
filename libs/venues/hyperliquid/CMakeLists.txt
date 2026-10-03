@@ -14,6 +14,7 @@ add_library(raikiri_venue_hyperliquid STATIC
   src/types/market_data.cpp
   src/types/orders.cpp
   src/types/positions.cpp
+  src/types/post.cpp
   src/types/ws.cpp
   src/marketdata/client.cpp
   src/rest/builder.cpp

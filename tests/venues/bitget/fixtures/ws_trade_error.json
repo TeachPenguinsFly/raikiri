@@ -1,0 +1,1 @@
+{"event":"error","arg":[{"id":"xxxxx-xxx-xxx-xxxx-xxxxxx","instType":"USDT-FUTURES","channel":"place-order","instId":"BTCUSDT","params":{"orderType":"limit","side":"buy","size":"2","price":"501","marginCoin":"USDT","force":"gtc","marginMode":"crossed","clientOid":"xxxxx-xxx-xxx-xxxx-xxxxxx"}}],"code":40017,"msg":"Parameter verification failed"}

@@ -145,13 +145,13 @@ wins, a `?k=v` in a rule must appear in the query, and an unmatched request cost
 ## Venue table
 
 The table in the [project README](../README.md#venues) is generated from
-[`libs/exec/src/caps.cpp`](../libs/exec/src/caps.cpp).
+[`libs/exec/src/caps.cpp`](../libs/exec/src/caps.cpp) by [`scripts/venue_table.py`](../scripts/venue_table.py).
 
 | column | meaning |
 | :-- | :-- |
 | `custody` | CEX if the venue holds your coins, DEX if a contract does. The caps table has no bit for this, so the generator keeps its own list and refuses a venue missing from it. |
 | `order entry` | *market data only*: the adapter sends no orders. Some of these venues sign orders with keys this codebase has no signer for: an EVM wallet on `aster` and `grvt` (EIP-712 on `grvt`), and a zk-rollup key on `lighter`. `cryptocom` uses a plain HMAC key, but its order path is not written yet. *no perp order API*: the venue publishes none, so trades there are placed by hand; `manual_only` in the caps row lists the markets. |
-| `WS`, `FIX` | the venue offers order entry over a websocket trade API or FIX (`ws_order_entry`, `fix_order_entry` in the caps row). The adapters place orders over REST today, including those marked `REST + WS`. |
+| `WS`, `FIX` | `WS`: the adapter sends create, cancel and amend over the venue's websocket trade API while that socket is logged in, and over REST otherwise. `FIX`: the venue offers FIX at some access tier; no adapter uses it yet. |
 | `private stream` | how the account socket authenticates. `ListenKey` gets a token over REST and puts it in the URL; `AuthSubscribe` signs a frame on an open socket; `–` means there is no account socket, and fills arrive through the reconciliation pull. |
 | `funding ledger` | the adapter reads the funding the venue actually charged from the account ledger. Without it, funding PnL is not tracked. |
 

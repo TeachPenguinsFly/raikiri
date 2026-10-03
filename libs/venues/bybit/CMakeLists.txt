@@ -11,6 +11,7 @@ add_library(raikiri_venue_bybit STATIC
   src/types/market_data.cpp
   src/types/orders.cpp
   src/types/positions.cpp
+  src/types/trade.cpp
   src/types/ws.cpp
   src/marketdata/client.cpp
   src/rest/builder.cpp

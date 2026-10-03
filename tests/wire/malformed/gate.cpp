@@ -4,6 +4,7 @@
 #include <raikiri/venues/gate/market_data.hpp>
 #include <raikiri/venues/gate/orders.hpp>
 #include <raikiri/venues/gate/positions.hpp>
+#include <raikiri/venues/gate/trade.hpp>
 
 #include <gtest/gtest.h>
 
@@ -17,6 +18,8 @@ using wire::malformed::hammer;
 TEST(Malformed, Gate) {
     hammer("gate",
            {
+               {"ws_api_not_login.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
+               {"ws_api_order_place.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
                {"ws_book_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

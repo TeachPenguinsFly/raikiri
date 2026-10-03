@@ -81,7 +81,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"method":")");
@@ -120,7 +120,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::spot_op_frame(std::string
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"method":")");
@@ -184,7 +184,7 @@ std::expected<std::string_view, WsBuildError> Protocol::login_frame(const net::S
             msg_overflow = true;
             return;
         }
-        std::memcpy(login_msg_.data() + msg_len, text.data(), text.size());
+        text.copy(login_msg_.data() + msg_len, text.size());
         msg_len += text.size();
     };
     put_msg(signer.api_key());
@@ -207,7 +207,7 @@ std::expected<std::string_view, WsBuildError> Protocol::login_frame(const net::S
             overflow = true;
             return;
         }
-        std::memcpy(login_frame_.data() + len, text.data(), text.size());
+        text.copy(login_frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"method":"login","param":{"apiKey":")");

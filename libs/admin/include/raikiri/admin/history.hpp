@@ -148,10 +148,10 @@ using ReconBreakPage = Page<ReconBreak>;
 
 // an empty field is not a filter
 struct PageQuery {
-    std::optional<AccountId> account;
-    std::optional<InstrumentId> instrument;
-    std::optional<UnixNanos> since; // inclusive lower bound on the row's time
-    std::optional<Cursor> cursor;
+    std::optional<AccountId> account{};
+    std::optional<InstrumentId> instrument{};
+    std::optional<UnixNanos> since{}; // inclusive lower bound on the row's time
+    std::optional<Cursor> cursor{};
     std::size_t limit{k_default_page};
 };
 

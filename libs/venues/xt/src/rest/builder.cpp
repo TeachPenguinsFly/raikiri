@@ -52,7 +52,7 @@ public:
         if (len_ + text.size() > into_.size()) {
             return;
         }
-        std::memcpy(into_.data() + len_, text.data(), text.size());
+        text.copy(into_.data() + len_, text.size());
         len_ += text.size();
     }
 
@@ -81,7 +81,7 @@ public:
             overflow_ = true;
             return *this;
         }
-        std::memcpy(buf_.data() + len_, text.data(), text.size());
+        text.copy(buf_.data() + len_, text.size());
         len_ += text.size();
         return *this;
     }

@@ -180,7 +180,8 @@ venues:
   hyperliquid:
     order_answer_timeout_ms: 15000
     limits:
-      - { name: weight, window_ms: 60000, max: 1080, reserve: 108 }
+      - { name: weight, window_ms: 60000, max: 1080, reserve: 108, match: ["/info", "/exchange"] }
+      - { name: ws_post, window_ms: 60000, max: 1500, reserve: 150, match: ["ws:post"] }
       - { name: ws_streams, kind: ws_streams, max: 1000 }
       - { name: ws_sockets, kind: ws_sockets, max: 6 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
@@ -330,6 +331,7 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: spot_rest, window_ms: 10000, max: 180, reserve: 18, match: ["/v2/"] }
+      - { name: perp_rest, window_ms: 1000, max: 4, match: ["/cfd/"] }
       - { name: ws_streams_perp, kind: ws_streams, market: perp, max: 250 }
       - { name: ws_streams_spot, kind: ws_streams, market: spot, max: 400 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }

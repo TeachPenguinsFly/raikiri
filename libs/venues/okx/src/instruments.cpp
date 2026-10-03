@@ -73,6 +73,9 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
+            if (entry.inst_id_code != 0) {
+                state_->inst_id_codes[*id] = entry.inst_id_code;
+            }
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

@@ -555,6 +555,12 @@ export interface components {
                 reopens: number;
                 last_close_reason: string;
                 last_close_ns: components["schemas"]["Nanos"];
+                /** @description Reconnect backoffs engaged on the host since start. */
+                backoffs: number;
+                /** @description Handshakes the host refused with 429 or 418. */
+                refusals: number;
+                /** @description Left on the host's current backoff; zero when none. */
+                backoff_ms: number;
             }[];
             /** @description The venue's ws_* rows from venues.yaml; zero is unconfigured. */
             limits: {

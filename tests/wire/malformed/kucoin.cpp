@@ -5,6 +5,7 @@
 #include <raikiri/venues/kucoin/market_data.hpp>
 #include <raikiri/venues/kucoin/orders.hpp>
 #include <raikiri/venues/kucoin/positions.hpp>
+#include <raikiri/venues/kucoin/trade.hpp>
 
 #include <gtest/gtest.h>
 
@@ -18,6 +19,8 @@ using wire::malformed::hammer;
 TEST(Malformed, Kucoin) {
     hammer("kucoin",
            {
+               {"ws_trade_futures_order.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
+               {"ws_trade_session.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
                {"ws_ticker_v2.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

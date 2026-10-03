@@ -324,6 +324,17 @@ TEST(BlofinBook, AMissingDeltaDarkensTheBook) {
     EXPECT_EQ(book.apply(skipped->wire), BookResult::Ignored);
 }
 
+TEST(BlofinBook, TheWidestLiveDiffParsesWithRoomForAWholeSideTurningOver) {
+    const auto wide = books("ws_books_update_wide.json");
+    EXPECT_FALSE(wide->wire.snapshot);
+    EXPECT_EQ(wide->wire.inst_id, "CT-USDT");
+    EXPECT_EQ(wide->wire.bids.size(), 482U);
+    EXPECT_EQ(wide->wire.asks.size(), 332U);
+    EXPECT_EQ(wide->wire.prev_seq_id, 217'103'695U);
+    EXPECT_EQ(wide->wire.seq_id, 217'104'482U);
+    EXPECT_GE(k_max_levels, 2U * books("ws_books_snapshot.json")->wire.bids.size());
+}
+
 TEST(BlofinBook, ALevelOffTheGridDropsTheBook) {
     const auto oil = perp_of("WTIOIL-USDT");
     Book book{oil.base.id, e9("0.1"), oil.base.lot_size};

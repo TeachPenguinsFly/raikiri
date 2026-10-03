@@ -919,7 +919,7 @@ TEST(XtClientId, EncodingIsLosslessAndFitsTheVenueField) {
 TEST(XtClientId, EveryCharacterIsOneTheVenueAccepts) {
     UlidGen gen{7};
     for (int i = 0; i < 4096; ++i) {
-        const auto ulid = gen.next(UnixNanos{1'786'394'629'290'000'000ULL + std::uint64_t(i)});
+        const auto ulid = gen.next(UnixNanos{std::uint64_t{1'786'394'629'290'000'000} + static_cast<std::uint64_t>(i)});
         const auto encoded = encode_client_id(ulid);
         ASSERT_TRUE(encoded.has_value()) << ulid.view();
         ASSERT_EQ(encoded->view().size(), k_client_id_len);

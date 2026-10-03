@@ -109,4 +109,29 @@ std::vector<InFlight> InFlightTable::expire(MonoNanos now, std::uint64_t timeout
     return out;
 }
 
+InFlight in_flight_of(const OrderCmd& cmd, MonoNanos sent) noexcept {
+    return {.client_order_id = cmd.client_order_id,
+            .exchange_client_order_id = cmd.exchange_client_order_id,
+            .instrument = cmd.instrument,
+            .side = cmd.side,
+            .qty = cmd.qty,
+            .kind = cmd.kind,
+            .sent = sent};
+}
+
+void report_unknown_outcome(GatewaySink& sink, const InFlight& request, UnixNanos now, std::string_view why) noexcept {
+    sink.on_order_error(request.client_order_id, VenueError::make(ErrorClass::Connectivity, 0, why));
+    OrderEvent event{};
+    event.type = OrderEventType::ReconGap;
+    event.instrument = request.instrument;
+    event.client_order_id = request.client_order_id;
+    event.exchange_client_order_id = request.exchange_client_order_id;
+    event.side = request.side;
+    event.qty = request.qty;
+    event.leaves_qty = QtyLots::undef();
+    event.ts_event = now;
+    event.ts_init = now;
+    sink.on_order_event(event);
+}
+
 } // namespace raikiri::exec

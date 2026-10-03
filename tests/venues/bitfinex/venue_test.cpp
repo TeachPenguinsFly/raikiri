@@ -1044,7 +1044,7 @@ TEST(BitfinexClientId, TheCidIsDerivedFromTheUlidAndFitsTheField) {
     UlidGen gen{11};
     std::vector<std::int64_t> seen;
     for (int i = 0; i < 2048; ++i) {
-        const auto id = gen.next(UnixNanos{1'700'000'000'000'000'000ULL + std::uint64_t(i)});
+        const auto id = gen.next(UnixNanos{std::uint64_t{1'700'000'000'000'000'000} + static_cast<std::uint64_t>(i)});
         const auto derived = cid_from(id);
         ASSERT_TRUE(derived.has_value());
         seen.push_back(*derived);

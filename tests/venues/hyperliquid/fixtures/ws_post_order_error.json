@@ -1,0 +1,1 @@
+{"channel":"post","data":{"id":257,"response":{"type":"action","payload":{"status":"ok","response":{"type":"order","data":{"statuses":[{"error":"Order must have minimum value of $10."}]}}}}}}

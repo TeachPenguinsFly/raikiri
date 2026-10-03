@@ -82,7 +82,7 @@ std::string_view Protocol::subscribe_frame(std::string_view key) {
     auto* cursor = frame_.data();
     for (const auto part : parts) {
         if (!part.empty()) {
-            std::memcpy(cursor, part.data(), part.size());
+            part.copy(cursor, part.size());
             cursor += part.size();
         }
     }

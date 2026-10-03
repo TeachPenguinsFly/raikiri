@@ -81,7 +81,7 @@ struct WsPool::Impl {
          BuildFrames build,
          OnConnectionOpen opened)
         : io{&io_ref}, config{std::move(cfg)}, handler{&shared}, settings{pool}, build_frames{std::move(build)},
-          on_open{std::move(opened)} {
+          on_open{std::move(opened)}, backoff{host_backoff(config.host, config.port, config.backoff)} {
         const auto& limits = process_ws_limits();
         if (!limits.configured) {
             return;
@@ -112,6 +112,7 @@ struct WsPool::Impl {
     WsPoolConfig settings;
     BuildFrames build_frames;
     OnConnectionOpen on_open;
+    std::shared_ptr<HostBackoff> backoff;
     Admit admit;
     // first opens and reopens together
     std::size_t reopens{0};
@@ -322,6 +323,11 @@ WsPoolStats WsPool::stats() const {
     if (impl.last_close_ns != 0) {
         out.last_close_reason = std::string{to_string(impl.last_close)};
     }
+    const auto backoff = impl.backoff->stats();
+    const auto now_ns = LiveClock{}.mono().ns;
+    out.backoffs = backoff.backoffs;
+    out.refusals = backoff.refusals;
+    out.backoff_ms = backoff.until_ns > now_ns ? (backoff.until_ns - now_ns) / 1'000'000 : 0;
     for (const auto& conn : impl.conns) {
         out.open += conn->client->connected() ? 1U : 0U;
         out.keys += conn->keys.size();

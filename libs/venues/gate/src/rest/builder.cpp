@@ -30,7 +30,7 @@ public:
         if (len_ + text.size() > into_.size()) {
             return;
         }
-        std::memcpy(into_.data() + len_, text.data(), text.size());
+        text.copy(into_.data() + len_, text.size());
         len_ += text.size();
     }
 
@@ -60,7 +60,7 @@ public:
             overflow_ = true;
             return *this;
         }
-        std::memcpy(buf_.data() + len_, text.data(), text.size());
+        text.copy(buf_.data() + len_, text.size());
         len_ += text.size();
         return *this;
     }
@@ -128,14 +128,14 @@ private:
     return qty.raw / k_e9;
 }
 
-[[nodiscard]] std::string_view order_target(const OrderCmd& cmd, std::span<char> out) noexcept {
+} // namespace
+
+std::string_view order_target(const OrderCmd& cmd, std::span<char> out) noexcept {
     if (!cmd.target_exchange_order_id.empty()) {
         return cmd.target_exchange_order_id.view();
     }
     return client_id_text(cmd.exchange_client_order_id, out);
 }
-
-} // namespace
 
 std::string_view rest_host(bool testnet) noexcept {
     return ep::rest_host(testnet);

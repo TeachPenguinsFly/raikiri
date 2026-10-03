@@ -15,7 +15,9 @@
 #include <cctype>
 #include <csignal>
 #include <cstdio>
+#include <filesystem>
 #include <string>
+#include <system_error>
 
 namespace raikiri::journal {
 namespace {
@@ -40,7 +42,10 @@ public:
     operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
 
 private:
-    void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }
+    void wipe() const {
+        std::error_code ec;
+        std::filesystem::remove_all(path_, ec);
+    }
 
     std::string path_;
 };

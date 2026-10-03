@@ -21,9 +21,9 @@
 namespace raikiri::strategy {
 
 struct Spec {
-    std::string name;   // this instance, in a person's words
-    std::string type;   // a name the factory knows
-    std::string config; // opaque; handed to the constructor verbatim
+    std::string name{};   // this instance, in a person's words
+    std::string type{};   // a name the factory knows
+    std::string config{}; // opaque; handed to the constructor verbatim
     std::uint16_t strategy_id{0};
 };
 
@@ -67,8 +67,8 @@ enum class ControlError : std::uint8_t {
 
 // no Strategy pointer, so nothing outside can call a hook
 struct InstanceView {
-    std::string name;
-    std::string type;
+    std::string name{};
+    std::string type{};
     std::uint16_t strategy_id{0};
     Phase phase{Phase::Created};
     UnixNanos since{}; // when it entered `phase`

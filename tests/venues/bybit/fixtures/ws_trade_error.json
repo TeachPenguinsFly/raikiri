@@ -1,0 +1,1 @@
+{"reqId":"test-005","retCode":10001,"retMsg":"position idx not match position mode","op":"order.create","data":{},"retExtInfo":{},"header":{"X-Bapi-Limit":"10","X-Bapi-Limit-Status":"9","X-Bapi-Limit-Reset-Timestamp":"1711001595208","Traceid":"38b7977b430f9bd228f4b19724794dfd","Timenow":"1711001595209"},"connId":"cnt5leec0hvan15eukcg-2v"}

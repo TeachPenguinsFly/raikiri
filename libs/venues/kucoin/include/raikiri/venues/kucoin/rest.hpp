@@ -39,6 +39,9 @@ inline constexpr std::string_view k_settle_currency = "USDT";
 // clientOid length limit; the oms's 26-char ulid fits
 inline constexpr std::size_t k_max_client_oid = 40;
 
+// clientOid alphabet: letters, digits, '_' and '-'
+[[nodiscard]] bool client_oid_usable(std::string_view id) noexcept;
+
 // public reads, futures host only
 class RequestBuilder {
 public:

@@ -32,8 +32,8 @@ struct WireBook {
     std::uint64_t seq{0};      // u
     std::uint64_t prev_seq{0}; // pu, deltas only
     std::uint64_t ts_ms{0};
-    std::span<const WireLevel> bids;
-    std::span<const WireLevel> asks;
+    std::span<const WireLevel> bids{};
+    std::span<const WireLevel> asks{};
 };
 
 // the envelope's channel says which shape the frame is

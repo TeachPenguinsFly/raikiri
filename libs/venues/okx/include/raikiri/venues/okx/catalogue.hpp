@@ -26,6 +26,7 @@ struct WireInstrument {
     std::string_view ct_mult;
     std::string_view ct_type;       // linear | inverse; empty on SPOT and OPTION rows
     std::string_view inst_category; // 1 crypto, 3 stocks, 4 commodities, 5 forex
+    std::uint64_t inst_id_code{0};  // zero while okx has not issued one; order ops on the socket need it
 };
 
 // the spot catalogue is about three times the swap one

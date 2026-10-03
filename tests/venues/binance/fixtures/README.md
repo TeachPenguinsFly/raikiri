@@ -35,3 +35,21 @@ Three files were assembled rather than captured:
 frames kept are the one whose `[U, u]` contains that snapshot's `lastUpdateId`
 and the one right after it. To regenerate them, take the seed and the stream
 from the same session in that order.
+
+## WebSocket API order replies
+
+No order was placed to get these. The four doc examples are copied from
+binance's USD-M futures WebSocket API pages, as published on 2026-10-03.
+The general page is
+`https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-api-general-info`
+and the trade page is
+`https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/websocket-api`.
+Their ids are the docs' uuids, so a test swaps in a numeric id.
+
+| file | source |
+|---|---|
+| `ws_api_order_place.json` | doc example: the `order.place` success reply on the general page, with all three `rateLimits` rows |
+| `ws_api_order_cancel.json` | doc example: the `order.cancel` success reply on the trade page |
+| `ws_api_order_modify.json` | doc example: the `order.modify` success reply on the trade page |
+| `ws_api_error.json` | doc example: the error reply on the general page, code -1102 |
+| `ws_api_auth_failure.json` | assembled. The docs give no WebSocket auth failure, so this is the documented error envelope carrying -1022 with its text from the error-code page |

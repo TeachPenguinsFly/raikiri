@@ -5,6 +5,7 @@
 #include <raikiri/venues/bitget/market_data.hpp>
 #include <raikiri/venues/bitget/orders.hpp>
 #include <raikiri/venues/bitget/positions.hpp>
+#include <raikiri/venues/bitget/trade.hpp>
 
 #include <gtest/gtest.h>
 
@@ -25,6 +26,8 @@ TEST(Malformed, Bitget) {
                     (void)parse_stream_error(f);
                 }},
                {"ws_login_ack.json", [](std::string_view f) { (void)parse_event(f); }},
+               {"ws_trade_place_order.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
+               {"ws_trade_error.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
                {"ws_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

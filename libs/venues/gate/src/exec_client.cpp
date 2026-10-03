@@ -2,6 +2,7 @@
 #include <raikiri/venues/gate/envelope.hpp>
 #include <raikiri/venues/gate/errors.hpp>
 #include <raikiri/venues/gate/orders.hpp>
+#include <raikiri/venues/gate/trade.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -20,11 +21,18 @@ namespace {
 
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// holds orders sent over rest and not yet answered on the private socket
+constexpr std::uint32_t k_trade_stream_id = 2;
+
+// a request is never left without a verdict, even where config sets no answer timeout
+constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
+
+// orders go out on the websocket api, or over rest while it is down; the private socket reports what follows
 class GateExec final : public exec::ExecutionClient {
 public:
     // gate names spot and perp pairs identically and the mappers take no market, so run one gateway per market
-    GateExec(std::shared_ptr<VenueState> state, MarketType market) : state_{std::move(state)}, api_{*state_} {
+    GateExec(std::shared_ptr<VenueState> state, MarketType market)
+        : state_{std::move(state)}, market_{market}, api_{*state_},
+          codec_{state_->signer, market, state_->clock_offset_ns} {
         // the two private streams use different hosts and shapes; only this market's opens
         if (market == MarketType::Perp) {
             perp_ = std::make_unique<PrivateStream>(*state_, MarketType::Perp);
@@ -51,6 +59,9 @@ public:
         if (spot_) {
             spot_->start();
         }
+        if (state_->signer.has_credentials() && (perp_ || spot_)) {
+            open_trade_socket();
+        }
         started_ = true;
         return {};
     }
@@ -61,6 +72,10 @@ public:
         }
         if (spot_) {
             spot_->stop();
+        }
+        if (trade_) {
+            trade_->stop();
+            trade_.reset();
         }
         api_.stop();
         started_ = false;
@@ -75,6 +90,9 @@ public:
     // sweeps rest connections the venue closed, so an idle gateway does not write into a dead socket
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
+        if (trade_) {
+            trade_->poll();
+        }
         sweep_unanswered();
     }
 
@@ -168,22 +186,66 @@ private:
             return;
         }
         for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
-            state_->sink->on_order_error(
-                stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
-            OrderEvent event{};
-            event.type = OrderEventType::ReconGap;
-            event.instrument = stale.instrument;
-            event.client_order_id = stale.client_order_id;
-            event.exchange_client_order_id = stale.exchange_client_order_id;
-            event.side = stale.side;
-            event.qty = stale.qty;
-            // undef: whether anything is working is unknown
-            event.leaves_qty = QtyLots::undef();
-            event.ts_event = state_->clock->wall();
-            event.ts_init = event.ts_event;
-            state_->sink->on_order_event(event);
+            exec::report_unknown_outcome(
+                *state_->sink, stale, state_->clock->wall(), "no answer from the venue; outcome unknown");
         }
+    }
+
+    void open_trade_socket() {
+        net::WsRpcConfig config{};
+        config.ws.host = std::string{private_host(state_->testnet, market_)};
+        config.ws.port = std::string{stream_port()};
+        config.ws.target = std::string{private_path(state_->testnet, market_)};
+        config.request_timeout_ns = state_->order_answer_timeout_ns != 0 ? state_->order_answer_timeout_ns
+                                                                         : k_default_ws_timeout_ns;
+        trade_ = std::make_unique<net::WsRpc>(state_->io, *state_->clock, std::move(config), codec_);
+        trade_->set_observer([this](net::WsRpcState state, std::string_view) {
+            if (state == net::WsRpcState::LoggingIn) {
+                return;
+            }
+            state_->sink->on_connectivity({.state = state == net::WsRpcState::Ready ? exec::ConnState::Connected
+                                                    : state == net::WsRpcState::AuthFailed
+                                                        ? exec::ConnState::AuthFailed
+                                                        : exec::ConnState::Disconnected,
+                                           .stream_id = k_trade_stream_id,
+                                           .ts = state_->clock->wall()});
+        });
+        trade_->start();
+    }
+
+    // false leaves the command for rest with nothing sent
+    [[nodiscard]] bool send_ws(const OrderCmd& cmd, Kind kind, std::string_view body) noexcept {
+        if (!trade_ || !trade_->ready()) {
+            return false;
+        }
+        std::array<char, k_client_id_bytes> target_buf{};
+        const auto target = kind == Kind::Create ? std::string_view{} : order_target(cmd, target_buf);
+        const auto op = kind == Kind::Create ? TradeOp::Place : kind == Kind::Cancel ? TradeOp::Cancel : TradeOp::Amend;
+        const auto id = trade_->next_id();
+        const auto frame = ws_frames_.request(
+            id, market_, op, target, state_->instruments.exchange_symbol(cmd.instrument), body, state_->now_s());
+        if (!frame.has_value()) {
+            return false;
+        }
+        const auto market = cmd.instrument.market();
+        return trade_->request(id, *frame, [this, cmd, kind, market](const net::WsRpcReply& reply) {
+            if (reply.outcome == net::WsRpcOutcome::Unknown) {
+                exec::report_unknown_outcome(
+                    *state_->sink, exec::in_flight_of(cmd, state_->clock->mono()), state_->clock->wall(), reply.detail);
+                return;
+            }
+            const auto parsed = parse_trade_reply(reply.payload);
+            if (!parsed.has_value()) {
+                emit_reject(
+                    cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable trade reply"));
+                return;
+            }
+            std::expected<RestError, WireError> refusal{std::unexpected(WireError::MissingField)};
+            if (!parsed->label.empty()) {
+                refusal = RestError{.label = parsed->label, .message = parsed->message};
+            }
+            settle(cmd, kind, market, parsed->status >= 200 && parsed->status < 300, parsed->result, refusal);
+        });
     }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
@@ -196,6 +258,9 @@ private:
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
         }
+        if (send_ws(cmd, kind, request->body)) {
+            return;
+        }
         const auto market = cmd.instrument.market();
         if (!api_.send(*request, [this, cmd, kind, market](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind, market);
@@ -205,13 +270,7 @@ private:
             return;
         }
         // recorded here since the callback may never run
-        (void)unanswered_.add({.client_order_id = cmd.client_order_id,
-                               .exchange_client_order_id = cmd.exchange_client_order_id,
-                               .instrument = cmd.instrument,
-                               .side = cmd.side,
-                               .qty = cmd.qty,
-                               .kind = cmd.kind,
-                               .sent = state_->clock->mono()});
+        (void)unanswered_.add(exec::in_flight_of(cmd, state_->clock->mono()));
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
@@ -229,20 +288,28 @@ private:
                                                                     : std::string_view{response.error}));
             return;
         }
-        if (response.status >= 200 && response.status < 300) {
+        const bool ok = response.status >= 200 && response.status < 300;
+        settle(cmd, kind, market, ok, response.body, parse_rest_error(ok ? std::string_view{} : response.body));
+    }
+
+    // the same verdict whichever transport carried the command
+    void settle(const OrderCmd& cmd,
+                Kind kind,
+                MarketType market,
+                bool ok,
+                std::string_view order,
+                const std::expected<RestError, WireError>& refusal) {
+        if (ok) {
             // the success body is the order; caching it seeds leaves before the _new push
-            if (const auto wire = parse_rest_order(response.body, market); wire.has_value()) {
+            if (const auto wire = parse_rest_order(order, market); wire.has_value()) {
                 state_->remember(*wire);
             }
             return;
         }
-        if (kind == Kind::Cancel) {
-            if (const auto err = parse_rest_error(response.body);
-                err.has_value() && is_benign_cancel_failure(err->label)) {
-                return; // the order already finished; reconciliation settles it
-            }
+        if (kind == Kind::Cancel && refusal.has_value() && is_benign_cancel_failure(refusal->label)) {
+            return; // the order already finished; reconciliation settles it
         }
-        emit_reject(cmd, kind, rest_failure(response.body));
+        emit_reject(cmd, kind, refusal_of(refusal));
     }
 
     // OrderEvent has no room for text, so the sink gets the error
@@ -271,7 +338,11 @@ private:
     std::shared_ptr<VenueState> state_;
     std::unique_ptr<PrivateStream> perp_;
     std::unique_ptr<PrivateStream> spot_;
+    MarketType market_;
     RestApi api_;
+    TradeCodec codec_;
+    TradeFrameBuilder ws_frames_;
+    std::unique_ptr<net::WsRpc> trade_;
     bool started_{false};
     exec::InFlightTable unanswered_{k_max_unanswered};
 };

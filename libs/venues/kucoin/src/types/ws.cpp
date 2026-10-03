@@ -113,7 +113,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     std::array<char, 24> id{};
@@ -164,7 +164,7 @@ Protocol::uta_subscribe_frame(std::span<const Subscription> subscriptions) {
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     std::array<char, 24> id{};
@@ -201,7 +201,7 @@ std::expected<std::string_view, WsBuildError> Protocol::private_subscribe_frame(
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     std::array<char, 24> id{};

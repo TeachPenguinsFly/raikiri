@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <vector>
 
 namespace raikiri::portfolio {
@@ -157,14 +158,14 @@ TEST(Position, InverseLongProfitsWhenItsBaseValueShrinks) {
     const auto p = fold(base, {{Side::Buy, 50'000, "50000"}, {Side::Sell, 50'000, "60000"}});
 
     EXPECT_TRUE(p.flat());
-    EXPECT_NEAR(p.realized().raw, 166'666'667, 1);
+    EXPECT_LE(std::abs(p.realized().raw - 166'666'667), 1);
     EXPECT_EQ(p.cost().raw, 0);
 }
 
 TEST(Position, InverseShortLosesWhatTheLongGained) {
     const auto base = bitmex_xbtusd();
     const auto p = fold(base, {{Side::Sell, 50'000, "50000"}, {Side::Buy, 50'000, "60000"}});
-    EXPECT_NEAR(p.realized().raw, -166'666'667, 1);
+    EXPECT_LE(std::abs(p.realized().raw + 166'666'667), 1);
 }
 
 TEST(Position, UnrealizedIsAFunctionOfTheMarkArgument) {
@@ -182,7 +183,7 @@ TEST(Position, UnrealizedOnInverseAlsoInverts) {
     const auto base = bitmex_xbtusd();
     const auto p = fold(base, {{Side::Buy, 50'000, "50000"}});
     const auto at = *base.price_to_ticks(*parse_decimal_e9("60000"));
-    EXPECT_NEAR(unrealized_pnl(base, p, at).raw, 166'666'667, 1);
+    EXPECT_LE(std::abs(unrealized_pnl(base, p, at).raw - 166'666'667), 1);
 }
 
 TEST(Position, RealizedIsGrossAndFeesAreSeparate) {

@@ -1,0 +1,1 @@
+{"event":"trade","arg":[{"id":"xxxxx-xxx-xxx-xxxx-xxxxxx","instType":"USDT-FUTURES","channel":"place-order","instId":"BTCUSDT","params":{"orderId":"xxxxxxxxxxx","clientOid":"xxxxx-xxx-xxx-xxxx-xxxxxx"}}],"code":0,"msg":"Success"}

@@ -15,13 +15,13 @@
 namespace raikiri::http {
 
 struct Request {
-    std::string_view method;
-    std::string_view path;
-    std::string_view query; // raw, without the '?'
-    std::string_view body;  // empty on GET; the parser caps it at 16 KiB
+    std::string_view method{};
+    std::string_view path{};
+    std::string_view query{}; // raw, without the '?'
+    std::string_view body{};  // empty on GET; the parser caps it at 16 KiB
 
     // named rather than a header map; one endpoint reads a header
-    std::string_view idempotency_key;
+    std::string_view idempotency_key{};
 };
 
 struct Response {

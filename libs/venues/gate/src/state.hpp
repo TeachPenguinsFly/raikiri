@@ -151,12 +151,15 @@ inline void meter_market_data(VenueState& state, net::RestClient& rest) {
 }
 
 // gate's code is a label, so it travels in the message
-inline exec::VenueError rest_failure(std::string_view body) {
-    const auto err = parse_rest_error(body);
+inline exec::VenueError refusal_of(const std::expected<RestError, WireError>& err) {
     if (!err.has_value()) {
         return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable refusal body");
     }
     return exec::VenueError::make(classify(err->label), 0, err->label);
+}
+
+inline exec::VenueError rest_failure(std::string_view body) {
+    return refusal_of(parse_rest_error(body));
 }
 
 // measured once at startup; a skewed timestamp reads as a bad signature

@@ -3,6 +3,7 @@
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/venues/okx/map.hpp>
 #include <raikiri/venues/okx/orders.hpp>
+#include <raikiri/venues/okx/trade.hpp>
 
 #include <memory>
 #include <span>
@@ -19,7 +20,15 @@ namespace {
 
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// orders go out over rest and come back on the private socket; this class ages out unanswered ones
+constexpr std::uint32_t k_trade_stream_id = 2;
+
+// a request is never left without a verdict, even where config sets no answer timeout
+constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
+
+// okx drops a socket silent for 30 s
+constexpr std::uint64_t k_trade_ping_interval_ns = 15'000'000'000ULL;
+
+// orders go out on the trade socket, or over rest while it is down, and come back on the private socket
 class OkxExec final : public exec::ExecutionClient {
 public:
     explicit OkxExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
@@ -30,11 +39,16 @@ public:
             return {};
         }
         stream_.start();
+        open_trade_socket();
         return {};
     }
 
     void stop() override {
         stream_.stop();
+        if (trade_) {
+            trade_->stop();
+            trade_.reset();
+        }
         api_.stop();
     }
 
@@ -110,6 +124,9 @@ private:
     // sweeps idle rest connections the venue already closed
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
+        if (trade_) {
+            trade_->poll();
+        }
         sweep_unanswered();
     }
 
@@ -119,22 +136,62 @@ private:
             return;
         }
         for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
-            state_->sink->on_order_error(
-                stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
-            OrderEvent event{};
-            event.type = OrderEventType::ReconGap;
-            event.instrument = stale.instrument;
-            event.client_order_id = stale.client_order_id;
-            event.exchange_client_order_id = stale.exchange_client_order_id;
-            event.side = stale.side;
-            event.qty = stale.qty;
-            // undef: zero leaves would read as nothing working
-            event.leaves_qty = QtyLots::undef();
-            event.ts_event = state_->clock->wall();
-            event.ts_init = event.ts_event;
-            state_->sink->on_order_event(event);
+            exec::report_unknown_outcome(
+                *state_->sink, stale, state_->clock->wall(), "no answer from the venue; outcome unknown");
         }
+    }
+
+    void open_trade_socket() {
+        net::WsRpcConfig config{};
+        config.ws.host = std::string{stream_host(state_->testnet)};
+        config.ws.port = std::string{stream_port()};
+        config.ws.target = std::string{private_stream_path()};
+        config.request_timeout_ns = state_->order_answer_timeout_ns != 0 ? state_->order_answer_timeout_ns
+                                                                         : k_default_ws_timeout_ns;
+        config.ping_interval_ns = k_trade_ping_interval_ns;
+        trade_ = std::make_unique<net::WsRpc>(state_->io, *state_->clock, std::move(config), codec_);
+        trade_->set_observer([this](net::WsRpcState state, std::string_view) {
+            if (state == net::WsRpcState::LoggingIn) {
+                return;
+            }
+            state_->sink->on_connectivity({.state = state == net::WsRpcState::Ready ? exec::ConnState::Connected
+                                                    : state == net::WsRpcState::AuthFailed
+                                                        ? exec::ConnState::AuthFailed
+                                                        : exec::ConnState::Disconnected,
+                                           .stream_id = k_trade_stream_id,
+                                           .ts = state_->clock->wall()});
+        });
+        trade_->start();
+    }
+
+    // false leaves the command for rest with nothing sent
+    [[nodiscard]] bool send_ws(const OrderCmd& cmd, OrderEventType on_failure, std::string_view body) noexcept {
+        if (!trade_ || !trade_->ready()) {
+            return false;
+        }
+        const auto code = state_->inst_id_codes.find(cmd.instrument);
+        if (code == state_->inst_id_codes.end()) {
+            return false;
+        }
+        const auto op = on_failure == OrderEventType::Rejected         ? k_op_order
+                        : on_failure == OrderEventType::CancelRejected ? k_op_cancel
+                                                                       : k_op_amend;
+        const auto id = trade_->next_id();
+        const auto frame = ws_frames_.request(id, op, body, code->second);
+        if (!frame.has_value()) {
+            return false;
+        }
+        return trade_->request(id, *frame, [this, cmd, on_failure](const net::WsRpcReply& reply) {
+            if (reply.outcome == net::WsRpcOutcome::Unknown) {
+                exec::report_unknown_outcome(
+                    *state_->sink, exec::in_flight_of(cmd, state_->clock->mono()), state_->clock->wall(), reply.detail);
+                return;
+            }
+            if (const auto refusal = verdict_of(reply.payload, cmd.exchange_client_order_id, on_failure);
+                refusal.has_value()) {
+                emit(cmd, on_failure, *refusal);
+            }
+        });
     }
 
     void fire(const std::expected<net::RestRequest, BuildError>& request,
@@ -142,6 +199,9 @@ private:
               OrderEventType on_failure) noexcept {
         if (!request.has_value()) {
             emit(cmd, on_failure, exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
+            return;
+        }
+        if (send_ws(cmd, on_failure, request->body)) {
             return;
         }
         const auto captured = cmd;
@@ -161,13 +221,7 @@ private:
             emit(cmd, on_failure, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
-        (void)unanswered_.add({.client_order_id = cmd.client_order_id,
-                               .exchange_client_order_id = cmd.exchange_client_order_id,
-                               .instrument = cmd.instrument,
-                               .side = cmd.side,
-                               .qty = cmd.qty,
-                               .kind = cmd.kind,
-                               .sent = state_->clock->mono()});
+        (void)unanswered_.add(exec::in_flight_of(cmd, state_->clock->mono()));
     }
 
     bool send_batch(const net::RestRequest& request, std::span<const OrderCmd> chunk) noexcept {
@@ -190,13 +244,7 @@ private:
             return false;
         }
         for (const auto& cmd : chunk) {
-            (void)unanswered_.add({.client_order_id = cmd.client_order_id,
-                                   .exchange_client_order_id = cmd.exchange_client_order_id,
-                                   .instrument = cmd.instrument,
-                                   .side = cmd.side,
-                                   .qty = cmd.qty,
-                                   .kind = cmd.kind,
-                                   .sent = state_->clock->mono()});
+            (void)unanswered_.add(exec::in_flight_of(cmd, state_->clock->mono()));
         }
         return true;
     }
@@ -207,13 +255,19 @@ private:
         if (response.transport_failed()) {
             return exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue");
         }
-        const auto envelope = parse_rest_envelope(response.body);
+        return verdict_of(response.body, id, on_failure);
+    }
+
+    // the socket's reply carries the rest envelope, so both transports reach the same verdict
+    [[nodiscard]] static std::optional<exec::VenueError>
+    verdict_of(std::string_view body, const ExchangeClientOrderId& id, OrderEventType on_failure) {
+        const auto envelope = parse_rest_envelope(body);
         if (!envelope.has_value()) {
             return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope");
         }
         static thread_local const auto storage_owner = std::make_unique<AckBuffer>();
         auto& storage = *storage_owner;
-        const auto acks = parse_order_acks(response.body, storage);
+        const auto acks = parse_order_acks(body, storage);
         std::int64_t code = envelope->code;
         std::string_view text = envelope->msg;
         if (acks.has_value()) {
@@ -261,6 +315,9 @@ private:
     std::shared_ptr<VenueState> state_;
     PrivateStream stream_;
     RestApi api_;
+    TradeCodec codec_{state_->signer, state_->passphrase.view(), state_->clock_offset_ns};
+    TradeFrameBuilder ws_frames_;
+    std::unique_ptr<net::WsRpc> trade_;
     exec::InFlightTable unanswered_{k_max_unanswered};
 };
 

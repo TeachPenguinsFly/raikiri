@@ -4,6 +4,7 @@
 // on_message's payload is invalidated on return
 
 #include <raikiri/common/time.hpp>
+#include <raikiri/net/ws_backoff.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -21,15 +22,17 @@ struct WsConfig {
     std::string target{"/"}; // "/v5/public/linear"
     std::uint32_t ping_interval_ms{20'000};
     std::uint32_t pong_timeout_ms{10'000};
-    std::uint32_t reconnect_min_ms{250};
-    std::uint32_t reconnect_max_ms{30'000};
-    // the least wait after a declined upgrade; a draining node keeps declining for seconds
-    std::uint32_t declined_backoff_ms{5'000};
+    // shared with every socket to the same host and port
+    WsBackoffPolicy backoff{};
     std::size_t send_queue_capacity{256};
     std::size_t max_message_bytes{1 << 20};
     bool verify_tls{true}; // false only for local test servers
+    // false drops unsent frames on close; an order frame must not reach the next socket
+    bool keep_queue_on_close{true};
     // asked before every connect: zero connects now, otherwise nanoseconds to wait
     std::function<std::uint64_t()> connect_gate{};
+    // asked before every handshake when set, for a target signed per connection
+    std::function<std::string()> target_for_connect{};
 };
 
 enum class WsCloseReason : std::uint8_t {

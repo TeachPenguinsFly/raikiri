@@ -185,6 +185,79 @@ TEST(LbankPerpBook, RoundsAFloatTailOntoTheLot) {
     EXPECT_FALSE(ticks_of("84816.75", e9("0.1")).has_value());
 }
 
+TEST(LbankPerpBook, TakesEveryFrameOfABatchAndDropsAReplay) {
+    const auto storage = std::make_unique<LevelBuffer>();
+    std::uint64_t newest = 0;
+
+    const auto first = parse_book(fixture("ws_book_batch_first.json"), *storage);
+    ASSERT_TRUE(first.has_value());
+    const auto batch = first->bno;
+    EXPECT_EQ(first->index, "Exchange_QNTUSDT");
+    EXPECT_TRUE(fresh_batch(batch, newest));
+
+    const auto second = parse_book(fixture("ws_book_batch_second.json"), *storage);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(second->index, "Exchange_BTCUSDT");
+    EXPECT_EQ(second->bno, batch);
+    EXPECT_TRUE(fresh_batch(second->bno, newest));
+
+    InstrumentBase ach{};
+    ach.tick_size = e9("0.000001");
+    ach.lot_size = e9("1");
+    book::Ladders ladders;
+    for (const auto& level : second->levels) {
+        if (level.instrument == "ACHUSDT" && level.tick.empty()) {
+            ASSERT_TRUE(apply_level(level, ach, ladders));
+        }
+    }
+    const auto touch = ladders.touch();
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->first.price.raw, 6'283);
+    EXPECT_EQ(touch->first.qty.raw, 55'676);
+    EXPECT_EQ(touch->second.price.raw, 6'291);
+
+    book::Ladders stale;
+    stale.asks().upsert({.price = PriceTicks::from_raw(6'280), .qty = QtyLots::from_raw(1)});
+    stale.asks().upsert({.price = PriceTicks::from_raw(6'283), .qty = QtyLots::from_raw(1)});
+    stale.asks().upsert({.price = PriceTicks::from_raw(6'291), .qty = QtyLots::from_raw(1)});
+    for (const auto& level : second->levels) {
+        if (level.instrument == "ACHUSDT" && level.tick.empty() && !level.ask) {
+            ASSERT_TRUE(apply_level(level, ach, stale));
+        }
+    }
+    ASSERT_EQ(stale.asks().size(), 1U);
+    EXPECT_EQ(stale.asks().levels().front().price.raw, 6'291);
+
+    const auto replay = parse_book(fixture("ws_book_replay.json"), *storage);
+    ASSERT_TRUE(replay.has_value());
+    EXPECT_FALSE(fresh_batch(replay->bno, newest));
+    EXPECT_EQ(newest, batch);
+}
+
+TEST(LbankPerpBook, ReseedsADriftedBookFromTheRestDepth) {
+    const auto eth = perp_base("ETHUSDT");
+    const auto storage = std::make_unique<RestDepthBuffer>();
+    const auto rest = parse_market_order(fixture("rest_market_order.json"), *storage);
+    ASSERT_TRUE(rest.has_value());
+    ASSERT_EQ(rest->bids.size(), 5U);
+    ASSERT_EQ(rest->asks.size(), 5U);
+
+    book::Ladders ladders;
+    ladders.bids().upsert({.price = PriceTicks::from_raw(267'949), .qty = QtyLots::from_raw(1'000)});
+    ladders.asks().upsert({.price = PriceTicks::from_raw(267'950), .qty = QtyLots::from_raw(1'000)});
+    EXPECT_FALSE(same_touch(ladders, *rest, eth));
+
+    ASSERT_TRUE(seed_levels(*rest, eth, ladders));
+    EXPECT_EQ(ladders.bids().size(), 5U);
+    EXPECT_EQ(ladders.asks().size(), 5U);
+    const auto touch = ladders.touch();
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->first.price.raw, 267'957);
+    EXPECT_EQ(touch->first.qty.raw, 1'281'572);
+    EXPECT_EQ(touch->second.price.raw, 267'958);
+    EXPECT_TRUE(same_touch(ladders, *rest, eth));
+}
+
 TEST(LbankPerpTrades, StampsTheTradeWithTheVenueSecond) {
     const auto btc = perp_base("BTCUSDT");
     TradeBuffer storage;

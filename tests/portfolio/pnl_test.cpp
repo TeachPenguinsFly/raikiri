@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+
 namespace raikiri::portfolio {
 namespace {
 
@@ -77,7 +79,7 @@ TEST(Pnl, InverseSettlesInBaseNotQuote) {
     const auto realized_long = entry.raw - exit_.raw;
     EXPECT_LE(std::abs(realized_long - static_cast<std::int64_t>(closed_form)), 1)
         << "realized " << realized_long << " vs closed form " << static_cast<std::int64_t>(closed_form);
-    EXPECT_NEAR(realized_long, 3'333'333, 1); // 0.003333... BTC
+    EXPECT_LE(std::abs(realized_long - 3'333'333), 1); // 0.003333... BTC
 }
 
 TEST(Pnl, InverseSignIsOppositeToLinearForTheSameMove) {
@@ -95,7 +97,7 @@ TEST(Pnl, InverseSignIsOppositeToLinearForTheSameMove) {
     EXPECT_LT(inverse_delta, 0);
     // 50 000 contracts of 1 USD: 1.0 BTC at entry, 0.8333... at exit.
     EXPECT_EQ(settlement_value(inverse, at(inverse, "50000"), contracts).raw, k_e9);
-    EXPECT_NEAR(-inverse_delta, 166'666'667, 1); // +0.16666667 BTC to a long
+    EXPECT_LE(std::abs(-inverse_delta - 166'666'667), 1); // +0.16666667 BTC to a long
 }
 
 TEST(Pnl, SettleSideFollowsTheContractKind) {

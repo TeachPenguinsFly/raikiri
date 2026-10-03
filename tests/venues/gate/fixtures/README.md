@@ -80,3 +80,35 @@ the first time the adapter runs against a real key.
 | `rest_futures_my_trades.json` | futures `my_trades` |
 | `rest_spot_my_trades.json` | spot `my_trades` |
 | `rest_futures_account.json` | futures account, carrying `user` |
+
+## Websocket API, added 2026-10-03
+
+The Gate docs pages (`https://www.gate.com/docs/developers/futures/ws/en/`
+and `https://www.gate.com/docs/developers/apiv4/ws/en/`) could not be read
+from here: a plain fetch gets an Akamai 403 and the fetch tool stops before
+the Websocket API section. So no file below is a doc example. The envelope
+comes from two live replies, and `gatews`'s `model.go` (`ResponseHeader`,
+`data.result`, `data.errs`) agrees with it.
+
+### Captured unauthenticated
+
+A read-only `order_status` request with no login, sent on 2026-10-03. No order
+was sent. The `client_id` IP is replaced with `203.0.113.7`; everything else
+is verbatim.
+
+| file | source |
+| --- | --- |
+| `ws_api_not_login.json` | `futures.order_status` on `wss://fx-ws.gateio.ws/v4/ws/usdt`, answered `AUTHENTICATION_FAILED` / `Not login` |
+| `ws_api_spot_not_login.json` | `spot.order_status` on `wss://api.gateio.ws/ws/v4/`, the same refusal |
+
+### Assembled from that envelope
+
+Each file is the captured header with its `channel` and `status` changed.
+
+| file | how |
+| --- | --- |
+| `ws_api_login.json` | `futures.login`, status 200, `data.result` holding `api_key` and `uid` |
+| `ws_api_login_failure.json` | `futures.login`, status 400, with the label and message of `rest_error_invalid_key.json` |
+| `ws_api_order_place_ack.json` | `futures.order_place` with `ack: true`; `data.result` echoes the request |
+| `ws_api_order_place.json` | `futures.order_place` with `ack: false`; `data.result` is `rest_futures_order.json` |
+| `ws_api_order_cancel_not_found.json` | `futures.order_cancel`, status 400, label `ORDER_NOT_FOUND` |

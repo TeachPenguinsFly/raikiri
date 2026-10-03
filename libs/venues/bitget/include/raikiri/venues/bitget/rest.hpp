@@ -4,6 +4,7 @@
 
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/net/json_writer.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 
@@ -34,6 +35,10 @@ enum class BuildError : std::uint8_t {
 
 // usdt-m contracts settle in usdt; the catalogue row carries no settle coin
 [[nodiscard]] std::string_view margin_coin(std::string_view product) noexcept;
+
+// an order's fields after its symbol and product, shared by the rest body and the socket's params
+[[nodiscard]] std::expected<void, BuildError>
+write_order_fields(net::JsonWriter& json, const OrderCmd& cmd, const InstrumentBase& base, std::string_view product);
 
 // bitget caps a batch at 50 and refuses mixing orderId with clientOid, so cancels use clientOid
 inline constexpr std::size_t k_max_cancel_batch = 50;

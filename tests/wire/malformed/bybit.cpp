@@ -5,6 +5,7 @@
 #include <raikiri/venues/bybit/market_data.hpp>
 #include <raikiri/venues/bybit/orders.hpp>
 #include <raikiri/venues/bybit/positions.hpp>
+#include <raikiri/venues/bybit/trade.hpp>
 
 #include <gtest/gtest.h>
 
@@ -94,6 +95,8 @@ TEST(Malformed, Bybit) {
                     (void)parse_envelope(f);
                     (void)parse_wallet_balance(f, coins);
                 }},
+               {"ws_trade_create.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
+               {"ws_trade_auth_failure.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
            });
 }
 

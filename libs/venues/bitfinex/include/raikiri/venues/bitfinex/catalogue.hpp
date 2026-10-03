@@ -18,9 +18,9 @@ inline constexpr std::size_t k_pair_min_order_size = 3;
 inline constexpr std::size_t k_pair_max_order_size = 4;
 
 struct WirePairInfo {
-    std::string_view pair; // "BTCUSD", no t prefix here
-    std::string_view min_order_size;
-    std::string_view max_order_size;
+    std::string_view pair{}; // "BTCUSD", no t prefix here
+    std::string_view min_order_size{};
+    std::string_view max_order_size{};
 };
 
 inline constexpr std::size_t k_max_pairs = 1024;

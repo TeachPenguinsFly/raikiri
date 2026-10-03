@@ -12,6 +12,10 @@ inline constexpr std::string_view k_rest_spot = "api.kucoin.com";
 inline constexpr std::string_view k_bullet_public = "/api/v1/bullet-public";
 inline constexpr std::string_view k_bullet_private = "/api/v1/bullet-private";
 
+// order entry for spot and futures alike; the key, timestamp and signatures ride in the query
+inline constexpr std::string_view k_ws_trade_host = "wsapi.kucoin.com";
+inline constexpr std::string_view k_ws_trade_path = "/v1/private";
+
 inline constexpr std::string_view k_spot_orders = "/api/v1/hf/orders";
 inline constexpr std::string_view k_spot_order_amend = "/api/v1/hf/orders/alter";
 inline constexpr std::string_view k_futures_orders = "/api/v1/orders";

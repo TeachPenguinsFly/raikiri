@@ -76,7 +76,7 @@ Protocol::request(std::string_view req_type, std::string_view symbol, std::strin
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
 

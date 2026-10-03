@@ -25,9 +25,9 @@ struct WsLimits {
     std::size_t sockets{0};
     std::size_t channels{0};
     std::size_t subscriptions_per_frame{0};
-    WsRate socket_messages;
-    std::vector<WsRate> ip_messages;
-    WsRate connects;
+    WsRate socket_messages{};
+    std::vector<WsRate> ip_messages{};
+    WsRate connects{};
 };
 
 // the venue's ws rows for `market`; RAIKIRI_<VENUE>_WS_SHARE scales the per-ip ones

@@ -47,6 +47,8 @@ struct VenueState {
     net::Signer signer;
     config::Secret passphrase;
     exec::InstrumentTable instruments;
+    // the order socket names an instrument by this code alone
+    std::unordered_map<InstrumentId, std::uint64_t> inst_id_codes;
     Protocol protocol;
     // its own instance so the private socket's scratch stays separate
     Protocol private_protocol;

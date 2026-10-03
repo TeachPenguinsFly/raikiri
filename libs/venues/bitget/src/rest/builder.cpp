@@ -38,7 +38,7 @@ public:
         if (len_ + text.size() > into_.size()) {
             return;
         }
-        std::memcpy(into_.data() + len_, text.data(), text.size());
+        text.copy(into_.data() + len_, text.size());
         len_ += text.size();
     }
 
@@ -68,7 +68,7 @@ public:
             overflow_ = true;
             return *this;
         }
-        std::memcpy(buf_.data() + len_, text.data(), text.size());
+        text.copy(buf_.data() + len_, text.size());
         len_ += text.size();
         return *this;
     }
@@ -284,15 +284,8 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
     return sign(net::HttpMethod::Get, path, query, {}, now);
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(const OrderCmd& cmd,
-                                                                         const exec::InstrumentTable& table,
-                                                                         std::string_view product,
-                                                                         UnixNanos now) {
-    const auto* instrument = table.find(cmd.instrument);
-    if (instrument == nullptr) {
-        return std::unexpected{BuildError::UnknownInstrument};
-    }
-    const auto& base = base_of(*instrument);
+std::expected<void, BuildError>
+write_order_fields(net::JsonWriter& json, const OrderCmd& cmd, const InstrumentBase& base, std::string_view product) {
     if (cmd.qty.is_undef() || (cmd.order_type == OrderType::Limit && cmd.price.is_undef())) {
         return std::unexpected{BuildError::BadValue};
     }
@@ -300,33 +293,24 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(const O
     if (cmd.order_type == OrderType::Market && has_flag(cmd.flags, OrderFlags::PostOnly)) {
         return std::unexpected{BuildError::UnsupportedOrder};
     }
-    const auto symbol = base.exchange_symbol.view();
     const auto force = force_text(cmd.tif, cmd.flags);
-
-    net::JsonWriter json{body_};
     switch (cmd.instrument.market()) {
-    case MarketType::Spot: {
+    case MarketType::Spot:
         // spot market buys size in the quote coin, which an OrderCmd cannot express
         if (cmd.order_type == OrderType::Market && cmd.side == Side::Buy) {
             return std::unexpected{BuildError::UnsupportedOrder};
         }
-        json.obj_begin()
-            .str("symbol", symbol)
-            .str("side", side_text(cmd.side))
+        json.str("side", side_text(cmd.side))
             .str("orderType", cmd.order_type == OrderType::Market ? "market" : "limit")
             // required on spot for every order type; mix documents the opposite
             .str("force", force);
         if (cmd.order_type == OrderType::Limit) {
             json.decimal("price", base.ticks_to_price(cmd.price));
         }
-        json.decimal("size", base.lots_to_qty(cmd.qty)).str("clientOid", cmd.exchange_client_order_id.view()).obj_end();
-        break;
-    }
-    case MarketType::Perp: {
-        json.obj_begin()
-            .str("symbol", symbol)
-            .str("productType", product)
-            .str("marginMode", k_margin_mode)
+        json.decimal("size", base.lots_to_qty(cmd.qty)).str("clientOid", cmd.exchange_client_order_id.view());
+        return {};
+    case MarketType::Perp:
+        json.str("marginMode", k_margin_mode)
             .str("marginCoin", margin_coin(product))
             .decimal("size", base.lots_to_qty(cmd.qty))
             .str("side", side_text(cmd.side))
@@ -338,9 +322,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(const O
             // honoured only in one-way mode, which this adapter assumes
             json.str("reduceOnly", "YES");
         }
-        json.str("clientOid", cmd.exchange_client_order_id.view()).obj_end();
-        break;
-    }
+        json.str("clientOid", cmd.exchange_client_order_id.view());
+        return {};
     case MarketType::Future:
         // map_instrument reads perpetual rows only, so delivery never reaches here
         return std::unexpected{BuildError::UnsupportedMarket};
@@ -348,7 +331,27 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(const O
         // bitget v2 has no crypto options
         return std::unexpected{BuildError::UnsupportedMarket};
     }
+    return std::unexpected{BuildError::UnsupportedMarket};
+}
 
+std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(const OrderCmd& cmd,
+                                                                         const exec::InstrumentTable& table,
+                                                                         std::string_view product,
+                                                                         UnixNanos now) {
+    const auto* instrument = table.find(cmd.instrument);
+    if (instrument == nullptr) {
+        return std::unexpected{BuildError::UnknownInstrument};
+    }
+    const auto& base = base_of(*instrument);
+    net::JsonWriter json{body_};
+    json.obj_begin().str("symbol", base.exchange_symbol.view());
+    if (cmd.instrument.market() == MarketType::Perp) {
+        json.str("productType", product);
+    }
+    if (const auto fields = write_order_fields(json, cmd, base, product); !fields.has_value()) {
+        return std::unexpected{fields.error()};
+    }
+    json.obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

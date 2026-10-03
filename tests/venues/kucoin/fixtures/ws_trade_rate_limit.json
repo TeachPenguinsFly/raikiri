@@ -1,0 +1,1 @@
+{"code":"429000","id":"759ad5add86b4b09b35145a4d6f49488","op":"futures.order","msg":"Too many requests in a short period of time, please retry later.","inTime":1741589852255,"outTime":1741589852355,"rateLimit":{"limit":1600,"reset":15244,"remaining":1528}}

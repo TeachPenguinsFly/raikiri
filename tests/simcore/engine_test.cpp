@@ -341,7 +341,7 @@ TEST(Engine, MdGenPopulatesBookAndPrintsTrades) {
     gen.add_instrument(k_inst, px(1000));
     std::size_t trades = 0;
     for (int i = 0; i < 200; ++i) {
-        const UnixNanos now = k_t0 + static_cast<std::uint64_t>(i) * 1'000'000ULL;
+        const UnixNanos now = k_t0 + static_cast<std::uint64_t>(i) * std::uint64_t{1'000'000};
         const SimResult r = gen.step(eng, k_inst, now);
         trades += r.trades.size();
         const auto snap = eng.bbo(k_inst);
@@ -364,7 +364,7 @@ TEST(Engine, DeterminismSameSeedSameScript) {
         MdGen gen{42};
         gen.add_instrument(k_inst, px(1000));
         for (int i = 0; i < 500; ++i) {
-            const UnixNanos now = k_t0 + static_cast<std::uint64_t>(i) * 1'000'000ULL;
+            const UnixNanos now = k_t0 + static_cast<std::uint64_t>(i) * std::uint64_t{1'000'000};
             const SimResult r = gen.step(eng, k_inst, now);
             serialize(r, blob);
             if (i % 50 == 10) {

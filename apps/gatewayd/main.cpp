@@ -1243,20 +1243,16 @@ int main(int argc, char** argv) {
                   account_name);
     }
     if (private_pulls) {
-        auto made = exec::make_venue(
-            {.venue = venue,
-             .market = market,
-             .testnet = testnet,
-             .api_key_env = api_key_ref,
-             .api_secret_env = api_secret_ref,
-             .passphrase_env = passphrase_ref,
-             .budget = budget.has_value() ? &*budget : nullptr,
-             .order_answer_timeout_ns = 0,
-             // gcc errors on a skipped trailing designated initializer (-Wmissing-field-initializers)
-             .book_depth = 0,
-             .market_data_feed = {}},
-            poller_sink,
-            clock);
+        auto made = exec::make_venue({.venue = venue,
+                                      .market = market,
+                                      .testnet = testnet,
+                                      .api_key_env = api_key_ref,
+                                      .api_secret_env = api_secret_ref,
+                                      .passphrase_env = passphrase_ref,
+                                      .budget = budget.has_value() ? &*budget : nullptr,
+                                      .order_answer_timeout_ns = 0},
+                                     poller_sink,
+                                     clock);
         if (made.has_value()) {
             poller_adapter = std::make_unique<exec::VenueAdapter>(std::move(*made));
             if (const auto up = poller_adapter->execution->start(); !up.has_value()) {

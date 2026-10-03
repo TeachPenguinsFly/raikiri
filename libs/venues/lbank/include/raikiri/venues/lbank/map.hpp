@@ -25,6 +25,22 @@ namespace raikiri::venues::lbank {
 [[nodiscard]] bool
 apply_levels(const WireBook& wire, std::string_view symbol, const InstrumentBase& base, book::Ladders& ladders);
 
+// false when the row does not fit the grid; a resting row clears the other side through its price
+[[nodiscard]] bool apply_level(const WireLevel& level, const InstrumentBase& base, book::Ladders& ladders);
+
+// one batch can reach a socket as several frames under one bNo, so only an older bNo is stale
+[[nodiscard]] constexpr bool fresh_batch(std::uint64_t bno, std::uint64_t& newest) noexcept {
+    if (bno < newest) {
+        return false;
+    }
+    newest = bno;
+    return true;
+}
+
+[[nodiscard]] bool seed_levels(const WireRestDepth& wire, const InstrumentBase& base, book::Ladders& ladders);
+
+[[nodiscard]] bool same_touch(const book::Ladders& ladders, const WireRestDepth& wire, const InstrumentBase& base);
+
 [[nodiscard]] std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 // settlements fall on multiples of the interval since the epoch

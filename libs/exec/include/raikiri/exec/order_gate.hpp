@@ -6,6 +6,7 @@
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/error.hpp>
+#include <raikiri/exec/events.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -68,6 +69,11 @@ struct InFlight {
     CmdKind kind{CmdKind::Create};
     MonoNanos sent{};
 };
+
+[[nodiscard]] InFlight in_flight_of(const OrderCmd& cmd, MonoNanos sent) noexcept;
+
+// the venue may have acted or not; a gap with undefined leaves hands the order to reconciliation
+void report_unknown_outcome(GatewaySink& sink, const InFlight& request, UnixNanos now, std::string_view why) noexcept;
 
 // requests between the transport and the venue's answer; small, so a linear scan
 class InFlightTable {

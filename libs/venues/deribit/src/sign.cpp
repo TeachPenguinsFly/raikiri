@@ -16,7 +16,7 @@ public:
             overflow_ = true;
             return *this;
         }
-        std::memcpy(into_.data() + len_, text.data(), text.size());
+        text.copy(into_.data() + len_, text.size());
         len_ += text.size();
         return *this;
     }

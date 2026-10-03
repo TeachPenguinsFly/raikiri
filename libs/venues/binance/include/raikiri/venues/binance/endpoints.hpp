@@ -18,6 +18,14 @@ inline constexpr std::string_view k_stream_test = "fstream.binancefuture.com";
     return testnet ? k_stream_test : k_stream_live;
 }
 
+inline constexpr std::string_view k_ws_api_live = "ws-fapi.binance.com";
+inline constexpr std::string_view k_ws_api_test = "testnet.binancefuture.com";
+inline constexpr std::string_view k_ws_api_path = "/ws-fapi/v1";
+
+[[nodiscard]] constexpr std::string_view ws_api_host(bool testnet) noexcept {
+    return testnet ? k_ws_api_test : k_ws_api_live;
+}
+
 inline constexpr std::string_view k_ws_combined = "/stream";
 // markPrice, aggTrade and !markPrice@arr deliver only here; bookTicker, depth and trade only on /stream
 inline constexpr std::string_view k_ws_market = "/market/stream";

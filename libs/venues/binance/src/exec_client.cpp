@@ -2,6 +2,7 @@
 #include <raikiri/venues/binance/account.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
+#include <raikiri/venues/binance/ws_api.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -20,6 +21,11 @@ namespace {
 constexpr std::uint64_t k_listen_key_interval_ns = 30ULL * 60 * 1'000'000'000ULL;
 
 inline constexpr std::size_t k_max_unanswered = 512;
+
+constexpr std::uint32_t k_trade_stream_id = 2;
+
+// a request is never left without a verdict, even where config sets no answer timeout
+constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 
 // holds orders sent over rest and not yet answered on the user stream, and owns the listen key
 class BinanceExec final : public exec::ExecutionClient {
@@ -42,6 +48,7 @@ public:
         if (!state_->signer.has_credentials()) {
             return {};
         }
+        open_trade_socket();
         return open_user_stream();
     }
 
@@ -52,6 +59,10 @@ public:
         if (stream_) {
             stream_->stop();
             stream_.reset();
+        }
+        if (trade_) {
+            trade_->stop();
+            trade_.reset();
         }
         if (state_->signer.has_credentials() && !state_->listen_key.empty()) {
             if (const auto request = api_.builder().listen_key_close(); request.has_value()) {
@@ -68,6 +79,9 @@ public:
     // sweeps rest connections the venue closed, so an idle gateway does not write into a dead socket
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
+        if (trade_) {
+            trade_->poll();
+        }
         sweep_unanswered();
     }
 
@@ -77,21 +91,8 @@ public:
             return;
         }
         for (const auto& stale : unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
-            state_->sink->on_order_error(
-                stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no answer from the venue; outcome unknown"));
-            OrderEvent event{};
-            event.type = OrderEventType::ReconGap;
-            event.instrument = stale.instrument;
-            event.client_order_id = stale.client_order_id;
-            event.exchange_client_order_id = stale.exchange_client_order_id;
-            event.side = stale.side;
-            event.qty = stale.qty;
-            // undef: whether anything is working is unknown
-            event.leaves_qty = QtyLots::undef();
-            event.ts_event = state_->clock->wall();
-            event.ts_init = event.ts_event;
-            state_->sink->on_order_event(event);
+            exec::report_unknown_outcome(
+                *state_->sink, stale, state_->clock->wall(), "no answer from the venue; outcome unknown");
         }
     }
 
@@ -110,6 +111,9 @@ public:
         const auto request = api_.builder().create_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
             emit(cmd, OrderEventType::Rejected, build_failed(request.error()));
+            return;
+        }
+        if (send_ws(k_ws_order_place, cmd, OrderEventType::Rejected)) {
             return;
         }
         send_order(*request, cmd, OrderEventType::Rejected);
@@ -132,6 +136,9 @@ public:
             emit(cmd, OrderEventType::CancelRejected, build_failed(request.error()));
             return;
         }
+        if (send_ws(k_ws_order_cancel, cmd, OrderEventType::CancelRejected)) {
+            return;
+        }
         send_order(*request, cmd, OrderEventType::CancelRejected);
     }
 
@@ -146,6 +153,9 @@ public:
         const auto request = api_.builder().amend_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
             emit(cmd, OrderEventType::ModifyRejected, build_failed(request.error()));
+            return;
+        }
+        if (send_ws(k_ws_order_modify, cmd, OrderEventType::ModifyRejected)) {
             return;
         }
         send_order(*request, cmd, OrderEventType::ModifyRejected);
@@ -200,6 +210,75 @@ public:
     }
 
 private:
+    void open_trade_socket() {
+        net::WsRpcConfig config{};
+        config.ws.host = std::string{ep::ws_api_host(state_->testnet)};
+        config.ws.target = std::string{ep::k_ws_api_path};
+        config.request_timeout_ns = state_->order_answer_timeout_ns != 0 ? state_->order_answer_timeout_ns
+                                                                         : k_default_ws_timeout_ns;
+        trade_ = std::make_unique<net::WsRpc>(state_->io, *state_->clock, std::move(config), codec_);
+        trade_->set_observer([this](net::WsRpcState state, std::string_view) {
+            if (state == net::WsRpcState::LoggingIn) {
+                return;
+            }
+            state_->sink->on_connectivity({.state = state == net::WsRpcState::Ready ? exec::ConnState::Connected
+                                                    : state == net::WsRpcState::AuthFailed
+                                                        ? exec::ConnState::AuthFailed
+                                                        : exec::ConnState::Disconnected,
+                                           .stream_id = k_trade_stream_id,
+                                           .ts = state_->clock->wall()});
+        });
+        trade_->start();
+    }
+
+    // false leaves the command for rest with nothing sent; the rest builder's query is what gets re-signed
+    [[nodiscard]] bool send_ws(std::string_view method, const OrderCmd& cmd, OrderEventType on_failure) noexcept {
+        if (!trade_ || !trade_->ready()) {
+            return false;
+        }
+        const auto id = trade_->next_id();
+        const auto frame = ws_builder_.request(id, method, api_.builder().last_sign_message());
+        if (!frame.has_value()) {
+            return false;
+        }
+        return trade_->request(
+            id, *frame, [this, cmd, on_failure](const net::WsRpcReply& reply) { on_ws_reply(reply, cmd, on_failure); });
+    }
+
+    void on_ws_reply(const net::WsRpcReply& reply, const OrderCmd& cmd, OrderEventType on_failure) noexcept {
+        if (reply.outcome == net::WsRpcOutcome::Unknown) {
+            exec::report_unknown_outcome(
+                *state_->sink, exec::in_flight_of(cmd, state_->clock->mono()), state_->clock->wall(), reply.detail);
+            return;
+        }
+        const auto parsed = parse_ws_api_reply(reply.payload);
+        if (!parsed.has_value()) {
+            emit(cmd, on_failure, exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable ws api reply"));
+            return;
+        }
+        if (parsed->status != 200 && parsed->error.code == k_ok) {
+            emit(cmd,
+                 on_failure,
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "ws api refused without a code"));
+            return;
+        }
+        settle(cmd, on_failure, parsed->error);
+    }
+
+    // the same verdict whichever transport carried the command
+    void settle(const OrderCmd& cmd, OrderEventType on_failure, const RestError& err) noexcept {
+        if (err.code == k_ok) {
+            return; // accepted; the user stream reports what happens next
+        }
+        if (on_failure == OrderEventType::CancelRejected && is_benign_cancel_failure(err.code)) {
+            return; // already filled or gone
+        }
+        if (classify(err.code) == exec::ErrorClass::RateLimited) {
+            api_.penalize();
+        }
+        emit(cmd, on_failure, exec::VenueError::make(classify(err.code), err.code, err.msg));
+    }
+
     std::expected<void, exec::VenueError> open_user_stream() {
         const auto request = api_.builder().listen_key_create();
         if (!request.has_value()) {
@@ -248,17 +327,7 @@ private:
                      exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable error body"));
                 return;
             }
-            if (err->code == k_ok) {
-                return; // accepted; the user stream reports what happens next
-            }
-            if (on_failure == OrderEventType::CancelRejected && is_benign_cancel_failure(err->code)) {
-                // already filled or gone
-                return;
-            }
-            if (classify(err->code) == exec::ErrorClass::RateLimited) {
-                api_.penalize();
-            }
-            emit(captured, on_failure, exec::VenueError::make(classify(err->code), err->code, err->msg));
+            settle(captured, on_failure, *err);
         });
         if (!sent) {
             // never left this process, so the refusal is certain
@@ -266,13 +335,7 @@ private:
             return;
         }
         // recorded here since the callback may never run
-        (void)unanswered_.add({.client_order_id = cmd.client_order_id,
-                               .exchange_client_order_id = cmd.exchange_client_order_id,
-                               .instrument = cmd.instrument,
-                               .side = cmd.side,
-                               .qty = cmd.qty,
-                               .kind = cmd.kind,
-                               .sent = state_->clock->mono()});
+        (void)unanswered_.add(exec::in_flight_of(cmd, state_->clock->mono()));
     }
 
     // OrderEvent has no room for text, so the sink gets the error
@@ -297,6 +360,9 @@ private:
     std::shared_ptr<VenueState> state_;
     RestApi api_;
     std::unique_ptr<PrivateStream> stream_;
+    WsApiCodec codec_{state_->signer};
+    WsApiBuilder ws_builder_{state_->signer};
+    std::unique_ptr<net::WsRpc> trade_;
     bool started_{false};
     exec::InFlightTable unanswered_{k_max_unanswered};
 };

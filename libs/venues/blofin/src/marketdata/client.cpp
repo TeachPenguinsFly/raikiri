@@ -255,6 +255,7 @@ private:
         static thread_local const auto storage = std::make_unique<LevelBuffer>();
         const auto wire = parse_books(frame, *storage);
         if (!wire.has_value()) {
+            ++unreadable_;
             return;
         }
         const auto* instrument = find(wire->inst_id);
@@ -470,7 +471,7 @@ private:
             spread += "=" + std::to_string(count);
         }
         RLOG_INFO("blofin: {} of {} perps quoted, {} of {} depth books live, {} traded, {} funded "
-                  "(periods{}) — {} chain gap(s), {} resubscribe(s)",
+                  "(periods{}) — {} chain gap(s), {} resubscribe(s), {} unreadable book frame(s)",
                   quoted_.size(),
                   quote_wanted_.size(),
                   live,
@@ -479,7 +480,8 @@ private:
                   funded_.size(),
                   spread,
                   gaps,
-                  resubscribes_);
+                  resubscribes_,
+                  unreadable_);
         if (refusals_ != 0) {
             RLOG_WARN("blofin: the venue refused {} subscription(s) across {} instrument(s), the "
                       "last with code {}",
@@ -510,6 +512,7 @@ private:
     std::uint64_t refusals_logged_{0};
     std::int64_t last_error_code_{0};
     std::uint64_t resubscribes_{0};
+    std::uint64_t unreadable_{0};
 
     std::uint64_t next_ping_ns_{0};
     std::uint64_t next_poll_ns_{0};

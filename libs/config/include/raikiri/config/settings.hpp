@@ -13,14 +13,14 @@ namespace raikiri::config {
 
 // `kind` is rest, ws_messages, ws_connects, ws_streams, ws_sockets, ws_channels or ws_frame
 struct RateLimitSettings {
-    std::string name;
+    std::string name{};
     std::string kind{"rest"};
-    std::string scope;
-    std::string market; // "perp" or "spot"; empty applies to both
+    std::string scope{};
+    std::string market{}; // "perp" or "spot"; empty applies to both
     std::uint64_t window_ms{0};
     std::uint32_t max{0};
     std::uint32_t reserve{0};
-    std::vector<std::string> match;
+    std::vector<std::string> match{};
 };
 
 struct RateCostSettings {

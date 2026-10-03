@@ -343,7 +343,7 @@ build(std::span<char> buf, std::string_view type, Channel channel, std::string_v
             fits = false;
             return;
         }
-        std::memcpy(buf.data() + at, part.data(), part.size());
+        part.copy(buf.data() + at, part.size());
         at += part.size();
     };
     put(R"({"type":")");

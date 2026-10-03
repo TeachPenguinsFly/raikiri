@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -25,6 +26,11 @@
 #include <vector>
 
 #include "tls_test_server.hpp"
+
+#ifdef __linux__
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#endif
 
 namespace raikiri::net {
 namespace {
@@ -63,9 +69,13 @@ void poll_for(IoContext& io, std::chrono::milliseconds span) {
 
 struct ServerState {
     std::vector<std::string> greeting;
+    std::vector<std::string> burst;
+    bool cork_greeting{false};
     bool drop_first_after_message{false};
     bool close_first_after_message{false};
     int decline_first{0};
+    beast::http::status decline_status{beast::http::status::service_unavailable};
+    std::string retry_after;
 
     mutable std::mutex mu;
     std::vector<std::string> received;
@@ -107,6 +117,7 @@ private:
             decline();
             return;
         }
+        cork(state_.cork_greeting);
         ws_.async_accept([self = shared_from_this()](const boost::system::error_code& ec) {
             if (!ec) {
                 self->write_greeting();
@@ -116,6 +127,7 @@ private:
 
     void write_greeting() {
         if (next_ >= state_.greeting.size()) {
+            cork(false);
             do_read();
             return;
         }
@@ -125,6 +137,28 @@ private:
                         [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
                             if (!ec) {
                                 self->write_greeting();
+                            }
+                        });
+    }
+
+    // holds the 101 and the greeting back so they leave in one segment
+    void cork(bool on) {
+#ifdef __linux__
+        const int flag = on ? 1 : 0;
+        ::setsockopt(beast::get_lowest_layer(ws_).socket().native_handle(), IPPROTO_TCP, TCP_CORK, &flag, sizeof flag);
+#else
+        static_cast<void>(on);
+#endif
+    }
+
+    void write_burst(std::size_t i) {
+        if (i >= state_.burst.size()) {
+            return;
+        }
+        ws_.async_write(asio::buffer(state_.burst[i]),
+                        [self = shared_from_this(), i](const boost::system::error_code& ec, std::size_t) {
+                            if (!ec) {
+                                self->write_burst(i + 1);
                             }
                         });
     }
@@ -140,6 +174,9 @@ private:
     void on_message() {
         state_.record(beast::buffers_to_string(buffer_.data()));
         buffer_.consume(buffer_.size());
+        if (!state_.burst.empty() && state_.count() == 1) {
+            write_burst(0);
+        }
         if (state_.close_first_after_message && index_ == 1) {
             ws_.async_close(websock::close_reason{websock::close_code::going_away, "node recycled"},
                             [self = shared_from_this()](const boost::system::error_code&) {});
@@ -162,7 +199,10 @@ private:
                                         return;
                                     }
                                     self->response_.version(11);
-                                    self->response_.result(beast::http::status::service_unavailable);
+                                    self->response_.result(self->state_.decline_status);
+                                    if (!self->state_.retry_after.empty()) {
+                                        self->response_.set(beast::http::field::retry_after, self->state_.retry_after);
+                                    }
                                     self->response_.set(beast::http::field::connection, "close");
                                     self->response_.prepare_payload();
                                     beast::http::async_write(self->ws_.next_layer(),
@@ -246,7 +286,8 @@ TEST(WsClient, StreamsInOrderSendsAndClosesOnRequest) {
     EXPECT_LE(handler.stamps[0].ns, handler.stamps[2].ns);
 
     EXPECT_TRUE(client.send("{\"op\":\"subscribe\"}"));
-    ASSERT_TRUE(poll_until(io, [&] { return state.count() == 1; })) << "server never received the outbound frame";
+    ASSERT_TRUE(poll_until(io, [&] { return state.count() == 1 && client.stats().messages_sent == 1; }))
+        << "server never received the outbound frame";
     EXPECT_EQ(state.snapshot().front(), "{\"op\":\"subscribe\"}");
 
     client.stop();
@@ -267,6 +308,54 @@ TEST(WsClient, StreamsInOrderSendsAndClosesOnRequest) {
     EXPECT_EQ(stats.pong_timeouts, 0U);
 }
 
+TEST(WsClient, FramesInTheHandshakeResponseSegmentAreDelivered) {
+    ServerState state;
+    state.greeting = {"{\"m\":1}", "{\"m\":2}", "{\"m\":3}"};
+    state.cork_greeting = true;
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
+    }};
+
+    IoContext io;
+    RecordingHandler handler;
+    WsClient client{io, loopback_config(listener.port()), handler};
+    client.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return handler.messages.size() == 3; }))
+        << "opens=" << handler.opens << " messages=" << handler.messages.size() << " closes=" << handler.closes.size();
+    EXPECT_EQ(handler.messages[2], "{\"m\":3}");
+    EXPECT_TRUE(handler.closes.empty());
+    client.stop();
+}
+
+TEST(WsClient, ABurstThatQueuedWhileNoReadWasPendingArrivesWhole) {
+    ServerState state;
+    for (int i = 0; i < 200; ++i) {
+        state.burst.push_back(std::format("{{\"m\":{},\"pad\":\"{}\"}}", i, std::string(200, 'x')));
+    }
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
+    }};
+
+    IoContext io;
+    RecordingHandler handler;
+    WsClient client{io, loopback_config(listener.port()), handler};
+    handler.client = &client;
+    handler.greeting = "{\"op\":\"burst\"}";
+    client.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return state.count() == 1; }));
+    // more than one tls input buffer piles up in the kernel before the client reads again
+    std::this_thread::sleep_for(150ms);
+    ASSERT_TRUE(poll_until(io, [&] { return handler.messages.size() == state.burst.size(); }))
+        << "messages=" << handler.messages.size() << " closes=" << handler.closes.size()
+        << (handler.details.empty() ? std::string{} : " " + handler.details.front());
+    EXPECT_EQ(handler.messages, state.burst);
+    EXPECT_TRUE(handler.closes.empty());
+    EXPECT_EQ(client.stats().reconnects, 0U);
+    client.stop();
+}
+
 TEST(WsClient, ReconnectsAfterAbruptServerClose) {
     ServerState state;
     state.drop_first_after_message = true;
@@ -276,8 +365,8 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
 
     IoContext io;
     auto config = loopback_config(listener.port());
-    config.reconnect_min_ms = 25;
-    config.reconnect_max_ms = 200;
+    config.backoff.transport_floor_ns = 25'000'000;
+    config.backoff.transport_cap_ns = 200'000'000;
 
     RecordingHandler handler;
     WsClient client{io, config, handler};
@@ -302,7 +391,38 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
     EXPECT_TRUE(handler.details.back().empty());
 }
 
-TEST(WsClient, ADeclinedHandshakeBacksOffInsteadOfRetryingAtTheFloor) {
+TEST(WsClient, ARefusedHandshakeWaitsOutRetryAfterBeforeTheNextAttempt) {
+    ServerState state;
+    state.decline_first = 1;
+    state.decline_status = beast::http::status::too_many_requests;
+    state.retry_after = "1";
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
+    }};
+
+    IoContext io;
+    auto config = loopback_config(listener.port());
+    config.backoff.transport_floor_ns = 25'000'000;
+    config.backoff.refused_floor_ns = 100'000'000;
+    config.backoff.refused_cap_ns = 200'000'000;
+
+    RecordingHandler handler;
+    WsClient client{io, config, handler};
+    handler.client = &client;
+    client.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return !handler.closes.empty(); }));
+    const auto refused = std::chrono::steady_clock::now();
+    EXPECT_TRUE(handler.details.front().ends_with("(HTTP 429)")) << handler.details.front();
+    ASSERT_TRUE(poll_until(io, [&] { return handler.opens >= 1; }));
+    EXPECT_GE(std::chrono::steady_clock::now() - refused, 950ms);
+    EXPECT_EQ(listener.accepted(), 2U);
+    EXPECT_EQ(host_backoff("127.0.0.1", config.port, config.backoff)->stats().refusals, 1U);
+
+    client.stop();
+}
+
+TEST(WsClient, ADeclinedHandshakeWithoutAThrottleStatusUsesTheShortPolicy) {
     ServerState state;
     state.decline_first = 1;
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
@@ -311,9 +431,8 @@ TEST(WsClient, ADeclinedHandshakeBacksOffInsteadOfRetryingAtTheFloor) {
 
     IoContext io;
     auto config = loopback_config(listener.port());
-    config.reconnect_min_ms = 25;
-    config.reconnect_max_ms = 5'000;
-    config.declined_backoff_ms = 600;
+    config.backoff.transport_floor_ns = 400'000'000;
+    config.backoff.refused_floor_ns = 30'000'000'000;
 
     RecordingHandler handler;
     WsClient client{io, config, handler};
@@ -324,10 +443,42 @@ TEST(WsClient, ADeclinedHandshakeBacksOffInsteadOfRetryingAtTheFloor) {
     const auto declined = std::chrono::steady_clock::now();
     EXPECT_TRUE(handler.details.front().ends_with("(HTTP 503)")) << handler.details.front();
     ASSERT_TRUE(poll_until(io, [&] { return handler.opens >= 1; }));
-    EXPECT_GE(std::chrono::steady_clock::now() - declined, std::chrono::milliseconds{550});
+    EXPECT_GE(std::chrono::steady_clock::now() - declined, 250ms);
     EXPECT_EQ(listener.accepted(), 2U);
 
     client.stop();
+}
+
+TEST(WsClient, SocketsToOneRefusingHostShareOneBackoff) {
+    ServerState state;
+    state.decline_first = 2;
+    state.decline_status = beast::http::status::too_many_requests;
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
+    }};
+
+    IoContext io;
+    auto config = loopback_config(listener.port());
+    config.backoff.refused_floor_ns = 600'000'000;
+
+    RecordingHandler first_handler;
+    RecordingHandler second_handler;
+    WsClient first{io, config, first_handler};
+    WsClient second{io, config, second_handler};
+    first_handler.client = &first;
+    second_handler.client = &second;
+    first.start();
+    second.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return !first_handler.closes.empty() && !second_handler.closes.empty(); }));
+    poll_for(io, 300ms);
+    EXPECT_EQ(listener.accepted(), 2U) << "a socket retried inside the host's backoff";
+    ASSERT_TRUE(poll_until(io, [&] { return first.connected() && second.connected(); }));
+    EXPECT_EQ(listener.accepted(), 4U);
+    EXPECT_EQ(host_backoff("127.0.0.1", config.port, config.backoff)->stats().backoffs, 1U);
+
+    first.stop();
+    second.stop();
 }
 
 TEST(WsClient, AServerCloseFrameIsReportedWithItsCodeAndReason) {
@@ -339,8 +490,8 @@ TEST(WsClient, AServerCloseFrameIsReportedWithItsCodeAndReason) {
 
     IoContext io;
     auto config = loopback_config(listener.port());
-    config.reconnect_min_ms = 25;
-    config.reconnect_max_ms = 200;
+    config.backoff.transport_floor_ns = 25'000'000;
+    config.backoff.transport_cap_ns = 200'000'000;
 
     RecordingHandler handler;
     WsClient client{io, config, handler};

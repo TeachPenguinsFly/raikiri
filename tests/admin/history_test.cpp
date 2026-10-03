@@ -10,10 +10,12 @@
 #include <unistd.h>
 
 #include <cstdlib>
+#include <filesystem>
 #include <glaze/glaze.hpp>
 #include <pqxx/pqxx>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace raikiri::admin {
 namespace {
@@ -392,7 +394,8 @@ TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
     scrub();
 
     const std::string dir = "/tmp/raikiri-history-test-" + std::to_string(::getpid());
-    (void)std::system(("rm -rf " + dir).c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
     {
         auto writer = journal::JournalWriter::open(dir, "journal");
         ASSERT_TRUE(writer.has_value());
@@ -421,7 +424,7 @@ TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
         }
         sink.commit("history-test-gen", batch);
     }
-    (void)std::system(("rm -rf " + dir).c_str());
+    std::filesystem::remove_all(dir, ec);
     {
         pqxx::work tx{conn};
         for (const auto& [exec, ts] :

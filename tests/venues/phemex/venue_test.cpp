@@ -156,12 +156,13 @@ std::size_t levels_of(const WireBook<Level>& wire,
 
 template <typename Level> BookResult feed(Book& book, const std::string& frame, const Listed& row) {
     static LevelBuffer<Level> storage;
-    std::expected<WireBook<Level>, WireError> wire;
-    if constexpr (std::is_same_v<Level, WireRealLevel>) {
-        wire = parse_real_book(frame, storage);
-    } else {
-        wire = parse_scaled_book(frame, storage);
-    }
+    const auto wire = [&] {
+        if constexpr (std::is_same_v<Level, WireRealLevel>) {
+            return parse_real_book(frame, storage);
+        } else {
+            return parse_scaled_book(frame, storage);
+        }
+    }();
     EXPECT_TRUE(wire.has_value());
     std::array<book::Level, k_max_levels> bids{};
     std::array<book::Level, k_max_levels> asks{};

@@ -108,7 +108,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"op":")");
@@ -166,7 +166,7 @@ Protocol::login_frame(const net::Signer& signer, std::string_view passphrase, Un
         if (len + text.size() > login_msg_.size()) {
             return false;
         }
-        std::memcpy(login_msg_.data() + len, text.data(), text.size());
+        text.copy(login_msg_.data() + len, text.size());
         len += text.size();
         return true;
     };
@@ -187,7 +187,7 @@ Protocol::login_frame(const net::Signer& signer, std::string_view passphrase, Un
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + out, text.data(), text.size());
+        text.copy(frame_.data() + out, text.size());
         out += text.size();
     };
     put(R"({"op":"login","args":[{"apiKey":")");

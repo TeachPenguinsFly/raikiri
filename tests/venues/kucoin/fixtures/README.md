@@ -98,3 +98,24 @@ example for that endpoint or channel, with two edits: `clientOid` is the ULID
 | `rest_spot_fills.json` | `GET /api/v1/hf/fills` |
 | `rest_positions.json` | `GET /api/v1/positions` |
 | `rest_account_overview.json` | `GET /api/v1/account-overview?currency=USDT` |
+
+## Pro order socket, `wss://wsapi.kucoin.com/v1/private`
+
+No order was placed to get these. They come from the docs as published on
+2026-10-03: `https://www.kucoin.com/docs-new/3470252w0` (add order, with the
+url, signature, session, ping and error sections) and
+`https://www.kucoin.com/docs-new/3470253w0` (cancel order). The docs use hex
+ids, so a test swaps in a numeric id.
+
+| file | source |
+|---|---|
+| `ws_trade_session.json` | doc example: the session frame the server sends on connect |
+| `ws_trade_welcome.json` | doc example: the welcome after the signed session, with the `// milliseconds` comments dropped |
+| `ws_trade_connection_error.json` | doc example: the connection error |
+| `ws_trade_futures_order.json` | doc example: the classic futures `futures.order` reply |
+| `ws_trade_spot_order.json` | doc example: the classic spot `spot.order` reply |
+| `ws_trade_futures_cancel.json` | doc example: the `futures.cancel` reply by clientOid |
+| `ws_trade_spot_cancel.json` | doc example: the `spot.cancel` reply by clientOid |
+| `ws_trade_order_error.json` | doc example: the place order error |
+| `ws_trade_rate_limit.json` | doc example: the rate limit error |
+| `ws_trade_pong.json` | assembled. The docs give the pong with `server_timestamp` as a placeholder, so this puts the session's timestamp there |

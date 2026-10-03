@@ -1009,9 +1009,9 @@ TEST(KrakenRest, MarketRefusalIsNamedBeforeTheInstrumentTableIsEverRead) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
 
-    for (const auto [market, expected] : {std::pair{MarketType::Spot, BuildError::SpotUnsupported},
-                                          std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported},
-                                          std::pair{MarketType::Option, BuildError::OptionsUnsupported}}) {
+    for (const auto& [market, expected] : {std::pair{MarketType::Spot, BuildError::SpotUnsupported},
+                                           std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported},
+                                           std::pair{MarketType::Option, BuildError::OptionsUnsupported}}) {
         OrderCmd cmd{};
         cmd.instrument = InstrumentId::make(VenueId::Kraken, market, SymbolId{3});
         EXPECT_EQ(builder.create_order(cmd, empty, k_now).error(), expected);

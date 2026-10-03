@@ -488,7 +488,7 @@ std::string_view channel_name(exec::SubKind kind, std::uint32_t contract_id, std
         if (static_cast<std::size_t>(end - cursor) < part.size()) {
             return false;
         }
-        std::memcpy(cursor, part.data(), part.size());
+        part.copy(cursor, part.size());
         cursor += part.size();
         return true;
     };
@@ -538,7 +538,7 @@ Protocol::frame(std::string_view type, std::string_view key, std::string_view va
     }
     auto* cursor = frame_.data();
     for (const auto part : parts) {
-        std::memcpy(cursor, part.data(), part.size());
+        part.copy(cursor, part.size());
         cursor += part.size();
     }
     return std::string_view{frame_.data(), size};

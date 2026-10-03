@@ -51,7 +51,7 @@ std::expected<std::string_view, WsBuildError> Protocol::op_frame(std::string_vie
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"op":")");

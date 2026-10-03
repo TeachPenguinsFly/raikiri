@@ -65,6 +65,9 @@ static_assert(sizeof(ExchangeClientOrderId::data) <= k_client_id_body_max,
 // renders t-<ulid> into caller storage; empty when it does not fit
 [[nodiscard]] std::string_view client_id_text(const ExchangeClientOrderId& id, std::span<char> out) noexcept;
 
+// the venue id when known, else t-<ulid>; cancel and amend name the order by it
+[[nodiscard]] std::string_view order_target(const OrderCmd& cmd, std::span<char> out) noexcept;
+
 // text without the t- prefix is one of gate's own sources and is not ours
 [[nodiscard]] std::string_view client_id_from_text(std::string_view text) noexcept;
 

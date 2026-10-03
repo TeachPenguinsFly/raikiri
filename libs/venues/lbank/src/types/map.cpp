@@ -114,24 +114,59 @@ std::optional<Instrument> map_spot_instrument(const WireSpotPair& wire) {
     return SpotInstrument{base};
 }
 
+bool apply_level(const WireLevel& level, const InstrumentBase& base, book::Ladders& ladders) {
+    const auto price = ticks_of(level.price, base.tick_size);
+    const auto qty = lots_of(level.volume, base.lot_size);
+    if (!price.has_value() || !qty.has_value()) {
+        return false;
+    }
+    auto& side = level.ask ? ladders.asks() : ladders.bids();
+    if (*qty == 0) {
+        side.remove(PriceTicks::from_raw(*price));
+        return true;
+    }
+    side.upsert({.price = PriceTicks::from_raw(*price), .qty = QtyLots::from_raw(*qty)});
+    // a resting order at this price proves the other side holds nothing through it
+    auto& other = level.ask ? ladders.bids() : ladders.asks();
+    while (!other.empty()) {
+        const auto best = other.levels().front().price;
+        if (level.ask ? best.raw < *price : best.raw > *price) {
+            break;
+        }
+        other.remove(best);
+    }
+    return true;
+}
+
 bool apply_levels(const WireBook& wire, std::string_view symbol, const InstrumentBase& base, book::Ladders& ladders) {
     for (const auto& level : wire.levels) {
-        if (level.instrument != symbol || !level.tick.empty()) {
-            continue;
-        }
-        const auto price = ticks_of(level.price, base.tick_size);
-        const auto qty = lots_of(level.volume, base.lot_size);
-        if (!price.has_value() || !qty.has_value()) {
+        if (level.instrument == symbol && level.tick.empty() && !apply_level(level, base, ladders)) {
             return false;
-        }
-        auto& side = level.ask ? ladders.asks() : ladders.bids();
-        if (*qty == 0) {
-            side.remove(PriceTicks::from_raw(*price));
-        } else {
-            side.upsert({.price = PriceTicks::from_raw(*price), .qty = QtyLots::from_raw(*qty)});
         }
     }
     return true;
+}
+
+bool seed_levels(const WireRestDepth& wire, const InstrumentBase& base, book::Ladders& ladders) {
+    ladders.clear();
+    const auto seed = [&](std::span<const WireDepthRow> rows, bool ask) {
+        for (const auto& row : rows) {
+            if (!apply_level({.price = row.price, .volume = row.volume, .ask = ask}, base, ladders)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    return seed(wire.bids, false) && seed(wire.asks, true);
+}
+
+bool same_touch(const book::Ladders& ladders, const WireRestDepth& wire, const InstrumentBase& base) {
+    const auto touch = ladders.touch();
+    if (!touch.has_value() || wire.bids.empty() || wire.asks.empty()) {
+        return false;
+    }
+    return ticks_of(wire.bids.front().price, base.tick_size) == touch->first.price.raw &&
+           ticks_of(wire.asks.front().price, base.tick_size) == touch->second.price.raw;
 }
 
 std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init) {

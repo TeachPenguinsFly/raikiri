@@ -11,6 +11,7 @@ inline constexpr std::string_view k_perp_ws_path = "/ws";
 
 inline constexpr std::string_view k_perp_instruments = "/cfd/openApi/v1/pub/instrument?productGroup=SwapU";
 inline constexpr std::string_view k_perp_market_data = "/cfd/openApi/v1/pub/marketData?productGroup=SwapU";
+inline constexpr std::string_view k_perp_depth = "/cfd/openApi/v1/pub/marketOrder?depth=50&symbol=";
 
 inline constexpr std::string_view k_spot_host = "api.lbank.info";
 inline constexpr std::string_view k_spot_ws_path = "/ws/V2/";

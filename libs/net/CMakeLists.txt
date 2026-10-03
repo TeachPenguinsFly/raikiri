@@ -6,9 +6,11 @@ add_library(raikiri_net STATIC
   src/rest_client.cpp
   src/signer.cpp
   src/trust_store.cpp
+  src/ws_backoff.cpp
   src/ws_client.cpp
   src/ws_limits.cpp
   src/ws_pool.cpp
+  src/ws_rpc.cpp
 )
 add_library(raikiri::net ALIAS raikiri_net)
 

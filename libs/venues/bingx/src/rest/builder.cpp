@@ -31,7 +31,7 @@ public:
         if (len_ + text.size() > into_.size()) {
             return;
         }
-        std::memcpy(into_.data() + len_, text.data(), text.size());
+        text.copy(into_.data() + len_, text.size());
         len_ += text.size();
     }
 
@@ -72,7 +72,7 @@ public:
         std::memcpy(buf_.data() + len_, key.data(), key.size());
         len_ += key.size();
         buf_[len_++] = '=';
-        std::memcpy(buf_.data() + len_, value.data(), value.size());
+        value.copy(buf_.data() + len_, value.size());
         len_ += value.size();
         return *this;
     }
@@ -292,7 +292,7 @@ SignedRequestBuilder::sign(net::HttpMethod method, std::string_view path, std::s
             len = target_.size() + 1; // sticky overflow
             return;
         }
-        std::memcpy(target_.data() + len, text.data(), text.size());
+        text.copy(target_.data() + len, text.size());
         len += text.size();
     };
     append(path);

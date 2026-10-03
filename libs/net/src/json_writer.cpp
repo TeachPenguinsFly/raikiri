@@ -18,7 +18,7 @@ void JsonWriter::put(std::string_view s) noexcept {
         overflow_ = true;
         return;
     }
-    std::memcpy(buf_.data() + len_, s.data(), s.size());
+    s.copy(buf_.data() + len_, s.size());
     len_ += s.size();
 }
 

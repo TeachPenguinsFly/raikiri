@@ -49,7 +49,7 @@ std::expected<Protocol::Frame, std::string_view> Protocol::subscribe_frame(std::
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"method":"SUBSCRIBE","params":[)");

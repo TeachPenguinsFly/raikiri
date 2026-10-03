@@ -73,7 +73,7 @@ ws_auth_frame(std::string_view api_key, std::string_view secret, std::uint64_t n
             overflow = true;
             return;
         }
-        std::memcpy(out.data() + len, text.data(), text.size());
+        text.copy(out.data() + len, text.size());
         len += text.size();
     };
     put(R"({"event":"auth","apiKey":")");

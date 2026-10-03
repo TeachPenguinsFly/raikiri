@@ -54,3 +54,20 @@ Assembled from the docs:
 | `rest_balance.json` | `GET /api/v5/account/balance`, the published response with a BTC spot row added under `data[0].details`; that row carries `upl` and `availEq` as empty strings. The USDT row is verbatim |
 | `rest_order_reject.json` | the documented REST envelope for a refused order (`code "1"`) around the per-order object from the docs' `51008` example, with `clOrdId` set to a ULID |
 | `ws_orders_partial_expiry.json` | the `ws_orders_fill.json` object re-valued on `BTC-USDT-SWAP` as a 5-contract IOC that filled 2 and was killed: `state: "canceled"`, `cancelSource: "14"` and a `tradeId` in one message, every number on the 0.1 tick and 0.01 lot |
+
+## Private socket order ops (documented, not captured)
+
+Copied from the OKX v5 docs as published on 2026-10-03, at
+`https://www.okx.com/docs-v5/en/#order-book-trading-trade-ws-place-order`,
+`#order-book-trading-trade-ws-cancel-order` and `#order-book-trading-trade-ws-amend-order`.
+Only the whitespace differs. The docs use the ids `1512` and `1514`, which are
+numeric like ours, so the tests use them unchanged. The login replies are
+`ws_login_ok.json` and `ws_login_failed.json` above.
+
+| file | source |
+|---|---|
+| `ws_trade_order.json` | doc example: WS / Place order, successful response |
+| `ws_trade_order_failure.json` | doc example: WS / Place order, failure response (`sCode` `5XXXX`, as printed) |
+| `ws_trade_format_error.json` | doc example: WS / Place order, the response to a malformed request (code `60013`, empty `data`) |
+| `ws_trade_cancel.json` | doc example: WS / Cancel order, successful response |
+| `ws_trade_amend_failure.json` | doc example: WS / Amend order, failure response (`sCode` `51008`) |

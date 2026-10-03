@@ -491,7 +491,7 @@ std::expected<net::RestRequest, BuildError> ExchangeBuilder::sign_and_wrap(std::
             at = body_.size() + 1; // sticky overflow, checked once below
             return;
         }
-        std::memcpy(body_.data() + at, text.data(), text.size());
+        text.copy(body_.data() + at, text.size());
         at += text.size();
     };
     std::array<char, 24> nonce_buf{};

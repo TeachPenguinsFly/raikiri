@@ -18,3 +18,8 @@ so every number keeps the venue's spelling.
 | `ws_funding_rate.json` | `funding-rate` BTC-USDT |
 | `ws_subscribe_ack.json` | the acknowledgement of one argument |
 | `ws_error_invalid_request.json` | the refusal of a frame naming an unlisted instrument (code 60012) |
+
+`ws_books_update_wide.json` was captured on 2026-10-03 at 15:12 UTC from
+`wss://openapi.blofin.com/ws/public`, `books` for every live perp over three
+sockets: the widest diff in eight minutes and 467 000 book frames, CT-USDT with
+482 bids and 332 asks. Verbatim.

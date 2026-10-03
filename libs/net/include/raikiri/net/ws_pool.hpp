@@ -40,6 +40,10 @@ struct WsPoolStats {
     std::uint64_t reopens{0};
     std::string last_close_reason;
     std::uint64_t last_close_ns{0};
+    // the host's, shared with every pool to it
+    std::uint64_t backoffs{0};
+    std::uint64_t refusals{0};
+    std::uint64_t backoff_ms{0};
 };
 
 class WsPool {

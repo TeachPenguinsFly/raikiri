@@ -75,7 +75,7 @@ std::string_view topic_name(exec::SubKind kind,
             len = out.size() + 1; // mark overflow
             return;
         }
-        std::memcpy(out.data() + len, text.data(), text.size());
+        text.copy(out.data() + len, text.size());
         len += text.size();
     };
     put(prefix);
@@ -107,7 +107,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"op":")");
@@ -156,7 +156,7 @@ Protocol::auth_frame(const net::Signer& signer, UnixNanos now, std::uint32_t val
         if (len + text.size() > auth_msg_.size()) {
             return false;
         }
-        std::memcpy(auth_msg_.data() + len, text.data(), text.size());
+        text.copy(auth_msg_.data() + len, text.size());
         len += text.size();
         return true;
     };
@@ -177,7 +177,7 @@ Protocol::auth_frame(const net::Signer& signer, UnixNanos now, std::uint32_t val
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + out, text.data(), text.size());
+        text.copy(frame_.data() + out, text.size());
         out += text.size();
     };
     put(R"({"op":"auth","args":[")");

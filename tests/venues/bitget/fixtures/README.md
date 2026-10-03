@@ -61,3 +61,21 @@ and stamps (`requestTime` 1700000001000, `orderId` 1234567890123456789).
 | `ws_login_ack.json` | the private socket's `login` event |
 | `ws_orders_mix_accepted.json`, `ws_orders_mix_partial_fill.json`, `ws_orders_mix_filled.json`, `ws_orders_mix_canceled.json` | `orders` pushes on `USDT-FUTURES` |
 | `ws_orders_spot_partial_fill.json` | an `orders` push on spot |
+
+## Websocket trade, `wss://ws.bitget.com/v2/ws/private`
+
+No order was placed to get these. They come from the classic docs as
+published on 2026-10-03:
+`https://www.bitget.com/docs/classic/websocket/contract/private/Place-Order-Channel`,
+`.../contract/private/Cancel-Order-Channel`,
+`.../spot/private/Place-Order-Channel` and
+`https://www.bitget.com/docs/classic/websocket/intro`. The docs use the id
+`xxxxx-xxx-xxx-xxxx-xxxxxx`, so a test swaps in a numeric id.
+
+| file | source |
+|---|---|
+| `ws_trade_place_order.json` | doc example: the `place-order` reply on `USDT-FUTURES`. The docs title it "Fail Response Example", but it carries code 0 and "Success" |
+| `ws_trade_cancel_order.json` | doc example: the `cancel-order` reply on `USDT-FUTURES` |
+| `ws_trade_spot_place_order.json` | doc example: the `place-order` reply on `SPOT` |
+| `ws_login_failure.json` | doc example: the login failure event from the websocket intro |
+| `ws_trade_error.json` | assembled. The docs list `event: error` for a refused trade but show none, so this is the place-order reply with that event and the rest code 40017 |

@@ -227,7 +227,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Deribit,
         // spot is unserved; dated futures and perps share kind "future" and map_instrument separates them
         .markets = {.spot = false, .perp = true, .future = true, .option = true},
-        .ws_order_entry = true, // JSON-RPC over the same socket as market data
+        .ws_order_entry = false,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,
         .amend_order = true,
@@ -283,7 +283,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Kraken,
         // kraken futures api only; spot is another host, symbology and signature
         .markets = {.spot = false, .perp = true},
-        .ws_order_entry = true,
+        .ws_order_entry = false,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,
         .amend_order = true,
@@ -343,7 +343,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::Bitfinex)] = {
         .venue = VenueId::Bitfinex,
         .markets = {.spot = true, .perp = true},
-        .ws_order_entry = true,
+        .ws_order_entry = false,
         // cancel by cid needs cid_date, which OrderCmd lacks
         .cancel_by_client_order_id = false,
         .batch_cancel = true,

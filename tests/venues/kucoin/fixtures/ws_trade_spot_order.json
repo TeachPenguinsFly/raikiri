@@ -1,0 +1,1 @@
+{"code":"200000","data":{"clientOid":"299a1c46c5e54d5eb639fc9bca95c271bc7cf5d5","orderId":"696f6bd8d65b570007aee17b"},"id":"b7c1b2a5526d4a1e9793fbc2ee773cc5","inTime":1768909784303534000,"op":"spot.order","outTime":1768909784330978000,"userRateLimit":{"limit":20000,"remaining":19999,"reset":5892}}

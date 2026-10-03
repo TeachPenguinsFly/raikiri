@@ -67,15 +67,21 @@ target_compile_definitions(settings_test PRIVATE RAIKIRI_CONFIG_DIR="${PROJECT_S
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
 
 raikiri_add_test(gate_venue_test SRCS venues/gate/venue_test.cpp LIBS raikiri::venue_gate raikiri::exec)
+raikiri_add_test(gate_trade_test SRCS venues/gate/trade_test.cpp LIBS raikiri::venue_gate raikiri::net raikiri::exec)
 raikiri_add_test(kucoin_venue_test SRCS venues/kucoin/venue_test.cpp LIBS raikiri::venue_kucoin raikiri::exec)
+raikiri_add_test(kucoin_trade_test SRCS venues/kucoin/trade_test.cpp LIBS raikiri::venue_kucoin raikiri::exec raikiri::net)
 raikiri_add_test(bingx_venue_test SRCS venues/bingx/venue_test.cpp LIBS raikiri::venue_bingx raikiri::exec)
 raikiri_add_test(xt_venue_test SRCS venues/xt/venue_test.cpp LIBS raikiri::venue_xt raikiri::exec)
 raikiri_add_test(mexc_venue_test SRCS venues/mexc/venue_test.cpp LIBS raikiri::venue_mexc raikiri::exec)
 raikiri_add_test(deribit_venue_test SRCS venues/deribit/venue_test.cpp LIBS raikiri::venue_deribit raikiri::exec)
 raikiri_add_test(hyperliquid_venue_test SRCS venues/hyperliquid/venue_test.cpp LIBS raikiri::venue_hyperliquid raikiri::exec)
+raikiri_add_test(hyperliquid_post_test SRCS venues/hyperliquid/post_test.cpp LIBS raikiri::venue_hyperliquid raikiri::net)
+target_compile_definitions(hyperliquid_post_test PRIVATE
+  RAIKIRI_HYPERLIQUID_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/hyperliquid/fixtures")
 raikiri_add_test(coinbase_venue_test SRCS venues/coinbase/venue_test.cpp LIBS raikiri::venue_coinbase raikiri::exec)
 raikiri_add_test(kraken_venue_test SRCS venues/kraken/venue_test.cpp LIBS raikiri::venue_kraken raikiri::exec)
 raikiri_add_test(bitget_venue_test SRCS venues/bitget/venue_test.cpp LIBS raikiri::venue_bitget raikiri::exec)
+raikiri_add_test(bitget_trade_test SRCS venues/bitget/trade_test.cpp LIBS raikiri::venue_bitget raikiri::exec raikiri::net)
 raikiri_add_test(htx_venue_test SRCS venues/htx/venue_test.cpp LIBS raikiri::venue_htx raikiri::exec)
 raikiri_add_test(bitfinex_venue_test SRCS venues/bitfinex/venue_test.cpp LIBS raikiri::venue_bitfinex raikiri::exec)
 raikiri_add_test(weex_venue_test SRCS venues/weex/venue_test.cpp LIBS raikiri::venue_weex raikiri::exec)
@@ -104,14 +110,21 @@ raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikir
 raikiri_add_test(binance_wire_test SRCS venues/binance/wire_test.cpp LIBS raikiri::venue_binance)
 target_compile_definitions(binance_wire_test PRIVATE
   RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
+raikiri_add_test(binance_ws_api_test SRCS venues/binance/ws_api_test.cpp LIBS raikiri::venue_binance raikiri::net)
+target_compile_definitions(binance_ws_api_test PRIVATE
+  RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
 
 raikiri_add_test(bybit_book_sync_test SRCS venues/bybit/book_sync_test.cpp LIBS raikiri::venue_bybit)
 raikiri_add_test(bybit_map_test SRCS venues/bybit/map_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
 raikiri_add_test(bybit_rest_test SRCS venues/bybit/rest_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_ws_test SRCS venues/bybit/ws_test.cpp LIBS raikiri::venue_bybit raikiri::net)
+raikiri_add_test(bybit_trade_test SRCS venues/bybit/trade_test.cpp LIBS raikiri::venue_bybit raikiri::net)
+target_compile_definitions(bybit_trade_test PRIVATE
+  RAIKIRI_BYBIT_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/bybit/fixtures")
 raikiri_add_test(bybit_venue_test SRCS venues/bybit/venue_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
 raikiri_add_test(okx_map_test SRCS venues/okx/map_test.cpp LIBS raikiri::venue_okx raikiri::exec)
 
+raikiri_add_test(okx_trade_test SRCS venues/okx/trade_test.cpp LIBS raikiri::venue_okx raikiri::net raikiri::exec)
 raikiri_add_test(okx_wire_test SRCS venues/okx/wire_test.cpp LIBS raikiri::venue_okx)
 target_compile_definitions(okx_wire_test PRIVATE
   RAIKIRI_OKX_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/okx/fixtures")
@@ -126,6 +139,8 @@ target_link_libraries(ws_client_test
 
 raikiri_add_test(rest_client_test SRCS net/rest_client_test.cpp LIBS raikiri::net)
 raikiri_add_test(ws_pool_test SRCS net/ws_pool_test.cpp LIBS raikiri::net)
+raikiri_add_test(ws_backoff_test SRCS net/ws_backoff_test.cpp LIBS raikiri::net)
+raikiri_add_test(ws_rpc_test SRCS net/ws_rpc_test.cpp LIBS raikiri::net raikiri::exec)
 target_link_libraries(rest_client_test
   PRIVATE Boost::headers OpenSSL::Crypto OpenSSL::SSL)
 

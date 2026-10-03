@@ -1,3 +1,4 @@
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/trust_store.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -39,7 +40,6 @@
 #include <deque>
 #include <format>
 #include <memory>
-#include <random>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -79,7 +79,8 @@ private:
     template <typename Done, typename MutableBuffers> void start(Done done, const MutableBuffers& into) {
         boost::system::error_code ec;
         std::size_t got = 0;
-        if (attempt(into, ec, got)) {
+        // ssl completes from its own buffer with a zero-byte read, which recvmsg turns into eof or a wait
+        if (asio::buffer_size(into) == 0 || attempt(into, ec, got)) {
             const auto ex = asio::get_associated_immediate_executor(done, get_executor());
             asio::dispatch(ex, [done = std::move(done), ec, got]() mutable { std::move(done)(ec, got); });
             return;
@@ -166,9 +167,6 @@ using Timer = asio::
 // inline reads before one posts, keeping recursion shallow and letting other sockets run
 constexpr std::uint32_t k_inline_reads = 8;
 
-// a link up this long resets the backoff to the floor
-constexpr std::uint64_t k_stable_connection_ns = 30'000'000'000ULL;
-
 // extended refuses a request or handshake without one (403)
 constexpr std::string_view k_user_agent = "raikiri/0.1";
 
@@ -230,8 +228,7 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
 public:
     WsSession(asio::io_context& ioc, WsConfig config, WsHandler& handler)
         : ioc_{ioc}, cfg_{std::move(config)}, handler_{handler}, tls_{ssl::context::tls_client}, resolver_{ioc},
-          ping_timer_{ioc}, reconnect_timer_{ioc}, backoff_ms_{cfg_.reconnect_min_ms},
-          rng_{static_cast<std::minstd_rand::result_type>(reinterpret_cast<std::uintptr_t>(this) | 1U)} {
+          ping_timer_{ioc}, reconnect_timer_{ioc}, backoff_{host_backoff(cfg_.host, cfg_.port, cfg_.backoff)} {
         if (cfg_.verify_tls) {
             const auto trust = resolve_trust_store();
             boost::system::error_code ec;
@@ -257,7 +254,6 @@ public:
             return;
         }
         running_ = true;
-        backoff_ms_ = cfg_.reconnect_min_ms;
         admit_connect();
     }
 
@@ -270,12 +266,14 @@ public:
         if (state_ == State::Idle) {
             // idempotent: a second stop() must not synthesize a second on_close
             ++generation_;
+            abandon();
             return;
         }
         close_with(WsCloseReason::Requested);
     }
 
     void shutdown() noexcept {
+        abandon();
         dead_ = true;
         running_ = false;
         state_ = State::Idle;
@@ -458,9 +456,10 @@ private:
             }
         });
 
+        target_ = cfg_.target_for_connect ? cfg_.target_for_connect() : cfg_.target;
         conn->stream.async_handshake(conn->response,
                                      host_header_,
-                                     cfg_.target,
+                                     target_,
                                      [self = shared_from_this(), gen, conn](const beast::error_code& ws_ec) {
                                          self->on_ws_handshake(gen, conn, ws_ec);
                                      });
@@ -473,14 +472,21 @@ private:
         if (ec) {
             auto detail = describe("ws handshake", ec);
             if (ec == websock::error::upgrade_declined) {
-                detail += std::format(" (HTTP {})", conn->response.result_int());
-                backoff_ms_ = std::max(backoff_ms_, std::min(cfg_.declined_backoff_ms, cfg_.reconnect_max_ms));
+                const auto status = conn->response.result_int();
+                detail += std::format(" (HTTP {})", status);
+                refused_ = status == 429 || status == 418;
+                retry_after_ns_ = retry_after_ns(conn->response[beast::http::field::retry_after]);
             }
             close_with(WsCloseReason::Transport, std::move(detail));
             return;
         }
         state_ = State::Open;
         opened_at_ = clock_.mono();
+        received_at_open_ = stats_.messages_received;
+        healthy_reported_ = false;
+        if (std::exchange(attempting_, false)) {
+            backoff_->opened();
+        }
         awaiting_pong_ = false;
         writing_ = false;
         ping_pending_ = false;
@@ -605,6 +611,11 @@ private:
         if (dead_ || ec || gen != generation_ || state_ != State::Open) {
             return;
         }
+        if (!healthy_reported_ && stats_.messages_received > received_at_open_ &&
+            clock_.mono().ns - opened_at_.ns >= backoff_->policy().healthy_ns) {
+            healthy_reported_ = true;
+            backoff_->healthy();
+        }
         if (was_awaiting) {
             if (awaiting_pong_) {
                 ++stats_.pong_timeouts;
@@ -625,7 +636,6 @@ private:
             return;
         }
         close_detail_ = std::move(detail);
-        const bool was_stable = state_ == State::Open && clock_.mono().ns - opened_at_.ns > k_stable_connection_ns;
         state_ = State::Idle;
         ++generation_;
         writing_ = false;
@@ -635,9 +645,15 @@ private:
             close_socket(*conn_);
             conn_.reset();
         }
+        if (!cfg_.keep_queue_on_close) {
+            send_queue_.clear();
+        }
         if (reason == WsCloseReason::Requested) {
             running_ = false;
             reconnect_timer_.cancel();
+            abandon();
+        } else if (!dead_) {
+            back_off();
         }
         if (!dead_) {
             try {
@@ -646,33 +662,39 @@ private:
             }
         }
         if (running_ && !dead_) {
-            schedule_reconnect(was_stable);
+            ++stats_.reconnects;
+            admit_connect();
         }
     }
 
-    void schedule_reconnect(bool reset_backoff) {
-        if (reset_backoff) {
-            backoff_ms_ = cfg_.reconnect_min_ms;
+    void back_off() {
+        attempting_ = false;
+        const auto kind = std::exchange(refused_, false) ? WsFailure::Refused : WsFailure::Transport;
+        const auto delay_ns = backoff_->failed(clock_.mono().ns, kind, std::exchange(retry_after_ns_, 0));
+        if (delay_ns != 0 && ::raikiri::log::logger() != nullptr) {
+            RLOG_WARN("ws {}: backing off {} ms after {} ({})",
+                      cfg_.host,
+                      delay_ns / 1'000'000,
+                      kind == WsFailure::Refused ? "a refused handshake" : "a transport failure",
+                      close_detail_);
         }
-        const std::uint32_t base = backoff_ms_;
-        backoff_ms_ = base >= cfg_.reconnect_max_ms / 2 ? cfg_.reconnect_max_ms : base * 2;
+    }
 
-        // jitter over a quarter of the window
-        const std::uint32_t spread = base / 4 + 1;
-        const auto jitter = static_cast<std::uint32_t>(rng_() % spread);
-
-        ++stats_.reconnects;
-        reconnect_timer_.expires_after(std::chrono::milliseconds{base + jitter});
-        reconnect_timer_.async_wait([self = shared_from_this(), gen = generation_](const beast::error_code& ec) {
-            if (self->dead_ || ec || !self->running_ || gen != self->generation_) {
-                return;
-            }
-            self->admit_connect();
-        });
+    void abandon() noexcept {
+        if (std::exchange(attempting_, false)) {
+            backoff_->abandoned();
+        }
     }
 
     void admit_connect() {
-        const auto wait_ns = cfg_.connect_gate ? cfg_.connect_gate() : 0;
+        auto wait_ns = std::uint64_t{0};
+        if (!attempting_) {
+            wait_ns = backoff_->admit(clock_.mono().ns);
+            attempting_ = wait_ns == 0;
+        }
+        if (wait_ns == 0 && cfg_.connect_gate) {
+            wait_ns = cfg_.connect_gate();
+        }
         if (wait_ns == 0) {
             begin_connect();
             return;
@@ -698,19 +720,24 @@ private:
     std::shared_ptr<Conn> conn_;
     std::deque<std::string> send_queue_;
     std::string host_header_;
+    std::string target_;
     std::string close_detail_;
     WsClient::Stats stats_;
     MonoNanos opened_at_{};
     std::uint64_t generation_{0};
-    std::uint32_t backoff_ms_;
+    std::shared_ptr<HostBackoff> backoff_;
+    std::uint64_t received_at_open_{0};
+    std::uint64_t retry_after_ns_{0};
     std::uint32_t reads_since_post_{0};
-    std::minstd_rand rng_;
     State state_{State::Idle};
     bool running_{false};
     bool dead_{false};
     bool writing_{false};
     bool ping_pending_{false};
     bool awaiting_pong_{false};
+    bool attempting_{false};
+    bool refused_{false};
+    bool healthy_reported_{false};
     std::chrono::steady_clock::time_point ping_sent_{};
 };
 

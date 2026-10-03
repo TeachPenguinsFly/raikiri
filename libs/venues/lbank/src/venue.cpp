@@ -13,6 +13,7 @@ namespace {
 
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<internal::VenueState>(sink, clock, config.market);
+    state->budget = config.budget;
     bool key = false;
     bool secret = false;
     const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env}

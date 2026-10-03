@@ -46,7 +46,7 @@ TEST(Histogram, PercentilesWithinRelativeErrorBound) {
     const auto snap = h.snapshot();
 
     const auto check = [&](std::uint64_t reported, double q) {
-        const auto exact = values[static_cast<std::size_t>(q * (values.size() - 1))];
+        const auto exact = values[static_cast<std::size_t>(q * static_cast<double>(values.size() - 1))];
         EXPECT_GE(reported, exact - exact / 16) << q; // never wildly low
         EXPECT_LE(reported, exact + exact / 8) << q;  // pessimism bounded
     };

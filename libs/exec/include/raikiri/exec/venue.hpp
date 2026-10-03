@@ -23,10 +23,10 @@ struct VenueConfig {
     VenueId venue{VenueId::Invalid};
     MarketType market{MarketType::Perp};
     bool testnet{false};
-    std::string api_key_env;    // e.g. "BYBIT_API_KEY"
-    std::string api_secret_env; // e.g. "BYBIT_API_SECRET"
-    std::string passphrase_env; // venues that need it (okx); empty otherwise
-    std::string url_override{}; // testing/proxying; empty = venue default
+    std::string api_key_env{};    // e.g. "BYBIT_API_KEY"
+    std::string api_secret_env{}; // e.g. "BYBIT_API_SECRET"
+    std::string passphrase_env{}; // venues that need it (okx); empty otherwise
+    std::string url_override{};   // testing/proxying; empty = venue default
 
     // the venue's budget, shared by every adapter on this venue; null is unlimited
     RateBudget* budget{nullptr};
@@ -38,7 +38,7 @@ struct VenueConfig {
     std::uint32_t book_depth{0};
 
     // which feed to take where the venue publishes several; empty is the adapter default
-    std::string market_data_feed;
+    std::string market_data_feed{};
 };
 
 struct VenueAdapter {

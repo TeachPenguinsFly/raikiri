@@ -1,5 +1,6 @@
 #include <raikiri/exec/events.hpp>
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/lbank/endpoints.hpp>
@@ -24,15 +25,51 @@ namespace {
 
 constexpr std::uint64_t k_report_interval_ns = 60'000'000'000ULL;
 constexpr char k_key_sep = '\x1f';
-constexpr std::uint64_t k_resync_grace_ns = 30'000'000'000ULL;
-constexpr std::uint64_t k_resync_retry_ns = 15'000'000'000ULL;
+constexpr std::uint64_t k_check_interval_ns = 250'000'000ULL;
+constexpr std::uint64_t k_rate_limited_pause_ns = 60'000'000'000ULL;
+constexpr std::size_t k_checks_in_flight = 4;
 
 // a key is "<topic>\x1f<filter>"
-[[nodiscard]] std::string frame_for(std::string_view key, std::size_t local_no, std::string_view action = "1") {
+[[nodiscard]] std::string frame_for(std::string_view key, std::size_t local_no) {
     const auto cut = key.find(k_key_sep);
-    return R"({"SendTopicAction":{"Action":")" + std::string{action} + R"(","FilterValue":")" +
-           std::string{key.substr(cut + 1)} + R"(","LocalNo":)" + std::to_string(local_no) +
-           R"(,"ResumeNo":-1,"TopicID":")" + std::string{key.substr(0, cut)} + R"("}})";
+    return R"({"SendTopicAction":{"Action":"1","FilterValue":")" + std::string{key.substr(cut + 1)} +
+           R"(","LocalNo":)" + std::to_string(local_no) + R"(,"ResumeNo":-1,"TopicID":")" +
+           std::string{key.substr(0, cut)} + R"("}})";
+}
+
+struct Found {
+    const InstrumentBase* base;
+    Market* market;
+};
+
+[[nodiscard]] std::optional<Found> lookup(VenueState& state, std::string_view symbol) noexcept {
+    const auto* instrument = state.instruments.find(symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    auto* market = state.market_of(base.id);
+    if (market == nullptr) {
+        return std::nullopt;
+    }
+    return Found{&base, market};
+}
+
+void publish(VenueState& state, const Found& found, std::uint64_t bno, UnixNanos received) {
+    const auto book = found.market->ladders.snapshot(found.base->id, bno, received, received);
+    if (!book.has_value()) {
+        return;
+    }
+    if (const auto top = top_of(*book); top.has_value()) {
+        if (top->bid.raw >= top->ask.raw) {
+            found.market->synced = false;
+            ++state.book_faults;
+            return;
+        }
+        state.sink->on_bbo(*top);
+        found.market->priced = true;
+    }
+    state.sink->on_depth(*book);
 }
 
 class Handler final : public net::WsHandler {
@@ -68,9 +105,6 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        for (auto& market : state_->markets) {
-            market.synced = false;
-        }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
     }
@@ -80,41 +114,6 @@ private:
         if (++state_->subscribe_refusals <= 5 && ::raikiri::log::logger() != nullptr) {
             RLOG_WARN("lbank: subscription refused: {}", payload.substr(0, 240));
         }
-    }
-
-    struct Found {
-        const InstrumentBase* base;
-        Market* market;
-    };
-
-    [[nodiscard]] std::optional<Found> lookup(std::string_view symbol) noexcept {
-        const auto* instrument = state_->instruments.find(symbol);
-        if (instrument == nullptr) {
-            return std::nullopt;
-        }
-        const auto& base = base_of(*instrument);
-        auto* market = state_->market_of(base.id);
-        if (market == nullptr) {
-            return std::nullopt;
-        }
-        return Found{&base, market};
-    }
-
-    void publish(const Found& found, std::uint64_t bno, UnixNanos received) {
-        const auto book = found.market->ladders.snapshot(found.base->id, bno, received, received);
-        if (!book.has_value()) {
-            return;
-        }
-        if (const auto top = top_of(*book); top.has_value()) {
-            if (top->bid.raw >= top->ask.raw) {
-                found.market->synced = false;
-                ++state_->book_faults;
-                return;
-            }
-            state_->sink->on_bbo(*top);
-            found.market->priced = true;
-        }
-        state_->sink->on_depth(*book);
     }
 
     void on_book(std::string_view payload, UnixNanos received) {
@@ -129,7 +128,7 @@ private:
                 return;
             }
             const auto symbol = wire->index.substr(k_prefix.size());
-            const auto found = lookup(symbol);
+            const auto found = lookup(*state_, symbol);
             if (!found.has_value()) {
                 return;
             }
@@ -137,34 +136,44 @@ private:
             market.ladders.clear();
             market.synced = apply_levels(*wire, symbol, *found->base, market.ladders);
             market.last_bno = state_->max_bno;
-            market.resync_after_ns = 0;
             if (market.synced) {
-                publish(*found, market.last_bno, received);
+                publish(*state_, *found, market.last_bno, received);
             }
             return;
         }
-        if (wire->bno <= state_->max_bno) {
+        if (!fresh_batch(wire->bno, state_->max_bno)) {
             return;
         }
-        state_->max_bno = wire->bno;
+        const auto frame = ++state_->frames;
+        touched_.clear();
         std::string_view last{};
+        std::optional<Found> found;
         for (const auto& level : wire->levels) {
-            if (level.instrument == last || !level.tick.empty()) {
+            if (!level.tick.empty()) {
                 continue;
             }
-            last = level.instrument;
-            const auto found = lookup(level.instrument);
-            if (!found.has_value() || !found->market->synced || wire->bno <= found->market->last_bno) {
-                continue;
+            if (level.instrument != last) {
+                last = level.instrument;
+                found = lookup(*state_, level.instrument);
+                if (found.has_value() && !found->market->synced) {
+                    found.reset();
+                }
+                if (found.has_value() && found->market->touched_frame != frame) {
+                    found->market->touched_frame = frame;
+                    touched_.push_back(*found);
+                }
             }
-            auto& market = *found->market;
-            market.last_bno = wire->bno;
-            if (!apply_levels(*wire, level.instrument, *found->base, market.ladders)) {
-                market.synced = false;
+            if (found.has_value() && !apply_level(level, *found->base, found->market->ladders)) {
+                found->market->synced = false;
                 ++state_->book_faults;
-                continue;
+                found.reset();
             }
-            publish(*found, wire->bno, received);
+        }
+        for (const auto& one : touched_) {
+            if (one.market->synced) {
+                one.market->last_bno = wire->bno;
+                publish(*state_, one, wire->bno, received);
+            }
         }
     }
 
@@ -175,7 +184,7 @@ private:
             return;
         }
         for (const auto& row : *rows) {
-            const auto found = lookup(row.instrument);
+            const auto found = lookup(*state_, row.instrument);
             const auto id = wire::digits_to_u64(row.trade_id);
             if (!found.has_value() || id <= found->market->last_trade_id) {
                 continue;
@@ -195,7 +204,7 @@ private:
             return;
         }
         for (const auto& row : *rows) {
-            const auto found = lookup(row.instrument);
+            const auto found = lookup(*state_, row.instrument);
             if (!found.has_value()) {
                 continue;
             }
@@ -211,6 +220,7 @@ private:
     }
 
     VenueState* state_;
+    std::vector<Found> touched_;
 };
 
 class PerpData final : public exec::DataClient {
@@ -223,9 +233,15 @@ public:
                 handler_,
                 net::WsPoolConfig{},
                 [](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { resync(keys); }} {}
+                [this](std::span<const std::string> keys) { resync(keys); }},
+          rest_{state_->io,
+                net::RestConfig{
+                    .host = std::string{ep::k_perp_rest_host}, .port = "443", .pool_size = k_checks_in_flight}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
+        rest_.start();
         pool_.start();
         started_ = true;
         return {};
@@ -233,6 +249,7 @@ public:
 
     void stop() override {
         pool_.stop();
+        rest_.stop();
         started_ = false;
     }
 
@@ -267,7 +284,7 @@ public:
             return {};
         }
         if (key.starts_with(ep::k_topic_book)) {
-            state_->markets[instrument.symbol().raw].book_key = key;
+            state_->markets[instrument.symbol().raw].book = instrument;
         }
         const std::array<std::string, 1> one{std::move(key)};
         if (!pool_.subscribe(one)) {
@@ -291,9 +308,8 @@ public:
             pool_.broadcast(ep::k_perp_ping);
             state_->next_app_ping_ns = now.ns + ep::k_app_ping_interval_ns;
         }
-        if (pool_.connected() && now.ns >= next_resync_scan_ns_) {
-            resync_stale(now);
-            next_resync_scan_ns_ = now.ns + 4'000'000'000ULL;
+        if (in_flight_ < k_checks_in_flight && now.ns >= next_check_ns_) {
+            check_next(now);
         }
         if (now.ns >= state_->next_report_ns) {
             if (state_->next_report_ns != 0) {
@@ -330,22 +346,69 @@ private:
         }
     }
 
-    // a crossed or broken book needs a fresh snapshot, which only a subscription sends
-    void resync_stale(UnixNanos now) {
-        for (auto& market : state_->markets) {
-            if (market.synced || market.book_key.empty()) {
-                continue;
+    // the diff stream drops rows, so every book is held against the rest touch in turn
+    void check_next(UnixNanos now) {
+        // every other turn goes to a broken book, so one the rest cannot seed never starves the round
+        const auto count = state_->markets.size();
+        const bool broken_turn = (++turns_ & 1U) != 0;
+        auto& cursor = broken_turn ? broken_cursor_ : cursor_;
+        std::size_t pick = count;
+        for (std::size_t i = 1; i <= count && pick == count; ++i) {
+            const auto at = (cursor + i) % count;
+            const auto& market = state_->markets[at];
+            if (market.book.packed != 0 && !market.checking && (!broken_turn || !market.synced)) {
+                pick = at;
             }
-            if (market.resync_after_ns == 0) {
-                market.resync_after_ns = now.ns + k_resync_grace_ns;
-            } else if (now.ns >= market.resync_after_ns) {
-                pool_.broadcast(frame_for(market.book_key, 0, "2"));
-                pool_.broadcast(frame_for(market.book_key, 0));
-                market.resync_after_ns = now.ns + k_resync_retry_ns;
-                ++resyncs_;
-                return;
-                return;
-            }
+        }
+        if (pick == count) {
+            return;
+        }
+        cursor = pick;
+        const auto id = state_->markets[pick].book;
+        target_ = std::string{ep::k_perp_depth} + std::string{state_->instruments.exchange_symbol(id)};
+        const net::RestRequest request{.method = net::HttpMethod::Get, .target = target_, .body = {}};
+        bool sent = false;
+        try {
+            sent = rest_.send(request, [this, id](net::RestResponse&& response) { on_depth(id, response); });
+        } catch (...) {
+            sent = false;
+        }
+        if (sent) {
+            state_->markets[pick].checking = true;
+            ++in_flight_;
+            next_check_ns_ = now.ns + k_check_interval_ns;
+        }
+    }
+
+    void on_depth(InstrumentId id, const net::RestResponse& response) {
+        --in_flight_;
+        auto* market = state_->market_of(id);
+        if (market != nullptr) {
+            market->checking = false;
+        }
+        if (response.status == 429) {
+            ++refused_checks_;
+            next_check_ns_ = state_->clock->wall().ns + k_rate_limited_pause_ns;
+            return;
+        }
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<RestDepthBuffer>();
+        const auto wire = parse_market_order(response.body, *storage);
+        const auto* instrument = state_->instruments.find(id);
+        if (!wire.has_value() || instrument == nullptr || market == nullptr) {
+            return;
+        }
+        const Found found{&base_of(*instrument), market};
+        ++checks_;
+        if (market->synced && same_touch(market->ladders, *wire, *found.base)) {
+            return;
+        }
+        ++(market->synced ? drifted_ : seeded_);
+        market->synced = seed_levels(*wire, *found.base, market->ladders);
+        if (market->synced) {
+            publish(*state_, found, state_->max_bno, state_->clock->wall());
         }
     }
 
@@ -362,7 +425,7 @@ private:
             funded += market.funded ? 1U : 0U;
         }
         RLOG_INFO("lbank: {} of {} contracts priced, {} traded, {} funded; {} sockets, {} keys, "
-                  "{} refusals, {} book faults, {} resyncs",
+                  "{} refusals, {} book faults; {} rest checks, {} drifted, {} seeded, {} rate limited",
                   priced,
                   state_->markets.size(),
                   traded,
@@ -371,15 +434,27 @@ private:
                   pool_.key_count(),
                   state_->subscribe_refusals,
                   state_->book_faults,
-                  resyncs_);
+                  checks_,
+                  drifted_,
+                  seeded_,
+                  refused_checks_);
     }
 
     std::shared_ptr<VenueState> state_;
     Handler handler_;
     net::WsPool pool_;
+    net::RestClient rest_;
     std::unordered_set<std::string> asked_;
-    std::uint64_t next_resync_scan_ns_{0};
-    std::uint64_t resyncs_{0};
+    std::string target_;
+    std::size_t cursor_{0};
+    std::size_t broken_cursor_{0};
+    std::uint64_t turns_{0};
+    std::uint64_t next_check_ns_{0};
+    std::uint64_t checks_{0};
+    std::uint64_t drifted_{0};
+    std::uint64_t seeded_{0};
+    std::uint64_t refused_checks_{0};
+    std::size_t in_flight_{0};
     bool started_{false};
 };
 

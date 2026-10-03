@@ -30,7 +30,7 @@ net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol, std::ui
             overflow = true;
             return;
         }
-        std::memcpy(target_.data() + len, text.data(), text.size());
+        text.copy(target_.data() + len, text.size());
         len += text.size();
     };
     put(ep::k_depth);

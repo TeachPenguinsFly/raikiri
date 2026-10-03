@@ -136,7 +136,10 @@ public:
                 .pending_frames = pool.pending_frames,
                 .reopens = pool.reopens,
                 .last_close_reason = std::move(pool.last_close_reason),
-                .last_close_ns = pool.last_close_ns});
+                .last_close_ns = pool.last_close_ns,
+                .backoffs = pool.backoffs,
+                .refusals = pool.refusals,
+                .backoff_ms = pool.backoff_ms});
         }
 
         const auto bbo = subs_[static_cast<std::size_t>(Channel::Bbo)].accepted;

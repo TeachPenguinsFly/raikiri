@@ -19,3 +19,11 @@ from the full answers and are otherwise verbatim.
 | `spot_ws_depth.json`, `spot_ws_trade.json`, `spot_ws_tick.json` | `wss://api.lbank.info/ws/V2/`, `depth` (10), `trade` and `tick` for btc_usdt |
 | `spot_ws_error.json` | the answer to a `depth` subscription for `nope_usdt` |
 | `spot_ws_pong.json` | the answer to `{"action":"ping","ping":"x1"}` |
+
+Added on 2026-10-03 between 15:13 and 15:20 UTC with the same user agent:
+
+| file | source |
+|---|---|
+| `ws_book_batch_first.json`, `ws_book_batch_second.json` | topic 25 on one socket carrying twelve books: two frames of one batch under bNo 219701801916, labelled QNTUSDT and BTCUSDT, cut to the SUSHIUSDT and ACHUSDT rows that only one of them carries |
+| `ws_book_replay.json` | the first diff on that socket's HYPEUSDT subscription, a replay older than the batches already seen, cut to HYPEUSDT rows |
+| `rest_market_order.json` | `GET https://lbkperp.lbank.com/cfd/openApi/v1/pub/marketOrder?symbol=ETHUSDT&depth=5` |

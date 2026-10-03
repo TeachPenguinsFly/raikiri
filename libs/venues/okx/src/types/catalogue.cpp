@@ -54,6 +54,12 @@ std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std:
                 }
                 *field = *value;
             }
+            // null until okx issues one
+            const auto code = wire::opt_raw(obj, "instIdCode");
+            if (!code.has_value()) {
+                return std::unexpected(code.error());
+            }
+            out.inst_id_code = wire::digits_to_u64(*code);
             storage.instruments[count] = out;
             ++count;
         }

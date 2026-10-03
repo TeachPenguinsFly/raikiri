@@ -43,7 +43,13 @@ template <> struct glz::meta<raikiri::introspect::SocketStats> {
                                          "last_close_reason",
                                          &T::last_close_reason,
                                          "last_close_ns",
-                                         glz::quoted_num<&T::last_close_ns>);
+                                         glz::quoted_num<&T::last_close_ns>,
+                                         "backoffs",
+                                         &T::backoffs,
+                                         "refusals",
+                                         &T::refusals,
+                                         "backoff_ms",
+                                         &T::backoff_ms);
 };
 
 template <> struct glz::meta<raikiri::introspect::ClockStats> {

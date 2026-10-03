@@ -58,10 +58,10 @@ struct WireHead {
 
 // rows at the instrument own tick carry no `Tick`; coarser groupings do
 struct WireLevel {
-    std::string_view instrument;
-    std::string_view price;
-    std::string_view volume;
-    std::string_view tick;
+    std::string_view instrument{};
+    std::string_view price{};
+    std::string_view volume{};
+    std::string_view tick{};
     bool ask{false};
 };
 
@@ -80,6 +80,27 @@ struct WireBook {
 };
 
 [[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffer& storage);
+
+struct WireDepthRow {
+    std::string_view price{};
+    std::string_view volume{};
+};
+
+inline constexpr std::size_t k_rest_depth = 50;
+
+struct RestDepthBuffer {
+    std::array<WireDepthRow, k_rest_depth> bids{};
+    std::array<WireDepthRow, k_rest_depth> asks{};
+};
+
+// rest `marketOrder`, best first
+struct WireRestDepth {
+    std::span<const WireDepthRow> bids;
+    std::span<const WireDepthRow> asks;
+};
+
+[[nodiscard]] std::expected<WireRestDepth, WireError> parse_market_order(std::string_view body,
+                                                                         RestDepthBuffer& storage);
 
 struct WireTrade {
     std::string_view instrument;

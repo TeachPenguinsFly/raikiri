@@ -4,6 +4,7 @@
 #include <raikiri/venues/okx/market_data.hpp>
 #include <raikiri/venues/okx/orders.hpp>
 #include <raikiri/venues/okx/positions.hpp>
+#include <raikiri/venues/okx/trade.hpp>
 
 #include <gtest/gtest.h>
 
@@ -17,6 +18,13 @@ using wire::malformed::hammer;
 TEST(Malformed, Okx) {
     hammer("okx",
            {
+               {"ws_trade_order.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
+               {"ws_trade_amend_failure.json",
+                [](std::string_view f) {
+                    static AckBuffer acks;
+                    (void)parse_trade_reply(f);
+                    (void)parse_order_acks(f, acks);
+                }},
                {"ws_bbo_tbt.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

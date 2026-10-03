@@ -27,7 +27,7 @@ public:
         if (len_ + text.size() > into_.size()) {
             return;
         }
-        std::memcpy(into_.data() + len_, text.data(), text.size());
+        text.copy(into_.data() + len_, text.size());
         len_ += text.size();
     }
 
@@ -50,7 +50,7 @@ public:
             overflow_ = true;
             return *this;
         }
-        std::memcpy(buf_.data() + len_, text.data(), text.size());
+        text.copy(buf_.data() + len_, text.size());
         len_ += text.size();
         return *this;
     }
@@ -107,8 +107,9 @@ std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     return "GTC";
 }
 
-// clientOid alphabet: letters, digits, '_' and '-'
-[[nodiscard]] bool client_oid_usable(std::string_view id) noexcept {
+} // namespace
+
+bool client_oid_usable(std::string_view id) noexcept {
     if (id.empty() || id.size() > k_max_client_oid) {
         return false;
     }
@@ -120,8 +121,6 @@ std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     }
     return true;
 }
-
-} // namespace
 
 std::string_view to_string(BuildError err) noexcept {
     switch (err) {

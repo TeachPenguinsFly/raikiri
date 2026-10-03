@@ -11,8 +11,10 @@
 #include <unistd.h>
 
 #include <cstdlib>
+#include <filesystem>
 #include <pqxx/pqxx>
 #include <string>
+#include <system_error>
 
 namespace raikiri::persist {
 namespace {
@@ -38,7 +40,10 @@ public:
     operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
 
 private:
-    void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }
+    void wipe() const {
+        std::error_code ec;
+        std::filesystem::remove_all(path_, ec);
+    }
 
     std::string path_;
 };
@@ -81,8 +86,8 @@ std::string build_journal(const std::string& dir) {
     });
 
     // two strategies settling one instrument in the same second; a fresh stamp so reruns insert rows
-    const auto settled = UnixNanos{1'788'696'006'115'000'000ULL +
-                                   static_cast<std::uint64_t>(::getpid()) * 1'000'000'000ULL};
+    const auto settled = UnixNanos{std::uint64_t{1'788'696'006'115'000'000} +
+                                   static_cast<std::uint64_t>(::getpid()) * std::uint64_t{1'000'000'000}};
     for (const std::uint16_t strategy : {std::uint16_t{3}, std::uint16_t{10}}) {
         (void)schema::append_msg<msgs::PnlIncrementMsg>(*writer, 400 + strategy, [strategy, settled](auto m) {
             const auto instrument = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7});

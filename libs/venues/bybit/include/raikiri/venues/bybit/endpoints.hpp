@@ -20,6 +20,7 @@ inline constexpr std::string_view k_stream_test = "stream-testnet.bybit.com";
 inline constexpr std::string_view k_ws_public_linear = "/v5/public/linear";
 inline constexpr std::string_view k_ws_public_spot = "/v5/public/spot";
 inline constexpr std::string_view k_ws_private = "/v5/private";
+inline constexpr std::string_view k_ws_trade = "/v5/trade";
 
 inline constexpr std::string_view k_order_create = "/v5/order/create";
 inline constexpr std::string_view k_order_cancel = "/v5/order/cancel";

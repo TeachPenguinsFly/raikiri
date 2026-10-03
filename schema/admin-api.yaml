@@ -766,7 +766,7 @@ components:
           items:
             type: object
             required: [host, sockets, open, keys, min_keys, avg_keys, max_keys, pending_frames,
-                       reopens, last_close_reason, last_close_ns]
+                       reopens, last_close_reason, last_close_ns, backoffs, refusals, backoff_ms]
             properties:
               host: { type: string }
               sockets: { type: integer }
@@ -779,6 +779,9 @@ components:
               reopens: { type: integer, description: Since start, first opens excluded. }
               last_close_reason: { type: string }
               last_close_ns: { $ref: "#/components/schemas/Nanos" }
+              backoffs: { type: integer, description: Reconnect backoffs engaged on the host since start. }
+              refusals: { type: integer, description: Handshakes the host refused with 429 or 418. }
+              backoff_ms: { type: integer, description: Left on the host's current backoff; zero when none. }
         limits:
           description: The venue's ws_* rows from venues.yaml; zero is unconfigured.
           type: object

@@ -109,7 +109,7 @@ std::expected<std::string_view, WsBuildError> Protocol::frame(std::string_view t
     }
     auto* cursor = frame_.data();
     for (const auto part : {k_open, type, k_mid, channel, k_close}) {
-        std::memcpy(cursor, part.data(), part.size());
+        part.copy(cursor, part.size());
         cursor += part.size();
     }
     return std::string_view{frame_.data(), size};

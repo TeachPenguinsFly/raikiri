@@ -206,6 +206,44 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
     });
 }
 
+std::expected<WireRestDepth, WireError> parse_market_order(std::string_view body, RestDepthBuffer& storage) {
+    return wire::guarded([&]() -> std::expected<WireRestDepth, WireError> {
+        auto root = wire::session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto data = wire::req_object(*root, "data");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        const auto read = [](wire::ondemand::object& row) -> std::expected<WireDepthRow, WireError> {
+            const auto volume = wire::req_str(row, "volume");
+            const auto price = wire::req_str(row, "price");
+            if (!volume || !price) {
+                return std::unexpected(WireError::MissingField);
+            }
+            return WireDepthRow{.price = *price, .volume = *volume};
+        };
+        auto asks = wire::req_array(*data, "asks");
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        const auto ask_rows = read_rows(*asks, std::span<WireDepthRow>{storage.asks}, read);
+        if (!ask_rows.has_value()) {
+            return std::unexpected(ask_rows.error());
+        }
+        auto bids = wire::req_array(*data, "bids");
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        const auto bid_rows = read_rows(*bids, std::span<WireDepthRow>{storage.bids}, read);
+        if (!bid_rows.has_value()) {
+            return std::unexpected(bid_rows.error());
+        }
+        return WireRestDepth{.bids = *bid_rows, .asks = *ask_rows};
+    });
+}
+
 std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return wire::guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = wire::session().open_object(frame);

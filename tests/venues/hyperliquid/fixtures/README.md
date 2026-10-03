@@ -84,3 +84,16 @@ One session per subscription type, each read for 12–20 s. Keepalive is
 | `ws_pong.json` | the answer to `{"method":"ping"}` |
 | `ws_all_mids.json` | an `allMids` push, trimmed to four mids |
 | `ws_hip3_bbo.json`, `ws_hip3_l2book.json`, `ws_hip3_trades.json`, `ws_hip3_active_asset_ctx.json` | `bbo`, `l2Book`, `trades` and `activeAssetCtx` on `xyz:XYZ100`; frame stamps are 2026-09-26 |
+
+## WebSocket post replies
+
+No order was placed to get these. They come from
+`https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/post-requests`
+and the exchange endpoint page, as published on 2026-10-03.
+
+| file | source |
+|---|---|
+| `ws_post_order_resting.json` | doc example: the action post reply with a resting status. The published example has a trailing comma after `oid`, removed here |
+| `ws_post_order_error.json` | assembled. The documented post envelope carries the exchange page's "minimum value of $10" error status |
+| `ws_post_bad_signature.json` | assembled. The documented post envelope carries `exchange_err_bad_signature.json` |
+| `ws_post_error.json` | assembled. The docs describe the `error` type as a string mirroring the http status and text but show none |

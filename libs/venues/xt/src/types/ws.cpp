@@ -80,7 +80,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::method_frame(std::string_
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     put(R"({"method":")");
@@ -149,7 +149,7 @@ std::expected<std::string_view, WsBuildError> PrivateProtocol::futures_subscribe
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     constexpr std::array<std::string_view, 2> k_topics{"order", "trade"};
@@ -188,7 +188,7 @@ std::expected<std::string_view, WsBuildError> PrivateProtocol::spot_subscribe(st
             overflow = true;
             return;
         }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
+        text.copy(frame_.data() + len, text.size());
         len += text.size();
     };
     // spot topics carry no key suffix; the key is a separate field

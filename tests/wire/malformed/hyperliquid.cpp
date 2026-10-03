@@ -4,6 +4,7 @@
 #include <raikiri/venues/hyperliquid/market_data.hpp>
 #include <raikiri/venues/hyperliquid/orders.hpp>
 #include <raikiri/venues/hyperliquid/positions.hpp>
+#include <raikiri/venues/hyperliquid/post.hpp>
 
 #include <gtest/gtest.h>
 
@@ -81,6 +82,14 @@ TEST(Malformed, Hyperliquid) {
                     static PositionBuffer storage;
                     (void)parse_positions(f, storage);
                 }},
+               {"ws_post_order_resting.json",
+                [](std::string_view f) {
+                    static ExchangeStatusBuffer storage;
+                    if (const auto post = parse_post_reply(f); post.has_value()) {
+                        (void)parse_exchange_reply(post->payload, storage);
+                    }
+                }},
+               {"ws_post_error.json", [](std::string_view f) { (void)parse_post_reply(f); }},
            });
 }
 

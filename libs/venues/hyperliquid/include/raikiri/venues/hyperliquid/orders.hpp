@@ -14,13 +14,13 @@ namespace raikiri::venues::hyperliquid {
 
 // frontendOpenOrders adds the frontend-only fields; only `tif` says whether an order is post-only
 struct WireOpenOrder {
-    std::string_view coin;
-    std::string_view price;      // limitPx
-    std::string_view qty;        // sz, remaining
-    std::string_view orig_qty;   // origSz
-    std::string_view cloid;      // absent entirely on an order placed without one
-    std::string_view order_type; // frontend only: "Limit", "Stop Market", ...
-    std::string_view tif;        // frontend only: "Gtc" | "Alo" | "Ioc" | "FrontendMarket"
+    std::string_view coin{};
+    std::string_view price{};      // limitPx
+    std::string_view qty{};        // sz, remaining
+    std::string_view orig_qty{};   // origSz
+    std::string_view cloid{};      // absent entirely on an order placed without one
+    std::string_view order_type{}; // frontend only: "Limit", "Stop Market", ...
+    std::string_view tif{};        // frontend only: "Gtc" | "Alo" | "Ioc" | "FrontendMarket"
     std::uint64_t oid{0};
     std::uint64_t ts_ms{0};
     bool buy{false};         // `side`: "B" bids, "A" asks
@@ -39,12 +39,12 @@ struct OpenOrderBuffer {
 
 // `crossed` true means taker; `fee` is negative on a maker rebate
 struct WireFill {
-    std::string_view coin;
-    std::string_view price; // px
-    std::string_view qty;   // sz
-    std::string_view fee;
-    std::string_view fee_token;
-    std::string_view cloid; // absent on a fill of an order placed without one
+    std::string_view coin{};
+    std::string_view price{}; // px
+    std::string_view qty{};   // sz
+    std::string_view fee{};
+    std::string_view fee_token{};
+    std::string_view cloid{}; // absent on a fill of an order placed without one
     std::uint64_t oid{0};
     std::uint64_t tid{0};
     std::uint64_t ts_ms{0};
@@ -64,7 +64,7 @@ struct FillBuffer {
 // an unknown oid answers {"status":"unknownOid"}, which is not an error
 struct WireOrderStatus {
     WireOpenOrder order{};
-    std::string_view status; // "open" | "filled" | "canceled" | "triggered" | ...
+    std::string_view status{}; // "open" | "filled" | "canceled" | "triggered" | ...
     std::uint64_t ts_ms{0};
     bool found{false};
 };

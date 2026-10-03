@@ -3,6 +3,7 @@
 #include <raikiri/venues/binance/catalogue.hpp>
 #include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/market_data.hpp>
+#include <raikiri/venues/binance/ws_api.hpp>
 
 #include <gtest/gtest.h>
 
@@ -85,6 +86,8 @@ TEST(Malformed, Binance) {
                     (void)parse_income(f, storage);
                 }},
                {"rest_error_bad_symbol.json", [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"ws_api_order_place.json", [](std::string_view f) { (void)parse_ws_api_reply(f); }},
+               {"ws_api_error.json", [](std::string_view f) { (void)parse_ws_api_reply(f); }},
            });
 }
 
