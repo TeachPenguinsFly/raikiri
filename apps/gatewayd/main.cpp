@@ -33,6 +33,7 @@
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
 #include <raikiri/venues/cryptocom/cryptocom_venue.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
+#include <raikiri/venues/derive/derive_venue.hpp>
 #include <raikiri/venues/dydx/dydx_venue.hpp>
 #include <raikiri/venues/edgex/edgex_venue.hpp>
 #include <raikiri/venues/extended/extended_venue.hpp>
@@ -992,6 +993,7 @@ int main(int argc, char** argv) {
     venues::lbank::register_adapter();
     venues::bitunix::register_adapter();
     venues::toobit::register_adapter();
+    venues::derive::register_adapter();
     // one budget shared with the account poller; a venue missing from the file is unlimited
     std::optional<exec::RateBudget> budget;
     // an absent venue still gets the default answer timeout; zero would never report an unanswered order
@@ -1004,8 +1006,7 @@ int main(int argc, char** argv) {
             if (const auto limits = config::rest_limits(it->second); !limits.empty()) {
                 budget.emplace(limits, config::rest_costs(it->second), it->second.default_cost);
             }
-            net::set_process_ws_limits(
-                net::ws_limits(venue_name, it->second, market == MarketType::Spot ? "spot" : "perp"));
+            net::set_process_ws_limits(net::ws_limits(venue_name, it->second, to_string(market)));
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
             book_depth = it->second.book_depth;
             market_data_feed = it->second.market_data_feed;

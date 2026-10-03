@@ -38,6 +38,8 @@ inline constexpr std::string_view k_balance = "/api/v5/account/balance";
 inline constexpr std::string_view k_account_config = "/api/v5/account/config";
 
 inline constexpr std::string_view k_instruments = "/api/v5/public/instruments";
+// options list by underlying: instruments refuses instType=OPTION without uly or instFamily
+inline constexpr std::string_view k_underlyings = "/api/v5/public/underlying";
 inline constexpr std::string_view k_mark_price = "/api/v5/public/mark-price";
 inline constexpr std::string_view k_funding_rate = "/api/v5/public/funding-rate";
 inline constexpr std::string_view k_books = "/api/v5/market/books";

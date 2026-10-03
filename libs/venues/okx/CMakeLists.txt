@@ -24,4 +24,4 @@ target_include_directories(raikiri_venue_okx PUBLIC
 # simdjson stays private; the public headers expose only string_view and span
 target_link_libraries(raikiri_venue_okx
   PUBLIC raikiri::domain raikiri::book raikiri::wire raikiri::exec raikiri::net
-  PRIVATE simdjson::simdjson raikiri::config raikiri::log raikiri::warnings)
+  PRIVATE simdjson::simdjson raikiri::config raikiri::log raikiri::options raikiri::warnings)

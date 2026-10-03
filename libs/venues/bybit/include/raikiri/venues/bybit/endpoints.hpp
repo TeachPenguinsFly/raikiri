@@ -19,6 +19,7 @@ inline constexpr std::string_view k_stream_test = "stream-testnet.bybit.com";
 
 inline constexpr std::string_view k_ws_public_linear = "/v5/public/linear";
 inline constexpr std::string_view k_ws_public_spot = "/v5/public/spot";
+inline constexpr std::string_view k_ws_public_option = "/v5/public/option";
 inline constexpr std::string_view k_ws_private = "/v5/private";
 inline constexpr std::string_view k_ws_trade = "/v5/trade";
 
@@ -35,6 +36,8 @@ inline constexpr std::string_view k_wallet_balance = "/v5/account/wallet-balance
 inline constexpr std::string_view k_transaction_log = "/v5/account/transaction-log";
 
 inline constexpr std::string_view k_instruments = "/v5/market/instruments-info";
+// instruments-info answers one coin's options, BTC when none is named, and no call lists the coins
+inline constexpr std::string_view k_option_coins = "BTC,ETH,SOL,XRP,DOGE,MNT,XAUT";
 inline constexpr std::string_view k_server_time = "/v5/market/time";
 
 } // namespace raikiri::venues::bybit::ep

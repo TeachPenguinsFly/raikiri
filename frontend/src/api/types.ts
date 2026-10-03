@@ -794,6 +794,10 @@ export interface components {
             ask_iv?: components["schemas"]["Decimal"];
             /** @description In the quote currency, not in the option's ticks. */
             underlying_price?: components["schemas"]["Decimal"];
+            /** @description The option's mark in its premium currency, the coin on Deribit and USDC on Derive. */
+            mark_price?: components["schemas"]["Decimal"];
+            /** @description The underlying's spot index in the quote currency. */
+            index_price?: components["schemas"]["Decimal"];
             ts_event: components["schemas"]["Nanos"];
         };
         Funding: {

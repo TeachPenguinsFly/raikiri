@@ -73,6 +73,13 @@ exec::VenueAdapter make_bybit(const exec::VenueConfig& config, exec::GatewaySink
         }
     }
 
+    if (config.market == MarketType::Option) {
+        state->option_enabled = true;
+        state->book_depth = k_option_book_depth;
+        state->option_coins = config.market_data_feed.empty() ? std::string{ep::k_option_coins}
+                                                              : config.market_data_feed;
+    }
+
     const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env}
                                        .key([&](std::string_view value) { state->signer.set_api_key(value); })
                                        .secret(state->signer.secret())

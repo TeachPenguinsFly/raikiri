@@ -23,4 +23,4 @@ target_include_directories(raikiri_venue_deribit PUBLIC
 )
 target_link_libraries(raikiri_venue_deribit
   PUBLIC raikiri::book raikiri::domain raikiri::exec raikiri::net raikiri::wire
-  PRIVATE raikiri::config simdjson::simdjson raikiri::warnings)
+  PRIVATE raikiri::config raikiri::options simdjson::simdjson raikiri::warnings)

@@ -71,3 +71,28 @@ numeric like ours, so the tests use them unchanged. The login replies are
 | `ws_trade_format_error.json` | doc example: WS / Place order, the response to a malformed request (code `60013`, empty `data`) |
 | `ws_trade_cancel.json` | doc example: WS / Cancel order, successful response |
 | `ws_trade_amend_failure.json` | doc example: WS / Amend order, failure response (`sCode` `51008`) |
+
+## Options, captured live on 2026-10-03
+
+From production with no credentials. `rest_option_instruments.json` is the
+`data` of two REST answers cut to eight rows and written back without
+whitespace; the two `opt-summary` files are single frames cut to their first
+rows the same way. Every other file is one frame, verbatim. The websocket
+sessions ran on `wss://ws.okx.com:8443/ws/v5/public`: one subscribed
+`opt-summary` for `BTC-USD`, and `bbo-tbt`, `mark-price` on
+`BTC-USD-261004-84900-C`, and `index-tickers` on `BTC-USD`, for 8 s; one
+subscribed `opt-summary` for `BTC-USD_UM` and `bbo-tbt` on a deep `_UM` call
+for 40 s; one subscribed `option-trades` (`instType` `OPTION`) for the four
+BTC and ETH families until eight prints arrived, about nine minutes.
+
+| file | source |
+|---|---|
+| `rest_option_underlyings.json` | `GET https://www.okx.com/api/v5/public/underlying?instType=OPTION` |
+| `rest_option_instruments.json` | `GET /api/v5/public/instruments?instType=OPTION&uly=BTC-USD`, cut to three `BTC-USD` rows, their three `BTC-USD_UM` twins and `BTC-USD-261004-84900-C`, plus the first row of the same call with `uly=SOL-USD` |
+| `ws_opt_summary.json` | an `opt-summary` push for `BTC-USD`, cut to the three rows above |
+| `ws_opt_summary_um.json` | an `opt-summary` push for `BTC-USD_UM`, cut to two rows |
+| `ws_mark_price_option.json` | the first `mark-price` push for `BTC-USD-261004-84900-C` |
+| `ws_index_tickers.json` | the first `index-tickers` push for `BTC-USD` |
+| `ws_bbo_tbt_option.json` | the first `bbo-tbt` push for `BTC-USD-261004-84900-C` |
+| `ws_bbo_tbt_option_empty.json` | the first `bbo-tbt` push for `BTC-USD_UM-261030-59000-C`, both sides empty |
+| `ws_option_trades.json` | the first `option-trades` push, an `ETH-USD` print |

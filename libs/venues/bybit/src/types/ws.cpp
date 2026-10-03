@@ -37,6 +37,9 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view public_stream_path(MarketType market) noexcept {
+    if (market == MarketType::Option) {
+        return ep::k_ws_public_option;
+    }
     return market == MarketType::Spot ? ep::k_ws_public_spot : ep::k_ws_public_linear;
 }
 

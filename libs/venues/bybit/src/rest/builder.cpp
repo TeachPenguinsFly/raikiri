@@ -91,7 +91,7 @@ std::string_view to_string(BuildError err) noexcept {
 }
 
 std::string_view category_of(MarketType market) noexcept {
-    return market == MarketType::Spot ? "spot" : "linear";
+    return market == MarketType::Spot ? "spot" : market == MarketType::Option ? "option" : "linear";
 }
 
 std::string_view RequestBuilder::last_sign_message() const noexcept {
@@ -316,9 +316,12 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::wallet_balance(UnixN
     return signed_get(ep::k_wallet_balance, query.view(), now);
 }
 
-net::RestRequest RequestBuilder::instruments(MarketType market, std::string_view cursor) {
+net::RestRequest RequestBuilder::instruments(MarketType market, std::string_view cursor, std::string_view base_coin) {
     Appender target{target_};
     target << ep::k_instruments << "?category=" << category_of(market) << "&limit=1000";
+    if (!base_coin.empty()) {
+        target << "&baseCoin=" << base_coin;
+    }
     if (!cursor.empty()) {
         target << "&cursor=" << cursor;
     }

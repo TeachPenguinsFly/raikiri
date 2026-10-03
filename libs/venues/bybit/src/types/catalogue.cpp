@@ -50,6 +50,8 @@ std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std:
             out.contract_type = field("contractType");
             out.symbol_type = field("symbolType");
             out.status = field("status");
+            out.options_type = field("optionsType");
+            out.delivery_ms = wire::digits_to_u64(field("deliveryTime"));
 
             entry.reset();
             if (auto price_filter = wire::req_object(entry, "priceFilter"); price_filter.has_value()) {

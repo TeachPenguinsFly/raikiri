@@ -1,0 +1,1 @@
+{"arg":{"channel":"option-trades","instType":"OPTION","instFamily":"ETH-USD"},"data":[{"fillVol":"0.21241191894531247","fwdPx":"2684.649776156525","idxPx":"2684.56","instFamily":"ETH-USD","instId":"ETH-USD-261005-2700-C","markPx":"0.0032159201457484","optType":"C","px":"0.0032","side":"buy","sz":"3","tradeId":"312","ts":"1791049820934"}]}

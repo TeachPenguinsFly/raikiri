@@ -157,6 +157,10 @@ private:
     }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
+        if (cmd.instrument.market() == MarketType::Option) {
+            reject(cmd, "bybit options are market data only");
+            return;
+        }
         const auto now = state_->venue_now();
         const auto request = kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
                              : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)

@@ -43,7 +43,7 @@ set(malformed_srcs wire/malformed/harness.cpp wire/malformed/wire.cpp)
 set(malformed_libs raikiri::wire)
 foreach(venue IN ITEMS apex aster backpack binance bingx bitfinex bitget blofin bybit coinbase
     cryptocom deribit dydx edgex extended gate grvt htx hyperliquid kraken kucoin lighter mexc
-    lbank okx pacifica phemex weex xt bitunix toobit)
+    lbank okx pacifica phemex weex xt bitunix toobit derive)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wire/malformed/${venue}.cpp)
     list(APPEND malformed_srcs wire/malformed/${venue}.cpp)
     list(APPEND malformed_libs raikiri::venue_${venue})
@@ -74,6 +74,7 @@ raikiri_add_test(bingx_venue_test SRCS venues/bingx/venue_test.cpp LIBS raikiri:
 raikiri_add_test(xt_venue_test SRCS venues/xt/venue_test.cpp LIBS raikiri::venue_xt raikiri::exec)
 raikiri_add_test(mexc_venue_test SRCS venues/mexc/venue_test.cpp LIBS raikiri::venue_mexc raikiri::exec)
 raikiri_add_test(deribit_venue_test SRCS venues/deribit/venue_test.cpp LIBS raikiri::venue_deribit raikiri::exec)
+raikiri_add_test(options_test SRCS options/options_test.cpp LIBS raikiri::options)
 raikiri_add_test(hyperliquid_venue_test SRCS venues/hyperliquid/venue_test.cpp LIBS raikiri::venue_hyperliquid raikiri::exec)
 raikiri_add_test(hyperliquid_post_test SRCS venues/hyperliquid/post_test.cpp LIBS raikiri::venue_hyperliquid raikiri::net)
 target_compile_definitions(hyperliquid_post_test PRIVATE
@@ -104,6 +105,7 @@ raikiri_add_test(pacifica_venue_test SRCS venues/pacifica/venue_test.cpp LIBS ra
 raikiri_add_test(lbank_venue_test SRCS venues/lbank/venue_test.cpp LIBS raikiri::venue_lbank raikiri::exec)
 raikiri_add_test(bitunix_venue_test SRCS venues/bitunix/venue_test.cpp LIBS raikiri::venue_bitunix raikiri::exec)
 raikiri_add_test(toobit_venue_test SRCS venues/toobit/venue_test.cpp LIBS raikiri::venue_toobit raikiri::exec)
+raikiri_add_test(derive_venue_test SRCS venues/derive/venue_test.cpp LIBS raikiri::venue_derive raikiri::options raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 
@@ -116,6 +118,7 @@ target_compile_definitions(binance_ws_api_test PRIVATE
 
 raikiri_add_test(bybit_book_sync_test SRCS venues/bybit/book_sync_test.cpp LIBS raikiri::venue_bybit)
 raikiri_add_test(bybit_map_test SRCS venues/bybit/map_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
+raikiri_add_test(bybit_option_test SRCS venues/bybit/option_test.cpp LIBS raikiri::venue_bybit raikiri::options raikiri::exec)
 raikiri_add_test(bybit_rest_test SRCS venues/bybit/rest_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_ws_test SRCS venues/bybit/ws_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_trade_test SRCS venues/bybit/trade_test.cpp LIBS raikiri::venue_bybit raikiri::net)
@@ -123,6 +126,7 @@ target_compile_definitions(bybit_trade_test PRIVATE
   RAIKIRI_BYBIT_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/bybit/fixtures")
 raikiri_add_test(bybit_venue_test SRCS venues/bybit/venue_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
 raikiri_add_test(okx_map_test SRCS venues/okx/map_test.cpp LIBS raikiri::venue_okx raikiri::exec)
+raikiri_add_test(okx_option_test SRCS venues/okx/option_test.cpp LIBS raikiri::venue_okx raikiri::options raikiri::exec)
 
 raikiri_add_test(okx_trade_test SRCS venues/okx/trade_test.cpp LIBS raikiri::venue_okx raikiri::net raikiri::exec)
 raikiri_add_test(okx_wire_test SRCS venues/okx/wire_test.cpp LIBS raikiri::venue_okx)

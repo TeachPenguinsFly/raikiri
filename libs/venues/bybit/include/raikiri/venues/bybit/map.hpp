@@ -54,6 +54,10 @@ map_funding_charge(const WireExecution& wire, const exec::InstrumentTable& table
 [[nodiscard]] std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixNanos ts_venue);
 
 // nullopt for anything not trading or with unparsed filters
+// a zero bid or ask vol means that side is empty
+[[nodiscard]] std::optional<OptionGreeks>
+map_option_greeks(const WireOptionTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 } // namespace raikiri::venues::bybit

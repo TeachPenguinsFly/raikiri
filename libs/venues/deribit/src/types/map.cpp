@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/int128.hpp>
+#include <raikiri/options/convention.hpp>
 #include <raikiri/venues/deribit/map.hpp>
 
 #include <limits>
@@ -217,16 +218,10 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::Instrument
 
 namespace {
 
-// deribit quotes implied vol as a percent; converted to a ratio here
-std::optional<FixedE9> iv_ratio(std::string_view text) {
-    if (text.empty()) {
-        return std::nullopt;
-    }
-    const auto percent = parse_number_e9(text);
-    if (!percent.has_value()) {
-        return std::nullopt;
-    }
-    return FixedE9::from_raw(percent->raw / 100);
+constexpr options::Convention k_convention{.iv = options::IvScale::Percent};
+
+[[nodiscard]] std::optional<FixedE9> figure(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_number_e9(text);
 }
 
 } // namespace
@@ -239,33 +234,18 @@ std::optional<OptionGreeks> map_greeks(const WireTicker& wire, const exec::Instr
     if (instrument == nullptr) {
         return std::nullopt;
     }
-
-    OptionGreeks out{};
-    out.instrument = base_of(*instrument).id;
-    // a greek can really be 0, so an unparseable one stays undefined
-    const auto put = [](std::string_view text, FixedE9& into) {
-        if (const auto value = parse_number_e9(text); value.has_value()) {
-            into = *value;
-        }
-    };
-    put(wire.delta, out.delta);
-    put(wire.gamma, out.gamma);
-    put(wire.vega, out.vega);
-    put(wire.theta, out.theta);
-    put(wire.rho, out.rho);
-    if (const auto iv = iv_ratio(wire.mark_iv); iv.has_value()) {
-        out.mark_iv = *iv;
-    }
-    if (const auto iv = iv_ratio(wire.bid_iv); iv.has_value()) {
-        out.bid_iv = *iv;
-    }
-    if (const auto iv = iv_ratio(wire.ask_iv); iv.has_value()) {
-        out.ask_iv = *iv;
-    }
-    put(wire.underlying_price, out.underlying_price);
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
-    out.ts_init = ts_init;
-    return out;
+    const options::VenueGreeks venue{.delta = figure(wire.delta),
+                                     .gamma = figure(wire.gamma),
+                                     .vega = figure(wire.vega),
+                                     .theta = figure(wire.theta),
+                                     .rho = figure(wire.rho),
+                                     .mark_iv = figure(wire.mark_iv),
+                                     .bid_iv = figure(wire.bid_iv),
+                                     .ask_iv = figure(wire.ask_iv),
+                                     .underlying_price = figure(wire.underlying_price),
+                                     .mark_price = figure(wire.mark_price),
+                                     .index_price = figure(wire.index_price)};
+    return options::normalise(base_of(*instrument).id, venue, k_convention, ms_to_unix(wire.ts_ms, ts_init), ts_init);
 }
 
 std::optional<FundingUpdate>
@@ -661,9 +641,13 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         if (wire.option_type != "put" && wire.option_type != "call") {
             return std::nullopt;
         }
-        const auto put_call = wire.option_type == "put" ? PutCall::Put : PutCall::Call;
-        return OptionInstrument{
-            base, PriceTicks::from_raw(*strike), ms_to_unix(wire.expiration_ms, UnixNanos{0}), put_call};
+        // premium is in the coin, greeks in usd
+        return OptionInstrument{.base = base,
+                                .strike = PriceTicks::from_raw(*strike),
+                                .expiry = ms_to_unix(wire.expiration_ms, UnixNanos{0}),
+                                .put_call = wire.option_type == "put" ? PutCall::Put : PutCall::Call,
+                                .premium = OptionUnit::Base,
+                                .greeks = OptionUnit::Quote};
     }
 
     if (market == MarketType::Future) {

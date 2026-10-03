@@ -87,12 +87,20 @@ struct FutureInstrument {
 
 enum class PutCall : std::uint8_t { Put = 0, Call };
 
+// the currency a figure is counted in: quote is usd or usdc, base is the underlying coin
+enum class OptionUnit : std::uint8_t { Unknown = 0, Quote, Base };
+
 struct OptionInstrument {
     InstrumentBase base{};
     PriceTicks strike{};
     UnixNanos expiry{};
     PutCall put_call{PutCall::Call};
+    OptionUnit premium{OptionUnit::Unknown};
+    OptionUnit greeks{OptionUnit::Unknown};
 };
+
+// premium and greeks ride padding
+static_assert(sizeof(OptionInstrument) == 160);
 
 static_assert(sizeof(PerpInstrument) <= sizeof(OptionInstrument));
 

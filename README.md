@@ -7,7 +7,7 @@ A low-latency, multi-process crypto trading framework in C++23
 [![License](https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square)](LICENSE)
 [![Latency](https://img.shields.io/badge/cross--process%20p50-167%20ns-2da44e?style=flat-square)](docs/README.md#performance)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
-[![Venues](https://img.shields.io/badge/venues-31%20live-2da44e?style=flat-square)](#venues)
+[![Venues](https://img.shields.io/badge/venues-32%20live-2da44e?style=flat-square)](#venues)
 [![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
 [![Tests](https://img.shields.io/badge/tests-2122-2da44e?style=flat-square)](docs/README.md#build-and-test)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](docs/README.md#build-and-test)
@@ -51,10 +51,11 @@ running a gateway and adding a venue.
 | `bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `bitunix` | CEX | spot · perp | REST | – | – | – | – |
 | `blofin` | CEX | perp | **market data only** | – | – | – | – |
-| `bybit` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| `bybit` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `coinbase` | CEX | spot | REST | – | – | AuthSubscribe | – |
 | `cryptocom` | CEX | spot · perp | **market data only** | – | – | – | – |
 | `deribit` | CEX | perp · futures · options | REST | – | – | AuthSubscribe | – |
+| `derive` | DEX | perp · options | **market data only** | – | – | – | – |
 | `dydx` | DEX | perp | **market data only** | – | – | – | – |
 | `edgex` | DEX | spot · perp | **market data only** | – | – | – | – |
 | `extended` | DEX | perp | **market data only** | – | – | – | – |
@@ -67,7 +68,7 @@ running a gateway and adding a venue.
 | `lbank` | CEX | spot · perp | **market data only**, no perp order API | – | – | – | – |
 | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – |
 | `mexc` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
-| `okx` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| `okx` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `pacifica` | DEX | perp | **market data only** | – | – | – | – |
 | `phemex` | CEX | spot · perp | **market data only** | – | – | – | – |
 | `toobit` | CEX | spot · perp | REST | – | – | ListenKey | – |

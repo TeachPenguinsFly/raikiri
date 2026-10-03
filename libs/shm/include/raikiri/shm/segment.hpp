@@ -16,7 +16,7 @@
 namespace raikiri::shm {
 
 inline constexpr std::uint64_t k_magic = 0x5241494B53484D31ULL; // "RAIKSHM1"
-inline constexpr std::uint32_t k_abi_version = 12;              // 12: InstrumentBase::asset_class, underlying
+inline constexpr std::uint32_t k_abi_version = 13; // 13: OptionGreeks mark and index, OptionInstrument units
 // spare slots so a new channel needs no header-layout change
 inline constexpr std::size_t k_max_channels = 16;
 inline constexpr std::size_t k_max_readers = 4;

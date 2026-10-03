@@ -61,6 +61,8 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     state->spot_enabled = config.market == MarketType::Spot;
     state->perp_enabled = config.market == MarketType::Perp;
+    state->option_enabled = config.market == MarketType::Option;
+    state->families = config.market_data_feed;
     const auto credential_errors = load_credentials(*state, config);
 
     exec::VenueAdapter adapter{};

@@ -34,7 +34,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     };
     table[static_cast<std::size_t>(VenueId::Bybit)] = {
         .venue = VenueId::Bybit,
-        .markets = {.spot = true, .perp = true},
+        .markets = {.spot = true, .perp = true, .option = true},
         .ws_order_entry = true,            // v5 WS trade (order.create/amend/cancel)
         .fix_order_entry = false,          // no fix; the institutional low-latency path is the ws mmws gateway
         .cancel_by_client_order_id = true, // orderLinkId
@@ -57,7 +57,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     };
     table[static_cast<std::size_t>(VenueId::Okx)] = {
         .venue = VenueId::Okx,
-        .markets = {.spot = true, .perp = true},
+        .markets = {.spot = true, .perp = true, .option = true},
         .ws_order_entry = true,            // /ws/v5/private: order/batch-orders (<=20)
         .fix_order_entry = false,          // no fix in v5 docs
         .cancel_by_client_order_id = true, // clOrdId: <=32, alphanumeric only
@@ -732,6 +732,29 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .user_stream = UserStreamModel::ListenKey,
         .max_client_order_id_len = 26,
         .headline_order_rate_per_s = 30,
+    };
+    table[static_cast<std::size_t>(VenueId::Derive)] = {
+        .venue = VenueId::Derive,
+        // erc20 spot is collateral with empty books, so it is not served
+        .markets = {.spot = false, .perp = true, .option = true},
+        // market data only; orders need an eip-712 session-key signer
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // ticker_slim stats: `c` contracts, `pr` premium on options, `v` notional on perpetuals
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
     };
     return table;
 }();

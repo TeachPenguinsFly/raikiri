@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/symbol.hpp>
+#include <raikiri/options/convention.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/catalogue.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
@@ -283,6 +284,54 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
+namespace {
+
+[[nodiscard]] std::optional<FixedE9> quoted_vol(std::string_view text) {
+    const auto vol = rate_of(text);
+    return vol.has_value() && vol->raw > 0 ? vol : std::nullopt;
+}
+
+[[nodiscard]] std::optional<FixedE9> remembered(FixedE9 value) {
+    return value.is_undef() ? std::nullopt : std::optional{value};
+}
+
+} // namespace
+
+std::optional<OptionGreeks> map_option_greeks(const WireOptSummary& wire,
+                                              const exec::InstrumentTable& table,
+                                              const OptionMemo& memo,
+                                              UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr || !std::holds_alternative<OptionInstrument>(*instrument)) {
+        return std::nullopt;
+    }
+    const options::VenueGreeks venue{.delta = rate_of(wire.delta_bs),
+                                     .gamma = rate_of(wire.gamma_bs),
+                                     .vega = rate_of(wire.vega_bs),
+                                     .theta = rate_of(wire.theta_bs),
+                                     .mark_iv = quoted_vol(wire.mark_vol),
+                                     .bid_iv = quoted_vol(wire.bid_vol),
+                                     .ask_iv = quoted_vol(wire.ask_vol),
+                                     .underlying_price = rate_of(wire.forward),
+                                     .mark_price = remembered(memo.mark),
+                                     .index_price = remembered(memo.index)};
+    return options::normalise(
+        base_of(*instrument).id, venue, options::Convention{}, ms_to_unix(wire.ts_ms, ts_init), ts_init);
+}
+
+std::string_view option_family(std::string_view inst_id) noexcept {
+    const auto first = inst_id.find('-');
+    if (first == std::string_view::npos) {
+        return {};
+    }
+    const auto second = inst_id.find('-', first + 1);
+    return second == std::string_view::npos ? std::string_view{} : inst_id.substr(0, second);
+}
+
+std::string_view option_index(std::string_view family) noexcept {
+    return family.substr(0, family.find('_'));
+}
+
 Side side_from(std::string_view text) noexcept {
     return text == "sell" ? Side::Sell : Side::Buy;
 }
@@ -516,11 +565,47 @@ namespace {
     return AssetClass::Unknown;
 }
 
+std::optional<Instrument> map_option(const WireInstrument& wire) {
+    const auto tick = parse_decimal_e9(wire.tick_size);
+    const auto lot = parse_decimal_e9(wire.lot_size);
+    const auto ct_val = parse_decimal_e9(wire.ct_val);
+    const auto ct_mult = parse_decimal_e9(wire.ct_mult);
+    const auto symbol = SymbolText::from(wire.inst_id);
+    if (!tick.has_value() || !lot.has_value() || !ct_val.has_value() || !ct_mult.has_value() || !symbol.has_value() ||
+        tick->raw <= 0 || lot->raw <= 0 || ct_val->raw <= 0 || ct_mult->raw <= 0 || wire.expiry_ms == 0 ||
+        (wire.opt_type != "C" && wire.opt_type != "P") || (wire.ct_type != "inverse" && wire.ct_type != "linear")) {
+        return std::nullopt;
+    }
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Okx, MarketType::Option, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *symbol;
+    base.asset_class = asset_class_of(wire.inst_category);
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    base.kind = wire.ct_type == "inverse" ? ContractKind::Inverse : ContractKind::Linear;
+    base.contract_value = FixedE9::from_raw(ct_val->raw * ct_mult->raw / k_e9);
+    const auto strike = exact_steps(wire.strike, base.tick_size);
+    if (!strike.has_value() || *strike <= 0 || base.contract_value.raw <= 0) {
+        return std::nullopt;
+    }
+    // an inverse family is premium in the coin, a _UM one in usd; the BS greeks are usd on both
+    return OptionInstrument{.base = base,
+                            .strike = PriceTicks::from_raw(*strike),
+                            .expiry = ms_to_unix(wire.expiry_ms, UnixNanos{0}),
+                            .put_call = wire.opt_type == "P" ? PutCall::Put : PutCall::Call,
+                            .premium = base.kind == ContractKind::Inverse ? OptionUnit::Base : OptionUnit::Quote,
+                            .greeks = OptionUnit::Quote};
+}
+
 } // namespace
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     if (wire.state != "live") {
         return std::nullopt;
+    }
+    if (market == MarketType::Option) {
+        return wire.inst_type == "OPTION" ? map_option(wire) : std::nullopt;
     }
     if (market == MarketType::Spot) {
         if (wire.inst_type != "SPOT") {

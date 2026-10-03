@@ -213,7 +213,7 @@ TEST_F(VenueContract, EveryCapsRowServesWhatItClaimsAndNothingElse) {
         }
         EXPECT_EQ(caps.markets.any(), !is_retired(id)) << to_string(id);
     }
-    EXPECT_EQ(with_options, (std::vector<std::string_view>{"deribit"}));
+    EXPECT_EQ(with_options, (std::vector<std::string_view>{"bybit", "okx", "deribit", "derive"}));
     EXPECT_EQ(with_futures, (std::vector<std::string_view>{"deribit"}));
 }
 

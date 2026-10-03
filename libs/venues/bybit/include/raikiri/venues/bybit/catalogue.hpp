@@ -28,7 +28,9 @@ struct WireInstrument {
     // upperFundingRate / lowerFundingRate per interval; varies by symbol
     std::string_view funding_cap;
     std::string_view funding_floor;
-    std::string_view status; // "Trading" for live instruments
+    std::string_view status;       // "Trading" for live instruments
+    std::string_view options_type; // Call | Put, options only
+    std::uint64_t delivery_ms{0};
 };
 
 inline constexpr std::size_t k_max_instruments = 2048;

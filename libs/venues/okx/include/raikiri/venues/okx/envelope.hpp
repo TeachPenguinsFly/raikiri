@@ -17,12 +17,14 @@ namespace raikiri::venues::okx {
 
 enum class EventKind : std::uint8_t {
     Bbo,         // bbo-tbt — tick-by-tick top of book
-    Trade,       // trades
+    Trade,       // trades, and option-trades by family
     FundingRate, // funding-rate
     MarkPrice,   // mark-price
     Tickers,     // tickers — the only channel stating a 24-hour turnover
     Books,       // books — 400-level deltas
     Orders,      // orders — private, both lifecycle and fills
+    OptSummary,  // opt-summary — greeks and vols of a whole option family
+    IndexPrice,  // index-tickers
     SubscribeAck,
     LoginAck, // {"event":"login","code":"0"} — code 0 is the only success
     Error,

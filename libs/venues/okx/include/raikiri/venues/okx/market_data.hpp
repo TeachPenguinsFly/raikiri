@@ -68,6 +68,44 @@ struct WireMarkPrice {
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
 
+// opt-summary, one row per option of the family; the BS greeks are in usd, the plain ones in the coin
+struct WireOptSummary {
+    std::string_view inst_id;
+    std::string_view uly;
+    std::string_view delta_bs;
+    std::string_view gamma_bs;
+    std::string_view vega_bs;
+    std::string_view theta_bs;
+    std::string_view mark_vol;
+    std::string_view bid_vol;
+    std::string_view ask_vol;
+    std::string_view forward;
+    std::uint64_t ts_ms{0};
+};
+
+inline constexpr std::size_t k_max_summaries = 1024;
+
+struct SummaryBuffer {
+    std::array<WireOptSummary, k_max_summaries> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOptSummary>, WireError> parse_opt_summary(std::string_view frame,
+                                                                                          SummaryBuffer& storage);
+
+struct WireIndexTicker {
+    std::string_view inst_id;
+    std::string_view index_price;
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireIndexTicker, WireError> parse_index_ticker(std::string_view frame);
+
+// an option's mark and its underlying's index ride channels apart from its greeks
+struct OptionMemo {
+    FixedE9 mark{};
+    FixedE9 index{};
+};
+
 // rate and mark arrive on separate channels and the shm cell is written whole, so both are merged
 struct FundingMemo {
     FixedE9 rate{};

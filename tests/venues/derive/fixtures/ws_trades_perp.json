@@ -1,0 +1,1 @@
+{"method":"subscription","params":{"channel":"trades.perp.HYPE","data":[{"trade_id":"7e7a5621-bf06-4858-ad34-59d4adf31a1a","instrument_name":"HYPE-PERP","timestamp":1791040852431,"trade_price":"88.979","trade_amount":"20","mark_price":"88.95780252094499473969335667788982391357421875","index_price":"88.93455602832333","direction":"buy","quote_id":null,"rfq_id":null}]}}

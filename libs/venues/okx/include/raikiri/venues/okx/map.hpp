@@ -37,6 +37,18 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// the BS greeks, which are usd figures on both families; a zero bid or ask vol means no quote
+[[nodiscard]] std::optional<OptionGreeks> map_option_greeks(const WireOptSummary& wire,
+                                                            const exec::InstrumentTable& table,
+                                                            const OptionMemo& memo,
+                                                            UnixNanos ts_init);
+
+// the instrument family an option names first in its instId, e.g. BTC-USD_UM
+[[nodiscard]] std::string_view option_family(std::string_view inst_id) noexcept;
+
+// the family without its margin suffix, which is what index-tickers names
+[[nodiscard]] std::string_view option_index(std::string_view family) noexcept;
+
 [[nodiscard]] Side side_from(std::string_view text) noexcept;
 
 // each orders element is read twice, fill first and then lifecycle, so a fill before an expiry is kept

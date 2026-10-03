@@ -12,7 +12,7 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "bbo-tbt") {
         return EventKind::Bbo;
     }
-    if (channel == "trades") {
+    if (channel == "trades" || channel == "option-trades") {
         return EventKind::Trade;
     }
     if (channel == "funding-rate") {
@@ -29,6 +29,12 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     }
     if (channel == "orders") {
         return EventKind::Orders;
+    }
+    if (channel == "opt-summary") {
+        return EventKind::OptSummary;
+    }
+    if (channel == "index-tickers") {
+        return EventKind::IndexPrice;
     }
     return EventKind::Unknown;
 }

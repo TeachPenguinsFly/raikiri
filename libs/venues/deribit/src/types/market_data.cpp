@@ -103,6 +103,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.bid_iv = opt_num(*data, "bid_iv").value_or(std::string_view{});
         out.ask_iv = opt_num(*data, "ask_iv").value_or(std::string_view{});
         out.underlying_price = opt_num(*data, "underlying_price").value_or(std::string_view{});
+        out.index_price = opt_num(*data, "index_price").value_or(std::string_view{});
         if (auto greeks = wire::req_object(*data, "greeks"); greeks.has_value()) {
             out.delta = opt_num(*greeks, "delta").value_or(std::string_view{});
             out.gamma = opt_num(*greeks, "gamma").value_or(std::string_view{});

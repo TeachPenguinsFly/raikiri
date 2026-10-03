@@ -5,7 +5,7 @@
 # symbols to stream; the catalogue loads in full regardless
 declare -A MARKET=(
   [bybit]=perp [gate]=perp [binance]=perp [kucoin]=perp [xt]=perp
-  [okx]=perp [bingx]=perp [bitget]=perp [deribit-opt]=option [deribit]=perp
+  [okx]=perp [bingx]=perp [bitget]=perp [deribit-opt]=option [deribit]=perp [derive-opt]=option [derive]=perp
 )
 
 SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex lbank"
@@ -15,7 +15,7 @@ SPOT_CHANNELS="bbo,funding"
 
 # hyperliquid spot needs depth since bbo is silent on a book whose top does not move
 # hyperliquid gateways on one ip share 1000 channels; hip3 replaces the plain perp gateway
-declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding [hyperliquid-hip3]=bbo,depth,funding )
+declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding [hyperliquid-hip3]=bbo,depth,funding [okx-opt]=bbo,trades,funding [bybit-opt]=bbo,trades,funding )
 
 # hyperliquid: the hip-3 dexes to load; kucoin: the unified feed
 declare -A FEED=( [hyperliquid-hip3]=xyz,para,io,mkts [kucoin]=uta )

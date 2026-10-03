@@ -38,6 +38,24 @@ struct VenueState {
     std::uint64_t order_answer_timeout_ns{0};
     // one of k_book_tiers; bybit names the tier in the topic
     std::uint32_t book_depth{k_book_depth};
+    bool option_enabled{false};
+    // comma-separated base coins whose options load; bybit lists options one coin at a time
+    std::string option_coins;
+
+    // per SymbolId: 1 quoted two-sided, 2 greeks, 4 traded; logged once a minute on an option gateway
+    std::vector<std::uint8_t> option_coverage;
+    std::uint64_t next_coverage_ns{0};
+
+    void cover(InstrumentId id, std::uint8_t bit) {
+        if (!option_enabled || id.market() != MarketType::Option) {
+            return;
+        }
+        const auto index = id.symbol().raw;
+        if (option_coverage.size() <= index) {
+            option_coverage.resize(index + 1);
+        }
+        option_coverage[index] |= bit;
+    }
 
     // what each instrument's ticker frames have said so far
     std::unordered_map<std::uint32_t, FundingMemo> funding_memo;

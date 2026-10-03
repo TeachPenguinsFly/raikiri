@@ -71,7 +71,8 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
     for (std::size_t i = 0; i < batch; ++i) {
         // one of the two names the target; okx answers 60018 otherwise
         if (subscriptions[i].channel.empty() ||
-            (subscriptions[i].inst_id.empty() && subscriptions[i].inst_type.empty())) {
+            (subscriptions[i].inst_id.empty() && subscriptions[i].inst_type.empty() &&
+             subscriptions[i].inst_family.empty())) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }
     }
@@ -99,6 +100,11 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
         if (!subscriptions[i].inst_type.empty()) {
             put(R"(,"instType":")");
             put(subscriptions[i].inst_type);
+            put("\"");
+        }
+        if (!subscriptions[i].inst_family.empty()) {
+            put(R"(,"instFamily":")");
+            put(subscriptions[i].inst_family);
             put("\"");
         }
         if (!subscriptions[i].inst_id.empty()) {

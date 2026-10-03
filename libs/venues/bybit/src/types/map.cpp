@@ -1,5 +1,6 @@
 #include <raikiri/domain/symbol.hpp>
 #include <raikiri/exec/execution_client.hpp>
+#include <raikiri/options/convention.hpp>
 #include <raikiri/venues/bybit/map.hpp>
 
 #include <charconv>
@@ -403,6 +404,77 @@ namespace {
 
 } // namespace
 
+namespace {
+
+[[nodiscard]] std::optional<FixedE9> figure(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_rate_e9(text);
+}
+
+[[nodiscard]] std::optional<FixedE9> quoted_vol(std::string_view text) {
+    const auto vol = figure(text);
+    return vol.has_value() && vol->raw > 0 ? vol : std::nullopt;
+}
+
+// BTC-26MAR27-90000-C-USDT: the strike is the third field
+[[nodiscard]] std::string_view strike_text(std::string_view symbol) noexcept {
+    for (int skip = 0; skip < 2; ++skip) {
+        const auto dash = symbol.find('-');
+        if (dash == std::string_view::npos) {
+            return {};
+        }
+        symbol.remove_prefix(dash + 1);
+    }
+    return symbol.substr(0, symbol.find('-'));
+}
+
+std::optional<Instrument> map_option(const WireInstrument& wire, FixedE9 tick, FixedE9 lot) {
+    const auto symbol = SymbolText::from(wire.symbol);
+    const auto strike = exact_steps(strike_text(wire.symbol), tick);
+    if (!symbol.has_value() || !strike.has_value() || *strike <= 0 || wire.delivery_ms == 0 ||
+        (wire.options_type != "Call" && wire.options_type != "Put")) {
+        return std::nullopt;
+    }
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Bybit, MarketType::Option, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *symbol;
+    base.tick_size = tick;
+    base.lot_size = lot;
+    base.min_notional = to_e9(wire.min_notional);
+    base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire.symbol_type);
+    // premium and greeks are both in the settle coin, usdt
+    return OptionInstrument{.base = base,
+                            .strike = PriceTicks::from_raw(*strike),
+                            .expiry = ms_to_unix(wire.delivery_ms, UnixNanos{0}),
+                            .put_call = wire.options_type == "Put" ? PutCall::Put : PutCall::Call,
+                            .premium = OptionUnit::Quote,
+                            .greeks = OptionUnit::Quote};
+}
+
+} // namespace
+
+std::optional<OptionGreeks>
+map_option_greeks(const WireOptionTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr || !std::holds_alternative<OptionInstrument>(*instrument)) {
+        return std::nullopt;
+    }
+    const options::VenueGreeks venue{.delta = figure(wire.delta),
+                                     .gamma = figure(wire.gamma),
+                                     .vega = figure(wire.vega),
+                                     .theta = figure(wire.theta),
+                                     .mark_iv = quoted_vol(wire.mark_iv),
+                                     .bid_iv = quoted_vol(wire.bid_iv),
+                                     .ask_iv = quoted_vol(wire.ask_iv),
+                                     .underlying_price = figure(wire.underlying_price),
+                                     .mark_price = figure(wire.mark_price),
+                                     .index_price = figure(wire.index_price)};
+    return options::normalise(
+        base_of(*instrument).id, venue, options::Convention{}, ms_to_unix(wire.ts_ms, ts_init), ts_init);
+}
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     if (wire.status != "Trading") {
         return std::nullopt; // delisted or pre-launch: not tradable today
@@ -416,6 +488,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
         // later price conversions divide by these
         return std::nullopt;
+    }
+    if (market == MarketType::Option) {
+        return map_option(wire, *tick, *lot);
     }
     const auto symbol = SymbolText::from(wire.symbol);
     if (!symbol.has_value()) {

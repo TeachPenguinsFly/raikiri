@@ -37,7 +37,13 @@ struct Subscription {
     // braced so a designated initialiser may omit it without a gcc warning
     std::string_view inst_id{};
     std::string_view inst_type{};
+    std::string_view inst_family{};
 };
+
+// options stream greeks and prints per family and the index per underlying
+inline constexpr std::string_view k_opt_summary_channel = "opt-summary";
+inline constexpr std::string_view k_option_trades_channel = "option-trades";
+inline constexpr std::string_view k_index_channel = "index-tickers";
 
 inline constexpr std::string_view k_orders_channel = "orders";
 

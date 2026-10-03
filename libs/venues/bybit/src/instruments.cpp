@@ -1,4 +1,5 @@
 #include <raikiri/config/secret.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bybit/catalogue.hpp>
 #include <raikiri/venues/bybit/endpoints.hpp>
@@ -39,17 +40,27 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
+        too_long_ = 0;
         std::vector<Instrument> loaded;
-        std::string cursor;
-        for (std::size_t page = 0; page < k_max_pages; ++page) {
-            auto next = fetch_page(market, cursor, loaded);
-            if (!next.has_value()) {
-                return std::unexpected{next.error()};
+        if (market != MarketType::Option) {
+            if (auto done = fetch_pages(market, {}, loaded); !done.has_value()) {
+                return std::unexpected{done.error()};
             }
-            if (next->empty()) {
-                return loaded;
+            return loaded;
+        }
+        std::string_view coins = state_->option_coins;
+        while (!coins.empty()) {
+            const auto comma = coins.find(',');
+            if (auto done = fetch_pages(market, coins.substr(0, comma), loaded); !done.has_value()) {
+                return std::unexpected{done.error()};
             }
-            cursor = std::move(*next);
+            coins = comma == std::string_view::npos ? std::string_view{} : coins.substr(comma + 1);
+        }
+        if (::raikiri::log::logger() != nullptr) {
+            RLOG_INFO("bybit: {} options loaded for {}, {} named past the symbol width",
+                      loaded.size(),
+                      state_->option_coins,
+                      too_long_);
         }
         return loaded;
     }
@@ -57,11 +68,29 @@ public:
 private:
     static constexpr std::size_t k_max_pages = 16;
 
+    std::expected<void, exec::VenueError>
+    fetch_pages(MarketType market, std::string_view base_coin, std::vector<Instrument>& loaded) {
+        std::string cursor;
+        for (std::size_t page = 0; page < k_max_pages; ++page) {
+            auto next = fetch_page(market, cursor, base_coin, loaded);
+            if (!next.has_value()) {
+                return std::unexpected{next.error()};
+            }
+            if (next->empty()) {
+                return {};
+            }
+            cursor = std::move(*next);
+        }
+        return {};
+    }
+
     // maps one page and returns the next cursor, empty on the last
-    std::expected<std::string, exec::VenueError>
-    fetch_page(MarketType market, std::string_view cursor, std::vector<Instrument>& loaded) {
+    std::expected<std::string, exec::VenueError> fetch_page(MarketType market,
+                                                            std::string_view cursor,
+                                                            std::string_view base_coin,
+                                                            std::vector<Instrument>& loaded) {
         refused_ = false;
-        const auto request = builder_.instruments(market, cursor);
+        const auto request = builder_.instruments(market, cursor, base_coin);
         const auto response = await_response(*state_, rest_, request, 15'000);
         if (refused_) {
             // a budget refusal is not a timeout; the caller retries without reconnecting
@@ -98,6 +127,11 @@ private:
         loaded.reserve(loaded.size() + wire->size());
         state_->instruments.reserve(loaded.size() + wire->size());
         for (const auto& entry : *wire) {
+            // a six-digit btc strike makes a 25-byte name, past what SymbolText holds
+            if (!SymbolText::from(entry.symbol).has_value()) {
+                ++too_long_;
+                continue;
+            }
             auto instrument = map_instrument(entry, market);
             if (!instrument.has_value()) {
                 continue; // delisted, pre-launch, or missing a usable filter
@@ -116,6 +150,7 @@ private:
     RequestBuilder builder_{state_->signer};
     // a refused send and a timeout both arrive as an absent response
     bool refused_{false};
+    std::size_t too_long_{0};
 };
 
 } // namespace

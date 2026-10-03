@@ -1,4 +1,5 @@
 #include <raikiri/config/secret.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
@@ -16,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "../clients.hpp"
@@ -48,6 +50,9 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
         const auto ts_event = ms_to_unix(book->ts_ms, received);
         if (const auto bbo = sync.bbo(ts_event, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
+            if (!bbo->bid.is_undef() && !bbo->ask.is_undef()) {
+                state.cover(bbo->instrument, 1);
+            }
         }
         // skip building the snapshot when the sink does not want it
         if (!state.sink->wants_depth(base_of(*instrument).id, received)) {
@@ -67,6 +72,7 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
         for (const auto& wire : *trades) {
             if (const auto trade = map_trade(wire, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
+                state.cover(trade->instrument, 4);
             }
         }
         break;
@@ -79,6 +85,20 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
         // the memo is per instrument, so an unknown symbol is skipped
         const auto* listed = state.instruments.find(ticker->symbol);
         if (listed == nullptr) {
+            break;
+        }
+        if (std::holds_alternative<OptionInstrument>(*listed)) {
+            const auto wire = parse_option_ticker(frame);
+            if (!wire.has_value()) {
+                return;
+            }
+            if (const auto greeks = map_option_greeks(*wire, state.instruments, received); greeks.has_value()) {
+                state.sink->on_option_greeks(*greeks);
+                state.cover(greeks->instrument, 2);
+            }
+            if (const auto stats = map_ticker_stats(*ticker, state.instruments, received); stats.has_value()) {
+                state.sink->on_ticker_stats(*stats);
+            }
             break;
         }
         auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
@@ -156,7 +176,10 @@ public:
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::array<char, 64> buf{};
-        const auto topic = topic_name(kind, symbol, buf, state_->book_depth);
+        // an option prints on its base coin's topic, the symbol's first field
+        const auto option_trades = state_->option_enabled && kind == exec::SubKind::Trades;
+        const auto topic = topic_name(
+            kind, option_trades ? symbol.substr(0, symbol.find('-')) : symbol, buf, state_->book_depth);
         if (topic.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -188,9 +211,35 @@ public:
             pool_.broadcast(state_->protocol.ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
+        report_coverage(now, "bybit", pool_.connection_count(), pool_.key_count());
     }
 
 private:
+    void report_coverage(UnixNanos now, std::string_view venue, std::size_t sockets, std::size_t keys) {
+        if (!state_->option_enabled || now.ns < state_->next_coverage_ns) {
+            return;
+        }
+        const bool first = state_->next_coverage_ns == 0;
+        state_->next_coverage_ns = now.ns + 60'000'000'000ULL;
+        if (first || ::raikiri::log::logger() == nullptr) {
+            return;
+        }
+        std::array<std::size_t, 3> counts{};
+        for (const auto bits : state_->option_coverage) {
+            for (std::size_t bit = 0; bit < counts.size(); ++bit) {
+                counts[bit] += (bits >> bit) & 1U;
+            }
+        }
+        RLOG_INFO("{} option: {} of {} quoted two-sided, {} with greeks, {} traded; {} sockets, {} keys",
+                  venue,
+                  counts[0],
+                  state_->instruments.size(),
+                  counts[1],
+                  counts[2],
+                  sockets,
+                  keys);
+    }
+
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
 

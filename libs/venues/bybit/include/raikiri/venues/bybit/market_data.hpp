@@ -52,6 +52,24 @@ struct WireTicker {
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
+// an option ticker is a full snapshot every push; vols are fractions, vega per vol point, theta per day
+struct WireOptionTicker {
+    std::string_view symbol;
+    std::string_view bid_iv;
+    std::string_view ask_iv;
+    std::string_view mark_iv;
+    std::string_view mark_price;
+    std::string_view index_price;
+    std::string_view underlying_price;
+    std::string_view delta;
+    std::string_view gamma;
+    std::string_view vega;
+    std::string_view theta;
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireOptionTicker, WireError> parse_option_ticker(std::string_view frame);
+
 // merges partial ticker frames; a field never seen stays undef
 struct FundingMemo {
     FixedE9 rate{};

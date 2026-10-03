@@ -44,6 +44,9 @@ inline constexpr std::array<std::uint32_t, 4> k_book_tiers{1, 50, 200, 1000};
     return std::ranges::find(k_book_tiers, depth) != k_book_tiers.end();
 }
 
+// options publish only these, and print by base coin rather than by symbol
+inline constexpr std::uint32_t k_option_book_depth = 25;
+
 // `depth` must be one of k_book_tiers; empty for a kind bybit does not stream
 [[nodiscard]] std::string_view topic_name(exec::SubKind kind,
                                           std::string_view exchange_symbol,

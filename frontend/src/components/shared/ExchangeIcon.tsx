@@ -50,6 +50,7 @@ const k_monogram: Record<string, string> = {
   pacifica: '#3b82f6',
   bitunix: '#b9f641',
   toobit: '#1fc7d4',
+  derive: '#25fac2',
   lbank: '#f0b90b',
 }
 

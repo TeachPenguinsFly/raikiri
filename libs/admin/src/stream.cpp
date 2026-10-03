@@ -394,6 +394,8 @@ Greeks greeks_of(const OptionGreeks& greeks) {
                   .bid_iv = decimal(greeks.bid_iv),
                   .ask_iv = decimal(greeks.ask_iv),
                   .underlying_price = decimal(greeks.underlying_price),
+                  .mark_price = decimal(greeks.mark_price),
+                  .index_price = decimal(greeks.index_price),
                   .ts_event = digits(greeks.ts_event)};
 }
 

@@ -51,8 +51,8 @@ template <typename T> std::expected<T, std::string> read_file(std::string_view p
     if (limit.kind != "ws_messages" && !limit.scope.empty()) {
         return "scope applies only to ws_messages";
     }
-    if (!limit.market.empty() && limit.market != "perp" && limit.market != "spot") {
-        return "market must be perp or spot";
+    if (!limit.market.empty() && limit.market != "perp" && limit.market != "spot" && limit.market != "option") {
+        return "market must be perp, spot or option";
     }
     if (limit.kind != "rest" && (!limit.match.empty() || limit.reserve != 0)) {
         return "match and reserve apply only to rest";

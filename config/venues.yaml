@@ -67,6 +67,9 @@ venues:
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 10 }
+      - { name: ws_streams_option, kind: ws_streams, market: option, max: 500 }
+      - { name: ws_sockets_option, kind: ws_sockets, market: option, max: 16 }
+      - { name: ws_frame_option, kind: ws_frame, market: option, max: 20 }
 
   gate:
     order_answer_timeout_ms: 15000
@@ -165,6 +168,7 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 1024 }
       - { name: ws_sockets, kind: ws_sockets, max: 6 }
       - { name: ws_frame, kind: ws_frame, max: 64 }
+      - { name: ws_sockets_option, kind: ws_sockets, market: option, max: 8 }
 
   mexc:
     order_answer_timeout_ms: 15000
@@ -300,6 +304,14 @@ venues:
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1200, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 64 }
+
+  derive:
+    limits:
+      - { name: requests, window_ms: 5000, max: 25, reserve: 3 }
+      - { name: ws_streams, kind: ws_streams, max: 10000 }
+      - { name: ws_sockets, kind: ws_sockets, max: 2 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 200, max: 1 }
+      - { name: ws_frame, kind: ws_frame, max: 500 }
 
   toobit:
     order_answer_timeout_ms: 15000

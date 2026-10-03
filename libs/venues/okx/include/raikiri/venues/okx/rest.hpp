@@ -57,6 +57,8 @@ public:
     void set_simulated(bool on) noexcept { simulated_ = on; }
 
     [[nodiscard]] net::RestRequest instruments(std::string_view inst_type) noexcept;
+    [[nodiscard]] net::RestRequest option_underlyings() noexcept;
+    [[nodiscard]] net::RestRequest option_instruments(std::string_view uly) noexcept;
 
     [[nodiscard]] net::RestRequest server_time() noexcept;
 

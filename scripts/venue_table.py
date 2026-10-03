@@ -30,6 +30,7 @@ CUSTODY = {
     "coinbase": "CEX",
     "cryptocom": "CEX",
     "deribit": "CEX",
+    "derive": "DEX",
     "edgex": "DEX",
     "dydx": "DEX",
     "extended": "DEX",

@@ -205,6 +205,21 @@ net::RestRequest RequestBuilder::instruments(std::string_view inst_type) noexcep
     return writer.get();
 }
 
+net::RestRequest RequestBuilder::option_underlyings() noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_underlyings);
+    writer.put("?instType=OPTION");
+    return writer.get();
+}
+
+net::RestRequest RequestBuilder::option_instruments(std::string_view uly) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_instruments);
+    writer.put("?instType=OPTION&uly=");
+    writer.put(uly);
+    return writer.get();
+}
+
 net::RestRequest RequestBuilder::mark_price(std::string_view inst_id) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_mark_price);

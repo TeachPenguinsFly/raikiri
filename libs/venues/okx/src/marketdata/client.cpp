@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "../clients.hpp"
@@ -46,6 +47,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
+            state.cover(bbo->instrument, 1);
         }
         break;
     }
@@ -58,6 +60,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
+                state.cover(trade->instrument, 4);
             }
         }
         break;
@@ -127,9 +130,47 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (listed == nullptr) {
             break;
         }
+        if (std::holds_alternative<OptionInstrument>(*listed)) {
+            if (const auto mark = parse_rate_e9(wire->mark_price); mark.has_value()) {
+                state.option_memo[base_of(*listed).id.symbol().raw].mark = *mark;
+            }
+            break;
+        }
         auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
         if (const auto funding = map_mark_price(*wire, state.instruments, memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
+        }
+        break;
+    }
+    case EventKind::OptSummary: {
+        static thread_local const auto rows = std::make_unique<SummaryBuffer>();
+        const auto wire = parse_opt_summary(frame, *rows);
+        if (!wire.has_value()) {
+            return;
+        }
+        for (const auto& row : *wire) {
+            const auto* listed = state.instruments.find(row.inst_id);
+            if (listed == nullptr) {
+                continue;
+            }
+            auto memo = state.option_memo[base_of(*listed).id.symbol().raw];
+            if (const auto index = state.index_prices.find(std::string{row.uly}); index != state.index_prices.end()) {
+                memo.index = index->second;
+            }
+            if (const auto greeks = map_option_greeks(row, state.instruments, memo, received); greeks.has_value()) {
+                state.sink->on_option_greeks(*greeks);
+                state.cover(greeks->instrument, 2);
+            }
+        }
+        break;
+    }
+    case EventKind::IndexPrice: {
+        const auto wire = parse_index_ticker(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto index = parse_rate_e9(wire->index_price); index.has_value()) {
+            state.index_prices[std::string{wire->inst_id}] = *index;
         }
         break;
     }
@@ -157,7 +198,15 @@ constexpr char k_key_sep = '\x1f';
     if (cut == std::string_view::npos) {
         return std::nullopt;
     }
-    return Subscription{.channel = key.substr(0, cut), .inst_id = key.substr(cut + 1)};
+    const auto channel = key.substr(0, cut);
+    const auto target = key.substr(cut + 1);
+    if (channel == k_opt_summary_channel) {
+        return Subscription{.channel = channel, .inst_family = target};
+    }
+    if (channel == k_option_trades_channel) {
+        return Subscription{.channel = channel, .inst_type = "OPTION", .inst_family = target};
+    }
+    return Subscription{.channel = channel, .inst_id = target};
 }
 
 class PublicHandler final : public net::WsHandler {
@@ -221,6 +270,9 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
+        if (state_->option_enabled && instrument.market() == MarketType::Option) {
+            return subscribe_option(kind, symbol);
+        }
         if (kind == exec::SubKind::Funding) {
             // tickers has no SubKind, so it opens beside funding, and first since spot gets it too
             if (!open(k_tickers_channel, symbol)) {
@@ -261,9 +313,54 @@ public:
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
         resync_books(now);
+        report_coverage(now, "okx", pool_.connection_count(), pool_.key_count());
     }
 
 private:
+    void report_coverage(UnixNanos now, std::string_view venue, std::size_t sockets, std::size_t keys) {
+        if (!state_->option_enabled || now.ns < state_->next_coverage_ns) {
+            return;
+        }
+        const bool first = state_->next_coverage_ns == 0;
+        state_->next_coverage_ns = now.ns + 60'000'000'000ULL;
+        if (first || ::raikiri::log::logger() == nullptr) {
+            return;
+        }
+        std::array<std::size_t, 3> counts{};
+        for (const auto bits : state_->option_coverage) {
+            for (std::size_t bit = 0; bit < counts.size(); ++bit) {
+                counts[bit] += (bits >> bit) & 1U;
+            }
+        }
+        RLOG_INFO("{} option: {} of {} quoted two-sided, {} with greeks, {} traded; {} sockets, {} keys",
+                  venue,
+                  counts[0],
+                  state_->instruments.size(),
+                  counts[1],
+                  counts[2],
+                  sockets,
+                  keys);
+    }
+
+    // prints and greeks come per family, the index per underlying; mark-price is the only per-option extra
+    std::expected<void, exec::VenueError> subscribe_option(exec::SubKind kind, std::string_view symbol) {
+        const auto family = option_family(symbol);
+        if (family.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "okx: option names no family")};
+        }
+        bool placed = true;
+        if (kind == exec::SubKind::Trades) {
+            placed = open(k_option_trades_channel, family);
+        } else if (kind == exec::SubKind::Funding || kind == exec::SubKind::MarkPrice) {
+            placed = open(k_index_channel, option_index(family)) && open(k_opt_summary_channel, family) &&
+                     open(channel_for(exec::SubKind::MarkPrice), symbol);
+        } else {
+            placed = open(channel_for(kind), symbol);
+        }
+        return placed ? std::expected<void, exec::VenueError>{} : pool_full();
+    }
+
     [[nodiscard]] static std::unexpected<exec::VenueError> pool_full() {
         return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "okx: connection pool is full")};
     }

@@ -99,17 +99,21 @@ struct OptionGreeks {
     FixedE9 vega{};
     FixedE9 theta{};
     FixedE9 rho{};
-    // ratios; deribit's percents are converted at the parse edge
+    // ratios, as raikiri/options/convention.hpp states
     FixedE9 mark_iv{};
     FixedE9 bid_iv{};
     FixedE9 ask_iv{};
     // in the quote currency
     FixedE9 underlying_price{};
+    // the option's mark in OptionInstrument::premium units
+    FixedE9 mark_price{};
+    // in the quote currency
+    FixedE9 index_price{};
     UnixNanos ts_event{};
     UnixNanos ts_init{};
 };
 
-static_assert(sizeof(OptionGreeks) == 96);
+static_assert(sizeof(OptionGreeks) == 112);
 static_assert(std::is_trivially_copyable_v<OptionGreeks>);
 
 } // namespace raikiri

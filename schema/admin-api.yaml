@@ -1094,6 +1094,12 @@ components:
         underlying_price:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: In the quote currency, not in the option's ticks.
+        mark_price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The option's mark in its premium currency, the coin on Deribit and USDC on Derive.
+        index_price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The underlying's spot index in the quote currency.
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
     Funding:

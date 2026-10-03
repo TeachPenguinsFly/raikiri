@@ -8,10 +8,10 @@ namespace raikiri {
 namespace {
 
 constexpr std::array<std::string_view, k_venue_count> k_venue_names{
-    "invalid", "binance",  "bybit",   "okx",         "gate",     "kucoin",   "bingx",    "xt",
-    "mexc",    "sim",      "deribit", "hyperliquid", "coinbase", "kraken",   "bitmex",   "bitget",
-    "htx",     "bitfinex", "weex",    "aster",       "grvt",     "lighter",  "backpack", "cryptocom",
-    "blofin",  "apex",     "edgex",   "dydx",        "phemex",   "extended", "pacifica", "lbank", "bitunix", "toobit",
+    "invalid", "binance", "bybit",       "okx",      "gate",     "kucoin",    "bingx",  "xt",     "mexc",
+    "sim",     "deribit", "hyperliquid", "coinbase", "kraken",   "bitmex",    "bitget", "htx",    "bitfinex",
+    "weex",    "aster",   "grvt",        "lighter",  "backpack", "cryptocom", "blofin", "apex",   "edgex",
+    "dydx",    "phemex",  "extended",    "pacifica", "lbank",    "bitunix",   "toobit", "derive",
 };
 
 } // namespace

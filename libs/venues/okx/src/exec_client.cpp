@@ -55,6 +55,12 @@ public:
     [[nodiscard]] bool connected() const noexcept override { return stream_.connected(); }
 
     void submit(const OrderCmd& cmd) noexcept override {
+        if (cmd.instrument.market() == MarketType::Option) {
+            emit(cmd,
+                 OrderEventType::Rejected,
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "okx options are market data only"));
+            return;
+        }
         fire(api_.builder().create_order(cmd, state_->instruments, state_->venue_now()), cmd, OrderEventType::Rejected);
     }
 

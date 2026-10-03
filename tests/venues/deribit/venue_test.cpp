@@ -258,6 +258,10 @@ TEST(DeribitCatalogue, OptionsFillTheDeclaredSeam) {
     const auto* put = table.find("BTC-11AUG26-64000-P");
     ASSERT_NE(put, nullptr);
     EXPECT_EQ(std::get<OptionInstrument>(*put).put_call, PutCall::Put);
+
+    // inverse options: the premium is in the coin while the greeks are in usd
+    EXPECT_EQ(option.premium, OptionUnit::Base);
+    EXPECT_EQ(option.greeks, OptionUnit::Quote);
 }
 
 TEST(DeribitCatalogue, SpotIsNotModelled) {
@@ -561,6 +565,11 @@ TEST(DeribitMap, TheVenuesGreeksRideTheTickerAndAreTakenAsGiven) {
 
     // the underlying is a dollar price, not ticks
     EXPECT_EQ(greeks->underlying_price.raw, 64'107'290'000'000);
+
+    // the mark is the premium in btc; the index is usd
+    EXPECT_EQ(greeks->mark_price.raw, 4'400'000);
+    EXPECT_EQ(greeks->index_price.raw, 64'101'590'000'000);
+    EXPECT_EQ(greeks->ts_event.ns, 1'786'395'411'520'000'000ULL);
 }
 
 TEST(DeribitMap, APerpetualTickerCarriesNoGreeksAtAll) {

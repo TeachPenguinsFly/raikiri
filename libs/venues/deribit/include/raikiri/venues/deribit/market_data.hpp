@@ -47,6 +47,7 @@ struct WireTicker {
     std::string_view bid_iv;
     std::string_view ask_iv;
     std::string_view underlying_price;
+    std::string_view index_price;
     // volume is base units, volume_usd quote; a ticker without stats still yields funding
     std::string_view stats_volume;     // base units
     std::string_view stats_volume_usd; // quote units

@@ -102,4 +102,41 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
     });
 }
 
+std::expected<WireOptionTicker, WireError> parse_option_ticker(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireOptionTicker, WireError> {
+        auto root = wire::session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected{root.error()};
+        }
+        auto obj = *root;
+        WireOptionTicker out{};
+        out.ts_ms = wire::opt_u64(obj, "ts").value_or(0);
+        obj.reset();
+        auto data = wire::req_object(obj, "data");
+        if (!data.has_value()) {
+            return std::unexpected{data.error()};
+        }
+        auto data_obj = *data;
+        const auto symbol = wire::req_str(data_obj, "symbol");
+        if (!symbol.has_value()) {
+            return std::unexpected{symbol.error()};
+        }
+        out.symbol = *symbol;
+        for (const auto& [key, into] : {std::pair{"bidIv", &out.bid_iv},
+                                        std::pair{"askIv", &out.ask_iv},
+                                        std::pair{"markPriceIv", &out.mark_iv},
+                                        std::pair{"markPrice", &out.mark_price},
+                                        std::pair{"indexPrice", &out.index_price},
+                                        std::pair{"underlyingPrice", &out.underlying_price},
+                                        std::pair{"delta", &out.delta},
+                                        std::pair{"gamma", &out.gamma},
+                                        std::pair{"vega", &out.vega},
+                                        std::pair{"theta", &out.theta}}) {
+            data_obj.reset();
+            *into = wire::opt_str(data_obj, key).value_or(std::string_view{});
+        }
+        return out;
+    });
+}
+
 } // namespace raikiri::venues::bybit

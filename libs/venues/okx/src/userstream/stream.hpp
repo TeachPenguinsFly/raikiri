@@ -84,6 +84,8 @@ public:
         case EventKind::MarkPrice:
         case EventKind::Tickers:
         case EventKind::Books:
+        case EventKind::OptSummary:
+        case EventKind::IndexPrice:
         case EventKind::SubscribeAck:
         case EventKind::Unknown:
             break;

@@ -110,6 +110,8 @@ struct Greeks {
     std::string bid_iv;
     std::string ask_iv;
     std::string underlying_price; // quote currency, not the option's ticks
+    std::string mark_price;       // the premium's own currency
+    std::string index_price;      // quote currency
     std::string ts_event;
 };
 

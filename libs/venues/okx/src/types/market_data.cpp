@@ -154,4 +154,62 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
     });
 }
 
+std::expected<std::span<const WireOptSummary>, WireError> parse_opt_summary(std::string_view frame,
+                                                                            SummaryBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOptSummary>, WireError> {
+        return read_data(frame,
+                         std::span<WireOptSummary>{storage.rows},
+                         [](wire::ondemand::object& obj, WireOptSummary& out) -> std::expected<void, WireError> {
+                             if (const auto read = read_strings(obj,
+                                                                {{"instId", &out.inst_id},
+                                                                 {"uly", &out.uly},
+                                                                 {"deltaBS", &out.delta_bs},
+                                                                 {"gammaBS", &out.gamma_bs},
+                                                                 {"vegaBS", &out.vega_bs},
+                                                                 {"thetaBS", &out.theta_bs},
+                                                                 {"markVol", &out.mark_vol},
+                                                                 {"bidVol", &out.bid_vol},
+                                                                 {"askVol", &out.ask_vol},
+                                                                 {"fwdPx", &out.forward}});
+                                 !read.has_value()) {
+                                 return read;
+                             }
+                             if (out.inst_id.empty()) {
+                                 return std::unexpected(WireError::MissingField);
+                             }
+                             const auto ts = wire::opt_ms(obj, "ts");
+                             if (!ts.has_value()) {
+                                 return std::unexpected(ts.error());
+                             }
+                             out.ts_ms = *ts;
+                             return {};
+                         });
+    });
+}
+
+std::expected<WireIndexTicker, WireError> parse_index_ticker(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireIndexTicker, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return with_first_data(*root, [](wire::ondemand::object& obj) -> std::expected<WireIndexTicker, WireError> {
+            WireIndexTicker out{};
+            const auto inst_id = wire::req_str(obj, "instId");
+            const auto index = wire::req_str(obj, "idxPx");
+            if (!inst_id.has_value() || !index.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.inst_id = *inst_id;
+            out.index_price = *index;
+            const auto ts = wire::opt_ms(obj, "ts");
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            out.ts_ms = *ts;
+            return out;
+        });
+    });
+}
+
 } // namespace raikiri::venues::okx
