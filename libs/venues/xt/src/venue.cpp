@@ -1,6 +1,7 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -20,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -32,38 +34,6 @@ using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
 using internal::VenueState;
-
-void internal::sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
-    const auto sent = state.clock->wall();
-    const auto response = await_response(state, rest, builder.server_time(), 5'000);
-    if (!response.has_value() || response->transport_failed()) {
-        return;
-    }
-    const auto venue_ms = parse_server_time(response->body);
-    if (!venue_ms.has_value()) {
-        return;
-    }
-    // half the round trip estimates one-way delay
-    const auto received = state.clock->wall();
-    const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
-}
-
-void internal::sync_spot_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
-    const auto sent = state.clock->wall();
-    const auto response = await_response(state, rest, builder.spot_server_time(), 5'000);
-    if (!response.has_value() || response->transport_failed()) {
-        return;
-    }
-    const auto venue_ms = parse_spot_server_time(response->body);
-    if (!venue_ms.has_value()) {
-        return;
-    }
-    const auto received = state.clock->wall();
-    const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.spot_clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) -
-                                 static_cast<std::int64_t>(midpoint);
-}
 
 namespace {
 
@@ -81,6 +51,21 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Xt);
+    if (config.market == MarketType::Spot) {
+        adapter.clock.emplace(
+            exec::ServerTimeQuery{
+                .host = "sapi.xt.com",
+                .target = "/v4/public/time",
+                .parse = [](std::string_view body) { return exec::ms_to_ns(parse_spot_server_time(body)); }},
+            std::shared_ptr<std::int64_t>{state, &state->spot_clock_offset_ns});
+    } else {
+        adapter.clock.emplace(
+            exec::ServerTimeQuery{
+                .host = "fapi.xt.com",
+                .target = "/future/market/v1/public/time",
+                .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
+            std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
+    }
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state, config.market);
     adapter.instruments = make_instrument_source(state);

@@ -11,8 +11,10 @@ add_library(raikiri_venue_kraken STATIC
   src/types/orders.cpp
   src/types/positions.cpp
   src/types/sign.cpp
+  src/types/spot.cpp
   src/types/ws.cpp
   src/marketdata/client.cpp
+  src/marketdata/spot_client.cpp
   src/rest/builder.cpp
 )
 add_library(raikiri::venue_kraken ALIAS raikiri_venue_kraken)

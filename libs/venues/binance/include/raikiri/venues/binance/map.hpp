@@ -50,6 +50,17 @@ map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table,
 // multi_assets_margin must come from the same answer as the row
 [[nodiscard]] std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool multi_assets_margin);
 
+// a zero vol or an empty figure leaves that field undefined
+[[nodiscard]] std::optional<OptionGreeks>
+map_option_greeks(const WireOptionMark& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// the mark row's top of book, for an option whose book ticker has not spoken yet
+[[nodiscard]] std::optional<Bbo>
+map_option_quote(const WireOptionMark& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// a side with zero size is empty, not a level at that price
+void blank_empty_sides(Bbo& bbo) noexcept;
+
 // nullopt unless trading, in the requested market, with parseable filters
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 

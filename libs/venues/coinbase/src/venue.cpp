@@ -1,6 +1,7 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -16,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -28,25 +30,6 @@ using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
 using internal::VenueState;
-
-void internal::sync_clock(VenueState& state, net::RestClient& rest) {
-    const auto sent = state.clock->wall();
-    const auto response = await_response(state, rest, state.builder.server_time(), 5'000);
-    if (!response.has_value() || response->transport_failed()) {
-        return;
-    }
-    const auto iso = parse_server_time(response->body);
-    if (!iso.has_value()) {
-        return;
-    }
-    const auto venue = parse_iso8601(*iso);
-    if (!venue.has_value()) {
-        return;
-    }
-    const auto received = state.clock->wall();
-    const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.clock_offset_ns = static_cast<std::int64_t>(venue->ns) - static_cast<std::int64_t>(midpoint);
-}
 
 namespace {
 
@@ -70,6 +53,11 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Coinbase);
+    adapter.clock.emplace(
+        exec::ServerTimeQuery{.host = "api.exchange.coinbase.com",
+                              .target = "/time",
+                              .parse = [](std::string_view body) { return exec::json_seconds(body, "epoch"); }},
+        std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);
     adapter.instruments = make_instrument_source(state);

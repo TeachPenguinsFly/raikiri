@@ -74,3 +74,18 @@ Its `lastUpdateId` is 101022247332. `spot_ws_depth_contained.json` ends on that
 id, `spot_ws_depth_update.json` starts on the next one, and
 `spot_ws_depth_update_next.json` follows it. Spot ids run contiguous and the
 frames carry no `pu`.
+
+## Options, captured live on 2026-10-04
+
+From production with no credentials. The REST listing is trimmed and written
+back without whitespace; the fields are as served. The websocket files are
+single frames copied verbatim from sessions on `wss://fstream.binance.com`
+that sent a `SUBSCRIBE` after connecting.
+
+| file | source |
+|---|---|
+| `rest_option_exchange_info.json` | `GET https://eapi.binance.com/eapi/v1/exchangeInfo`, `optionSymbols` cut to BTC-261225-85000-C and -P, BTC-261030-86000-P, all twenty DOGE-261009 rows and one XAU row in `CLOSED_MARKET` |
+| `ws_option_mark.json` | `/market/stream`, `dogeusdt@optionMarkPrice`: one push with every DOGE option's mark, top of book, vols and greeks |
+| `ws_option_book_ticker.json` | `/public/stream`, `btc-261225-85000-c@bookTicker` |
+| `ws_option_trade.json` | `/public/stream`, `btcusdt@optionTrade`, which carries every BTC option's prints |
+

@@ -1,0 +1,1 @@
+{"channel":"ticker","type":"snapshot","data":[{"symbol":"PEPE/USD","bid":0.000004271,"bid_qty":30184650.59704,"ask":0.000004272,"ask_qty":29691332.14999,"last":0.000004272,"volume":153014912236.20633,"vwap":0.000004291,"low":0.000004259,"high":0.000004335,"change":0.000000013,"change_pct":0.31,"trades":3939,"timestamp":"2026-10-04T14:15:09.191988Z"}]}

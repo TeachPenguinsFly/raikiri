@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -51,13 +52,11 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate delivery contracts are not loaded")};
         case MarketType::Option:
-            // options contracts are keyed by underlying and expiry; nothing maps them
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate options contracts are not loaded")};
+            rest_.start();
+            return load_options();
         }
 
         rest_.start();
-        sync_clock(*state_, rest_);
 
         const auto response = await_response(*state_, rest_, request, k_catalogue_timeout_ms + 5'000);
         if (!response.has_value()) {
@@ -74,6 +73,54 @@ public:
     }
 
 private:
+    std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& request) {
+        const auto response = await_response(*state_, rest_, request, k_catalogue_timeout_ms + 5'000);
+        if (!response.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+        }
+        if (response->transport_failed()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        }
+        if (response->status < 200 || response->status >= 300) {
+            return std::unexpected{rest_failure(response->body)};
+        }
+        return std::string{response->body};
+    }
+
+    // one contracts call per underlying
+    std::expected<std::vector<Instrument>, exec::VenueError> load_options() {
+        const auto listing = fetch(state_->builder.option_underlyings());
+        if (!listing.has_value()) {
+            return std::unexpected{listing.error()};
+        }
+        static thread_local const auto names_owner = std::make_unique<OptionUnderlyingBuffer>();
+        const auto names = parse_option_underlyings(*listing, *names_owner);
+        if (!names.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(names.error()))};
+        }
+        static thread_local const auto rows_owner = std::make_unique<OptionContractBuffer>();
+        std::vector<Instrument> loaded;
+        std::size_t listed = 0;
+        for (const auto name : *names) {
+            const auto body = fetch(state_->builder.option_contracts(name));
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            const auto rows = parse_option_contracts(*body, *rows_owner);
+            if (!rows.has_value()) {
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+            }
+            listed += rows->size();
+            auto mapped = intern(*rows, map_option_contract);
+            loaded.insert(loaded.end(), mapped.begin(), mapped.end());
+        }
+        if (::raikiri::log::logger() != nullptr) {
+            RLOG_INFO("gate: {} of {} options loaded across {} underlyings", loaded.size(), listed, names->size());
+        }
+        return loaded;
+    }
+
     std::expected<std::vector<Instrument>, exec::VenueError> load_perp(std::string_view body) {
         static thread_local const auto storage_owner = std::make_unique<ContractBuffer>();
         auto& storage = *storage_owner;

@@ -32,7 +32,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        sync_clock(*state_, rest_, builder_);
 
         switch (market) {
         case MarketType::Perp:

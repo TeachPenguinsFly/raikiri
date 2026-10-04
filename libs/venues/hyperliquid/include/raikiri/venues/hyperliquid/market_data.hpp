@@ -33,15 +33,15 @@ struct TradeBuffer {
 
 // `funding` is an hourly rate; there is no timestamp, so ts_event falls back to ingest
 struct WireAssetCtx {
-    std::string_view coin; // empty on the REST rows: see parse_asset_ctxs
-    std::string_view funding;
-    std::string_view mark_price;
-    std::string_view mid_price;
-    std::string_view oracle_price;
-    std::string_view prev_day_price;
-    std::string_view open_interest;
-    std::string_view day_base_volume;     // base units
-    std::string_view day_notional_volume; // quote units
+    std::string_view coin{};
+    std::string_view funding{};
+    std::string_view mark_price{};
+    std::string_view mid_price{};
+    std::string_view oracle_price{};
+    std::string_view prev_day_price{};
+    std::string_view open_interest{};
+    std::string_view day_base_volume{};     // base units
+    std::string_view day_notional_volume{}; // quote units
 };
 
 [[nodiscard]] std::expected<WireAssetCtx, WireError> parse_asset_ctx(std::string_view frame);
@@ -53,7 +53,7 @@ struct AssetCtxBuffer {
     std::array<WireAssetCtx, k_max_asset_ctxs> ctxs{};
 };
 
-// rows carry no coin and are positional against meta.universe, so `coin` stays empty
+// metaAndAssetCtxs; rows carry no coin, so each takes the name at its position in the same body's universe
 [[nodiscard]] std::expected<std::span<const WireAssetCtx>, WireError> parse_asset_ctxs(std::string_view body,
                                                                                        AssetCtxBuffer& storage);
 

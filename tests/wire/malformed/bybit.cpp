@@ -19,19 +19,14 @@ using wire::malformed::hammer;
 TEST(Malformed, Bybit) {
     hammer("bybit",
            {
-               {"orderbook_snapshot.json",
+               {"*orderbook_*",
                 [](std::string_view f) {
                     static OrderbookBuffer ob;
                     (void)parse_topic(f);
                     (void)parse_orderbook(f, ob);
                 }},
-               {"orderbook_delta.json",
-                [](std::string_view f) {
-                    static OrderbookBuffer ob;
-                    (void)parse_topic(f);
-                    (void)parse_orderbook(f, ob);
-                }},
-               {"public_trade.json",
+
+               {"*public_trade.json",
                 [](std::string_view f) {
                     static TradeBuffer trades;
                     (void)parse_topic(f);
@@ -71,6 +66,13 @@ TEST(Malformed, Bybit) {
                     (void)parse_topic(f);
                     (void)parse_positions(f, positions);
                 }},
+               {"option_tickers.json",
+                [](std::string_view f) {
+                    (void)parse_topic(f);
+                    (void)parse_option_ticker(f);
+                }},
+               {"option_subscribe_ack.json", [](std::string_view f) { (void)parse_topic(f); }},
+               {"op_response.json", [](std::string_view f) { (void)parse_topic(f); }},
                {"pong.json", [](std::string_view f) { (void)parse_topic(f); }},
                {"rest_error.json", [](std::string_view f) { (void)parse_envelope(f); }},
                {"rest_order_ack.json",
@@ -84,10 +86,12 @@ TEST(Malformed, Bybit) {
                     (void)parse_envelope(f);
                     (void)parse_open_orders(f, orders);
                 }},
-               {"rest_instruments.json",
+               {"rest_instruments*",
                 [](std::string_view f) {
                     static InstrumentBuffer instruments;
-                    (void)parse_instruments(f, instruments);
+                    if (const auto envelope = parse_envelope(f); envelope.has_value()) {
+                        (void)parse_instruments(envelope->result, instruments);
+                    }
                 }},
                {"rest_wallet_balance.json",
                 [](std::string_view f) {
@@ -95,8 +99,8 @@ TEST(Malformed, Bybit) {
                     (void)parse_envelope(f);
                     (void)parse_wallet_balance(f, coins);
                 }},
-               {"ws_trade_create.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
-               {"ws_trade_auth_failure.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
+               {"ws_trade_*", [](std::string_view f) { (void)parse_trade_reply(f); }},
+
            });
 }
 

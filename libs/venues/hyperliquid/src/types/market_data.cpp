@@ -108,9 +108,33 @@ std::expected<std::span<const WireAssetCtx>, WireError> parse_asset_ctxs(std::st
             return std::unexpected(root.error());
         }
         std::size_t element = 0;
+        std::size_t names = 0;
         std::size_t count = 0;
         for (auto entry : *root) {
-            if (element++ == 0) {
+            if (element == 0) {
+                wire::ondemand::object meta;
+                if (const auto ec = entry.get_object().get(meta); ec != simdjson::SUCCESS) {
+                    return std::unexpected(wire::map_error(ec));
+                }
+                auto universe = wire::req_array(meta, "universe");
+                if (!universe.has_value()) {
+                    return std::unexpected(universe.error());
+                }
+                for (auto asset : *universe) {
+                    if (names == k_max_asset_ctxs) {
+                        return std::unexpected(WireError::TooManyEntries);
+                    }
+                    wire::ondemand::object obj;
+                    if (const auto ec = asset.get_object().get(obj); ec != simdjson::SUCCESS) {
+                        return std::unexpected(wire::map_error(ec));
+                    }
+                    const auto name = wire::req_str(obj, "name");
+                    if (!name.has_value()) {
+                        return std::unexpected(name.error());
+                    }
+                    storage.ctxs[names++] = WireAssetCtx{.coin = *name};
+                }
+                ++element;
                 continue;
             }
             wire::ondemand::array contexts;
@@ -118,24 +142,24 @@ std::expected<std::span<const WireAssetCtx>, WireError> parse_asset_ctxs(std::st
                 return std::unexpected(wire::map_error(ec));
             }
             for (auto row : contexts) {
-                if (count == k_max_asset_ctxs) {
+                if (count == names) {
                     return std::unexpected(WireError::TooManyEntries);
                 }
                 wire::ondemand::object obj;
                 if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
                     return std::unexpected(wire::map_error(ec));
                 }
-                WireAssetCtx out{};
-                if (const auto ok = read_ctx_fields(obj, out); !ok.has_value()) {
+                if (const auto ok = read_ctx_fields(obj, storage.ctxs[count]); !ok.has_value()) {
                     return std::unexpected(ok.error());
                 }
-                storage.ctxs[count] = out;
                 ++count;
             }
+            ++element;
             break;
         }
-        if (element < 2) {
-            return std::unexpected(WireError::MissingField);
+        // a row without its context would publish a coin with no figures
+        if (element < 2 || count != names) {
+            return std::unexpected(WireError::ShortArray);
         }
         return std::span<const WireAssetCtx>{storage.ctxs.data(), count};
     });

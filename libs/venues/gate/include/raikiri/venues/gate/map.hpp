@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 
 namespace raikiri::venues::gate {
 
@@ -49,6 +50,27 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
 
 // nullopt for non-trading, non-perp or unparsable rows
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
+
+// BTC_USDT-20261225-100000-C is 26 bytes, past SymbolText, so an option is held as BTC-20261225-100000-C;
+// nullopt for a name without the usdt underlying
+[[nodiscard]] std::optional<SymbolText> option_symbol(std::string_view wire_name) noexcept;
+
+// BTC-20261225-100000-C subscribes as BTC_USDT
+[[nodiscard]] std::string option_underlying(std::string_view symbol);
+
+// nullopt for an inactive row or a strike off the premium tick
+[[nodiscard]] std::optional<Instrument> map_option_contract(const WireOptionContract& wire);
+
+// a zero vol or an empty figure leaves that field undefined; ts_event has whole-second precision
+[[nodiscard]] std::optional<OptionGreeks>
+map_option_greeks(const WireOptionTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// the ticker's top of book, for a contract whose book ticker has not spoken yet
+[[nodiscard]] std::optional<Bbo>
+map_option_quote(const WireOptionTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// a side with zero size is empty, not a level at that price
+void blank_empty_sides(Bbo& bbo) noexcept;
 
 // steps are 10^-n; more than nine fractional digits is refused
 [[nodiscard]] std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire);

@@ -48,7 +48,6 @@ public:
         }
 
         rest_.start();
-        sync_clock(*state_, rest_);
 
         std::vector<Instrument> mapped;
         for (const auto currency : k_currencies) {

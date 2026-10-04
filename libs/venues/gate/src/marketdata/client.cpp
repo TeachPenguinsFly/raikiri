@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -106,6 +107,33 @@ void handle_book_snapshot(VenueState& state, std::string_view frame, UnixNanos r
     }
 }
 
+// the held name of an option the wire spells in full; nullopt off the option market
+[[nodiscard]] std::optional<SymbolText> held_name(const VenueState& state, std::string_view contract) {
+    return state.market == MarketType::Option ? option_symbol(contract) : std::nullopt;
+}
+
+void handle_option_ticker(VenueState& state, std::string_view frame, UnixNanos received) {
+    const auto wire = parse_option_ticker(frame);
+    if (!wire.has_value()) {
+        return;
+    }
+    const auto greeks = map_option_greeks(*wire, state.instruments, received);
+    if (!greeks.has_value()) {
+        return;
+    }
+    state.sink->on_option_greeks(*greeks);
+    state.cover(greeks->instrument, 2);
+    if (!state.option_quote_due.contains(greeks->instrument.packed)) {
+        return;
+    }
+    if (const auto bbo = map_option_quote(*wire, state.instruments, received); bbo.has_value()) {
+        state.sink->on_bbo(*bbo);
+        if (!bbo->bid.is_undef() && !bbo->ask.is_undef()) {
+            state.cover(bbo->instrument, 1);
+        }
+    }
+}
+
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
@@ -114,14 +142,27 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
     switch (event->kind) {
     case EventKind::BookTicker: {
-        const auto wire = parse_book_ticker(frame);
+        auto wire = parse_book_ticker(frame);
         if (!wire.has_value()) {
             return;
         }
-        if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
-            state.quote_seed_due.erase(bbo->instrument.packed);
-            state.sink->on_bbo(*bbo);
+        const auto held = held_name(state, wire->contract);
+        if (held.has_value()) {
+            wire->contract = held->view();
         }
+        auto bbo = map_bbo(*wire, state.instruments, received);
+        if (!bbo.has_value()) {
+            return;
+        }
+        state.quote_seed_due.erase(bbo->instrument.packed);
+        if (held.has_value()) {
+            blank_empty_sides(*bbo);
+            state.option_quote_due.erase(bbo->instrument.packed);
+            if (!bbo->bid.is_undef() && !bbo->ask.is_undef()) {
+                state.cover(bbo->instrument, 1);
+            }
+        }
+        state.sink->on_bbo(*bbo);
         break;
     }
     case EventKind::Trade: {
@@ -130,14 +171,23 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        for (const auto& entry : *wire) {
+        for (auto entry : *wire) {
+            const auto held = held_name(state, entry.contract);
+            if (held.has_value()) {
+                entry.contract = held->view();
+            }
             if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
+                state.cover(trade->instrument, 4);
             }
         }
         break;
     }
     case EventKind::Ticker: {
+        if (state.market == MarketType::Option) {
+            handle_option_ticker(state, frame, received);
+            break;
+        }
         const auto wire = parse_ticker(frame);
         if (!wire.has_value()) {
             return;
@@ -220,12 +270,13 @@ public:
     explicit GateData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           pool_{state_->io,
-                net::WsConfig{.host = std::string{private_host(state_->testnet, state_->market)},
+                net::WsConfig{.host = std::string{public_host(state_->testnet, state_->market)},
                               .port = std::string{stream_port()},
-                              .target = std::string{private_path(state_->testnet, state_->market)}},
+                              .target = std::string{public_path(state_->testnet, state_->market)}},
                 handler_,
-                // gate caps a connection at 1024 channels
-                net::WsPoolConfig{},
+                // gate caps a connection at 1024 channels; it drops a socket carrying every option
+                // underlying, so options take three channels a socket
+                net::WsPoolConfig{.key_cap = state_->market == MarketType::Option ? 3U : 0U},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) {
                     invalidate_books(keys);
@@ -264,13 +315,18 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
+        const bool option = state_->market == MarketType::Option;
+        if (option && kind == exec::SubKind::Bbo) {
+            state_->option_quote_due.insert(instrument.packed);
+        }
+        const auto target = option ? option_underlying(symbol) : std::string{symbol};
         const auto before = state_->desired.size();
-        state_->add_subscription(channel, symbol);
+        state_->add_subscription(channel, target);
         if (state_->desired.size() == before) {
             return {}; // refcounting lives in the gateway core; this is a set
         }
         // the pool places it, opening another socket when needed
-        const std::array<std::string, 1> one{key_of(channel, symbol)};
+        const std::array<std::string, 1> one{key_of(channel, target)};
         if (!pool_.subscribe(one)) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate: connection pool is full")};
@@ -289,13 +345,38 @@ public:
         state_->io.poll();
         pool_.poll(now);
         if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
-            pool_.broadcast(state_->protocol.ping_frame(now.ns / 1'000'000'000ULL));
+            pool_.broadcast(state_->protocol.ping_frame(now.ns / 1'000'000'000ULL, state_->market));
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
         seed_from_rest(now);
+        report_coverage(now);
     }
 
 private:
+    void report_coverage(UnixNanos now) {
+        if (state_->market != MarketType::Option || now.ns < state_->next_coverage_ns) {
+            return;
+        }
+        const bool first = state_->next_coverage_ns == 0;
+        state_->next_coverage_ns = now.ns + 60'000'000'000ULL;
+        if (first || ::raikiri::log::logger() == nullptr) {
+            return;
+        }
+        std::array<std::size_t, 3> counts{};
+        for (const auto bits : state_->option_coverage) {
+            for (std::size_t bit = 0; bit < counts.size(); ++bit) {
+                counts[bit] += (bits >> bit) & 1U;
+            }
+        }
+        RLOG_INFO("gate option: {} of {} quoted two-sided, {} with greeks, {} traded; {} sockets, {} keys",
+                  counts[0],
+                  state_->instruments.size(),
+                  counts[1],
+                  counts[2],
+                  pool_.connection_count(),
+                  pool_.key_count());
+    }
+
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
 

@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/symbol.hpp>
+#include <raikiri/options/convention.hpp>
 #include <raikiri/venues/binance/map.hpp>
 
 #include <charconv>
@@ -142,6 +143,105 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     return out;
 }
 
+namespace {
+
+[[nodiscard]] std::optional<FixedE9> figure(std::string_view text) {
+    const auto value = parse_decimal_e9(text);
+    return value.has_value() ? std::optional{*value} : std::nullopt;
+}
+
+[[nodiscard]] std::optional<FixedE9> quoted_vol(std::string_view text) {
+    const auto vol = figure(text);
+    return vol.has_value() && vol->raw > 0 ? vol : std::nullopt;
+}
+
+// a strike off the premium tick, as on some doge rows, cannot be held as ticks and drops the row
+std::optional<Instrument> map_option(const WireInstrument& wire) {
+    const auto tick = parse_decimal_e9(wire.tick_size);
+    const auto lot = parse_decimal_e9(wire.step_size);
+    const auto symbol = SymbolText::from(wire.symbol);
+    if (wire.status != "TRADING" || !tick.has_value() || !lot.has_value() || !symbol.has_value() || tick->raw <= 0 ||
+        lot->raw <= 0 || wire.unit == 0 || wire.delivery_ms == 0 ||
+        (wire.option_side != "CALL" && wire.option_side != "PUT")) {
+        return std::nullopt;
+    }
+    const auto strike = exact_steps(wire.strike, *tick);
+    if (!strike.has_value() || *strike <= 0) {
+        return std::nullopt;
+    }
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Binance, MarketType::Option, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *symbol;
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    base.contract_value = FixedE9::from_raw(static_cast<std::int64_t>(wire.unit) * k_e9);
+    base.kind = ContractKind::Linear;
+    base.asset_class = wire.underlying_type == "CRYPTO" ? AssetClass::Crypto : asset_class_of(wire.underlying_type);
+    // the premium is usdt per contract of `unit` coins, the greeks usdt per one coin
+    return OptionInstrument{.base = base,
+                            .strike = PriceTicks::from_raw(*strike),
+                            .expiry = ms_to_unix(wire.delivery_ms, UnixNanos{0}),
+                            .put_call = wire.option_side == "PUT" ? PutCall::Put : PutCall::Call,
+                            .premium = OptionUnit::Quote,
+                            .greeks = OptionUnit::Quote};
+}
+
+} // namespace
+
+std::optional<OptionGreeks>
+map_option_greeks(const WireOptionMark& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr || !std::holds_alternative<OptionInstrument>(*instrument)) {
+        return std::nullopt;
+    }
+    const options::VenueGreeks venue{.delta = figure(wire.delta),
+                                     .gamma = figure(wire.gamma),
+                                     .vega = figure(wire.vega),
+                                     .theta = figure(wire.theta),
+                                     .mark_iv = quoted_vol(wire.mark_iv),
+                                     .bid_iv = quoted_vol(wire.bid_iv),
+                                     .ask_iv = quoted_vol(wire.ask_iv),
+                                     .mark_price = figure(wire.mark_price),
+                                     .index_price = figure(wire.index_price)};
+    return options::normalise(
+        base_of(*instrument).id, venue, options::Convention{}, ms_to_unix(wire.event_ms, ts_init), ts_init);
+}
+
+void blank_empty_sides(Bbo& bbo) noexcept {
+    if (bbo.bid_qty.raw == 0) {
+        bbo.bid = PriceTicks{};
+    }
+    if (bbo.ask_qty.raw == 0) {
+        bbo.ask = PriceTicks{};
+    }
+}
+
+std::optional<Bbo> map_option_quote(const WireOptionMark& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr || !std::holds_alternative<OptionInstrument>(*instrument)) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto bid = to_ticks(wire.bid_price, base);
+    const auto ask = to_ticks(wire.ask_price, base);
+    const auto bid_qty = to_lots(wire.bid_qty, base);
+    const auto ask_qty = to_lots(wire.ask_qty, base);
+    if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
+        return std::nullopt;
+    }
+    Bbo out{};
+    out.instrument = base.id;
+    out.bid = *bid;
+    out.ask = *ask;
+    out.bid_qty = *bid_qty;
+    out.ask_qty = *ask_qty;
+    blank_empty_sides(out);
+    out.ts_event = ms_to_unix(wire.event_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     switch (market) {
     case MarketType::Perp:
@@ -154,8 +254,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
             return std::nullopt;
         }
         break;
-    case MarketType::Future:
     case MarketType::Option:
+        return map_option(wire);
+    case MarketType::Future:
         return std::nullopt;
     }
     if (wire.status != "TRADING") {

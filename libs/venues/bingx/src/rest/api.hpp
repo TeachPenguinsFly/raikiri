@@ -40,10 +40,7 @@ public:
           rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .pool_size = net::k_order_pool_size}},
           builder_{state.signer} {}
 
-    void start() {
-        rest_.start();
-        sync_clock(*state_, rest_, unsigned_builder_);
-    }
+    void start() { rest_.start(); }
 
     void stop() { rest_.stop(); }
 
@@ -293,7 +290,6 @@ private:
 
     VenueState* state_;
     net::RestClient rest_;
-    RequestBuilder unsigned_builder_;
     SignedRequestBuilder builder_;
 };
 

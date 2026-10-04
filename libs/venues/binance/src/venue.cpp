@@ -1,6 +1,7 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -8,6 +9,7 @@
 #include <raikiri/venues/binance/binance_venue.hpp>
 #include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/endpoints.hpp>
+#include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
 #include <raikiri/venues/binance/rest.hpp>
@@ -19,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -46,6 +49,13 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Binance);
+    const bool spot = config.market == MarketType::Spot;
+    adapter.clock.emplace(
+        exec::ServerTimeQuery{
+            .host = std::string{ep::rest_host(config.testnet, spot ? MarketType::Spot : MarketType::Perp)},
+            .target = spot ? "/api/v3/time" : "/fapi/v1/time",
+            .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
+        std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);
     adapter.instruments = make_instrument_source(state);

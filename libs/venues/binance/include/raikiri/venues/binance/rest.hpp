@@ -32,7 +32,7 @@ inline constexpr std::uint32_t k_recv_window_ms = 5'000;
 class RequestBuilder {
 public:
     explicit RequestBuilder(const net::Signer& signer, MarketType market = MarketType::Perp) noexcept
-        : signer_{&signer}, spot_{market == MarketType::Spot} {}
+        : signer_{&signer}, spot_{market == MarketType::Spot}, option_{market == MarketType::Option} {}
 
     // the public reads; orders and the account stay on the futures api
 
@@ -89,6 +89,7 @@ private:
     std::size_t sign_len_{0};
     const net::Signer* signer_;
     bool spot_{false};
+    bool option_{false};
 };
 
 } // namespace raikiri::venues::binance

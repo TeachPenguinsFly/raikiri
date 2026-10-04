@@ -34,6 +34,10 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view private_host(bool testnet, MarketType market) noexcept;
 [[nodiscard]] std::string_view private_path(bool testnet, MarketType market) noexcept;
 
+// the market-data socket: options stream from their own host, the rest share the private one
+[[nodiscard]] std::string_view public_host(bool testnet, MarketType market) noexcept;
+[[nodiscard]] std::string_view public_path(bool testnet, MarketType market) noexcept;
+
 [[nodiscard]] std::string_view orders_channel(MarketType market) noexcept;
 [[nodiscard]] std::string_view user_trades_channel(MarketType market) noexcept;
 
@@ -51,6 +55,7 @@ inline constexpr std::string_view k_depth_level = "100";
 // the rest seed must match: gate trims the window to exactly this depth
 inline constexpr std::uint32_t k_depth_limit = 100;
 
+// an options channel names an underlying, BTC_USDT, and gets every contract of it
 struct Subscription {
     std::string_view channel;
     std::string_view contract;
@@ -69,7 +74,7 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::span<const Subscription> subscriptions,
                                                                        std::uint64_t now_s);
 
-    [[nodiscard]] std::string_view ping_frame(std::uint64_t now_s) noexcept;
+    [[nodiscard]] std::string_view ping_frame(std::uint64_t now_s, MarketType market = MarketType::Perp) noexcept;
 
     // each private subscribe is signed with hmac-sha512 over channel, event and time; time must match the frame's
     [[nodiscard]] std::expected<std::string_view, WsBuildError>

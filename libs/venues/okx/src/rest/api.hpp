@@ -28,10 +28,7 @@ public:
         builder_.set_simulated(state.testnet);
     }
 
-    void start() {
-        rest_.start();
-        sync_clock(*state_, rest_);
-    }
+    void start() { rest_.start(); }
 
     void stop() { rest_.stop(); }
 

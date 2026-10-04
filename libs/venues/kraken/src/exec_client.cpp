@@ -25,6 +25,9 @@ public:
         : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
+        if (state_->spot()) {
+            return {};
+        }
         if (state_->testnet) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kraken futures has no demo environment")};
@@ -119,6 +122,11 @@ private:
     }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
+        if (state_->spot()) {
+            emit_reject(
+                cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kraken spot is market data only"));
+            return;
+        }
         const auto now = state_->venue_now();
         auto& builder = api_.builder();
         auto request = kind == Kind::Create   ? builder.create_order(cmd, state_->instruments, now)

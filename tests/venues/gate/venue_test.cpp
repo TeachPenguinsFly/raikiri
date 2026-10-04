@@ -89,13 +89,13 @@ TEST(GateVenue, AnUnbuildableCommandIsRefusedLocally) {
 }
 
 TEST(GateVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
-    // both refusals happen before any socket opens
+    // the refusal happens before any socket opens
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
-    for (const auto market : {MarketType::Option, MarketType::Future}) {
+    for (const auto market : {MarketType::Future}) {
         const auto loaded = adapter->instruments->fetch_all(market);
         ASSERT_FALSE(loaded.has_value()) << to_string(market);
         EXPECT_EQ(loaded.error().cls, exec::ErrorClass::Terminal);
@@ -1510,7 +1510,7 @@ TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
     ASSERT_TRUE(adapter.has_value());
     auto& exec_client = *adapter->execution;
 
-    for (const auto market : {MarketType::Option, MarketType::Future}) {
+    for (const auto market : {MarketType::Future}) {
         EXPECT_FALSE(exec_client.open_order_reports(market).has_value());
         EXPECT_FALSE(exec_client.fill_reports(market, UnixNanos{}).has_value());
         EXPECT_FALSE(exec_client.position_reports(market).has_value());

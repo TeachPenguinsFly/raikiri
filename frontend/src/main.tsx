@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { AppShell } from '@/components/layout/AppShell'
 import { Login } from '@/routes/Login'
+import { ExecutionPage } from '@/pages/ExecutionPage'
 import { MarketsPage } from '@/pages/MarketsPage'
 import { ScannerPage } from '@/pages/ScannerPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -22,6 +23,7 @@ createRoot(root).render(
         <Route element={<AppShell />}>
           <Route index element={<MarketsPage />} />
           <Route path="scanner" element={<ScannerPage />} />
+          <Route path="execution" element={<ExecutionPage />} />
           <Route path="strategies" element={<StrategiesPage />} />
           <Route path="strategies/:name" element={<StrategyPage />} />
           <Route path="treasury" element={<TreasuryPage />} />

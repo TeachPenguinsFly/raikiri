@@ -28,21 +28,6 @@ namespace raikiri::venues::kucoin::internal {
 
 namespace {
 
-void sync_clock(VenueState& state, net::RestClient& rest) {
-    const auto sent = state.clock->wall();
-    const auto response = await_response(state, rest, state.builder.server_time(), 5'000);
-    if (!response.has_value() || response->transport_failed()) {
-        return;
-    }
-    const auto venue_ms = parse_server_time(response->body);
-    if (!venue_ms.has_value()) {
-        return;
-    }
-    const auto received = state.clock->wall();
-    const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
-}
-
 class KucoinInstruments final : public exec::InstrumentSource {
 public:
     explicit KucoinInstruments(std::shared_ptr<VenueState> state)
@@ -68,8 +53,6 @@ public:
 private:
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_futures() {
         rest_.start();
-        // kucoin refuses signatures more than 5 s off its clock
-        sync_clock(*state_, rest_);
 
         const auto body = usable_body(await_response(*state_, rest_, state_->builder.contracts_active(), 20'000));
         if (!body.has_value()) {

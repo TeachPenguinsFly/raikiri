@@ -13,6 +13,11 @@ venues:
       - { name: ws_subscribe_spot, kind: ws_messages, scope: socket, market: spot, window_ms: 300, max: 1 }
       - { name: ws_frame_spot, kind: ws_frame, market: spot, max: 32 }
       - { name: ws_connects_spot, kind: ws_connects, market: spot, window_ms: 300000, max: 240 }
+      - { name: option_weight, window_ms: 60000, max: 400, match: ["/eapi/"] }
+      - { name: ws_streams_option, kind: ws_streams, market: option, max: 200 }
+      - { name: ws_sockets_option, kind: ws_sockets, market: option, max: 12 }
+      - { name: ws_subscribe_option, kind: ws_messages, scope: socket, market: option, window_ms: 250, max: 1 }
+      - { name: ws_frame_option, kind: ws_frame, market: option, max: 32 }
     default_cost: 40
     costs:
       - { match: "/fapi/v1/order", cost: 1 }
@@ -40,6 +45,8 @@ venues:
       - { match: "/api/v3/depth?limit=100", cost: 5 }
       - { match: "/api/v3/depth?limit=500", cost: 25 }
       - { match: "/api/v3/depth?limit=1000", cost: 50 }
+      - { match: "/eapi/v1/exchangeInfo", cost: 1 }
+      - { match: "/eapi/v1/time", cost: 1 }
 
   aster:
     order_answer_timeout_ms: 15000
@@ -92,6 +99,9 @@ venues:
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 64 }
+      - { name: ws_streams_option, kind: ws_streams, market: option, max: 64 }
+      - { name: ws_sockets_option, kind: ws_sockets, market: option, max: 16 }
+      - { name: ws_frame_option, kind: ws_frame, market: option, max: 16 }
 
   kucoin:
     order_answer_timeout_ms: 15000
@@ -218,8 +228,14 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: derivatives, window_ms: 10000, max: 450, reserve: 45, match: ["/derivatives/api/v3/"] }
-      - { name: ws_streams, kind: ws_streams, max: 1024 }
-      - { name: ws_frame, kind: ws_frame, max: 64 }
+      - { name: ws_streams, kind: ws_streams, market: perp, max: 1024 }
+      - { name: ws_frame, kind: ws_frame, market: perp, max: 64 }
+      - { name: spot_public, window_ms: 10000, max: 9, match: ["/0/public/"] }
+      - { name: ws_streams_spot, kind: ws_streams, market: spot, max: 1000 }
+      - { name: ws_sockets_spot, kind: ws_sockets, market: spot, max: 4 }
+      - { name: ws_subscribe_spot, kind: ws_messages, scope: socket, market: spot, window_ms: 250, max: 1 }
+      - { name: ws_frame_spot, kind: ws_frame, market: spot, max: 100 }
+      - { name: ws_connects_spot, kind: ws_connects, market: spot, window_ms: 600000, max: 120 }
     costs:
       - { match: "/derivatives/api/v3/sendorder", cost: 10 }
       - { match: "/derivatives/api/v3/editorder", cost: 10 }

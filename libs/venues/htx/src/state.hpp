@@ -144,6 +144,4 @@ inline std::optional<exec::VenueError> refuse_market(MarketType market) noexcept
     return exec::not_implemented("htx: unknown market");
 }
 
-void sync_clock(VenueState& state, net::RestClient& rest);
-
 } // namespace raikiri::venues::htx::internal

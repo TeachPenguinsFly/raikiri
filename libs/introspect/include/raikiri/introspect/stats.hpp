@@ -94,6 +94,7 @@ struct RateStats {
     double messages_per_second{0};
     std::uint64_t window_s{0};
     std::uint64_t venue_refusals{0};
+    std::uint64_t broken_frames{0};
     std::uint64_t budget_denials{0};
     std::vector<RestLimitStats> rest_limits;
     std::vector<RestEndpointStats> rest_endpoints;

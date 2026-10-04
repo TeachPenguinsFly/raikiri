@@ -25,7 +25,7 @@ inline constexpr std::size_t k_max_unanswered = 512;
 class MexcExec final : public exec::ExecutionClient {
 public:
     MexcExec(std::shared_ptr<VenueState> state, MarketType market)
-        : state_{std::move(state)}, api_{*state_, market}, spot_{market == MarketType::Spot},
+        : state_{std::move(state)}, api_{*state_}, spot_{market == MarketType::Spot},
           perp_{market == MarketType::Perp} {
         if (perp_) {
             stream_ = std::make_unique<PrivateStream>(*state_);

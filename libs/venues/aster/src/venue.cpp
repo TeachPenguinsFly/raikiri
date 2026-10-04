@@ -1,6 +1,7 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -8,6 +9,7 @@
 #include <raikiri/venues/aster/aster_venue.hpp>
 #include <raikiri/venues/aster/book.hpp>
 #include <raikiri/venues/aster/endpoints.hpp>
+#include <raikiri/venues/aster/envelope.hpp>
 #include <raikiri/venues/aster/errors.hpp>
 #include <raikiri/venues/aster/map.hpp>
 #include <raikiri/venues/aster/rest.hpp>
@@ -19,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -46,6 +49,11 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Aster);
+    adapter.clock.emplace(
+        exec::ServerTimeQuery{.host = "fapi.asterdex.com",
+                              .target = "/fapi/v1/time",
+                              .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
+        std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);
     adapter.instruments = make_instrument_source(state);

@@ -92,6 +92,16 @@ bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
     return true;
 }
 
+// the quote of a linear contract, the base of an inverse one
+std::string_view settle_asset(const InstrumentBase& base) noexcept {
+    const auto pair = base.local_symbol.view();
+    const auto slash = pair.find('/');
+    if (slash == std::string_view::npos) {
+        return {};
+    }
+    return base.kind == ContractKind::Inverse ? pair.substr(0, slash) : pair.substr(slash + 1);
+}
+
 Side side_from(std::string_view text) noexcept {
     return text == "sell" ? Side::Sell : Side::Buy;
 }
@@ -594,6 +604,55 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire, const
     }
     out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
     return out;
+}
+
+std::optional<LedgerEntry>
+map_funding_charge(const WireFundingCharge& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    if (wire.settle_currency != settle_asset(base)) {
+        return std::nullopt;
+    }
+    // signed by the venue, positive received, which is the ledger's own sign
+    const auto amount = to_amount(wire.funding);
+    if (!amount.has_value() || wire.time_ms == 0) {
+        return std::nullopt;
+    }
+    LedgerEntry out{};
+    out.instrument = base.id;
+    out.amount = *amount;
+    out.kind = LedgerKind::Funding;
+    out.settled_at = ms_to_unix(wire.time_ms, UnixNanos{});
+    std::array<char, 24> id{};
+    if (const auto [end, ec] = std::to_chars(id.data(), id.data() + id.size(), wire.id); ec == std::errc{}) {
+        if (const auto ref = ExecId::from(std::string_view{id.data(), static_cast<std::size_t>(end - id.data())});
+            ref.has_value()) {
+            out.reference = *ref;
+        }
+    }
+    out.ts_init = ts_init;
+    return out;
+}
+
+bool collect_funding_page(std::span<const WireFundingCharge> rows,
+                          const exec::InstrumentTable& table,
+                          UnixNanos ts_init,
+                          std::unordered_set<std::uint64_t>& seen,
+                          std::vector<LedgerEntry>& out) {
+    bool fresh = false;
+    for (const auto& row : rows) {
+        if (!seen.insert(row.id).second) {
+            continue;
+        }
+        fresh = true;
+        if (auto charge = map_funding_charge(row, table, ts_init); charge.has_value()) {
+            out.push_back(*charge);
+        }
+    }
+    return fresh;
 }
 
 std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire, UnixNanos ts_init) {

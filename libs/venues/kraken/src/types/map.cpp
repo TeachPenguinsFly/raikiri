@@ -1,5 +1,7 @@
 #include <raikiri/common/int128.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/kraken/map.hpp>
+#include <raikiri/venues/kraken/spot.hpp>
 
 #include <limits>
 #include <optional>
@@ -91,7 +93,7 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
 }
 
 // exact refuses digits below 1e-9; otherwise truncates toward zero
-std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept {
+std::optional<int128_t> scale_to_e9_wide(const Decomposed& parts, bool exact) noexcept {
     int shift = parts.exponent + 9;
     if (shift > k_max_shift || shift < -k_max_shift) {
         return std::nullopt;
@@ -106,14 +108,16 @@ std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept
         }
         value /= 10; // int128 division truncates toward zero
     }
-    if (parts.negative) {
-        value = -value;
-    }
+    return parts.negative ? -value : value;
+}
+
+std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept {
+    const auto value = scale_to_e9_wide(parts, exact);
     constexpr auto k_i64_max = static_cast<int128_t>(std::numeric_limits<std::int64_t>::max());
-    if (value > k_i64_max || value < -k_i64_max) {
+    if (!value.has_value() || *value > k_i64_max || *value < -k_i64_max) {
         return std::nullopt;
     }
-    return FixedE9::from_raw(static_cast<std::int64_t>(value));
+    return FixedE9::from_raw(static_cast<std::int64_t>(*value));
 }
 
 // rates, fees and turnover carry more digits than 1e9; truncated here, prices and sizes stay exact
@@ -125,16 +129,33 @@ std::optional<FixedE9> to_truncated_e9(std::string_view text) noexcept {
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/false) : std::nullopt;
 }
 
-// an off-step value means kraken changed precision, so the message is dropped, not rounded
-std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
-    if (text.empty() || step.raw <= 0) {
+// volume times vwap in quote units; a meme coin's base volume overflows e9, so the product is taken exactly
+std::optional<FixedE6> notional_e6(std::string_view qty, std::string_view price) noexcept {
+    const auto a = decompose(qty);
+    const auto b = decompose(price);
+    if (!a.has_value() || !b.has_value() || a->negative || b->negative) {
         return std::nullopt;
     }
-    const auto value = parse_number_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
+    constexpr int128_t k_bound = int128_t{1} << 100;
+    if (a->mantissa != 0 && b->mantissa > k_bound / a->mantissa) {
         return std::nullopt;
     }
-    return value->raw / step.raw;
+    int128_t value = a->mantissa * b->mantissa;
+    int shift = a->exponent + b->exponent + 6;
+    if (shift > k_max_shift || shift < -k_max_mantissa_digits * 2) {
+        return std::nullopt;
+    }
+    constexpr auto k_i64_max = static_cast<int128_t>(std::numeric_limits<std::int64_t>::max());
+    for (; shift > 0 && value <= k_i64_max; --shift) {
+        value *= 10;
+    }
+    for (; shift < 0; ++shift) {
+        value /= 10;
+    }
+    if (value > k_i64_max) {
+        return std::nullopt;
+    }
+    return FixedE6::from_raw(static_cast<std::int64_t>(value));
 }
 
 std::optional<PriceTicks> to_ticks(std::string_view text, const InstrumentBase& base) {
@@ -200,6 +221,23 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
     }
     const auto parts = decompose(text);
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/true) : std::nullopt;
+}
+
+std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) noexcept {
+    if (text.empty() || step.raw <= 0) {
+        return std::nullopt;
+    }
+    const auto parts = decompose(text);
+    const auto value = parts.has_value() ? scale_to_e9_wide(*parts, /*exact=*/true) : std::nullopt;
+    if (!value.has_value() || *value % step.raw != 0) {
+        return std::nullopt;
+    }
+    const auto steps = *value / step.raw;
+    constexpr auto k_i64_max = static_cast<int128_t>(std::numeric_limits<std::int64_t>::max());
+    if (steps > k_i64_max || steps < -k_i64_max) {
+        return std::nullopt;
+    }
+    return static_cast<std::int64_t>(steps);
 }
 
 std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept {
@@ -355,7 +393,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Kraken, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // the pair the spot side names too; a row without one keeps the venue's symbol
+    base.local_symbol = canonical_symbol(wire.base, wire.quote).value_or(*symbol);
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract;
@@ -556,6 +595,107 @@ std::optional<OrderEvent> map_ws_fill(const WireWsFill& wire, const exec::Instru
         out.fee = *fee;
     }
     out.ts_event = ms_to_unix(wire.time_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<Instrument> map_spot_pair(const WireSpotPair& wire) {
+    if (wire.status != "online") {
+        return std::nullopt; // cancel_only, post_only, limit_only, reduce_only
+    }
+    const auto tick = step_from_precision(wire.pair_decimals);
+    const auto lot = step_from_precision(wire.lot_decimals);
+    if (wire.pair_decimals < 0 || wire.lot_decimals < 0 || !tick.has_value() || !lot.has_value()) {
+        return std::nullopt; // ten price decimals do not fit e9
+    }
+    const auto symbol = v2_symbol(wire.wsname);
+    if (!symbol.has_value()) {
+        return std::nullopt;
+    }
+    const auto view = symbol->view();
+    const auto slash = view.find('/');
+    const auto canonical = canonical_symbol(view.substr(0, slash), view.substr(slash + 1));
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Kraken, MarketType::Spot, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *canonical;
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    base.min_notional = to_truncated_e9(wire.costmin).value_or(FixedE9::from_raw(0));
+    base.contract_value = FixedE9::from_raw(k_e9);
+    base.kind = ContractKind::Linear;
+    base.asset_class = AssetClass::Crypto;
+    return SpotInstrument{base};
+}
+
+std::optional<Bbo> map_spot_bbo(const WireSpotTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto bid = to_ticks(wire.bid, base);
+    const auto ask = to_ticks(wire.ask, base);
+    const auto bid_qty = to_lots(wire.bid_qty, base);
+    const auto ask_qty = to_lots(wire.ask_qty, base);
+    if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value() || bid->raw <= 0 ||
+        ask->raw <= 0 || bid_qty->raw <= 0 || ask_qty->raw <= 0) {
+        return std::nullopt;
+    }
+
+    Bbo out{};
+    out.instrument = base.id;
+    out.bid = *bid;
+    out.ask = *ask;
+    out.bid_qty = *bid_qty;
+    out.ask_qty = *ask_qty;
+    out.ts_event = wire.ts_ns == 0 ? ts_init : UnixNanos{wire.ts_ns};
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats>
+map_spot_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    if (wire.volume.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = to_truncated_e9(wire.volume).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = notional_e6(wire.volume, wire.vwap).value_or(FixedE6::from_raw(0));
+    out.ts_event = wire.ts_ns == 0 ? ts_init : UnixNanos{wire.ts_ns};
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TradeTick>
+map_spot_trade(const WireSpotTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.price, base);
+    const auto qty = to_lots(wire.qty, base);
+    if (!price.has_value() || !qty.has_value() || price->raw <= 0 || qty->raw <= 0) {
+        return std::nullopt;
+    }
+
+    TradeTick out{};
+    out.instrument = base.id;
+    out.price = *price;
+    out.qty = *qty;
+    out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
+    out.ts_event = wire.ts_ns == 0 ? ts_init : UnixNanos{wire.ts_ns};
     out.ts_init = ts_init;
     return out;
 }

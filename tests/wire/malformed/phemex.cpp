@@ -15,18 +15,13 @@ using wire::malformed::hammer;
 TEST(Malformed, Phemex) {
     hammer("phemex",
            {
-               {"ws_real_book_snapshot.json",
+               {"ws_real_book_*",
                 [](std::string_view f) {
                     static LevelBuffer<WireRealLevel> levels;
                     (void)parse_event(f);
                     (void)parse_real_book(f, levels);
                 }},
-               {"ws_real_book_update.json",
-                [](std::string_view f) {
-                    static LevelBuffer<WireRealLevel> levels;
-                    (void)parse_real_book(f, levels);
-                }},
-               {"ws_spot_book_snapshot.json",
+               {"ws_spot_book_*",
                 [](std::string_view f) {
                     static LevelBuffer<WireScaledLevel> levels;
                     (void)parse_event(f);
@@ -38,7 +33,7 @@ TEST(Malformed, Phemex) {
                     (void)parse_event(f);
                     (void)parse_scaled_book(f, levels);
                 }},
-               {"ws_real_trades.json",
+               {"ws_real_trades*",
                 [](std::string_view f) {
                     static PrintBuffer<WireRealPrint> prints;
                     (void)parse_event(f);
@@ -53,9 +48,10 @@ TEST(Malformed, Phemex) {
                {"ws_inverse_trades.json",
                 [](std::string_view f) {
                     static PrintBuffer<WireScaledPrint> prints;
+                    (void)parse_event(f);
                     (void)parse_scaled_trades(f, prints);
                 }},
-               {"ws_perp_pack_snapshot.json",
+               {"ws_perp_pack_*",
                 [](std::string_view f) {
                     static PackColumns columns;
                     static PackBuffer rows;

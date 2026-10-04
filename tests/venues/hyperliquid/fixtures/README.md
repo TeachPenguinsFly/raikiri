@@ -21,8 +21,9 @@ Every read is a POST to `/info` with a JSON body naming the request type.
 | `rest_meta_dex_xyz.json`, `rest_meta_dex_flx.json` | `{"type":"meta","dex":"xyz"}` and `"dex":"flx"` |
 | `rest_meta_and_asset_ctxs_dex_xyz.json` | `{"type":"metaAndAssetCtxs","dex":"xyz"}` |
 | `rest_meta_dex_xyz_live.json`, `rest_meta_dex_io_live.json`, `rest_meta_dex_mkts_live.json`, `rest_meta_dex_para_live.json` | `{"type":"meta","dex":…}` for `xyz`, `io`, `mkts` and `para` |
+| `rest_meta_and_asset_ctxs_dex_io_live.json`, `rest_meta_and_asset_ctxs_dex_para_live.json` | `{"type":"metaAndAssetCtxs","dex":…}` for `io` and `para`, whole responses captured 2026-10-04 15:10 UTC |
 
-The builder-dex files (`*dex*`, `rest_perp_*`) have no recorded capture date;
+The other builder-dex files (`*dex*`, `rest_perp_*`) have no recorded capture date;
 `rest_meta_dex_para_live.json` carries a stamp from 2026-09-23.
 
 ## REST, account reads on `POST /info`

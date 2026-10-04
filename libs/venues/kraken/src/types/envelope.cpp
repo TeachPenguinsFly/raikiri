@@ -145,6 +145,14 @@ std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj, std:
 }
 
 std::expected<std::uint64_t, WireError> parse_iso8601_ms(std::string_view text) {
+    const auto ns = parse_iso8601_ns(text);
+    if (!ns.has_value()) {
+        return std::unexpected(ns.error());
+    }
+    return *ns / 1'000'000ULL;
+}
+
+std::expected<std::uint64_t, WireError> parse_iso8601_ns(std::string_view text) {
     constexpr std::size_t k_seconds_len = 19;
     if (text.size() < k_seconds_len) {
         return std::unexpected(WireError::WrongType);
@@ -166,18 +174,18 @@ std::expected<std::uint64_t, WireError> parse_iso8601_ms(std::string_view text) 
         return std::unexpected(WireError::WrongType);
     }
 
-    std::uint64_t millis = 0;
+    std::uint64_t nanos = 0;
     if (text.size() > k_seconds_len && text[k_seconds_len] == '.') {
-        std::uint32_t scale = 100;
+        std::uint32_t scale = 100'000'000;
         for (std::size_t i = k_seconds_len + 1; i < text.size(); ++i) {
             const char c = text[i];
             if (c < '0' || c > '9') {
                 break;
             }
             if (scale == 0) {
-                continue; // digits below millisecond resolution are dropped
+                continue;
             }
-            millis += static_cast<std::uint64_t>(c - '0') * scale;
+            nanos += static_cast<std::uint64_t>(c - '0') * scale;
             scale /= 10;
         }
     }
@@ -187,7 +195,7 @@ std::expected<std::uint64_t, WireError> parse_iso8601_ms(std::string_view text) 
     if (seconds < 0) {
         return std::unexpected(WireError::WrongType);
     }
-    return static_cast<std::uint64_t>(seconds) * 1000ULL + millis;
+    return static_cast<std::uint64_t>(seconds) * 1'000'000'000ULL + nanos;
 }
 
 std::expected<EventInfo, WireError> parse_event(std::string_view frame) {

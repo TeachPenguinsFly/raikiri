@@ -1,3 +1,4 @@
+#include <raikiri/venues/deribit/account.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/catalogue.hpp>
 #include <raikiri/venues/deribit/envelope.hpp>
@@ -17,18 +18,23 @@ using wire::malformed::hammer;
 TEST(Malformed, Deribit) {
     hammer("deribit",
            {
-               {"ws_book_bbo.json",
+               {"rest_transaction_log_*",
+                [](std::string_view f) {
+                    static LogBuffer storage;
+                    (void)parse_transaction_log(f, storage);
+                }},
+               {"ws_book_bbo*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_bbo(f);
                 }},
-               {"ws_book_snapshot.json",
+               {"ws_book_snapshot*",
                 [](std::string_view f) {
                     static LevelBuffer levels;
                     (void)parse_event(f);
                     (void)parse_book(f, levels);
                 }},
-               {"ws_book_change.json",
+               {"ws_book_change*",
                 [](std::string_view f) {
                     static LevelBuffer levels;
                     (void)parse_event(f);
@@ -40,13 +46,13 @@ TEST(Malformed, Deribit) {
                     (void)parse_event(f);
                     (void)parse_trades(f, trades);
                 }},
-               {"ws_ticker_perpetual.json",
+               {"ws_ticker_*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_ticker(f);
                 }},
                {"ws_heartbeat_test_request.json", [](std::string_view f) { (void)parse_event(f); }},
-               {"ws_subscribe_ack.json",
+               {"ws_subscribe_ack*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_response(f);
@@ -56,7 +62,7 @@ TEST(Malformed, Deribit) {
                     (void)parse_event(f);
                     (void)parse_response(f);
                 }},
-               {"ws_user_changes_partial_fill.json",
+               {"ws_user_changes_*",
                 [](std::string_view f) {
                     static OrderBuffer orders;
                     static UserTradeBuffer trades;
@@ -74,6 +80,11 @@ TEST(Malformed, Deribit) {
                     static OrderBuffer orders;
                     (void)parse_orders(f, orders);
                 }},
+               {"rest_order_state_*",
+                [](std::string_view f) {
+                    static OrderBuffer orders;
+                    (void)parse_orders(f, orders);
+                }},
                {"rest_positions.json",
                 [](std::string_view f) {
                     static PositionBuffer positions;
@@ -84,13 +95,13 @@ TEST(Malformed, Deribit) {
                     static UserTradeBuffer trades;
                     (void)parse_user_trades(f, trades);
                 }},
-               {"rest_private_buy_ack.json",
+               {"rest_private_buy*",
                 [](std::string_view f) {
                     static UserTradeBuffer trades;
                     (void)parse_response(f);
                     (void)parse_order_ack(f, trades);
                 }},
-               {"rest_error_unauthorized.json", [](std::string_view f) { (void)parse_response(f); }},
+               {"rest_error_*", [](std::string_view f) { (void)parse_response(f); }},
            });
 }
 

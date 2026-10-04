@@ -42,8 +42,9 @@ expect kucoin "--venue=kucoin --market=perp --feed=uta"
 expect kucoin-spot "--venue=kucoin --market=spot --channels=bbo,trades"
 expect bybit-spot "--venue=bybit --market=spot --channels=bbo,trades"
 expect binance-spot "--venue=binance --market=spot --channels=bbo,trades"
+expect kraken-spot "--venue=kraken --market=spot --channels=bbo,trades"
 expect hyperliquid-spot "--venue=hyperliquid --market=spot --channels=bbo,depth,funding"
-expect hyperliquid-hip3 "--venue=hyperliquid --market=perp --channels=bbo,depth,funding --feed=xyz,para,io,mkts"
+expect hyperliquid-hip3 "--venue=hyperliquid --market=perp --channels=bbo,trades,depth,funding --feed=xyz,para,io,mkts"
 expect deribit-opt "--venue=deribit --market=option"
 
 spots=$("$new" -c ". '$args' && spot_accounts_for 'binance bybit okx gate kucoin'")

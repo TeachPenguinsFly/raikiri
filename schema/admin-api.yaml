@@ -24,6 +24,7 @@ tags:
   - name: analytics
   - name: live
   - name: cache
+  - name: execution
 
 paths:
   /v1/health:
@@ -37,6 +38,25 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
+
+  /v1/venues/metrics:
+    get:
+      tags: [system]
+      summary: Each gateway's venue clock and feed health
+      description: |
+        One row per gateway, read from its segment. The clock is measured at start
+        and then hourly, as the shortest of five round trips to the venue's own
+        server-time method. A venue without one says `none` and its lag is only on
+        the local clock. Feed figures cover the gateway's rolling minute.
+      operationId: listVenueMetrics
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VenueMetrics" }
 
   /v1/accounts:
     get:
@@ -506,6 +526,184 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/joe/parents:
+    get:
+      tags: [execution]
+      summary: Parent orders joe is working or has worked, newest first
+      description: |
+        joe runs inside strategyd (`--joe <strategy id>`) and admind forwards
+        `/v1/joe/` to the upstream named `strategyd`. Parents live in memory and a
+        restart forgets them; their children are ordinary orders in the journal.
+      operationId: listParentOrders
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ParentOrder" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+    post:
+      tags: [execution]
+      summary: Start a parent order
+      description: |
+        joe slices the parent in time (`twap`, `vwap`, `pov`) or sends it at once
+        (`sor`), and routes each slice across the venues that list the symbol and
+        take orders, by price after the taker fee. Children are IOC limits and each
+        one passes strategyd's risk gate under joe's strategy id.
+      operationId: startParentOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewParentOrder" }
+      responses:
+        "201":
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { $ref: "#/components/schemas/ParentId" }
+        "400":
+          description: The body is not a parent order
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: The parent cannot run as given
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/joe/parents/{id}:
+    get:
+      tags: [execution]
+      summary: One parent order with its child orders
+      operationId: getParentOrder
+      parameters:
+        - { $ref: "#/components/parameters/ParentId" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParentOrder" }
+        "404":
+          description: No such parent order
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/joe/parents/{id}/cancel:
+    post:
+      tags: [execution]
+      summary: Cancel a parent order and its working children
+      operationId: cancelParentOrder
+      parameters:
+        - { $ref: "#/components/parameters/ParentId" }
+      responses:
+        "200":
+          description: The parent after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParentOrder" }
+        "404":
+          description: No such parent order
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: The parent is not in a state for that
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/joe/parents/{id}/pause:
+    post:
+      tags: [execution]
+      summary: Pause a parent order and cancel its working children
+      operationId: pauseParentOrder
+      parameters:
+        - { $ref: "#/components/parameters/ParentId" }
+      responses:
+        "200":
+          description: The parent after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParentOrder" }
+        "404":
+          description: No such parent order
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: The parent is not in a state for that
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/joe/parents/{id}/resume:
+    post:
+      tags: [execution]
+      summary: Resume a paused parent order
+      operationId: resumeParentOrder
+      parameters:
+        - { $ref: "#/components/parameters/ParentId" }
+      responses:
+        "200":
+          description: The parent after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParentOrder" }
+        "404":
+          description: No such parent order
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: The parent is not in a state for that
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/recon-breaks:
     get:
       tags: [analytics]
@@ -590,6 +788,11 @@ components:
       in: path
       required: true
       schema: { $ref: "#/components/schemas/InstrumentId" }
+    ParentId:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/ParentId" }
     ClientOrderId:
       name: client_order_id
       in: path
@@ -810,12 +1013,13 @@ components:
             funding_received: { type: integer }
         rates:
           type: object
-          required: [messages_per_second, window_s, venue_refusals, budget_denials, rest_limits,
+          required: [messages_per_second, window_s, venue_refusals, broken_frames, budget_denials, rest_limits,
                      rest_endpoints]
           properties:
             messages_per_second: { type: number }
             window_s: { type: integer }
             venue_refusals: { type: integer, description: Subscriptions the venue refused, where the adapter counts them. }
+            broken_frames: { type: integer, description: Malformed frames dropped since start. }
             budget_denials: { type: integer }
             rest_limits:
               type: array
@@ -846,22 +1050,23 @@ components:
     VenueClock:
       description: |
         The venue's clock minus ours; a venue stamp converts as
-        `ts_event - offset_ns`. `rest_probe` uses the minimum-round-trip probe of the
-        last eight against `endpoint`, and `uncertainty_ns` is half that round trip
-        plus half the stamp's resolution. `feed_bound` is for a venue with no time
-        endpoint: the smallest `ts_init - ts_event` over the last 30-60 s, negated,
-        a lower bound. `none` until either has a sample.
+        `ts_event - offset_ns`. `rest_probe` is the shortest of five round trips to
+        the venue's server-time method, taken at start and then hourly, and
+        `uncertainty_ns` is half that round trip plus half the stamp's resolution.
+        `none` for a venue without such a method, or until one has answered.
       type: object
       required: [venue, method, endpoint, offset_ns, uncertainty_ns, rtt_ns, sampled_ns, samples]
       properties:
         venue: { type: string }
-        method: { type: string, enum: [rest_probe, feed_bound, none] }
+        method: { type: string, enum: [rest_probe, none] }
         endpoint: { type: string }
         offset_ns: { type: integer }
         uncertainty_ns: { type: integer }
         rtt_ns: { type: integer }
         sampled_ns: { $ref: "#/components/schemas/Nanos" }
         samples: { type: integer }
+        drift_ns: { type: integer }
+        drift_over_ns: { type: integer }
 
     LatencySeries:
       description: |
@@ -959,6 +1164,96 @@ components:
           type: integer
           description: |
             Subscriptions the venue explicitly refused.
+
+    MeasuredClock:
+      type: object
+      required: [method, endpoint, probe_failures]
+      properties:
+        method:
+          type: string
+          enum: [rest_probe, none]
+        endpoint:
+          type: string
+          description: Host and path of the server-time request; empty when there is none.
+        offset_ns:
+          type: integer
+          description: Venue clock minus the local clock.
+        rtt_ns:
+          type: integer
+          description: Round trip of the sample the offset came from.
+        uncertainty_ns:
+          type: integer
+          description: |
+            Half the round trip plus half the venue's stamp resolution
+            (0.5 ms for a venue that answers in milliseconds).
+        measured_at: { $ref: "#/components/schemas/Nanos" }
+        measured_ago_ns:
+          type: integer
+        drift_ns:
+          type: integer
+          description: How far the offset moved since the measurement before.
+        drift_over_ns:
+          type: integer
+          description: Time between those two measurements.
+        probe_failures:
+          type: integer
+          description: Bursts in which no request answered.
+
+    ChannelFeed:
+      type: object
+      required: [channel, messages, window_ns, msgs_per_s, lag_samples]
+      properties:
+        channel:
+          type: string
+          enum: [bbo, trades, depth, funding]
+        messages:
+          type: integer
+        window_ns:
+          type: integer
+          description: How much of the last minute the counts cover.
+        msgs_per_s:
+          type: integer
+        lag_samples:
+          type: integer
+          description: Messages that carried a venue timestamp.
+        lag_p50_ns:
+          type: integer
+          description: Receive time minus the venue's event time, both as stamped.
+        lag_p99_ns:
+          type: integer
+        lag_p50_corrected_ns:
+          type: integer
+          description: The same with the venue's clock offset taken out; absent without a clock.
+        lag_p99_corrected_ns:
+          type: integer
+        last_message_age_ns:
+          type: integer
+
+    VenueMetrics:
+      type: object
+      required: [account, venue, market, alive, clock, catalogue, priced, reopens, channels]
+      properties:
+        account:
+          type: string
+        venue:
+          type: string
+        market:
+          type: string
+        alive:
+          type: boolean
+        published_at: { $ref: "#/components/schemas/Nanos" }
+        clock: { $ref: "#/components/schemas/MeasuredClock" }
+        catalogue:
+          type: integer
+        priced:
+          type: integer
+          description: Instruments quoted within the last minute.
+        reopens:
+          type: integer
+          description: Socket reopens since the gateway started.
+        channels:
+          type: array
+          items: { $ref: "#/components/schemas/ChannelFeed" }
 
     Health:
       type: object
@@ -1142,6 +1437,123 @@ components:
             The same window in the quote currency, which for a coin-margined contract
             is not dollars. Rank cross-venue boards on this column.
         ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    ParentId:
+      type: string
+      pattern: '^\d+$'
+
+    NewParentOrder:
+      type: object
+      required: [symbol, side]
+      properties:
+        symbol:
+          type: string
+          description: The venue-neutral symbol, as the catalogue's `local_symbol`.
+          examples: ["BTC/USDT"]
+        market: { type: string, enum: [perp, spot], default: perp }
+        side: { $ref: "#/components/schemas/Side" }
+        qty:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the base asset. Give this or `notional`.
+        notional:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the quote asset, turned into a quantity at the arrival mid.
+        limit:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: No child trades through it.
+        algo: { type: string, enum: [sor, twap, vwap, pov], default: twap }
+        horizon_s: { type: integer, minimum: 0, maximum: 604800, default: 0 }
+        slices: { type: integer, minimum: 1, maximum: 10000, default: 1 }
+        jitter_bp:
+          type: integer
+          minimum: 0
+          maximum: 5000
+          default: 0
+          description: Each slice moves by up to this share of its interval.
+        catchup_pct:
+          type: integer
+          minimum: 0
+          default: 200
+          description: How far past its planned size a slice may go to make up a shortfall.
+        profile:
+          type: string
+          enum: [flat, u, recorded]
+          default: flat
+          description: The volume curve `vwap` slices by.
+        pov_bp:
+          type: integer
+          minimum: 0
+          maximum: 5000
+          default: 0
+          description: For `pov`, the share of market volume to trade.
+        max_child_notional:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The most one child may be worth; 20 by default, as the risk gate's order limit.
+
+    ParentOrder:
+      type: object
+      required: [id, symbol, market, side, algo, profile, status, qty, filled, working, fees, horizon_s,
+                 slices, slices_fired, pov_bp, created, child_count]
+      properties:
+        id: { $ref: "#/components/schemas/ParentId" }
+        symbol: { type: string }
+        market: { type: string, enum: [perp, spot] }
+        side: { $ref: "#/components/schemas/Side" }
+        algo: { type: string, enum: [sor, twap, vwap, pov] }
+        profile: { type: string, enum: [flat, u, recorded] }
+        status: { type: string, enum: [pending, working, paused, done, cancelled, failed] }
+        reason: { type: string, description: Why it failed. }
+        qty:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The target in the base asset; zero until it starts.
+        filled: { $ref: "#/components/schemas/Decimal" }
+        working:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Sent and not yet filled or closed.
+        limit: { $ref: "#/components/schemas/Decimal" }
+        arrival:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The best mid across venues when it started.
+        avg_price: { $ref: "#/components/schemas/Decimal" }
+        market_vwap:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Every venue's trades in the symbol while it worked.
+        slippage_arrival_bp:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Positive is a cost against the arrival mid.
+        slippage_vwap_bp:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Positive is a cost against the market VWAP.
+        fees: { $ref: "#/components/schemas/Decimal" }
+        horizon_s: { type: integer }
+        slices: { type: integer }
+        slices_fired: { type: integer }
+        pov_bp: { type: integer }
+        created: { $ref: "#/components/schemas/Nanos" }
+        started: { $ref: "#/components/schemas/Nanos" }
+        ended: { $ref: "#/components/schemas/Nanos" }
+        child_count: { type: integer }
+        children:
+          type: array
+          description: Only on `GET /v1/joe/parents/{id}`.
+          items: { $ref: "#/components/schemas/ChildOrder" }
+
+    ChildOrder:
+      type: object
+      required: [client_order_id, instrument_id, venue, qty, limit, filled, fees, sent, open]
+      properties:
+        client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        venue: { type: string }
+        qty:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the base asset.
+        limit: { $ref: "#/components/schemas/Decimal" }
+        filled: { $ref: "#/components/schemas/Decimal" }
+        avg_price: { $ref: "#/components/schemas/Decimal" }
+        fees: { $ref: "#/components/schemas/Decimal" }
+        sent: { $ref: "#/components/schemas/Nanos" }
+        open: { type: boolean }
 
     NewOrder:
       type: object

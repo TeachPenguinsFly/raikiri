@@ -37,6 +37,9 @@ public:
     [[nodiscard]] std::vector<Account> accounts(MonoNanos now, UnixNanos wall) const;
     [[nodiscard]] Health health(MonoNanos now, UnixNanos wall) const;
 
+    // clock and feed figures each gateway publishes in its segment
+    [[nodiscard]] std::vector<VenueMetrics> venue_metrics(MonoNanos now, UnixNanos wall) const;
+
     // the catalogue of one gateway, or of all when `account` is empty
     [[nodiscard]] std::vector<Instrument> instruments(std::string_view account, std::optional<MarketType> market) const;
 

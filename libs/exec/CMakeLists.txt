@@ -5,6 +5,7 @@ add_library(raikiri_exec STATIC
   src/order_gate.cpp
   src/rate_budget.cpp
   src/venue.cpp
+  src/venue_clock.cpp
 )
 add_library(raikiri::exec ALIAS raikiri_exec)
 

@@ -23,7 +23,7 @@ TEST(Malformed, Apex) {
                     (void)parse_topic(f);
                     (void)parse_orderbook(f, storage);
                 }},
-               {"ws_orderbook_delta.json",
+               {"ws_orderbook_delta*",
                 [](std::string_view f) {
                     static OrderbookBuffer storage;
                     (void)parse_topic(f);
@@ -46,12 +46,12 @@ TEST(Malformed, Apex) {
                     (void)parse_topic(f);
                     (void)parse_ticker(f);
                 }},
-               {"ws_ticker_delta_mark.json",
+               {"ws_ticker_delta*",
                 [](std::string_view f) {
                     (void)parse_topic(f);
                     (void)parse_ticker(f);
                 }},
-               {"ws_refused.json",
+               {"ws_refused*",
                 [](std::string_view f) {
                     static AckBuffer storage;
                     (void)parse_topic(f);

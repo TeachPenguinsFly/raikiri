@@ -60,6 +60,7 @@ public:
     [[nodiscard]] std::uint64_t connect(std::uint64_t now_ns) noexcept;
     // how many of `wanted` subscriptions the ip still has room for; those are claimed
     [[nodiscard]] std::size_t claim_channels(std::size_t wanted) noexcept;
+    [[nodiscard]] std::size_t channels_claimed() const noexcept;
 
 private:
     std::vector<std::unique_ptr<Meter>> messages_;

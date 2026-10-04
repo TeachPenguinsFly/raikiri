@@ -127,6 +127,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-void sync_clock(VenueState& state, net::RestClient& rest);
-
 } // namespace raikiri::venues::okx::internal

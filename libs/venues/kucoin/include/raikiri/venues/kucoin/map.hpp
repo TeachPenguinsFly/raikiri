@@ -1,6 +1,7 @@
 #pragma once
 
 #include <raikiri/domain/balance.hpp>
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
@@ -14,6 +15,9 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <unordered_set>
+#include <vector>
 
 namespace raikiri::venues::kucoin {
 
@@ -62,6 +66,17 @@ map_order_change(const WireOrderChange& wire, const exec::InstrumentTable& table
 // avg_entry kept only when it lands on a tick
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
+
+// nullopt for an unknown symbol, an unreadable amount, or a currency the contract does not settle in
+[[nodiscard]] std::optional<LedgerEntry>
+map_funding_charge(const WireFundingCharge& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// appends the rows whose id is not in `seen`; false when the page brought no new id
+[[nodiscard]] bool collect_funding_page(std::span<const WireFundingCharge> rows,
+                                        const exec::InstrumentTable& table,
+                                        UnixNanos ts_init,
+                                        std::unordered_set<std::uint64_t>& seen,
+                                        std::vector<LedgerEntry>& out);
 
 // total is marginBalance, which excludes unrealised pnl; ts_init stands in for the missing venue time
 [[nodiscard]] std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire, UnixNanos ts_init);

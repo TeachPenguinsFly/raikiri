@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -16,7 +18,7 @@
 namespace raikiri::introspect {
 
 // sign: server minus local; feed delay is ts_init - ts_event + offset
-enum class ClockMethod : std::uint8_t { None, RestProbe, FeedBound };
+enum class ClockMethod : std::uint8_t { None, RestProbe };
 
 [[nodiscard]] std::string_view to_string(ClockMethod method) noexcept;
 
@@ -32,56 +34,16 @@ struct ClockEstimate {
     std::int64_t offset_ns{0};
     std::uint64_t uncertainty_ns{0};
     std::uint64_t rtt_ns{0};
+    std::uint64_t resolution_ns{0};
     std::uint64_t sampled_ns{0};
     std::uint64_t samples{0};
+    // offset change since the previous measurement, and the time between the two
+    std::int64_t drift_ns{0};
+    std::uint64_t drift_over_ns{0};
 };
 
-// ntp clock filter: trust the shortest round trip of the last k_window probes
-class OffsetEstimator {
-public:
-    static constexpr std::size_t k_window = 8;
-
-    bool add(const OffsetSample& sample) noexcept;
-    [[nodiscard]] ClockEstimate estimate() const noexcept;
-
-private:
-    struct Kept {
-        std::int64_t offset_ns{0};
-        std::uint64_t rtt_ns{0};
-        std::uint64_t resolution_ns{0};
-        std::uint64_t sampled_ns{0};
-    };
-
-    std::array<Kept, k_window> ring_{};
-    std::size_t next_{0};
-    std::size_t size_{0};
-    std::uint64_t samples_{0};
-};
-
-// for a venue with no time endpoint; the smallest ts_init - ts_event bounds the offset from below
-class FeedBound {
-public:
-    static constexpr std::int64_t k_plausible_ns = 3'600'000'000'000LL;
-
-    void add(std::int64_t init_minus_event_ns) noexcept {
-        if (init_minus_event_ns > -k_plausible_ns && init_minus_event_ns < k_plausible_ns &&
-            init_minus_event_ns < current_) {
-            current_ = init_minus_event_ns;
-        }
-    }
-
-    void rotate() noexcept {
-        previous_ = current_;
-        current_ = k_none;
-    }
-
-    [[nodiscard]] ClockEstimate estimate(std::uint64_t now_ns) const noexcept;
-
-private:
-    static constexpr std::int64_t k_none = k_plausible_ns;
-    std::int64_t current_{k_none};
-    std::int64_t previous_{k_none};
-};
+// the sample with the shortest round trip; backwards or unstamped samples do not count
+[[nodiscard]] std::optional<ClockEstimate> best_of_burst(std::span<const OffsetSample> burst) noexcept;
 
 // cumulative bucket upper bounds: five a decade, 1 us to 10 s
 inline constexpr std::array<std::uint64_t, 36> k_bucket_bounds_ns = [] {
@@ -127,6 +89,8 @@ struct ClockStats {
     std::uint64_t rtt_ns{0};
     std::uint64_t sampled_ns{0};
     std::uint64_t samples{0};
+    std::int64_t drift_ns{0};
+    std::uint64_t drift_over_ns{0};
 };
 
 [[nodiscard]] ClockStats clock_stats(std::string venue, std::string endpoint, const ClockEstimate& estimate);

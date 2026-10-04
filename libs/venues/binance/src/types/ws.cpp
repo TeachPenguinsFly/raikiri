@@ -14,6 +14,21 @@ namespace {
 }
 
 [[nodiscard]] std::string_view suffix_for(exec::SubKind kind, MarketType market) noexcept {
+    if (market == MarketType::Option) {
+        switch (kind) {
+        case exec::SubKind::Bbo:
+            return k_bbo_stream;
+        case exec::SubKind::Trades:
+            return k_option_trade_stream;
+        case exec::SubKind::Funding:
+        case exec::SubKind::MarkPrice:
+            return k_option_mark_stream;
+        case exec::SubKind::Depth:
+        case exec::SubKind::Kline:
+            return {};
+        }
+        return {};
+    }
     if (market == MarketType::Spot && kind == exec::SubKind::Depth) {
         return k_spot_depth_stream;
     }
@@ -54,8 +69,11 @@ std::string_view stream_host(bool testnet, MarketType market) noexcept {
     return ep::stream_host(testnet, market);
 }
 
-std::string_view stream_path(exec::SubKind kind) noexcept {
-    return kind == exec::SubKind::MarkPrice || kind == exec::SubKind::Funding ? ep::k_ws_market : ep::k_ws_combined;
+std::string_view stream_path(exec::SubKind kind, MarketType market) noexcept {
+    if (kind == exec::SubKind::MarkPrice || kind == exec::SubKind::Funding) {
+        return ep::k_ws_market;
+    }
+    return market == MarketType::Option ? ep::k_ws_public : ep::k_ws_combined;
 }
 
 std::string_view
@@ -64,13 +82,21 @@ stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char
     if (suffix.empty() || exchange_symbol.empty()) {
         return {};
     }
-    if (exchange_symbol.size() + suffix.size() > out.size()) {
+    // every option underlying is quoted in usdt
+    std::string_view quote;
+    if (market == MarketType::Option && kind != exec::SubKind::Bbo) {
+        exchange_symbol = exchange_symbol.substr(0, exchange_symbol.find('-'));
+        quote = "usdt";
+    }
+    if (exchange_symbol.size() + quote.size() + suffix.size() > out.size()) {
         return {};
     }
     std::size_t len = 0;
     for (const char c : exchange_symbol) {
         out[len++] = lower(c);
     }
+    quote.copy(out.data() + len, quote.size());
+    len += quote.size();
     std::memcpy(out.data() + len, suffix.data(), suffix.size());
     len += suffix.size();
     return {out.data(), len};

@@ -12,8 +12,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Binance)] = {
         .venue = VenueId::Binance,
-        // spot is market data only
-        .markets = {.spot = true, .perp = true},
+        // spot and options are market data only
+        .markets = {.spot = true, .perp = true, .option = true},
         .ws_order_entry = true, // ws-fapi (futures) and ws-api (spot)
         .fix_order_entry = true,
         .cancel_by_client_order_id = true,
@@ -82,7 +82,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     };
     table[static_cast<std::size_t>(VenueId::Gate)] = {
         .venue = VenueId::Gate,
-        .markets = {.spot = true, .perp = true},
+        // options are market data only
+        .markets = {.spot = true, .perp = true, .option = true},
         .ws_order_entry = true, // futures.order_place and spot ws
         .fix_order_entry = false,
         .cancel_by_client_order_id = true, // "t-" prefixed label
@@ -120,8 +121,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // the spot fills endpoint needs a symbol
         .fill_pull = {.perp = true},
         .balance_pull = {.perp = true},
-        // funding-history requires `symbol`; the account-wide form is uta-only and unsigned
-        .funding_charge = {},
+        // funding-history is per symbol: asked for every symbol held now or closed since the cursor
+        .funding_charge = {.perp = true},
         // polled over rest: volumeOf24h / turnoverOf24h, spot allTickers vol / volValue
         .ticker_stats = true,
         .needs_passphrase = true,
@@ -232,10 +233,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .amend_order = true,
         .native_post_only = true,
-        // spot is refused at the builder; balances and funding charges are not implemented
+        // spot is refused at the builder; balances are not implemented
         .position_pull = {.perp = true, .future = true, .option = true},
         .order_pull = {.perp = true, .future = true, .option = true},
         .fill_pull = {.perp = true, .future = true, .option = true},
+        // transaction-log settlement rows: total_interest_pl is the session's funding, in the settlement coin
+        .funding_charge = {.perp = true},
         .ticker_stats = true, // stats.volume (base) / stats.volume_usd (quote)
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 64, // `label`
@@ -281,8 +284,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     };
     table[static_cast<std::size_t>(VenueId::Kraken)] = {
         .venue = VenueId::Kraken,
-        // kraken futures api only; spot is another host, symbology and signature
-        .markets = {.spot = false, .perp = true},
+        // spot is market data only
+        .markets = {.spot = true, .perp = true},
         .ws_order_entry = false,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,

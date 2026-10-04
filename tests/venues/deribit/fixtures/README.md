@@ -55,3 +55,15 @@ values on the tick and lot sizes `rest_get_instruments.json` publishes.
 | `ws_user_changes_partial_fill.json` | constructed `user.changes.future.BTC.raw` with one trade and its order |
 | `ws_user_changes_accept.json` | constructed `user.changes.option.BTC.raw` with a resting order and no trades |
 | `ws_user_changes_market_price.json` | constructed: an `untriggered` stop whose `price` is the string `"market_price"` |
+
+## Funding, `GET /api/v2/private/get_transaction_log`
+
+No live capture either: there are no keys. The source is the
+`private/get_transaction_log` example in
+`docs.deribit.com/specifications/deribit_openapi.json`, read 2026-10-04.
+
+| file | source |
+| --- | --- |
+| `rest_transaction_log_settlements.json` | the example's `settlement` entry on `BTC-PERPETUAL` (id 61311) and its `continuation`, verbatim, with the other entries left out as `query=settlement` would |
+| `rest_transaction_log_last.json` | assembled last page (`continuation` null): the same entry again, as overlapping pages return it, a paid `BTC-PERPETUAL` settlement and a `BTC-25SEP26` settlement with no funding, both written by hand |
+| `rest_transaction_log_usdc.json` | constructed: a `currency=USDC` log with one `BTC_USDC-PERPETUAL` settlement, in the example's shape |

@@ -4,6 +4,7 @@ add_library(raikiri_venue_deribit STATIC
   src/frames.cpp
   src/instruments.cpp
   src/sign.cpp
+  src/types/account.cpp
   src/types/book.cpp
   src/types/catalogue.cpp
   src/types/envelope.cpp

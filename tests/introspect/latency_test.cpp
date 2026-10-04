@@ -1,11 +1,13 @@
 #include <raikiri/introspect/clock_probe.hpp>
+#include <raikiri/introspect/feed_window.hpp>
 #include <raikiri/introspect/latency.hpp>
 #include <raikiri/introspect/routes.hpp>
-#include <raikiri/introspect/server_time.hpp>
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <deque>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -16,64 +18,176 @@ namespace {
 constexpr std::uint64_t k_ms = 1'000'000;
 constexpr std::uint64_t k_s = 1'000'000'000;
 
-TEST(OffsetEstimator, KeepsTheShortestRoundTrip) {
-    OffsetEstimator est;
-    EXPECT_EQ(est.estimate().method, ClockMethod::None);
+TEST(BestOfBurst, TakesTheShortestRoundTrip) {
+    EXPECT_FALSE(best_of_burst({}).has_value());
     // server 5 ms ahead; the slow probe's asymmetric queueing skews it
-    EXPECT_TRUE(
-        est.add({.sent_ns = 1000 * k_ms, .received_ns = 1100 * k_ms, .server_ns = 1090 * k_ms, .resolution_ns = 0}));
-    EXPECT_TRUE(
-        est.add({.sent_ns = 2000 * k_ms, .received_ns = 2010 * k_ms, .server_ns = 2010 * k_ms, .resolution_ns = 0}));
-    const auto e = est.estimate();
-    EXPECT_EQ(e.method, ClockMethod::RestProbe);
-    EXPECT_EQ(e.offset_ns, static_cast<std::int64_t>(5 * k_ms));
-    EXPECT_EQ(e.rtt_ns, 10 * k_ms);
-    EXPECT_EQ(e.uncertainty_ns, 5 * k_ms);
-    EXPECT_EQ(e.samples, 2U);
+    const std::vector<OffsetSample> burst{
+        {.sent_ns = 1000 * k_ms, .received_ns = 1100 * k_ms, .server_ns = 1090 * k_ms, .resolution_ns = 0},
+        {.sent_ns = 2000 * k_ms, .received_ns = 2010 * k_ms, .server_ns = 2010 * k_ms, .resolution_ns = 0},
+        {.sent_ns = 3000 * k_ms, .received_ns = 3040 * k_ms, .server_ns = 3000 * k_ms, .resolution_ns = 0}};
+    const auto e = best_of_burst(burst);
+    ASSERT_TRUE(e.has_value());
+    EXPECT_EQ(e->method, ClockMethod::RestProbe);
+    EXPECT_EQ(e->offset_ns, static_cast<std::int64_t>(5 * k_ms));
+    EXPECT_EQ(e->rtt_ns, 10 * k_ms);
+    EXPECT_EQ(e->uncertainty_ns, 5 * k_ms);
+    EXPECT_EQ(e->sampled_ns, 2010 * k_ms);
+    EXPECT_EQ(e->samples, 3U);
 }
 
-TEST(OffsetEstimator, ChargesHalfTheStampResolution) {
-    OffsetEstimator est;
-    ASSERT_TRUE(
-        est.add({.sent_ns = 100 * k_ms, .received_ns = 104 * k_ms, .server_ns = 99 * k_ms, .resolution_ns = k_ms}));
-    const auto e = est.estimate();
-    EXPECT_EQ(e.offset_ns, -static_cast<std::int64_t>(2'500'000));
-    EXPECT_EQ(e.uncertainty_ns, 2'500'000U);
+TEST(BestOfBurst, ANegativeOffsetAndHalfTheStampResolution) {
+    // the venue is behind: it stamps 99 ms at a 102 ms midpoint, and a ms stamp means up to 1 ms more
+    const std::vector<OffsetSample> burst{
+        {.sent_ns = 100 * k_ms, .received_ns = 104 * k_ms, .server_ns = 99 * k_ms, .resolution_ns = k_ms}};
+    const auto e = best_of_burst(burst);
+    ASSERT_TRUE(e.has_value());
+    EXPECT_EQ(e->offset_ns, -static_cast<std::int64_t>(2'500'000));
+    EXPECT_EQ(e->uncertainty_ns, 2'500'000U);
+    EXPECT_EQ(e->resolution_ns, k_ms);
 }
 
-TEST(OffsetEstimator, RefusesABackwardsSample) {
-    OffsetEstimator est;
-    EXPECT_FALSE(est.add({.sent_ns = 10, .received_ns = 5, .server_ns = 7, .resolution_ns = 0}));
-    EXPECT_EQ(est.estimate().method, ClockMethod::None);
+TEST(BestOfBurst, SkipsBackwardsAndUnstampedSamples) {
+    const std::vector<OffsetSample> burst{{.sent_ns = 10, .received_ns = 5, .server_ns = 7, .resolution_ns = 0},
+                                          {.sent_ns = 10, .received_ns = 11, .server_ns = 0, .resolution_ns = 0}};
+    EXPECT_FALSE(best_of_burst(burst).has_value());
 }
 
-TEST(OffsetEstimator, ForgetsOutsideTheWindow) {
-    OffsetEstimator est;
-    (void)est.add({.sent_ns = 0, .received_ns = k_ms, .server_ns = 1, .resolution_ns = 0});
-    for (std::uint64_t i = 1; i <= OffsetEstimator::k_window; ++i) {
-        (void)est.add({.sent_ns = i * k_s,
-                       .received_ns = i * k_s + 20 * k_ms,
-                       .server_ns = i * k_s + 10 * k_ms,
-                       .resolution_ns = 0});
+class ScriptedSource final : public ServerTimeSource {
+public:
+    std::deque<std::optional<OffsetSample>> answers;
+    int reads{0};
+
+    [[nodiscard]] std::string endpoint() const override { return "test/time"; }
+
+    [[nodiscard]] std::optional<OffsetSample> read() override {
+        ++reads;
+        if (answers.empty()) {
+            return std::nullopt;
+        }
+        auto next = answers.front();
+        answers.pop_front();
+        return next;
     }
-    EXPECT_EQ(est.estimate().rtt_ns, 20 * k_ms);
-    EXPECT_EQ(est.estimate().offset_ns, 0);
+};
+
+TEST(ClockSync, BurstsAtStartThenHourlyAndReportsDrift) {
+    ScriptedSource source;
+    const auto sample = [](std::uint64_t at, std::uint64_t rtt, std::int64_t offset) {
+        return OffsetSample{.sent_ns = at,
+                            .received_ns = at + rtt,
+                            .server_ns = static_cast<std::uint64_t>(static_cast<std::int64_t>(at + rtt / 2) + offset),
+                            .resolution_ns = 0};
+    };
+    source.answers = {sample(k_s, 40 * k_ms, 0),
+                      std::nullopt,
+                      sample(2 * k_s, 8 * k_ms, 3 * static_cast<std::int64_t>(k_ms)),
+                      sample(3 * k_s, 30 * k_ms, 0),
+                      sample(4 * k_s, 9 * k_ms, 0)};
+    std::uint64_t now = 0;
+    int pauses = 0;
+    ClockSync sync{source,
+                   [&] { return now; },
+                   [] { return true; },
+                   [&](std::uint64_t) {
+                       ++pauses;
+                       return true;
+                   }};
+    EXPECT_EQ(sync.estimate().method, ClockMethod::None);
+    EXPECT_EQ(sync.tick(), ProbeSchedule{}.period_ns);
+    EXPECT_EQ(source.reads, 5);
+    EXPECT_EQ(pauses, 4);
+    EXPECT_EQ(sync.estimate().offset_ns, static_cast<std::int64_t>(3 * k_ms));
+    EXPECT_EQ(sync.estimate().rtt_ns, 8 * k_ms);
+    EXPECT_EQ(sync.estimate().samples, 4U);
+    EXPECT_EQ(sync.estimate().drift_ns, 0);
+
+    now = 10 * k_s;
+    EXPECT_EQ(sync.tick(), ProbeSchedule{}.period_ns);
+    EXPECT_EQ(source.reads, 5);
+
+    now = ProbeSchedule{}.period_ns;
+    source.answers = {sample(now, 6 * k_ms, -static_cast<std::int64_t>(k_ms))};
+    EXPECT_EQ(sync.tick(), 2 * ProbeSchedule{}.period_ns);
+    EXPECT_EQ(sync.estimate().offset_ns, -static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(sync.estimate().drift_ns, -4 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(sync.estimate().drift_over_ns, now + 6 * k_ms - (2 * k_s + 8 * k_ms));
 }
 
-TEST(FeedBound, SmallestDifferenceBoundsTheOffset) {
-    FeedBound bound;
-    EXPECT_EQ(bound.estimate(1).method, ClockMethod::None);
-    bound.add(static_cast<std::int64_t>(30 * k_ms));
-    bound.add(static_cast<std::int64_t>(12 * k_ms));
-    bound.rotate();
-    bound.add(static_cast<std::int64_t>(20 * k_ms));
-    auto e = bound.estimate(5);
-    EXPECT_EQ(e.method, ClockMethod::FeedBound);
-    EXPECT_EQ(e.offset_ns, -static_cast<std::int64_t>(12 * k_ms));
-    bound.rotate();
-    EXPECT_EQ(bound.estimate(5).offset_ns, -static_cast<std::int64_t>(20 * k_ms));
-    bound.add(-static_cast<std::int64_t>(7200 * k_s));
-    EXPECT_EQ(bound.estimate(5).offset_ns, -static_cast<std::int64_t>(20 * k_ms));
+TEST(ClockSync, ASilentVenueIsRetriedAndHonoursTheBudget) {
+    ScriptedSource source;
+    std::uint64_t now = 0;
+    bool admit = false;
+    ClockSync sync{source, [&] { return now; }, [&] { return admit; }, [](std::uint64_t) { return true; }};
+    EXPECT_EQ(sync.tick(), ProbeSchedule{}.retry_ns);
+    EXPECT_EQ(source.reads, 0);
+    EXPECT_EQ(sync.failures(), 1U);
+    admit = true;
+    now = ProbeSchedule{}.retry_ns;
+    EXPECT_EQ(sync.tick(), 2 * ProbeSchedule{}.retry_ns);
+    EXPECT_EQ(source.reads, 5);
+    EXPECT_EQ(sync.estimate().method, ClockMethod::None);
+}
+
+TEST(ClockSync, StopsTheBurstWhenTheCallerStops) {
+    ScriptedSource source;
+    ClockSync sync{source, [] { return std::uint64_t{0}; }, [] { return true; }, [](std::uint64_t) { return false; }};
+    (void)sync.tick();
+    EXPECT_EQ(source.reads, 1);
+}
+
+TEST(LagHistogram, BucketsBothSignsAndReadsPercentiles) {
+    EXPECT_EQ(LagHistogram::index_of(0), LagHistogram::k_side);
+    EXPECT_EQ(LagHistogram::index_of(999), LagHistogram::k_side);
+    EXPECT_EQ(LagHistogram::index_of(-999), LagHistogram::k_side);
+    EXPECT_GT(LagHistogram::index_of(1000), LagHistogram::k_side);
+    EXPECT_LT(LagHistogram::index_of(-1000), LagHistogram::k_side);
+    EXPECT_EQ(LagHistogram::index_of(std::numeric_limits<std::int64_t>::max()), LagHistogram::k_buckets - 1);
+    EXPECT_EQ(LagHistogram::index_of(std::numeric_limits<std::int64_t>::min()), 0U);
+    for (const std::int64_t v : {1'500LL, 7'300LL, 1'000'000LL, 45'000'000LL, 3'000'000'000LL}) {
+        const auto mid = LagHistogram::middle_of(LagHistogram::index_of(v));
+        EXPECT_LE(std::abs(mid - v) * 8, v) << v;
+        EXPECT_EQ(LagHistogram::middle_of(LagHistogram::index_of(-v)), -mid);
+    }
+
+    LagHistogram h;
+    EXPECT_EQ(h.quantile(500), 0);
+    for (int i = 0; i < 98; ++i) {
+        h.record(static_cast<std::int64_t>(2 * k_ms));
+    }
+    h.record(-static_cast<std::int64_t>(3 * k_ms));
+    h.record(static_cast<std::int64_t>(400 * k_ms));
+    EXPECT_EQ(h.count(), 100U);
+    EXPECT_NEAR(static_cast<double>(h.quantile(500)), 2e6, 2e6 / 8);
+    EXPECT_NEAR(static_cast<double>(h.quantile(990)), 2e6, 2e6 / 8);
+    EXPECT_NEAR(static_cast<double>(h.quantile(1000)), 400e6, 400e6 / 8);
+    EXPECT_NEAR(static_cast<double>(h.quantile(1)), -3e6, 3e6 / 8);
+}
+
+TEST(FeedWindow, CountsAMinuteAndForgetsOlderSlices) {
+    FeedWindow window;
+    window.advance(k_s);
+    window.record(static_cast<std::int64_t>(5 * k_ms), 100);
+    window.count(200);
+    window.advance(11 * k_s);
+    window.record(-static_cast<std::int64_t>(1 * k_ms), 300);
+    auto s = window.summary(21 * k_s);
+    EXPECT_EQ(s.messages, 3U);
+    EXPECT_EQ(s.lag_samples, 2U);
+    EXPECT_EQ(s.window_ns, 20 * k_s);
+    EXPECT_EQ(s.last_recv_ns, 300U);
+    EXPECT_GT(s.lag_p99_ns, 0);
+    EXPECT_LT(s.lag_p50_ns, 0);
+
+    window.advance(61 * k_s);
+    s = window.summary(61 * k_s);
+    EXPECT_EQ(s.messages, 1U);
+    EXPECT_EQ(s.window_ns, 50 * k_s);
+
+    window.advance(200 * k_s);
+    s = window.summary(205 * k_s);
+    EXPECT_EQ(s.messages, 0U);
+    EXPECT_EQ(s.window_ns, 5 * k_s);
+    EXPECT_EQ(s.last_recv_ns, 300U);
 }
 
 TEST(LatencySeries, BucketsCountEverythingSinceStart) {
@@ -129,67 +243,6 @@ TEST(LatencyBook, FindsASeriesOnceAndRotatesOnTheSlice) {
     ASSERT_EQ(stats.size(), 2U);
     EXPECT_EQ(stats[0].count, 0U);
     EXPECT_EQ(stats[0].total, 1U);
-}
-
-class ScriptedSource final : public ServerTimeSource {
-public:
-    std::deque<std::optional<OffsetSample>> answers;
-    int reads{0};
-
-    [[nodiscard]] std::string endpoint() const override { return "test/time"; }
-
-    [[nodiscard]] std::optional<OffsetSample> read() override {
-        ++reads;
-        auto next = answers.front();
-        answers.pop_front();
-        return next;
-    }
-};
-
-TEST(ProbeClock, BurstsThenPacesAndHonoursTheBudget) {
-    ScriptedSource source;
-    for (int i = 0; i < 4; ++i) {
-        source.answers.push_back(OffsetSample{.sent_ns = 10, .received_ns = 30, .server_ns = 25, .resolution_ns = 0});
-    }
-    std::uint64_t now = 0;
-    bool admit = false;
-    ProbeClock probe{
-        source,
-        [&] { return now; },
-        [&] { return admit; },
-        [](std::uint64_t lo, std::uint64_t) { return lo; },
-        ProbeSchedule{.burst = 2, .burst_gap_ns = 1 * k_s, .period_min_ns = 30 * k_s, .period_max_ns = 60 * k_s}};
-    EXPECT_EQ(probe.tick(), 1 * k_s);
-    EXPECT_EQ(source.reads, 0);
-    admit = true;
-    now = 1 * k_s;
-    EXPECT_EQ(probe.tick(), 2 * k_s);
-    now = 2 * k_s;
-    EXPECT_EQ(probe.tick(), 32 * k_s);
-    now = 10 * k_s;
-    EXPECT_EQ(probe.tick(), 32 * k_s);
-    EXPECT_EQ(source.reads, 2);
-    EXPECT_EQ(probe.estimate().offset_ns, 5);
-}
-
-TEST(ServerTime, ParsesEachShape) {
-    EXPECT_EQ(parse_server_time(R"({"serverTime":1700000000123})", "serverTime", k_ms), 1700000000123ULL * k_ms);
-    EXPECT_EQ(parse_server_time(R"({"code":"0","data":[{"ts":"1700000000123"}],"msg":""})", "ts", k_ms),
-              1700000000123ULL * k_ms);
-    EXPECT_EQ(
-        parse_server_time(R"({"result":{"timeSecond":"1700000000","timeNano":"1700000000123456789"}})", "timeNano", 1),
-        1700000000123456789ULL);
-    EXPECT_EQ(parse_server_time(R"({"status":"ok","tss":1,"ts":1700000000123})", "ts", k_ms), 1700000000123ULL * k_ms);
-    EXPECT_EQ(parse_server_time("1700000000123", "", k_ms), 1700000000123ULL * k_ms);
-    EXPECT_FALSE(parse_server_time(R"({"msg":"busy"})", "serverTime", k_ms).has_value());
-    EXPECT_FALSE(parse_server_time(R"({"data":null})", "data", k_ms).has_value());
-}
-
-TEST(ServerTime, TableNamesMarketsBeforeTheDefault) {
-    EXPECT_EQ(time_endpoint("binance", "perp")->host, "fapi.binance.com");
-    EXPECT_EQ(time_endpoint("binance", "spot")->host, "api.binance.com");
-    EXPECT_EQ(time_endpoint("mexc", "perp")->path, "/api/v1/contract/ping");
-    EXPECT_FALSE(time_endpoint("hyperliquid", "perp").has_value());
 }
 
 class OneSource final : public GatewayStatsSource {

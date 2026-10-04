@@ -82,8 +82,6 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-void sync_clock(VenueState& state, net::RestClient& rest);
-
 // true for a test_request; the caller answers on the socket that asked
 [[nodiscard]] bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received);
 

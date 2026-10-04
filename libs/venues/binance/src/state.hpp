@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace raikiri::venues::binance::internal {
@@ -79,12 +80,33 @@ struct VenueState {
 
     std::function<void(UnixNanos)> tick_hook;
 
+    // an option book ticker says nothing until the top moves, so the mark row quotes it until then
+    std::unordered_set<std::uint64_t> option_quote_due;
+
+    // per SymbolId: 1 quoted two-sided, 2 greeks, 4 traded; logged once a minute on an option gateway
+    std::vector<std::uint8_t> option_coverage;
+    std::uint64_t next_coverage_ns{0};
+
+    void cover(InstrumentId id, std::uint8_t bit) {
+        if (id.market() != MarketType::Option) {
+            return;
+        }
+        const auto index = id.symbol().raw;
+        if (option_coverage.size() <= index) {
+            option_coverage.resize(index + 1);
+        }
+        option_coverage[index] |= bit;
+    }
+
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
         return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
     [[nodiscard]] bool spot() const noexcept { return market == MarketType::Spot; }
+
+    // spot and options stream market data and take no orders
+    [[nodiscard]] bool market_data_only() const noexcept { return market != MarketType::Perp; }
 
     void add_stream(std::string_view stream) {
         for (const auto& existing : desired_streams) {

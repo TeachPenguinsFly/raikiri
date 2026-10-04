@@ -148,7 +148,5 @@ inline exec::VenueError rest_failure(std::string_view body, MarketType market) {
 }
 
 // a skewed timestamp reads to the venue as a bad signature
-void sync_clock(VenueState& state, net::RestClient& rest);
-void sync_spot_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::mexc::internal

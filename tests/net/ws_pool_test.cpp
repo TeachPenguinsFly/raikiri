@@ -186,8 +186,9 @@ TEST(WsPoolLimits, AnIpChannelCapIsSharedByEveryPoolOfTheProcess) {
     auto first = make(io, handler, {.max_keys_per_connection = 50});
     auto second = make(io, handler, {.max_keys_per_connection = 50});
     EXPECT_TRUE(first.subscribe(names(70, "a")));
-    EXPECT_TRUE(second.subscribe(names(70, "b")));
+    EXPECT_FALSE(second.subscribe(names(70, "b"))) << "the tail past the cap is refused, not silently dropped";
     EXPECT_EQ(first.key_count() + second.key_count(), 100U);
+    EXPECT_EQ(process_ip_meters().channels_claimed(), 100U);
 }
 
 TEST(WsPoolLimits, PacingNeverExceedsTheIpLimitAcrossAReconnect) {

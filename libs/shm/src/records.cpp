@@ -21,10 +21,12 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.cmd_create = owner.create_channel<CmdRing>("cmd_create");
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
     ch.order_intents = owner.create_channel<CmdRing>("order_intents");
+    ch.metrics = owner.create_channel<VenueMetricsCell>("metrics");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr || ch.funding == nullptr ||
         ch.md_events == nullptr || ch.exec_events == nullptr || ch.funding_charges == nullptr || ch.fills == nullptr ||
         ch.open_orders == nullptr || ch.greeks == nullptr || ch.ticker_stats == nullptr || ch.positions == nullptr ||
-        ch.balances == nullptr || ch.cmd_create == nullptr || ch.cmd_cancel == nullptr || ch.order_intents == nullptr) {
+        ch.balances == nullptr || ch.cmd_create == nullptr || ch.cmd_cancel == nullptr || ch.order_intents == nullptr ||
+        ch.metrics == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small
     }
     return ch;
@@ -95,6 +97,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!intents) {
         return std::unexpected{intents.error()};
     }
+    const auto metrics = client.open_channel<VenueMetricsCell>("metrics");
+    if (!metrics) {
+        return std::unexpected{metrics.error()};
+    }
     // named so a field added to GatewayChannels cannot shift the others
     return GatewayChannels{.catalogue = *catalogue,
                            .bbo = *bbo,
@@ -111,7 +117,8 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
                            .balances = *balances,
                            .cmd_create = *create,
                            .cmd_cancel = *cancel,
-                           .order_intents = *intents};
+                           .order_intents = *intents,
+                           .metrics = *metrics};
 }
 
 std::string gateway_segment_path(AccountId account) {

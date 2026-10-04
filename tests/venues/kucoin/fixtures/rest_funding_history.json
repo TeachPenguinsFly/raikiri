@@ -1,0 +1,1 @@
+{"code":"200000","data":{"dataList":[{"id":1472387374042586,"symbol":"XBTUSDTM","timePoint":1731470400000,"fundingRate":6.41E-4,"markPrice":87139.92,"positionQty":1,"positionCost":87.13992,"funding":-0.05585669,"settleCurrency":"USDT","context":"{\"marginMode\": \"ISOLATED\", \"positionSide\": \"BOTH\"}","marginMode":"ISOLATED"}],"hasMore":true}}

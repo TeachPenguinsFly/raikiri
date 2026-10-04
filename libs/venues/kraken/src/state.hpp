@@ -14,6 +14,7 @@
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/map.hpp>
 #include <raikiri/venues/kraken/rest.hpp>
+#include <raikiri/venues/kraken/spot.hpp>
 #include <raikiri/venues/kraken/ws.hpp>
 
 #include <algorithm>
@@ -47,13 +48,15 @@ struct LiveOrder {
 
 // single threaded: the gateway loop is the only caller
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
-        : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag, MarketType market_type)
+        : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag}, market{market_type} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;
     exec::RateBudget* budget{nullptr};
     bool testnet;
+    // spot is market data only, on its own hosts
+    MarketType market;
     std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
@@ -66,11 +69,14 @@ struct VenueState {
     std::vector<OwnedSubscription> desired;
     std::vector<OwnedSubscription> unsent;
     std::unordered_map<std::uint64_t, Book> books;
+    std::unordered_map<std::uint64_t, SpotBook> spot_books;
     std::unordered_map<std::string, LiveOrder> live_orders;
 
     std::int64_t clock_offset_ns{0};
 
     std::uint64_t subscribe_refusals{0};
+
+    [[nodiscard]] bool spot() const noexcept { return market == MarketType::Spot; }
 
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = clock->wall();
@@ -95,6 +101,11 @@ struct VenueState {
 
     Book& book_for(const InstrumentBase& base) {
         return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first->second;
+    }
+
+    SpotBook& spot_book_for(const InstrumentBase& base) {
+        return spot_books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size, k_spot_book_depth)
+            .first->second;
     }
 
     void add_subscription(std::string_view feed, std::string_view product_id) {

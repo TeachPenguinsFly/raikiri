@@ -2,6 +2,8 @@
 #include <raikiri/venues/gate/market_data.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <utility>
+
 namespace raikiri::venues::gate {
 
 namespace {
@@ -100,6 +102,44 @@ parse_trades(std::string_view frame, TradeBuffer& storage, MarketType market) {
             ++count;
         }
         return std::span<const WireTrade>{storage.trades.data(), count};
+    });
+}
+
+std::expected<WireOptionTicker, WireError> parse_option_ticker(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireOptionTicker, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        WireOptionTicker out{};
+        out.ts_s = whole_u64(field(*root, "time"));
+        auto obj = wire::req_object(*root, "result");
+        if (!obj.has_value()) {
+            return std::unexpected(obj.error());
+        }
+        const auto contract = wire::req_str(*obj, "name");
+        if (!contract.has_value()) {
+            return std::unexpected(contract.error());
+        }
+        out.contract = *contract;
+        for (const auto& [key, into] : {std::pair{"mark_price", &out.mark_price},
+                                        std::pair{"index_price", &out.index_price},
+                                        std::pair{"underlying_price", &out.underlying_price},
+                                        std::pair{"bid1_price", &out.bid_price},
+                                        std::pair{"ask1_price", &out.ask_price},
+                                        std::pair{"bid1_size", &out.bid_qty},
+                                        std::pair{"ask1_size", &out.ask_qty},
+                                        std::pair{"mark_iv", &out.mark_iv},
+                                        std::pair{"bid_iv", &out.bid_iv},
+                                        std::pair{"ask_iv", &out.ask_iv},
+                                        std::pair{"delta", &out.delta},
+                                        std::pair{"gamma", &out.gamma},
+                                        std::pair{"vega", &out.vega},
+                                        std::pair{"theta", &out.theta},
+                                        std::pair{"rho", &out.rho}}) {
+            *into = field(*obj, key);
+        }
+        return out;
     });
 }
 

@@ -213,7 +213,7 @@ TEST_F(VenueContract, EveryCapsRowServesWhatItClaimsAndNothingElse) {
         }
         EXPECT_EQ(caps.markets.any(), !is_retired(id)) << to_string(id);
     }
-    EXPECT_EQ(with_options, (std::vector<std::string_view>{"bybit", "okx", "deribit", "derive"}));
+    EXPECT_EQ(with_options, (std::vector<std::string_view>{"binance", "bybit", "okx", "gate", "deribit", "derive"}));
     EXPECT_EQ(with_futures, (std::vector<std::string_view>{"deribit"}));
 }
 
@@ -362,11 +362,12 @@ TEST_F(VenueContract, EveryPerpPullTheAdaptersHadIsStillClaimed) {
                           VenueId::Bitget,
                           VenueId::Htx,
                           VenueId::Hyperliquid,
-                          VenueId::Mexc}) {
+                          VenueId::Mexc,
+                          VenueId::Kucoin,
+                          VenueId::Deribit}) {
         EXPECT_TRUE(caps_of(id).funding_charge.has(MarketType::Perp)) << to_string(id);
     }
-    // kucoin funding history is per symbol and a bitfinex ledger row names no contract
-    EXPECT_FALSE(caps_of(VenueId::Kucoin).funding_charge.has(MarketType::Perp));
+    // a bitfinex ledger row names no contract
     EXPECT_FALSE(caps_of(VenueId::Bitfinex).funding_charge.has(MarketType::Perp));
 }
 

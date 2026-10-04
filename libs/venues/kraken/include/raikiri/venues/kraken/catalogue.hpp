@@ -19,6 +19,8 @@ struct WireInstrument {
     std::string_view contract_size;     // raw numeric token
     std::string_view underlying;        // inverse families only
     std::string_view last_trading_time; // dated contracts only
+    std::string_view base;              // BTC, already the common spelling
+    std::string_view quote;
     std::int64_t contract_value_trade_precision{0};
     bool tradeable{false};
     bool has_precision{false}; // absent field must not read as precision 0

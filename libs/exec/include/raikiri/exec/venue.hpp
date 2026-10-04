@@ -9,9 +9,11 @@
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_source.hpp>
 #include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -46,6 +48,8 @@ struct VenueAdapter {
     std::unique_ptr<DataClient> data;
     std::unique_ptr<ExecutionClient> execution;
     std::unique_ptr<InstrumentSource> instruments;
+    // empty when the venue has no server-time method
+    std::optional<VenueClock> clock;
     // references that were given but did not resolve; gatewayd refuses to start on any
     std::vector<std::string> credential_errors;
 };

@@ -10,15 +10,22 @@
 #include <raikiri/venues/kucoin/rest.hpp>
 #include <raikiri/venues/kucoin/ws.hpp>
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "../state.hpp"
 
 namespace raikiri::venues::kucoin::internal {
+
+// 100 rows a page covers 89 days of hourly settlements in 22 pages
+inline constexpr std::size_t k_max_funding_pages = 24;
+inline constexpr std::uint64_t k_max_closed_pages = 5;
 
 class RestApi {
 public:
@@ -225,6 +232,59 @@ public:
         return reports;
     }
 
+    // funding history answers one symbol at a time, so ask for each symbol held now or closed since `since`
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
+        switch (market) {
+        case MarketType::Spot:
+            return std::unexpected{exec::not_implemented("kucoin spot has no funding")};
+        case MarketType::Perp:
+        case MarketType::Future:
+            break;
+        case MarketType::Option:
+            return std::unexpected{exec::not_implemented("kucoin options order entry")};
+        }
+        if (!serves(market)) {
+            return std::unexpected{market_not_enabled(market)};
+        }
+        const auto now = state_->venue_now();
+        const auto from = UnixNanos{
+            std::max(since.ns, now.ns > k_funding_window_ns ? now.ns - k_funding_window_ns : 0)};
+        auto symbols = funded_symbols(from);
+        if (!symbols.has_value()) {
+            return std::unexpected{symbols.error()};
+        }
+        std::vector<LedgerEntry> charges;
+        std::unordered_set<std::uint64_t> seen;
+        for (const auto& symbol : *symbols) {
+            std::uint64_t offset = 0;
+            for (std::size_t page = 0; page < k_max_funding_pages; ++page) {
+                const auto request = builder_.funding_history(symbol, from, offset, state_->venue_now());
+                if (!request.has_value()) {
+                    return std::unexpected{build_failed(request.error())};
+                }
+                const auto body = usable_body(await_response(*state_, rest_, *request));
+                if (!body.has_value()) {
+                    // a partial sweep fails whole
+                    return std::unexpected{body.error()};
+                }
+                static thread_local const auto storage_owner = std::make_unique<FundingChargeBuffer>();
+                const auto wire = parse_funding_history(*body, *storage_owner);
+                if (!wire.has_value()) {
+                    // an unreadable body is an error; an empty ledger would book zero funding
+                    return std::unexpected{
+                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+                }
+                const bool fresh = collect_funding_page(
+                    wire->charges, state_->instruments, state_->clock->wall(), seen, charges);
+                if (!wire->has_more || !fresh) {
+                    break;
+                }
+                offset = wire->charges.back().id;
+            }
+        }
+        return charges;
+    }
+
 private:
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> futures_open_orders() {
         const auto request = builder_.open_orders(market_, {}, state_->venue_now());
@@ -285,6 +345,55 @@ private:
             }
         }
         return reports;
+    }
+
+    // a charge at t on a symbol means a position open at t: still open now, or closed after t
+    std::expected<std::vector<std::string>, exec::VenueError> funded_symbols(UnixNanos from) {
+        std::vector<std::string> symbols;
+        const auto remember = [&symbols](std::string_view symbol) {
+            if (std::find(symbols.begin(), symbols.end(), symbol) == symbols.end()) {
+                symbols.emplace_back(symbol);
+            }
+        };
+        const auto open = builder_.positions(market_, state_->venue_now());
+        if (!open.has_value()) {
+            return std::unexpected{build_failed(open.error())};
+        }
+        const auto open_body = usable_body(await_response(*state_, rest_, *open));
+        if (!open_body.has_value()) {
+            return std::unexpected{open_body.error()};
+        }
+        static thread_local const auto open_owner = std::make_unique<PositionBuffer>();
+        const auto held = parse_positions(*open_body, *open_owner);
+        if (!held.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(held.error()))};
+        }
+        for (const auto& row : *held) {
+            remember(row.symbol);
+        }
+        for (std::uint64_t page = 1; page <= k_max_closed_pages; ++page) {
+            const auto request = builder_.closed_positions(from, page, state_->venue_now());
+            if (!request.has_value()) {
+                return std::unexpected{build_failed(request.error())};
+            }
+            const auto body = usable_body(await_response(*state_, rest_, *request));
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            static thread_local const auto closed_owner = std::make_unique<ClosedPositionBuffer>();
+            const auto closed = parse_history_positions(*body, *closed_owner);
+            if (!closed.has_value()) {
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(closed.error()))};
+            }
+            for (const auto& row : closed->positions) {
+                remember(row.symbol);
+            }
+            if (page >= closed->total_pages || closed->positions.empty()) {
+                break;
+            }
+        }
+        return symbols;
     }
 
     std::vector<exec::OrderStatusReport> collect(std::span<const WireOrder> rows) const {

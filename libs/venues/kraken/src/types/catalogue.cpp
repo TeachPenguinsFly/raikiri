@@ -44,10 +44,14 @@ std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std:
             const auto underlying = wire::opt_str(obj, "underlying");
             const auto last_trading = wire::opt_str(obj, "lastTradingTime");
             const auto tradeable = wire::opt_bool(obj, "tradeable");
+            const auto base = wire::opt_str(obj, "base");
+            const auto quote = wire::opt_str(obj, "quote");
             if (!tick.has_value() || !contract.has_value() || !underlying.has_value() || !last_trading.has_value() ||
-                !tradeable.has_value()) {
+                !tradeable.has_value() || !base.has_value() || !quote.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
+            out.base = *base;
+            out.quote = *quote;
             out.tick_size = *tick;
             out.contract_size = *contract;
             out.underlying = *underlying;

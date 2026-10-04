@@ -27,7 +27,6 @@ public:
         // read the passphrase at start, once every credential is resolved
         builder_.set_credentials(state_->signer, state_->passphrase.view());
         rest_.start();
-        sync_clock(*state_, rest_);
     }
 
     void stop() { rest_.stop(); }

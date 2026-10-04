@@ -1,10 +1,12 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/symbol.hpp>
+#include <raikiri/options/convention.hpp>
 #include <raikiri/venues/gate/map.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 
 #include <array>
 #include <optional>
+#include <string>
 
 namespace raikiri::venues::gate {
 
@@ -270,6 +272,135 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         perp.funding_floor = FixedE9::from_raw(-limit->raw);
     }
     return perp;
+}
+
+namespace {
+
+constexpr std::string_view k_option_quote = "_USDT";
+
+[[nodiscard]] std::optional<FixedE9> quoted_vol(std::string_view text) {
+    const auto vol = to_e9(text);
+    return vol.has_value() && vol->raw > 0 ? vol : std::nullopt;
+}
+
+[[nodiscard]] std::optional<InstrumentId> option_id(std::string_view contract, const exec::InstrumentTable& table) {
+    const auto symbol = option_symbol(contract);
+    const auto* instrument = symbol.has_value() ? table.find(symbol->view()) : nullptr;
+    if (instrument == nullptr || !std::holds_alternative<OptionInstrument>(*instrument)) {
+        return std::nullopt;
+    }
+    return base_of(*instrument).id;
+}
+
+} // namespace
+
+std::optional<SymbolText> option_symbol(std::string_view wire_name) noexcept {
+    const auto dash = wire_name.find('-');
+    if (dash == std::string_view::npos || !wire_name.substr(0, dash).ends_with(k_option_quote)) {
+        return std::nullopt;
+    }
+    std::array<char, 32> buffer{};
+    const auto head = dash - k_option_quote.size();
+    const auto tail = wire_name.substr(dash);
+    if (head + tail.size() > buffer.size()) {
+        return std::nullopt;
+    }
+    wire_name.copy(buffer.data(), head);
+    tail.copy(buffer.data() + head, tail.size());
+    const auto held = SymbolText::from(std::string_view{buffer.data(), head + tail.size()});
+    return held.has_value() ? std::optional{*held} : std::nullopt;
+}
+
+std::string option_underlying(std::string_view symbol) {
+    std::string out{symbol.substr(0, symbol.find('-'))};
+    out.append(k_option_quote);
+    return out;
+}
+
+std::optional<Instrument> map_option_contract(const WireOptionContract& wire) {
+    const auto symbol = option_symbol(wire.name);
+    const auto tick = parse_decimal_e9(wire.order_price_round);
+    const auto multiplier = parse_decimal_e9(wire.multiplier);
+    if (!wire.is_active || !symbol.has_value() || !tick.has_value() || !multiplier.has_value() || tick->raw <= 0 ||
+        multiplier->raw <= 0 || wire.expiration_s == 0) {
+        return std::nullopt;
+    }
+    const auto strike = exact_steps(wire.strike_price, *tick);
+    if (!strike.has_value() || *strike <= 0) {
+        return std::nullopt;
+    }
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Gate, MarketType::Option, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *symbol;
+    base.asset_class = AssetClass::Crypto;
+    base.tick_size = *tick;
+    base.lot_size = FixedE9::from_raw(k_e9);
+    base.contract_value = *multiplier;
+    base.kind = ContractKind::Linear;
+    // the premium is usdt per one underlying unit, sizes are contracts of `multiplier` units
+    return OptionInstrument{.base = base,
+                            .strike = PriceTicks::from_raw(*strike),
+                            .expiry = s_to_unix(wire.expiration_s),
+                            .put_call = wire.is_call ? PutCall::Call : PutCall::Put,
+                            .premium = OptionUnit::Quote,
+                            .greeks = OptionUnit::Quote};
+}
+
+std::optional<OptionGreeks>
+map_option_greeks(const WireOptionTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto id = option_id(wire.contract, table);
+    if (!id.has_value()) {
+        return std::nullopt;
+    }
+    const options::VenueGreeks venue{.delta = to_e9(wire.delta),
+                                     .gamma = to_e9(wire.gamma),
+                                     .vega = to_e9(wire.vega),
+                                     .theta = to_e9(wire.theta),
+                                     .rho = to_e9(wire.rho),
+                                     .mark_iv = quoted_vol(wire.mark_iv),
+                                     .bid_iv = quoted_vol(wire.bid_iv),
+                                     .ask_iv = quoted_vol(wire.ask_iv),
+                                     .underlying_price = to_e9(wire.underlying_price),
+                                     .mark_price = to_e9(wire.mark_price),
+                                     .index_price = to_e9(wire.index_price)};
+    const auto ts_event = wire.ts_s == 0 ? ts_init : s_to_unix(wire.ts_s);
+    return options::normalise(*id, venue, options::Convention{}, ts_event, ts_init);
+}
+
+void blank_empty_sides(Bbo& bbo) noexcept {
+    if (bbo.bid_qty.raw == 0) {
+        bbo.bid = PriceTicks{};
+    }
+    if (bbo.ask_qty.raw == 0) {
+        bbo.ask = PriceTicks{};
+    }
+}
+
+std::optional<Bbo>
+map_option_quote(const WireOptionTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto id = option_id(wire.contract, table);
+    if (!id.has_value()) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*table.find(*id));
+    const auto bid = to_ticks(wire.bid_price, base);
+    const auto ask = to_ticks(wire.ask_price, base);
+    const auto bid_qty = to_lots(wire.bid_qty, base);
+    const auto ask_qty = to_lots(wire.ask_qty, base);
+    if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
+        return std::nullopt;
+    }
+    Bbo out{};
+    out.instrument = *id;
+    out.bid = *bid;
+    out.ask = *ask;
+    out.bid_qty = *bid_qty;
+    out.ask_qty = *ask_qty;
+    blank_empty_sides(out);
+    out.ts_event = wire.ts_s == 0 ? ts_init : s_to_unix(wire.ts_s);
+    out.ts_init = ts_init;
+    return out;
 }
 
 std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {

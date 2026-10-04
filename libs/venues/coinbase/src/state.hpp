@@ -103,6 +103,5 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 }
 
 // measured once at startup
-void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::coinbase::internal

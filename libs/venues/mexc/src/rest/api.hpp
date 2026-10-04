@@ -40,22 +40,13 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
 
 class RestApi {
 public:
-    RestApi(VenueState& state, MarketType market)
-        : state_{&state}, market_{market},
+    explicit RestApi(VenueState& state)
+        : state_{&state},
           rest_{state.io,
                 net::RestConfig{.host = std::string{private_rest_host()}, .pool_size = net::k_order_pool_size}},
           builder_{state.signer} {}
 
-    // each tree checks requests against its own clock
-    void start() {
-        rest_.start();
-        if (market_ == MarketType::Perp) {
-            sync_clock(*state_, rest_);
-        }
-        if (market_ == MarketType::Spot) {
-            sync_spot_clock(*state_, rest_);
-        }
-    }
+    void start() { rest_.start(); }
 
     void stop() { rest_.stop(); }
 
@@ -285,7 +276,6 @@ private:
     }
 
     VenueState* state_;
-    MarketType market_;
     net::RestClient rest_;
     SignedRequestBuilder builder_;
 };

@@ -5,6 +5,7 @@ import { cn } from '@/lib/format'
 const k_nav = [
   { to: '/', label: 'Markets', end: true },
   { to: '/scanner', label: 'Scanner' },
+  { to: '/execution', label: 'Execution' },
   { to: '/strategies', label: 'Strategies' },
   { to: '/treasury', label: 'Treasury' },
   { to: '/settings', label: 'Settings' },

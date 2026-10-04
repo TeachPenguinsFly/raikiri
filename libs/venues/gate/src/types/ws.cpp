@@ -99,6 +99,14 @@ std::string_view private_path(bool testnet, MarketType market) noexcept {
     return {};
 }
 
+std::string_view public_host(bool testnet, MarketType market) noexcept {
+    return market == MarketType::Option ? ep::option_stream_host(testnet) : private_host(testnet, market);
+}
+
+std::string_view public_path(bool testnet, MarketType market) noexcept {
+    return market == MarketType::Option ? ep::ws_option_path(testnet) : private_path(testnet, market);
+}
+
 std::string_view orders_channel(MarketType market) noexcept {
     switch (market) {
     case MarketType::Perp:
@@ -127,6 +135,21 @@ std::string_view user_trades_channel(MarketType market) noexcept {
 }
 
 std::string_view channel_for(exec::SubKind kind, MarketType market) noexcept {
+    if (market == MarketType::Option) {
+        switch (kind) {
+        case exec::SubKind::Bbo:
+            return "options.book_ticker";
+        case exec::SubKind::Trades:
+            return "options.trades";
+        case exec::SubKind::Funding:
+        case exec::SubKind::MarkPrice:
+            return "options.contract_tickers";
+        case exec::SubKind::Depth:
+        case exec::SubKind::Kline:
+            return {};
+        }
+        return {};
+    }
     const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
@@ -169,7 +192,8 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     writer.put(channel);
     writer.put(R"(","event":")");
     writer.put(op);
-    writer.put(R"(","payload":[)");
+    const bool by_underlying = channel.starts_with("options.");
+    writer.put(by_underlying ? R"(","payload":{"underlyings":[)" : R"(","payload":[)");
     for (std::size_t i = 0; i < batch; ++i) {
         if (i != 0) {
             writer.put(",");
@@ -192,7 +216,7 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
         writer.put(k_depth_interval);
         writer.put("\"");
     }
-    writer.put("]}");
+    writer.put(by_underlying ? "]}}" : "]}");
     if (writer.overflow()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
@@ -268,11 +292,11 @@ Protocol::private_subscribe_frame(std::string_view channel,
     return writer.text();
 }
 
-std::string_view Protocol::ping_frame(std::uint64_t now_s) noexcept {
+std::string_view Protocol::ping_frame(std::uint64_t now_s, MarketType market) noexcept {
     FrameWriter writer{ping_};
     writer.put(R"({"time":)");
     writer.put(now_s);
-    writer.put(R"(,"channel":"futures.ping"})");
+    writer.put(market == MarketType::Option ? R"(,"channel":"options.ping"})" : R"(,"channel":"futures.ping"})");
     return writer.overflow() ? std::string_view{} : writer.text();
 }
 

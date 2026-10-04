@@ -16,7 +16,7 @@
 
 namespace raikiri::venues::kraken {
 
-[[nodiscard]] std::string_view rest_host() noexcept;
+[[nodiscard]] std::string_view rest_host(MarketType market = MarketType::Perp) noexcept;
 
 enum class BuildError : std::uint8_t {
     UnknownInstrument, // not in the table: this adapter never loaded it
@@ -44,6 +44,8 @@ public:
     [[nodiscard]] net::RestRequest ticker(std::string_view symbol) noexcept;
 
     [[nodiscard]] net::RestRequest orderbook(std::string_view symbol) noexcept;
+
+    [[nodiscard]] net::RestRequest spot_asset_pairs() noexcept;
 
 private:
     std::array<char, 256> target_{};

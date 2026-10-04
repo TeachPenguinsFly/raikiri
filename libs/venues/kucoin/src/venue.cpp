@@ -1,11 +1,13 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
+#include <raikiri/venues/kucoin/envelope.hpp>
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/venues/kucoin/kucoin_venue.hpp>
 #include <raikiri/venues/kucoin/map.hpp>
@@ -72,6 +74,21 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Kucoin);
+    if (config.market == MarketType::Spot) {
+        adapter.clock.emplace(
+            exec::ServerTimeQuery{
+                .host = "api.kucoin.com",
+                .target = "/api/v1/timestamp",
+                .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
+            std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
+    } else {
+        adapter.clock.emplace(
+            exec::ServerTimeQuery{
+                .host = "api-futures.kucoin.com",
+                .target = "/api/v1/timestamp",
+                .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
+            std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
+    }
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state, config.market);
     adapter.instruments = make_instrument_source(state);

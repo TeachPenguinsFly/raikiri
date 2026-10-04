@@ -37,10 +37,7 @@ public:
         : state_{&state}, rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
           builder_{state.signer, state.passphrase} {}
 
-    void start() {
-        rest_.start();
-        sync_clock(*state_, rest_);
-    }
+    void start() { rest_.start(); }
 
     void stop() { rest_.stop(); }
 

@@ -4,6 +4,10 @@
 #include <raikiri/config/risk.hpp>
 #include <raikiri/config/settings.hpp>
 #include <raikiri/http/server.hpp>
+#include <raikiri/joe/desk.hpp>
+#include <raikiri/joe/routes.hpp>
+#include <raikiri/joe/runner.hpp>
+#include <raikiri/joe/shm_market.hpp>
 #include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -45,6 +49,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <ranges>
 #include <set>
 #include <span>
@@ -919,7 +924,7 @@ struct Requested {
 
 constexpr std::string_view k_usage = R"(usage: strategyd [--gateway=<account>]... [--duration <sec>] [--strategy-id=<n>]
                  [--strategy <type>[:<id>[:<name>[:<config>]]]]... [--port <n>]
-                 [--risk <path>]
+                 [--risk <path>] [--joe <strategy id>]
 )";
 
 int main(int argc, char** argv) {
@@ -940,6 +945,8 @@ int main(int argc, char** argv) {
     // zero serves no control surface
     std::uint16_t control_port = 0;
     std::string risk_path;
+    // zero leaves joe off
+    std::uint16_t joe_id = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--duration" && i + 1 < argc) {
@@ -956,6 +963,8 @@ int main(int argc, char** argv) {
             control_port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (arg == "--risk" && i + 1 < argc) {
             risk_path = argv[++i];
+        } else if (arg == "--joe" && i + 1 < argc) {
+            joe_id = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         }
     }
     if (wanted.empty()) {
@@ -1115,6 +1124,30 @@ int main(int argc, char** argv) {
         next_id = static_cast<std::uint16_t>(parsed->strategy_id + 1);
     }
 
+    std::vector<joe::GatewayView> joe_views;
+    for (const auto& gw : gateways) {
+        joe_views.push_back({.account = gw.account, .channels = gw.ch});
+    }
+    const joe::ShmMarket joe_market{std::move(joe_views), clock};
+    joe::ContextSink joe_sink;
+    const joe::CurveProfile joe_curves;
+    std::unique_ptr<joe::Desk> joe_desk;
+    if (joe_id != 0) {
+        joe_desk = std::make_unique<joe::Desk>(joe_market, joe_sink, clock, joe_curves);
+        (void)strategy::factory().add("joe", [&joe_desk, &joe_sink](const strategy::Params&) -> strategy::MakeResult {
+            return std::make_unique<joe::Runner>(*joe_desk, joe_sink);
+        });
+        const auto made = live.create({.name = "joe", .type = "joe", .strategy_id = joe_id});
+        if (!made.has_value()) {
+            fmt::print(stderr, "strategyd: --joe {} refused — {}\n", joe_id, made.error().detail);
+            return 2;
+        }
+        if (const auto started = live.start(joe_id, shutdown.get_token()); !started.has_value()) {
+            fmt::print(stderr, "strategyd: --joe {} would not start — {}\n", joe_id, to_string(started.error()));
+            return 2;
+        }
+    }
+
     std::string attached;
     for (const auto& gw : gateways) {
         attached += (attached.empty() ? "" : ", ") + gw.name;
@@ -1135,7 +1168,14 @@ int main(int argc, char** argv) {
         control = std::make_unique<http::Server>(
             "127.0.0.1",
             control_port,
-            strategy::make_control(live, strategy::factory(), ctx.positions, shutdown.get_token()));
+            [joe = joe::JoeRoutes{joe_desk.get()},
+             control = strategy::make_control(live, strategy::factory(), ctx.positions, shutdown.get_token())](
+                const http::Request& req) {
+                if (auto answer = joe(req); answer.has_value()) {
+                    return std::move(*answer);
+                }
+                return control(req);
+            });
         if (!control->start()) {
             RLOG_ERROR("strategyd: cannot bind the control surface on 127.0.0.1:{}", control_port);
             return 1;

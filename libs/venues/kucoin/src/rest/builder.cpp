@@ -1,7 +1,10 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/kucoin/account.hpp>
 #include <raikiri/venues/kucoin/endpoints.hpp>
+#include <raikiri/venues/kucoin/positions.hpp>
 #include <raikiri/venues/kucoin/rest.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <cstring>
 #include <span>
@@ -509,6 +512,48 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::positions(Marke
         return std::unexpected{BuildError::UnsupportedMarket};
     }
     return std::unexpected{BuildError::UnsupportedMarket};
+}
+
+std::expected<net::RestRequest, BuildError>
+OrderRequestBuilder::closed_positions(UnixNanos since, std::uint64_t page, UnixNanos now) {
+    std::array<char, 24> since_text{};
+    std::array<char, 24> limit_text{};
+    std::array<char, 24> page_text{};
+    Appender path{path_};
+    path << ep::k_history_positions << "?limit=" << render_u64(k_closed_position_page, limit_text)
+         << "&pageId=" << render_u64(page, page_text);
+    if (since.ns != 0) {
+        path << "&from=" << render_u64(since.ns / 1'000'000ULL, since_text);
+    }
+    if (!path.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, path.view(), {}, now);
+}
+
+std::expected<net::RestRequest, BuildError>
+OrderRequestBuilder::funding_history(std::string_view symbol, UnixNanos since, std::uint64_t offset, UnixNanos now) {
+    if (symbol.empty()) {
+        return std::unexpected{BuildError::UnknownInstrument};
+    }
+    // the venue refuses a window wider than three months
+    const auto earliest = now.ns > k_funding_window_ns ? now.ns - k_funding_window_ns : 0;
+    const auto start_ms = std::max(since.ns, earliest) / 1'000'000ULL;
+    std::array<char, 24> start_text{};
+    std::array<char, 24> end_text{};
+    std::array<char, 24> count_text{};
+    std::array<char, 24> offset_text{};
+    Appender path{path_};
+    path << ep::k_funding_history << "?symbol=" << symbol << "&startAt=" << render_u64(start_ms, start_text)
+         << "&endAt=" << render_u64(now.ns / 1'000'000ULL, end_text)
+         << "&maxCount=" << render_u64(k_funding_page, count_text);
+    if (offset != 0) {
+        path << "&offset=" << render_u64(offset, offset_text);
+    }
+    if (!path.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, path.view(), {}, now);
 }
 
 std::expected<net::RestRequest, BuildError> OrderRequestBuilder::account_overview(MarketType market, UnixNanos now) {

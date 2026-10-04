@@ -133,7 +133,5 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 }
 
 // each tree is synced against its own endpoint
-void sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder);
-void sync_spot_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder);
 
 } // namespace raikiri::venues::xt::internal

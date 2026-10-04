@@ -90,6 +90,16 @@ net::RestRequest RequestBuilder::meta_and_asset_ctxs() noexcept {
     return info(R"({"type":"metaAndAssetCtxs"})");
 }
 
+net::RestRequest RequestBuilder::meta_and_asset_ctxs(std::string_view dex, std::string& body) {
+    if (dex.empty()) {
+        return meta_and_asset_ctxs();
+    }
+    body.assign(R"({"type":"metaAndAssetCtxs","dex":")");
+    body.append(dex);
+    body.append(R"("})");
+    return info(body);
+}
+
 net::RestRequest RequestBuilder::spot_meta() noexcept {
     return info(R"({"type":"spotMeta"})");
 }

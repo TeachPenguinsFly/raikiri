@@ -1,7 +1,12 @@
 #include <raikiri/venues/kraken/book.hpp>
 #include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/map.hpp>
+#include <raikiri/venues/kraken/spot.hpp>
 #include <raikiri/wire/json.hpp>
+
+#include <algorithm>
+#include <array>
+#include <charconv>
 
 namespace raikiri::venues::kraken {
 
@@ -48,10 +53,33 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
     return count;
 }
 
-// parse_decimal_e9 refuses exponents, so this uses the venue's own reader
-std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_number_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+constexpr std::array<std::uint32_t, 256> k_crc_table = [] {
+    std::array<std::uint32_t, 256> table{};
+    for (std::uint32_t i = 0; i < table.size(); ++i) {
+        std::uint32_t c = i;
+        for (int bit = 0; bit < 8; ++bit) {
+            c = (c & 1U) != 0 ? 0xEDB88320U ^ (c >> 1) : c >> 1;
+        }
+        table[i] = c;
+    }
+    return table;
+}();
+
+std::uint32_t crc_digits(std::uint32_t crc, std::int64_t value) noexcept {
+    std::array<char, 20> digits{};
+    const auto [end, ec] = std::to_chars(digits.data(), digits.data() + digits.size(), value);
+    for (const char* at = digits.data(); ec == std::errc{} && at != end; ++at) {
+        crc = k_crc_table[(crc ^ static_cast<std::uint8_t>(*at)) & 0xFFU] ^ (crc >> 8);
+    }
+    return crc;
+}
+
+std::uint32_t crc_levels(std::uint32_t crc, std::span<const book::Level> levels) noexcept {
+    for (const auto& level : levels.first(std::min(levels.size(), k_spot_book_depth))) {
+        crc = crc_digits(crc, level.price.raw);
+        crc = crc_digits(crc, level.qty.raw);
+    }
+    return crc;
 }
 
 } // namespace
@@ -123,8 +151,8 @@ void Book::invalidate() noexcept {
 
 bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
     for (const auto& wire : levels) {
-        const auto price = steps_of(wire.price, tick_size_);
-        const auto qty = steps_of(wire.qty, lot_size_);
+        const auto price = exact_steps(wire.price, tick_size_);
+        const auto qty = exact_steps(wire.qty, lot_size_);
         if (!price.has_value() || !qty.has_value()) {
             return false;
         }
@@ -178,6 +206,113 @@ std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init
         return std::nullopt;
     }
     return ladders_.snapshot(instrument_, last_seq_, ts_event, ts_init);
+}
+
+std::expected<WireSpotBook, WireError> parse_spot_book(std::string_view frame, LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireSpotBook, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto type = wire::req_str(*root, "type");
+        if (!type.has_value()) {
+            return std::unexpected(type.error());
+        }
+        auto data = wire::req_array(*root, "data");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        for (auto entry : *data) {
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireSpotBook out{};
+            out.snapshot = *type == "snapshot";
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto checksum = wire::opt_u64(obj, "checksum");
+            const auto timestamp = wire::req_str(obj, "timestamp");
+            if (!symbol.has_value() || !checksum.has_value() || !timestamp.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            const auto ts = parse_iso8601_ns(*timestamp);
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            const auto bids = read_levels(obj, "bids", storage.bids);
+            if (!bids.has_value()) {
+                return std::unexpected(bids.error());
+            }
+            const auto asks = read_levels(obj, "asks", storage.asks);
+            if (!asks.has_value()) {
+                return std::unexpected(asks.error());
+            }
+            out.symbol = *symbol;
+            out.checksum = static_cast<std::uint32_t>(*checksum);
+            out.ts_ns = *ts;
+            out.bids = {storage.bids.data(), *bids};
+            out.asks = {storage.asks.data(), *asks};
+            return out;
+        }
+        return std::unexpected(WireError::MissingField);
+    });
+}
+
+std::uint32_t spot_book_checksum(std::span<const book::Level> bids, std::span<const book::Level> asks) {
+    return ~crc_levels(crc_levels(0xFFFFFFFFU, asks), bids);
+}
+
+SpotBook::SpotBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size, std::size_t depth)
+    : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size}, depth_{depth} {}
+
+void SpotBook::invalidate() noexcept {
+    ladders_.clear();
+    synced_ = false;
+}
+
+bool SpotBook::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
+    for (const auto& wire : levels) {
+        const auto price = exact_steps(wire.price, tick_size_);
+        const auto qty = exact_steps(wire.qty, lot_size_);
+        if (!price.has_value() || !qty.has_value()) {
+            return false;
+        }
+        if (*qty == 0) {
+            side.remove(PriceTicks::from_raw(*price));
+            continue;
+        }
+        side.upsert({PriceTicks::from_raw(*price), QtyLots::from_raw(*qty)});
+    }
+    // levels pushed out of the subscribed depth get no removal
+    side.truncate(depth_);
+    return true;
+}
+
+SpotBookResult SpotBook::apply(const WireSpotBook& update) {
+    if (update.snapshot) {
+        ladders_.clear();
+        synced_ = true;
+    } else if (!synced_) {
+        return SpotBookResult::Ignored;
+    }
+    if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
+        invalidate();
+        return SpotBookResult::BadLevel;
+    }
+    if (spot_book_checksum(bids(), asks()) != update.checksum) {
+        ++mismatches_;
+        invalidate();
+        return SpotBookResult::ChecksumMismatch;
+    }
+    ++updates_;
+    return update.snapshot ? SpotBookResult::Resynced : SpotBookResult::Applied;
+}
+
+std::optional<BookSnapshot> SpotBook::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
+    if (!synced_) {
+        return std::nullopt;
+    }
+    return ladders_.snapshot(instrument_, updates_, ts_event, ts_init);
 }
 
 } // namespace raikiri::venues::kraken

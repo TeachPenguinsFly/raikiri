@@ -1,5 +1,6 @@
 #include <raikiri/common/int128.hpp>
 #include <raikiri/net/signer.hpp>
+#include <raikiri/venues/deribit/account.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
 #include <raikiri/venues/deribit/envelope.hpp>
@@ -18,6 +19,8 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 namespace raikiri::venues::deribit {
 namespace {
@@ -1417,6 +1420,123 @@ TEST(DeribitErrors, LiveRefusalsParseAsTheEnvelopeTheyArriveIn) {
     const auto accepted = parse_response(ok);
     ASSERT_TRUE(accepted.has_value());
     EXPECT_FALSE(accepted->failed());
+}
+
+TEST(DeribitSignedRest, FundingReadsSettlementRowsOfOneCurrency) {
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+    const UnixNanos now{1'787'751'010'667'000'000ULL};
+
+    // no cursor yet: a week back
+    const auto first = builder.funding_settlements("BTC", UnixNanos{}, 0, now);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->target,
+              "/api/v2/private/get_transaction_log?currency=BTC&start_timestamp=1787146210667"
+              "&end_timestamp=1787751010667&query=settlement&count=1000");
+
+    const auto older = builder.funding_settlements("ETH", UnixNanos{1'613'000'000'000'000'000ULL}, 61282, now);
+    ASSERT_TRUE(older.has_value());
+    EXPECT_EQ(older->target,
+              "/api/v2/private/get_transaction_log?currency=ETH&start_timestamp=1613000000000"
+              "&end_timestamp=1787751010667&query=settlement&count=1000&continuation=61282");
+    EXPECT_EQ(builder.funding_settlements("", UnixNanos{}, 0, now).error(), BuildError::UnknownCurrency);
+}
+
+TEST(DeribitMapRest, ASettlementBooksTheSessionFundingNotTheTailSinceTheLastTrade) {
+    const auto body = fixture("rest_get_instruments.json");
+    exec::InstrumentTable table;
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 1U);
+
+    static LogBuffer storage;
+    const auto log_body = fixture("rest_transaction_log_settlements.json");
+    const auto page = parse_transaction_log(log_body, storage);
+    ASSERT_TRUE(page.has_value());
+    EXPECT_EQ(page->continuation, 61282U);
+    ASSERT_EQ(page->entries.size(), 1U);
+    EXPECT_EQ(page->entries[0].id, 61311U);
+    EXPECT_EQ(page->entries[0].currency, "BTC");
+
+    const auto charge = map_funding_settlement(page->entries[0], table, UnixNanos{9});
+    ASSERT_TRUE(charge.has_value());
+    EXPECT_EQ(charge->instrument, base_of(*table.find("BTC-PERPETUAL")).id);
+    EXPECT_EQ(charge->kind, LedgerKind::Funding);
+    // total_interest_pl 1.243e-05 btc received, not interest_pl's 9.93e-06; in coin, never converted
+    EXPECT_EQ(charge->amount.raw, 12'430);
+    EXPECT_EQ(charge->settled_at.ns, 1613659544153ULL * 1'000'000ULL);
+    EXPECT_EQ(charge->reference.view(), "61311");
+    EXPECT_EQ(charge->ts_init.ns, 9U);
+}
+
+TEST(DeribitMapRest, OverlappingLogPagesBookEachSettlementOnce) {
+    const auto body = fixture("rest_get_instruments.json");
+    exec::InstrumentTable perps;
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, body), 1U);
+    std::unordered_set<std::uint64_t> seen;
+    std::vector<LedgerEntry> charges;
+
+    static LogBuffer first_storage;
+    const auto first_body = fixture("rest_transaction_log_settlements.json");
+    const auto first = parse_transaction_log(first_body, first_storage);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_TRUE(collect_funding_settlements(first->entries, perps, UnixNanos{1}, seen, charges));
+
+    static LogBuffer last_storage;
+    const auto last_body = fixture("rest_transaction_log_last.json");
+    const auto last = parse_transaction_log(last_body, last_storage);
+    ASSERT_TRUE(last.has_value());
+    EXPECT_EQ(last->continuation, 0U); // null: no older page
+    ASSERT_EQ(last->entries.size(), 3U);
+    EXPECT_TRUE(collect_funding_settlements(last->entries, perps, UnixNanos{1}, seen, charges));
+
+    // the repeated row is dropped, and the dated future is not in a perpetual table
+    ASSERT_EQ(charges.size(), 2U);
+    EXPECT_EQ(charges[0].amount.raw, 12'430);
+    EXPECT_EQ(charges[1].amount.raw, -31'415); // paid
+    EXPECT_EQ(charges[1].reference.view(), "61270");
+    EXPECT_FALSE(collect_funding_settlements(last->entries, perps, UnixNanos{1}, seen, charges));
+
+    // a dated future settles daily too, but carries no funding
+    exec::InstrumentTable futures;
+    ASSERT_EQ(load_catalogue(futures, MarketType::Future, body), 1U);
+    EXPECT_FALSE(map_funding_settlement(last->entries[2], futures, UnixNanos{1}).has_value());
+}
+
+TEST(DeribitMapRest, FundingStaysInTheCurrencyTheContractSettlesIn) {
+    const auto body = fixture("rest_get_instruments.json");
+    exec::InstrumentTable table;
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 1U);
+    static LogBuffer storage;
+    const auto log_body = fixture("rest_transaction_log_usdc.json");
+    const auto page = parse_transaction_log(log_body, storage);
+    ASSERT_TRUE(page.has_value());
+    ASSERT_EQ(page->entries.size(), 1U);
+    const auto usdc = page->entries[0];
+
+    // the catalogue refuses linear series, so their funding has nowhere to land
+    EXPECT_FALSE(map_funding_settlement(usdc, table, UnixNanos{1}).has_value());
+
+    InstrumentBase linear = base_of(*table.find("BTC-PERPETUAL"));
+    linear.exchange_symbol = *SymbolText::from("BTC_USDC-PERPETUAL");
+    linear.local_symbol = linear.exchange_symbol;
+    linear.kind = ContractKind::Linear;
+    ASSERT_TRUE(table.add(PerpInstrument{linear, 0}).has_value());
+    const auto charge = map_funding_settlement(usdc, table, UnixNanos{1});
+    ASSERT_TRUE(charge.has_value());
+    EXPECT_EQ(charge->amount.raw, -421'700'000); // usdc, as the log wrote it
+
+    // a coin log row on a usdc contract, or the reverse, is refused rather than mixed
+    auto coin_row = usdc;
+    coin_row.currency = "BTC";
+    EXPECT_FALSE(map_funding_settlement(coin_row, table, UnixNanos{1}).has_value());
+
+    static LogBuffer btc_storage;
+    const auto btc_body = fixture("rest_transaction_log_settlements.json");
+    const auto btc = parse_transaction_log(btc_body, btc_storage);
+    ASSERT_TRUE(btc.has_value());
+    auto eth_row = btc->entries[0];
+    eth_row.currency = "ETH";
+    EXPECT_FALSE(map_funding_settlement(eth_row, table, UnixNanos{1}).has_value());
 }
 
 } // namespace

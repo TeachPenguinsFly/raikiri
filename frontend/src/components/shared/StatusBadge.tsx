@@ -5,6 +5,8 @@ const k_tone: Record<string, string> = {
   filled: 'text-up',
   rejected: 'text-down',
   denied: 'text-down',
+  failed: 'text-down',
+  paused: 'text-amber',
   partially_filled: 'text-amber',
   triggered: 'text-amber',
   pending_update: 'text-amber',

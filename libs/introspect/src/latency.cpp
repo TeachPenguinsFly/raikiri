@@ -10,8 +10,6 @@ std::string_view to_string(ClockMethod method) noexcept {
         return "none";
     case ClockMethod::RestProbe:
         return "rest_probe";
-    case ClockMethod::FeedBound:
-        return "feed_bound";
     }
     return "none";
 }
@@ -36,53 +34,34 @@ std::string_view to_string(Stage stage) noexcept {
     return "feed";
 }
 
-bool OffsetEstimator::add(const OffsetSample& sample) noexcept {
-    if (sample.received_ns < sample.sent_ns || sample.server_ns == 0) {
-        return false;
-    }
-    const auto rtt = sample.received_ns - sample.sent_ns;
-    const auto midpoint = sample.sent_ns + rtt / 2;
-    // a truncated server stamp sits half a tick before the instant it names
-    const auto server = sample.server_ns + sample.resolution_ns / 2;
-    ring_[next_] = Kept{.offset_ns = static_cast<std::int64_t>(server) - static_cast<std::int64_t>(midpoint),
-                        .rtt_ns = rtt,
-                        .resolution_ns = sample.resolution_ns,
-                        .sampled_ns = sample.received_ns};
-    next_ = (next_ + 1) % k_window;
-    size_ = std::min(size_ + 1, k_window);
-    ++samples_;
-    return true;
-}
-
-ClockEstimate OffsetEstimator::estimate() const noexcept {
-    if (size_ == 0) {
-        return {};
-    }
-    const Kept* best = &ring_[0];
-    for (std::size_t i = 1; i < size_; ++i) {
-        if (ring_[i].rtt_ns < best->rtt_ns) {
-            best = &ring_[i];
+std::optional<ClockEstimate> best_of_burst(std::span<const OffsetSample> burst) noexcept {
+    const OffsetSample* best = nullptr;
+    std::uint64_t samples = 0;
+    for (const auto& sample : burst) {
+        if (sample.received_ns < sample.sent_ns || sample.server_ns == 0) {
+            continue;
+        }
+        ++samples;
+        if (best == nullptr || sample.received_ns - sample.sent_ns < best->received_ns - best->sent_ns) {
+            best = &sample;
         }
     }
-    return ClockEstimate{.method = ClockMethod::RestProbe,
-                         .offset_ns = best->offset_ns,
-                         .uncertainty_ns = best->rtt_ns / 2 + best->resolution_ns / 2,
-                         .rtt_ns = best->rtt_ns,
-                         .sampled_ns = best->sampled_ns,
-                         .samples = samples_};
-}
-
-ClockEstimate FeedBound::estimate(std::uint64_t now_ns) const noexcept {
-    const auto least = std::min(current_, previous_);
-    if (least == k_none) {
-        return {};
+    if (best == nullptr) {
+        return std::nullopt;
     }
-    return ClockEstimate{.method = ClockMethod::FeedBound,
-                         .offset_ns = -least,
-                         .uncertainty_ns = 0,
-                         .rtt_ns = 0,
-                         .sampled_ns = now_ns,
-                         .samples = 0};
+    const auto rtt = best->received_ns - best->sent_ns;
+    const auto midpoint = best->sent_ns + rtt / 2;
+    // a truncated server stamp sits half a tick before the instant it names
+    const auto server = best->server_ns + best->resolution_ns / 2;
+    return ClockEstimate{.method = ClockMethod::RestProbe,
+                         .offset_ns = static_cast<std::int64_t>(server) - static_cast<std::int64_t>(midpoint),
+                         .uncertainty_ns = rtt / 2 + best->resolution_ns / 2,
+                         .rtt_ns = rtt,
+                         .resolution_ns = best->resolution_ns,
+                         .sampled_ns = best->received_ns,
+                         .samples = samples,
+                         .drift_ns = 0,
+                         .drift_over_ns = 0};
 }
 
 ClockStats clock_stats(std::string venue, std::string endpoint, const ClockEstimate& estimate) {
@@ -93,7 +72,9 @@ ClockStats clock_stats(std::string venue, std::string endpoint, const ClockEstim
                       .uncertainty_ns = estimate.uncertainty_ns,
                       .rtt_ns = estimate.rtt_ns,
                       .sampled_ns = estimate.sampled_ns,
-                      .samples = estimate.samples};
+                      .samples = estimate.samples,
+                      .drift_ns = estimate.drift_ns,
+                      .drift_over_ns = estimate.drift_over_ns};
 }
 
 LatencyStats LatencySeries::stats(std::string channel, Stage stage) const {

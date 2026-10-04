@@ -156,10 +156,38 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     }
 }
 
+// one frame carries every option of an underlying; a book ticker not heard from yet is quoted from it
+void handle_option_marks(VenueState& state, std::string_view data, UnixNanos received) {
+    static thread_local const auto storage = std::make_unique<OptionMarkBuffer>();
+    const auto rows = parse_option_marks(data, *storage);
+    if (!rows.has_value()) {
+        return;
+    }
+    for (const auto& row : *rows) {
+        if (const auto greeks = map_option_greeks(row, state.instruments, received); greeks.has_value()) {
+            state.sink->on_option_greeks(*greeks);
+            state.cover(greeks->instrument, 2);
+            if (!state.option_quote_due.contains(greeks->instrument.packed)) {
+                continue;
+            }
+        }
+        if (const auto bbo = map_option_quote(row, state.instruments, received); bbo.has_value()) {
+            state.sink->on_bbo(*bbo);
+            if (!bbo->bid.is_undef() && !bbo->ask.is_undef()) {
+                state.cover(bbo->instrument, 1);
+            }
+        }
+    }
+}
+
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     // unwrap once and read the event from the payload
     const auto data = unwrap(frame);
     if (!data.has_value()) {
+        return;
+    }
+    if (data->starts_with('[')) {
+        handle_option_marks(state, *data, received);
         return;
     }
     const auto event = parse_event_payload(*data);
@@ -172,9 +200,18 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
-            state.sink->on_bbo(*bbo);
+        auto bbo = map_bbo(*wire, state.instruments, received);
+        if (!bbo.has_value()) {
+            return;
         }
+        if (bbo->instrument.market() == MarketType::Option) {
+            blank_empty_sides(*bbo);
+            state.option_quote_due.erase(bbo->instrument.packed);
+            if (!bbo->bid.is_undef() && !bbo->ask.is_undef()) {
+                state.cover(bbo->instrument, 1);
+            }
+        }
+        state.sink->on_bbo(*bbo);
         break;
     }
     case EventKind::Trade: {
@@ -184,6 +221,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         if (const auto trade = map_trade(*wire, state.instruments, received); trade.has_value()) {
             state.sink->on_trade(*trade);
+            state.cover(trade->instrument, 4);
         }
         break;
     }
@@ -242,8 +280,11 @@ private:
 class BinanceData final : public exec::DataClient {
 public:
     explicit BinanceData(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, handler_{*state_}, pool_{make_pool(stream_path(exec::SubKind::Bbo))},
-          market_pool_{make_pool(stream_path(exec::SubKind::MarkPrice))} {
+        : state_{std::move(state)}, handler_{*state_},
+          pool_{make_pool(stream_path(exec::SubKind::Bbo, state_->market), 0)},
+          // binance drops a socket carrying several underlyings' marks, so each gets its own
+          market_pool_{make_pool(stream_path(exec::SubKind::MarkPrice, state_->market),
+                                 state_->market == MarketType::Option ? 1 : 0)} {
         // seeds, funding and the 24h table share this pool and the order path's weight
         meter_market_data(*state_, state_->depth_rest);
     }
@@ -273,7 +314,7 @@ public:
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        if (kind == exec::SubKind::Funding && !state_->spot()) {
+        if (kind == exec::SubKind::Funding && state_->market == MarketType::Perp) {
             add_once(state_->funding_instruments, instrument);
             add_once(state_->ticker_instruments, instrument);
             return {};
@@ -286,6 +327,9 @@ public:
         if (state_->spot()) {
             add_once(state_->ticker_instruments, instrument);
         }
+        if (state_->market == MarketType::Option && kind == exec::SubKind::Bbo) {
+            state_->option_quote_due.insert(instrument.packed);
+        }
         const auto before = state_->desired_streams.size();
         state_->add_stream(stream);
         if (state_->desired_streams.size() == before) {
@@ -293,7 +337,9 @@ public:
         }
         // the pool places it, opening another socket when needed
         const std::array<std::string, 1> one{std::string{stream}};
-        auto& pool = stream_path(kind) == stream_path(exec::SubKind::Bbo) ? pool_ : market_pool_;
+        auto& pool = stream_path(kind, state_->market) == stream_path(exec::SubKind::Bbo, state_->market)
+                         ? pool_
+                         : market_pool_;
         if (!pool.subscribe(one)) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "binance: connection pool is full")};
@@ -316,12 +362,37 @@ public:
         report_books(now);
         poll_funding(now);
         poll_ticker(now);
+        report_coverage(now);
         if (state_->tick_hook) {
             state_->tick_hook(now);
         }
     }
 
 private:
+    void report_coverage(UnixNanos now) {
+        if (state_->market != MarketType::Option || now.ns < state_->next_coverage_ns) {
+            return;
+        }
+        const bool first = state_->next_coverage_ns == 0;
+        state_->next_coverage_ns = now.ns + 60'000'000'000ULL;
+        if (first || !has_logger()) {
+            return;
+        }
+        std::array<std::size_t, 3> counts{};
+        for (const auto bits : state_->option_coverage) {
+            for (std::size_t bit = 0; bit < counts.size(); ++bit) {
+                counts[bit] += (bits >> bit) & 1U;
+            }
+        }
+        RLOG_INFO("binance option: {} of {} quoted two-sided, {} with greeks, {} traded; {}+{} sockets",
+                  counts[0],
+                  state_->instruments.size(),
+                  counts[1],
+                  counts[2],
+                  pool_.connection_count(),
+                  market_pool_.connection_count());
+    }
+
     // a full-catalogue start cannot seed every book within a minute's allowance; this reports progress
     void report_books(UnixNanos now) noexcept {
         if (now.ns < report_due_ns_ || state_->books.empty() || !has_logger()) {
@@ -513,13 +584,13 @@ private:
     }
 
     // binance caps one connection at 1024 streams
-    net::WsPool make_pool(std::string_view target) {
+    net::WsPool make_pool(std::string_view target, std::size_t key_cap) {
         return net::WsPool{state_->io,
                            net::WsConfig{.host = std::string{stream_host(state_->testnet, state_->market)},
                                          .port = "443",
                                          .target = std::string{target}},
                            handler_,
-                           net::WsPoolConfig{},
+                           net::WsPoolConfig{.key_cap = key_cap},
                            [this](std::span<const std::string> keys) { return build_frames(keys); }};
     }
 

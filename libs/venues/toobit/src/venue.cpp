@@ -1,8 +1,12 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/venues/toobit/toobit_venue.hpp>
 
 #include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "clients.hpp"
 
@@ -21,6 +25,10 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Toobit);
+    adapter.clock.emplace(
+        exec::ServerTimeQuery{.host = "api.toobit.com", .target = "/api/v1/time", .parse = [](std::string_view body) {
+                                  return exec::json_number(body, "serverTime", 1'000'000);
+                              }});
     adapter.data = internal::make_data_client(state);
     adapter.execution = internal::make_execution_client(state);
     adapter.instruments = internal::make_instrument_source(state);

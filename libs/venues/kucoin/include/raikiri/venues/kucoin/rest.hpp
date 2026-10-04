@@ -36,6 +36,9 @@ enum class BuildError : std::uint8_t {
 // guard
 inline constexpr std::string_view k_settle_currency = "USDT";
 
+// a few days under three months, the widest funding-history window
+inline constexpr std::uint64_t k_funding_window_ns = 89ULL * 86'400ULL * 1'000'000'000ULL;
+
 // clientOid length limit; the oms's 26-char ulid fits
 inline constexpr std::size_t k_max_client_oid = 40;
 
@@ -114,6 +117,14 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(MarketType market, UnixNanos since, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
+
+    // futures only: positions closed since `since`, newest first
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    closed_positions(UnixNanos since, std::uint64_t page, UnixNanos now);
+
+    // one symbol per call; a zero offset asks for the first page
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    funding_history(std::string_view symbol, UnixNanos since, std::uint64_t offset, UnixNanos now);
 
     // futures wallet only; the spot accounts list is a different shape
     [[nodiscard]] std::expected<net::RestRequest, BuildError> account_overview(MarketType market, UnixNanos now);

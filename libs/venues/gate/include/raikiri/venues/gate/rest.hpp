@@ -30,6 +30,9 @@ public:
     // GET /spot/currency_pairs
     [[nodiscard]] net::RestRequest currency_pairs() noexcept;
 
+    [[nodiscard]] net::RestRequest option_underlyings() noexcept;
+    [[nodiscard]] net::RestRequest option_contracts(std::string_view underlying) noexcept;
+
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
     [[nodiscard]] net::RestRequest

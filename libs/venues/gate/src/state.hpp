@@ -86,6 +86,24 @@ struct VenueState {
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
+    // an option book ticker says nothing until the top moves, so the 1 s ticker quotes it until then
+    std::unordered_set<std::uint64_t> option_quote_due;
+
+    // per SymbolId: 1 quoted two-sided, 2 greeks, 4 traded; logged once a minute on an option gateway
+    std::vector<std::uint8_t> option_coverage;
+    std::uint64_t next_coverage_ns{0};
+
+    void cover(InstrumentId id, std::uint8_t bit) {
+        if (id.market() != MarketType::Option) {
+            return;
+        }
+        const auto index = id.symbol().raw;
+        if (option_coverage.size() <= index) {
+            option_coverage.resize(index + 1);
+        }
+        option_coverage[index] |= bit;
+    }
+
     void add_subscription(std::string_view channel, std::string_view contract) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.contract == contract) {
@@ -163,6 +181,5 @@ inline exec::VenueError rest_failure(std::string_view body) {
 }
 
 // measured once at startup; a skewed timestamp reads as a bad signature
-void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::gate::internal

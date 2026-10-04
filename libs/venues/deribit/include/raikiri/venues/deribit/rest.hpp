@@ -91,9 +91,16 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     positions(MarketType market, std::string_view currency, UnixNanos now);
 
+    // settlement entries only, newest first; a zero continuation asks for the first page
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    funding_settlements(std::string_view currency, UnixNanos since, std::uint64_t continuation, UnixNanos now);
+
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
     inline static constexpr std::uint32_t k_max_trade_page = 1000;
+    inline static constexpr std::uint32_t k_max_log_page = 1000;
+    // how far back a first funding pull reads, with no cursor yet
+    inline static constexpr std::uint64_t k_first_funding_window_ns = 7ULL * 86'400ULL * 1'000'000'000ULL;
 
 private:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> sign(std::string_view target, UnixNanos now);

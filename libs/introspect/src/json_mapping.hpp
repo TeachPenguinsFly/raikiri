@@ -69,7 +69,11 @@ template <> struct glz::meta<raikiri::introspect::ClockStats> {
                                          "sampled_ns",
                                          glz::quoted_num<&T::sampled_ns>,
                                          "samples",
-                                         &T::samples);
+                                         &T::samples,
+                                         "drift_ns",
+                                         &T::drift_ns,
+                                         "drift_over_ns",
+                                         &T::drift_over_ns);
 };
 
 template <> struct glz::meta<raikiri::introspect::GatewayStats> {

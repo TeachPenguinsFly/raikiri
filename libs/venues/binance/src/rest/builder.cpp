@@ -126,8 +126,8 @@ std::string_view rest_host(bool testnet, MarketType market) noexcept {
 }
 
 net::RestRequest RequestBuilder::instruments() noexcept {
-    return {
-        .method = net::HttpMethod::Get, .target = spot_ ? ep::k_spot_exchange_info : ep::k_exchange_info, .body = {}};
+    const auto target = option_ ? ep::k_option_exchange_info : spot_ ? ep::k_spot_exchange_info : ep::k_exchange_info;
+    return {.method = net::HttpMethod::Get, .target = target, .body = {}};
 }
 
 // every symbol in one call
@@ -144,7 +144,8 @@ net::RestRequest RequestBuilder::funding_info() noexcept {
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = spot_ ? ep::k_spot_server_time : ep::k_server_time, .body = {}};
+    const auto target = option_ ? ep::k_option_server_time : spot_ ? ep::k_spot_server_time : ep::k_server_time;
+    return {.method = net::HttpMethod::Get, .target = target, .body = {}};
 }
 
 net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol, std::uint32_t limit) noexcept {

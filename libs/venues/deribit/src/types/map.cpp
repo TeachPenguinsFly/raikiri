@@ -2,7 +2,10 @@
 #include <raikiri/common/int128.hpp>
 #include <raikiri/options/convention.hpp>
 #include <raikiri/venues/deribit/map.hpp>
+#include <raikiri/venues/deribit/rest.hpp>
 
+#include <array>
+#include <charconv>
 #include <limits>
 #include <optional>
 
@@ -573,6 +576,69 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
     }
     report.ts_venue = ts_venue;
     return report;
+}
+
+namespace {
+
+// BTC-PERPETUAL settles in BTC, BTC_USDC-PERPETUAL in USDC
+std::string_view settle_asset(const InstrumentBase& base) noexcept {
+    const auto prefix = currency_of(base.exchange_symbol.view());
+    const auto underscore = prefix.find('_');
+    return underscore == std::string_view::npos ? prefix : prefix.substr(underscore + 1);
+}
+
+} // namespace
+
+std::optional<LedgerEntry>
+map_funding_settlement(const WireLogEntry& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    if (wire.type != "settlement") {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.instrument);
+    if (instrument == nullptr || !std::holds_alternative<PerpInstrument>(*instrument)) {
+        return std::nullopt; // a dated future settles too, with no funding
+    }
+    const auto& base = base_of(*instrument);
+    if (wire.currency.empty() || wire.currency != settle_asset(base)) {
+        return std::nullopt;
+    }
+    // funding pnl, so positive was received; finer than 1e-9 of a coin is truncated
+    const auto amount = wire.total_interest_pl.empty() ? std::nullopt : parse_amount_e9(wire.total_interest_pl);
+    if (!amount.has_value() || amount->raw == 0 || wire.ts_ms == 0) {
+        return std::nullopt;
+    }
+    LedgerEntry out{};
+    out.instrument = base.id;
+    out.amount = *amount;
+    out.kind = LedgerKind::Funding;
+    out.settled_at = UnixNanos{wire.ts_ms * 1'000'000ULL};
+    std::array<char, 24> id{};
+    if (const auto [end, ec] = std::to_chars(id.data(), id.data() + id.size(), wire.id); ec == std::errc{}) {
+        if (const auto ref = ExecId::from(std::string_view{id.data(), static_cast<std::size_t>(end - id.data())});
+            ref.has_value()) {
+            out.reference = *ref;
+        }
+    }
+    out.ts_init = ts_init;
+    return out;
+}
+
+bool collect_funding_settlements(std::span<const WireLogEntry> entries,
+                                 const exec::InstrumentTable& table,
+                                 UnixNanos ts_init,
+                                 std::unordered_set<std::uint64_t>& seen,
+                                 std::vector<LedgerEntry>& out) {
+    bool fresh = false;
+    for (const auto& entry : entries) {
+        if (!seen.insert(entry.id).second) {
+            continue;
+        }
+        fresh = true;
+        if (auto charge = map_funding_settlement(entry, table, ts_init); charge.has_value()) {
+            out.push_back(*charge);
+        }
+    }
+    return fresh;
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {

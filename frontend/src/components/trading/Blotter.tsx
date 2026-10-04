@@ -48,7 +48,7 @@ const useCatalogue = (): Catalogue => {
 }
 
 /** a failed query shows the server's own message, such as the 503 without a dsn */
-function Outcome<T>({ q, empty, children }: {
+export function Outcome<T>({ q, empty, children }: {
   q: Query<T>
   empty: string
   children: (data: T) => ReactNode
@@ -149,19 +149,19 @@ function Grid({
   )
 }
 
-const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
+export const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
   <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left')}>{children}</th>
 )
-const Id = ({ children }: { children: string | number }) => (
+export const Id = ({ children }: { children: string | number }) => (
   <td className="num truncate px-3 text-xs text-fg-dim" title={String(children)}>
     {children}
   </td>
 )
-const N = ({ children, className }: { children: ReactNode; className?: string }) => (
+export const N = ({ children, className }: { children: ReactNode; className?: string }) => (
   <td className={cn('num px-3 text-right text-fg', className)}>{children}</td>
 )
 
-function When({ nanos }: { nanos: string | undefined }) {
+export function When({ nanos }: { nanos: string | undefined }) {
   if (nanos === undefined || nanos === '' || nanos === '0') return <Silent />
   const millis = nanosToMillis(nanos)
   return (

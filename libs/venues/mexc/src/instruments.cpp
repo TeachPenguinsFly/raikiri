@@ -53,7 +53,6 @@ public:
 private:
     std::expected<std::vector<Instrument>, exec::VenueError> load_perp() {
         rest_.start();
-        sync_clock(*state_, rest_);
 
         const auto response = await_response(*state_, rest_, state_->builder.contract_detail(), 20'000);
         if (!response.has_value()) {
@@ -140,7 +139,6 @@ private:
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {
         spot_rest_.start();
-        sync_spot_clock(*state_, spot_rest_);
 
         const auto response = await_response(*state_, spot_rest_, state_->builder.exchange_info(), 20'000);
         if (!response.has_value()) {

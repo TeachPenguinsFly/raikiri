@@ -29,13 +29,7 @@ public:
           rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .pool_size = net::k_order_pool_size}},
           builder_{state.signer, state.passphrase} {}
 
-    void start() {
-        rest_.start();
-        if (!signed_path_available()) {
-            return; // no credentials: nothing to sign, and nothing to measure
-        }
-        sync_clock(*state_, rest_);
-    }
+    void start() { rest_.start(); }
 
     void stop() { rest_.stop(); }
 

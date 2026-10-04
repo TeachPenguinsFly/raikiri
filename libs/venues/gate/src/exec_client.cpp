@@ -249,6 +249,11 @@ private:
     }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
+        if (cmd.instrument.market() == MarketType::Option) {
+            emit_reject(
+                cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate options are market data only"));
+            return;
+        }
         const auto now = state_->venue_now();
         auto& builder = api_.builder();
         const auto request = kind == Kind::Create   ? builder.create_order(cmd, state_->instruments, now)

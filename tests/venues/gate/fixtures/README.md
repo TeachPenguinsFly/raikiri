@@ -112,3 +112,19 @@ Each file is the captured header with its `channel` and `status` changed.
 | `ws_api_order_place_ack.json` | `futures.order_place` with `ack: true`; `data.result` echoes the request |
 | `ws_api_order_place.json` | `futures.order_place` with `ack: false`; `data.result` is `rest_futures_order.json` |
 | `ws_api_order_cancel_not_found.json` | `futures.order_cancel`, status 400, label `ORDER_NOT_FOUND` |
+
+## Options, captured live on 2026-10-04
+
+From production with no credentials. The contracts listing is trimmed and
+written back without whitespace; the fields are as served. The websocket files
+are single frames copied verbatim from sessions on
+`wss://op-ws.gateio.live/v4/ws`.
+
+| file | source |
+|---|---|
+| `rest_option_underlyings.json` | `GET https://api.gateio.ws/api/v4/options/underlyings`, as served |
+| `rest_option_contracts.json` | `GET /api/v4/options/contracts?underlying=BTC_USDT` cut to five rows, plus the first row of `underlying=DOGE_USDT` |
+| `ws_option_contract_tickers.json` | `options.contract_tickers` with payload `["BTC_USDT-20261225-90000-C"]` |
+| `ws_option_book_ticker.json` | `options.book_ticker` with payload `{"underlyings":["BTC_USDT"]}` |
+| `ws_option_trades.json` | `options.trades` with payload `{"underlyings":[...]}`, the one print in fifteen minutes |
+

@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <utility>
@@ -31,6 +33,19 @@ namespace {
 
 // the venue closes a socket idle for 60 s and control frames do not reset that timer
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
+
+// one dex per read at weight 20 is 400 of the ip's 1200 a minute
+constexpr std::uint64_t k_context_poll_interval_ns = 3'000'000'000ULL;
+
+void publish_context(VenueState& state, const WireAssetCtx& wire, UnixNanos received) {
+    // spot contexts carry no funding, so only turnover is published for them
+    if (const auto funding = map_funding(wire, state.instruments, received); funding.has_value()) {
+        state.sink->on_funding(*funding);
+    }
+    if (const auto stats = map_ticker_stats(wire, state.instruments, received); stats.has_value()) {
+        state.sink->on_ticker_stats(*stats);
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto kind = parse_event(frame);
@@ -62,16 +77,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::AssetCtx: {
-        const auto wire = parse_asset_ctx(frame);
-        if (!wire.has_value()) {
-            return;
-        }
-        // spot contexts carry no funding, so only turnover is published for them
-        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
-            state.sink->on_funding(*funding);
-        }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
-            state.sink->on_ticker_stats(*stats);
+        if (const auto wire = parse_asset_ctx(frame); wire.has_value()) {
+            publish_context(state, *wire, received);
         }
         break;
     }
@@ -165,16 +172,21 @@ public:
                 handler_,
                 // 1000 subscriptions per socket and usually per ip; see the venues table
                 net::WsPoolConfig{},
-                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
+                [this](std::span<const std::string> keys) { return build_frames(keys); }},
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
+        rest_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
         pool_.stop();
+        rest_.stop();
         started_ = false;
     }
 
@@ -187,18 +199,22 @@ public:
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        const auto channel = channel_for(kind);
+        const auto channel = stream_channel(kind, state_->market);
+        if (channel.empty() && !channel_for(kind).empty()) {
+            watch_context(symbol);
+            return {};
+        }
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
         if (!state_->add_subscription(channel, symbol)) {
-            return {}; // funding and mark price share one activeAssetCtx key
+            return {}; // spot funding and mark price share one activeAssetCtx key
         }
         // the pool opens another socket when none has room
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "hyperliquid: connection pool is full")};
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "hyperliquid: no room under the ip subscription cap")};
         }
         return {};
     }
@@ -213,6 +229,7 @@ public:
         }
         state_->io.poll();
         pool_.poll(now);
+        poll_contexts(now);
         if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
             // ping every socket; the idle timer is per connection
             pool_.broadcast(Protocol::ping_frame());
@@ -221,6 +238,49 @@ public:
     }
 
 private:
+    void watch_context(std::string_view coin) {
+        context_coins_.emplace(coin);
+        const auto dex = dex_of(coin);
+        if (std::ranges::find(context_dexes_, dex) == context_dexes_.end()) {
+            context_dexes_.emplace_back(dex);
+        }
+    }
+
+    void poll_contexts(UnixNanos now) noexcept {
+        if (context_dexes_.empty() || context_in_flight_ || now.ns < next_context_poll_ns_) {
+            return;
+        }
+        next_context_poll_ns_ = now.ns + k_context_poll_interval_ns;
+        const auto& dex = context_dexes_[context_cursor_];
+        context_cursor_ = (context_cursor_ + 1) % context_dexes_.size();
+        context_in_flight_ = true;
+        try {
+            if (!rest_.send(RequestBuilder::meta_and_asset_ctxs(dex, context_body_),
+                            [this](const net::RestResponse& response) { on_contexts(response); })) {
+                context_in_flight_ = false;
+            }
+        } catch (...) {
+            context_in_flight_ = false;
+        }
+    }
+
+    void on_contexts(const net::RestResponse& response) noexcept {
+        context_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return; // the next turn reads again; a missed rate is not an incident
+        }
+        const auto rows = parse_asset_ctxs(response.body, *contexts_);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            if (context_coins_.contains(row.coin)) {
+                publish_context(*state_, row, received);
+            }
+        }
+    }
+
     // runs on every open of the socket, so bbo is ordered first here; one frame per key
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<Subscription> views;
@@ -248,6 +308,14 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::WsPool pool_;
+    net::RestClient rest_;
+    std::string context_body_;
+    std::unique_ptr<AssetCtxBuffer> contexts_{std::make_unique<AssetCtxBuffer>()};
+    std::set<std::string, std::less<>> context_coins_;
+    std::vector<std::string> context_dexes_;
+    std::size_t context_cursor_{0};
+    std::uint64_t next_context_poll_ns_{0};
+    bool context_in_flight_{false};
     bool started_{false};
 };
 

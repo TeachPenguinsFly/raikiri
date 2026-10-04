@@ -10,6 +10,7 @@
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/map.hpp>
 #include <raikiri/venues/kraken/rest.hpp>
+#include <raikiri/venues/kraken/spot.hpp>
 #include <raikiri/venues/kraken/ws.hpp>
 
 #include <algorithm>
@@ -31,18 +32,21 @@ class KrakenInstruments final : public exec::InstrumentSource {
 public:
     explicit KrakenInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443", .timeout_ms = 30'000}} {
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host(state_->market)}, .port = "443", .timeout_ms = 30'000}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
-        if (market != MarketType::Perp) {
+        if (market != state_->market || (market != MarketType::Perp && market != MarketType::Spot)) {
             return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kraken adapter serves futures only")};
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "kraken adapter serves perps and spot")};
         }
         rest_.start();
+        if (market == MarketType::Spot) {
+            return fetch_spot();
+        }
 
-        const auto sent = state_->clock->wall();
         const auto response = await_response(*state_, rest_, state_->builder.instruments());
         if (!response.has_value()) {
             return std::unexpected{
@@ -57,13 +61,6 @@ public:
         }
         if (!envelope->ok) {
             return std::unexpected{exec::VenueError::make(classify(envelope->error), 0, envelope->error)};
-        }
-        // half the round trip estimates one-way delay
-        if (envelope->server_ms != 0) {
-            const auto received = state_->clock->wall();
-            const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-            state_->clock_offset_ns = static_cast<std::int64_t>(envelope->server_ms * 1'000'000ULL) -
-                                      static_cast<std::int64_t>(midpoint);
         }
 
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
@@ -92,6 +89,35 @@ public:
     }
 
 private:
+    std::expected<std::vector<Instrument>, exec::VenueError> fetch_spot() {
+        const auto response = await_response(*state_, rest_, state_->builder.spot_asset_pairs());
+        if (!response.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Connectivity, 0, "spot catalogue: no response before deadline")};
+        }
+        if (response->transport_failed()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        }
+        static thread_local const auto storage_owner = std::make_unique<SpotPairBuffer>();
+        const auto wire = parse_asset_pairs(response->body, *storage_owner);
+        if (!wire.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        std::vector<Instrument> loaded;
+        loaded.reserve(wire->size());
+        state_->instruments.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            const auto instrument = map_spot_pair(entry);
+            if (!instrument.has_value()) {
+                continue;
+            }
+            if (const auto id = state_->instruments.add(*instrument); id.has_value()) {
+                loaded.push_back(*state_->instruments.find(*id));
+            }
+        }
+        return loaded;
+    }
+
     std::shared_ptr<VenueState> state_;
     net::RestClient rest_;
 };

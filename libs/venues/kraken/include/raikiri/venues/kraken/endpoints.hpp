@@ -28,4 +28,10 @@ inline constexpr std::string_view k_instruments = "/api/v3/instruments";
 inline constexpr std::string_view k_tickers = "/api/v3/tickers";
 inline constexpr std::string_view k_orderbook = "/api/v3/orderbook";
 
+// spot is another api on its own hosts, read here for market data only
+inline constexpr std::string_view k_spot_rest = "api.kraken.com";
+inline constexpr std::string_view k_spot_stream = "ws.kraken.com";
+inline constexpr std::string_view k_spot_ws = "/v2";
+inline constexpr std::string_view k_spot_asset_pairs = "/0/public/AssetPairs";
+
 } // namespace raikiri::venues::kraken::ep

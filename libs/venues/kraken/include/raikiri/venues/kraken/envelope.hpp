@@ -59,6 +59,9 @@ struct RestEnvelope {
 // epoch ms from an iso-8601 utc instant
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_iso8601_ms(std::string_view text);
 
+// the same at nanosecond resolution; spot writes microseconds
+[[nodiscard]] std::expected<std::uint64_t, WireError> parse_iso8601_ns(std::string_view text);
+
 // raw token text; kraken writes both 64110.0 and 8.907125e-6, so map.cpp parses it. null reads as empty
 [[nodiscard]] std::expected<std::string_view, WireError> num_of(wire::ondemand::value value);
 

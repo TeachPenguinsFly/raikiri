@@ -119,6 +119,5 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 }
 
 // synced once at start; a skewed timestamp reads as a bad signature
-void sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder);
 
 } // namespace raikiri::venues::bingx::internal

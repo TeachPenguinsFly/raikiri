@@ -21,7 +21,7 @@ TEST(Malformed, Coinbase) {
                     (void)parse_event(f);
                     (void)parse_ticker(f);
                 }},
-               {"ws_match.json",
+               {"ws_*match*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_match(f);
@@ -64,6 +64,11 @@ TEST(Malformed, Coinbase) {
                     static ChangeBuffer changes;
                     (void)parse_l2_update(f, changes);
                 }},
+               {"rest_book_level1.json",
+                [](std::string_view f) {
+                    static LevelBuffer levels;
+                    (void)parse_l2_snapshot(f, levels);
+                }},
                {"rest_products.json",
                 [](std::string_view f) {
                     static ProductBuffer products;
@@ -71,8 +76,8 @@ TEST(Malformed, Coinbase) {
                 }},
                {"rest_product_btc.json", [](std::string_view f) { (void)parse_product(f); }},
                {"rest_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
-               {"rest_error_unauthorized.json", [](std::string_view f) { (void)parse_rest_error(f); }},
-               {"rest_order_ack.json", [](std::string_view f) { (void)parse_order(f); }},
+               {"rest_error_*", [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"rest_order_*", [](std::string_view f) { (void)parse_order(f); }},
                {"rest_orders_open.json",
                 [](std::string_view f) {
                     static OrderBuffer orders;

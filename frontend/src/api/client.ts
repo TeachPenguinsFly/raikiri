@@ -13,6 +13,9 @@ export type Fill = Schema<'Fill'>
 export type Problem = Schema<'Problem'>
 export type UpstreamColumn = Schema<'UpstreamColumn'>
 export type NewOrder = Schema<'NewOrder'>
+export type NewParentOrder = Schema<'NewParentOrder'>
+export type ParentOrder = Schema<'ParentOrder'>
+export type ChildOrder = Schema<'ChildOrder'>
 
 type Page<T> = { items: T[]; next_cursor?: string | null }
 
@@ -57,6 +60,21 @@ export const placeOrder = (order: NewOrder, idempotencyKey: string) =>
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify(order),
   })
+
+const post = <T>(path: string, body?: unknown) =>
+  request<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+
+/** joe runs inside strategyd; admind forwards /v1/joe/ there */
+export const joe = {
+  parents: () => get<{ items: ParentOrder[] }>('/v1/joe/parents'),
+  parent: (id: string) => get<ParentOrder>(`/v1/joe/parents/${id}`),
+  start: (order: NewParentOrder) => post<{ id: string }>('/v1/joe/parents', order),
+  act: (id: string, action: 'cancel' | 'pause' | 'resume') => post<ParentOrder>(`/v1/joe/parents/${id}/${action}`),
+}
 
 export const api = {
   health: () => get<Schema<'Health'>>('/v1/health'),

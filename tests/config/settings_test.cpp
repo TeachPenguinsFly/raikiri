@@ -37,7 +37,7 @@ TEST(Settings, TheCommittedVenueFileLoads) {
 
     const auto& bin = file->venues.at("binance");
     const auto bin_rest = rest_limits(bin);
-    ASSERT_EQ(bin_rest.size(), 2U) << "binance meters futures and spot weight apart";
+    ASSERT_EQ(bin_rest.size(), 3U) << "binance meters futures, spot and options weight apart";
     EXPECT_EQ(bin_rest[0].window_ns, 60'000'000'000U);
     EXPECT_LE(bin_rest[0].max, 2400U);
     EXPECT_GT(bin_rest[0].reserve, 0U) << "order entry must keep a floor";

@@ -44,4 +44,41 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
     });
 }
 
+std::expected<WireClosedPositionPage, WireError> parse_history_positions(std::string_view body,
+                                                                         ClosedPositionBuffer& storage) {
+    return guarded([&]() -> std::expected<WireClosedPositionPage, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return with_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireClosedPositionPage, WireError> {
+            const auto pages = opt_u64(obj, "totalPage");
+            if (!pages.has_value()) {
+                return std::unexpected(pages.error());
+            }
+            auto array = wire::req_array(obj, "items");
+            if (!array.has_value()) {
+                return std::unexpected(array.error());
+            }
+            const auto count = read_rows<WireClosedPosition>(
+                *array,
+                storage.positions,
+                [](auto& row_obj, WireClosedPosition& row) -> std::expected<void, WireError> {
+                    const auto symbol = req_decimal(row_obj, "symbol");
+                    const auto closed = opt_u64(row_obj, "closeTime");
+                    if (!symbol.has_value() || !closed.has_value()) {
+                        return std::unexpected(WireError::WrongType);
+                    }
+                    row.symbol = *symbol;
+                    row.close_ms = *closed;
+                    return {};
+                });
+            if (!count.has_value()) {
+                return std::unexpected(count.error());
+            }
+            return WireClosedPositionPage{.positions = {storage.positions.data(), *count}, .total_pages = *pages};
+        });
+    });
+}
+
 } // namespace raikiri::venues::kucoin

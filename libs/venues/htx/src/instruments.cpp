@@ -42,7 +42,6 @@ public:
         auto& rest = spot ? spot_rest_ : rest_;
         rest_.start();
         spot_rest_.start();
-        sync_clock(*state_, rest_);
 
         const auto request = spot ? RequestBuilder::spot_symbols() : RequestBuilder::contracts();
         const auto response = await_response(*state_, rest, request, 20'000);

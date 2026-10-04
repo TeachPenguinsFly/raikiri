@@ -25,6 +25,74 @@ std::expected<void, WireError> read_currency_pair(wire::ondemand::object& obj, W
 
 } // namespace
 
+std::expected<std::span<const WireOptionContract>, WireError> parse_option_contracts(std::string_view body,
+                                                                                     OptionContractBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOptionContract>, WireError> {
+        auto root = session().open_array(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *root) {
+            if (count == k_max_option_contracts) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireOptionContract out{};
+            const auto name = wire::req_str(obj, "name");
+            if (!name.has_value()) {
+                return std::unexpected(name.error());
+            }
+            out.name = *name;
+            out.underlying = text_field(obj, "underlying");
+            out.strike_price = field(obj, "strike_price");
+            out.order_price_round = field(obj, "order_price_round");
+            out.multiplier = field(obj, "multiplier");
+            out.expiration_s = whole_u64(field(obj, "expiration_time"));
+            const auto is_call = wire::opt_bool(obj, "is_call");
+            const auto is_active = wire::opt_bool(obj, "is_active");
+            if (!is_call.has_value() || !is_active.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.is_call = *is_call;
+            out.is_active = *is_active;
+            storage.contracts[count] = out;
+            ++count;
+        }
+        return std::span<const WireOptionContract>{storage.contracts.data(), count};
+    });
+}
+
+std::expected<std::span<const std::string_view>, WireError> parse_option_underlyings(std::string_view body,
+                                                                                     OptionUnderlyingBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const std::string_view>, WireError> {
+        auto root = session().open_array(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *root) {
+            if (count == k_max_option_underlyings) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto name = wire::req_str(obj, "name");
+            if (!name.has_value()) {
+                return std::unexpected(name.error());
+            }
+            storage.names[count] = *name;
+            ++count;
+        }
+        return std::span<const std::string_view>{storage.names.data(), count};
+    });
+}
+
 std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
                                                                         ContractBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireContract>, WireError> {

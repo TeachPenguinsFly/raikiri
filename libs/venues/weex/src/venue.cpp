@@ -1,5 +1,6 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/weex/endpoints.hpp>
 #include <raikiri/venues/weex/envelope.hpp>
@@ -7,7 +8,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #include "clients.hpp"
 
@@ -18,27 +21,6 @@ using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
 using internal::VenueState;
-
-// offset to weex's clock, less half the round trip
-void internal::sync_clock(VenueState& state, net::RestClient& rest) {
-    const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_server_time};
-
-    const auto before = state.clock->wall();
-    // derived from the transport's bound so the transport's timer fires first
-    const auto response = await_response(state, rest, request, rest.max_wait_ms() + 1'000);
-    if (!response.has_value() || response->transport_failed()) {
-        return; // no correction is better than a wrong one
-    }
-    const auto after = state.clock->wall();
-    const auto server_ms = parse_server_time(response->body);
-    if (!server_ms.has_value() || *server_ms == 0) {
-        return;
-    }
-    const auto server_ns = static_cast<std::int64_t>(*server_ms) * 1'000'000;
-    const auto midpoint_ns = static_cast<std::int64_t>(before.ns) +
-                             (static_cast<std::int64_t>(after.ns) - static_cast<std::int64_t>(before.ns)) / 2;
-    state.clock_offset_ns = server_ns - midpoint_ns;
-}
 
 namespace {
 
@@ -58,6 +40,11 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Weex);
+    adapter.clock.emplace(
+        exec::ServerTimeQuery{.host = "api-contract.weex.com",
+                              .target = "/capi/v3/market/time",
+                              .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
+        std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);
     adapter.instruments = make_instrument_source(state);

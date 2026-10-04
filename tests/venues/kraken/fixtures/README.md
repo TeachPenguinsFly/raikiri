@@ -1,4 +1,7 @@
-# Kraken Futures fixtures
+# Kraken fixtures
+
+The `spot_*` files come from the spot api and are listed in the last section.
+Everything else is Kraken Futures.
 
 The public files were captured from production Kraken Futures on 2026-08-10,
 unless a row gives another date, with no credentials. Frames were copied out
@@ -81,3 +84,24 @@ Substitutions, all textual:
 
 The signing test uses no fixture. Its expected `Authent` values were computed
 independently (base64-decode, SHA-256, HMAC-SHA-512, base64-encode).
+
+## Spot: `https://api.kraken.com/0/public` and `wss://ws.kraken.com/v2`
+
+Captured from production on 2026-10-04 with no credentials. Socket frames are
+copied out verbatim, one per file, because the v2 socket writes numbers at the
+pair's precision (`0.00023400`, `85185.0`) and the book checksum is computed
+from those digits.
+
+| file | source |
+|---|---|
+| `spot_rest_asset_pairs.json` | `GET /AssetPairs`, six rows kept inside the original envelope and written compactly: `XXBTZUSD`, `XDGUSD`, `PEPEUSD`, `XETHXXBT`, `CATUSD` (ten price decimals) and `ACAEUR` (`cancel_only`) |
+| `spot_ws_status.json` | the `status` update sent on connect |
+| `spot_ws_heartbeat.json` | a `heartbeat` |
+| `spot_ws_subscribed.json` | the answer to a `ticker` subscribe for `BTC/USD` |
+| `spot_ws_refused.json` | the answer to a `book` subscribe for `NOT/APAIR` |
+| `spot_ws_ticker_snapshot.json` | the `ticker` snapshot for `BTC/USD` with `event_trigger: bbo` |
+| `spot_ws_ticker_doge.json`, `spot_ws_ticker_pepe.json` | the same for `DOGE/USD` and `PEPE/USD` |
+| `spot_ws_trade.json` | a live `trade` update for `BTC/USD` |
+| `spot_ws_book_snapshot_btc.json` | the depth-10 `book` snapshot for `BTC/USD` |
+| `spot_ws_book_snapshot.json` | the depth-10 `book` snapshot for `PEPE/USD` |
+| `spot_ws_book_update.json`, `spot_ws_book_update_next.json` | the next two `PEPE/USD` updates on the same socket, each with its checksum |

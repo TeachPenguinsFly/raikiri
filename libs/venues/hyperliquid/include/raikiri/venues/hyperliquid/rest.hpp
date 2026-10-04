@@ -34,6 +34,9 @@ public:
 
     [[nodiscard]] static net::RestRequest meta_and_asset_ctxs() noexcept;
 
+    // an empty dex is the main one; the request views `body`, which must outlive it
+    [[nodiscard]] static net::RestRequest meta_and_asset_ctxs(std::string_view dex, std::string& body);
+
     // a different index space from meta.universe
     [[nodiscard]] static net::RestRequest spot_meta() noexcept;
 };

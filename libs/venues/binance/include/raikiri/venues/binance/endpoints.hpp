@@ -17,9 +17,15 @@ inline constexpr std::string_view k_spot_rest_test = "testnet.binance.vision";
 inline constexpr std::string_view k_spot_stream_live = "stream.binance.com";
 inline constexpr std::string_view k_spot_stream_test = "stream.testnet.binance.vision";
 
+// options stream from the futures host and share its testnet
+inline constexpr std::string_view k_option_rest_live = "eapi.binance.com";
+
 [[nodiscard]] constexpr std::string_view rest_host(bool testnet, MarketType market = MarketType::Perp) noexcept {
     if (market == MarketType::Spot) {
         return testnet ? k_spot_rest_test : k_spot_rest_live;
+    }
+    if (market == MarketType::Option && !testnet) {
+        return k_option_rest_live;
     }
     return testnet ? k_rest_test : k_rest_live;
 }
@@ -42,6 +48,8 @@ inline constexpr std::string_view k_ws_api_path = "/ws-fapi/v1";
 inline constexpr std::string_view k_ws_combined = "/stream";
 // markPrice, aggTrade and !markPrice@arr deliver only here; bookTicker, depth and trade only on /stream
 inline constexpr std::string_view k_ws_market = "/market/stream";
+// options split the other way: bookTicker, depth and optionTrade on /public, optionMarkPrice on /market
+inline constexpr std::string_view k_ws_public = "/public/stream";
 // the listen key is appended at the call site; the legacy /ws/ path connects but delivers no account events
 inline constexpr std::string_view k_ws_user_prefix = "/private/ws/";
 
@@ -72,5 +80,8 @@ inline constexpr std::string_view
 inline constexpr std::string_view k_spot_ticker_24h = "/api/v3/ticker/24hr";
 inline constexpr std::string_view k_spot_depth = "/api/v3/depth";
 inline constexpr std::string_view k_spot_server_time = "/api/v3/time";
+
+inline constexpr std::string_view k_option_exchange_info = "/eapi/v1/exchangeInfo";
+inline constexpr std::string_view k_option_server_time = "/eapi/v1/time";
 
 } // namespace raikiri::venues::binance::ep

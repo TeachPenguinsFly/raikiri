@@ -53,6 +53,7 @@
 #include <raikiri/venues/toobit/toobit_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <fmt/format.h>
 
@@ -70,7 +71,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
-#include <random>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -80,6 +81,7 @@
 #include "latency_meter.hpp"
 #include "private_pulls.hpp"
 #include "stats_collector.hpp"
+#include "venue_metrics.hpp"
 
 namespace {
 
@@ -1042,6 +1044,48 @@ int main(int argc, char** argv) {
         }
         return 1;
     }
+    // one measurement serves the feed lag and the signer; the first burst lands before anything signs
+    std::mutex clock_mu;
+    gatewayd::ClockState clock_state;
+    std::string clock_endpoint;
+    std::optional<introspect::RestServerTime> time_source;
+    std::optional<introspect::ClockSync> clock_sync;
+    const auto pause = [&clock](std::uint64_t ns) {
+        const auto until = clock.mono().ns + ns;
+        while (!g_stop.load(std::memory_order_relaxed) && clock.mono().ns < until) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        }
+        return !g_stop.load(std::memory_order_relaxed);
+    };
+    if (adapter->clock.has_value()) {
+        const auto& query = adapter->clock->query();
+        clock_endpoint = query.host + query.target;
+        time_source.emplace(query, clock);
+        clock_sync.emplace(
+            *time_source,
+            [&clock] { return clock.mono().ns; },
+            [&budget, &clock, target = query.target] {
+                return !budget.has_value() || budget->take(target, clock.mono(), exec::RateClass::Poll).has_value();
+            },
+            pause);
+        (void)clock_sync->tick();
+        clock_state = {.estimate = clock_sync->estimate(), .failures = clock_sync->failures()};
+        if (clock_state.estimate.method == introspect::ClockMethod::RestProbe) {
+            adapter->clock->use_offset(clock_state.estimate.offset_ns);
+            RLOG_INFO("gatewayd[{}]: venue clock {} us off, rtt {} us, +/- {} us ({})",
+                      account_name,
+                      clock_state.estimate.offset_ns / 1000,
+                      clock_state.estimate.rtt_ns / 1000,
+                      clock_state.estimate.uncertainty_ns / 1000,
+                      clock_endpoint);
+        } else {
+            RLOG_WARN(
+                "gatewayd[{}]: venue clock did not answer ({}); retrying in a minute", account_name, clock_endpoint);
+        }
+    } else {
+        RLOG_INFO("gatewayd[{}]: the venue has no server-time method; feed lag is on the local clock", account_name);
+    }
+
     if (const auto started = adapter->data->start(); !started.has_value()) {
         RLOG_ERROR("gatewayd: market data failed to start — {}", started.error().message.view());
         return 1;
@@ -1183,6 +1227,13 @@ int main(int argc, char** argv) {
                   first_refusal.empty() ? "no reason given" : first_refusal);
     }
     RLOG_INFO("gatewayd[{}]: subscribed to {} instrument(s)", account_name, subscribed);
+    // the pool refuses keys past the cap, so the plan never exceeds it
+    if (const auto cap = net::process_ws_limits().channels; cap != 0) {
+        RLOG_INFO("gatewayd[{}]: opening {} ws subscriptions of the ip's {}",
+                  account_name,
+                  net::process_ip_meters().channels_claimed(),
+                  cap);
+    }
     owner->publish();
     RequestLedger requests;
     raikiri::net::set_request_observer(
@@ -1256,6 +1307,10 @@ int main(int argc, char** argv) {
                                      clock);
         if (made.has_value()) {
             poller_adapter = std::make_unique<exec::VenueAdapter>(std::move(*made));
+            if (poller_adapter->clock.has_value() &&
+                clock_state.estimate.method == introspect::ClockMethod::RestProbe) {
+                poller_adapter->clock->use_offset(clock_state.estimate.offset_ns);
+            }
             if (const auto up = poller_adapter->execution->start(); !up.has_value()) {
                 RLOG_WARN("gatewayd: account poller could not start — {}", up.error().message.view());
                 poller_adapter.reset();
@@ -1272,6 +1327,12 @@ int main(int argc, char** argv) {
             poller = std::thread([&] {
                 auto* channels_ptr = &*channels;
                 while (!g_stop.load(std::memory_order_relaxed)) {
+                    if (poller_adapter->clock.has_value()) {
+                        const std::lock_guard lock{clock_mu};
+                        if (clock_state.estimate.method == introspect::ClockMethod::RestProbe) {
+                            poller_adapter->clock->use_offset(clock_state.estimate.offset_ns);
+                        }
+                    }
                     publish_positions(
                         *poller_adapter, market, *channels_ptr->catalogue, *channels_ptr->positions, clock.wall());
                     publish_balances(*poller_adapter, market, *channels_ptr->balances, clock.wall());
@@ -1291,38 +1352,21 @@ int main(int argc, char** argv) {
         }
     }
 
-    // probe the venue clock off the loop thread
-    std::mutex probed_mu;
-    introspect::ClockEstimate probed{};
-    std::string probe_endpoint;
+    // later bursts run off the loop thread
     std::thread prober;
-    if (const auto endpoint = introspect::time_endpoint(venue_name, to_string(market)); endpoint.has_value()) {
-        probe_endpoint = std::string{endpoint->host} + std::string{endpoint->path};
-        prober = std::thread([&, endpoint = *endpoint] {
-            introspect::RestServerTime source{endpoint, clock};
-            std::mt19937_64 rng{std::random_device{}()};
-            introspect::ProbeClock probe{source,
-                                         [&clock] { return clock.mono().ns; },
-                                         [&budget, &clock, path = endpoint.path] {
-                                             return !budget.has_value() ||
-                                                    budget->take(path, clock.mono(), exec::RateClass::Poll).has_value();
-                                         },
-                                         [&rng](std::uint64_t lo, std::uint64_t hi) {
-                                             return std::uniform_int_distribution<std::uint64_t>{lo, hi}(rng);
-                                         }};
+    if (clock_sync.has_value()) {
+        prober = std::thread([&] {
             while (!g_stop.load(std::memory_order_relaxed)) {
-                const auto due = probe.tick();
+                const auto due = clock_sync->tick();
                 {
-                    const std::lock_guard lock{probed_mu};
-                    probed = probe.estimate();
+                    const std::lock_guard lock{clock_mu};
+                    clock_state = {.estimate = clock_sync->estimate(), .failures = clock_sync->failures()};
                 }
                 while (!g_stop.load(std::memory_order_relaxed) && clock.mono().ns < due) {
                     std::this_thread::sleep_for(std::chrono::milliseconds{200});
                 }
             }
         });
-    } else {
-        RLOG_INFO("gatewayd[{}]: no time endpoint — clock offset bounded from the feed", account_name);
     }
 
     const auto t_end = duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
@@ -1337,6 +1381,8 @@ int main(int argc, char** argv) {
     std::uint64_t stats_due = 0;
     std::uint64_t stats_written = 0;
     std::uint64_t stats_cost_ns = 0;
+    std::uint64_t applied_clock_ns = clock_state.estimate.sampled_ns;
+    std::uint64_t broken_seen = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
@@ -1377,6 +1423,7 @@ int main(int argc, char** argv) {
         }
         adapter->data->poll(clock.wall());
         adapter->execution->poll(clock.wall());
+        latency.advance(mono.ns);
         owner->beat(mono.ns);
         if (mono.ns >= flush_due) {
             journal_writer->flush();
@@ -1387,16 +1434,29 @@ int main(int argc, char** argv) {
             stats_due = mono.ns + k_stats_every_ns;
             const auto began = clock.mono().ns;
             const auto wall = clock.wall().ns;
-            auto estimate = [&] {
-                const std::lock_guard lock{probed_mu};
-                return probed;
+            const auto measured_clock = [&] {
+                const std::lock_guard lock{clock_mu};
+                return clock_state;
             }();
-            if (estimate.method == introspect::ClockMethod::None) {
-                estimate = latency.bound(wall);
+            const auto& estimate = measured_clock.estimate;
+            if (estimate.method == introspect::ClockMethod::RestProbe && estimate.sampled_ns != applied_clock_ns) {
+                applied_clock_ns = estimate.sampled_ns;
+                adapter->clock->use_offset(estimate.offset_ns);
             }
             latency.use_offset(estimate);
-            latency.rotate_if_due(mono.ns);
             feed_latency.rotate_if_due(mono.ns);
+            const auto coverage = sink.coverage(wall, gatewayd::StatsCollector::k_window_ns);
+            std::uint64_t reopens = 0;
+            for (const auto& pool : raikiri::net::process_ws_pool_stats()) {
+                reopens += pool.reopens;
+            }
+            channels->metrics->write(gatewayd::venue_metrics(
+                measured_clock,
+                clock_endpoint,
+                latency,
+                {.catalogue = catalogue.size(), .priced = coverage.priced_60s, .reopens = reopens},
+                mono.ns,
+                wall));
             auto measured = feed_latency.stats();
             for (auto& row : requests.latency(mono.ns)) {
                 measured.push_back(std::move(row));
@@ -1405,13 +1465,11 @@ int main(int argc, char** argv) {
                 {.wall_ns = wall,
                  .mono_ns = mono.ns,
                  .messages = sink.message_counts(),
-                 .coverage = sink.coverage(wall, gatewayd::StatsCollector::k_window_ns),
+                 .coverage = coverage,
                  .venue_refusals = adapter->data->subscribe_refusals(),
+                 .broken_frames = wire::broken_frames(),
                  .rest_endpoints = requests.endpoints(),
-                 .clock = introspect::clock_stats(std::string{venue_name},
-                                                  estimate.method == introspect::ClockMethod::RestProbe ? probe_endpoint
-                                                                                                        : std::string{},
-                                                  estimate),
+                 .clock = introspect::clock_stats(std::string{venue_name}, clock_endpoint, estimate),
                  .latency = std::move(measured)},
                 budget.has_value() ? &*budget : nullptr);
             const auto cost = clock.mono().ns - began;
@@ -1423,6 +1481,13 @@ int main(int argc, char** argv) {
                           account_name,
                           stats_files.last_bytes(),
                           cost / 1000);
+            }
+            if (const auto broken = wire::broken_frames(); broken > broken_seen) {
+                RLOG_WARN("gatewayd[{}]: dropped {} malformed frame(s), {} since start",
+                          account_name,
+                          broken - broken_seen,
+                          broken);
+                broken_seen = broken;
             }
         }
         idle_passes = commands != 0 ? 0 : idle_passes + 1;

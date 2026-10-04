@@ -21,18 +21,13 @@ TEST(Malformed, Blofin) {
                     (void)parse_event(f);
                     (void)parse_books(f, levels);
                 }},
-               {"ws_books_update.json",
+               {"ws_books_update*",
                 [](std::string_view f) {
                     static LevelBuffer levels;
                     (void)parse_event(f);
                     (void)parse_books(f, levels);
                 }},
-               {"ws_books_update_next.json",
-                [](std::string_view f) {
-                    static LevelBuffer levels;
-                    (void)parse_event(f);
-                    (void)parse_books(f, levels);
-                }},
+
                {"ws_trades.json",
                 [](std::string_view f) {
                     static PrintBuffer prints;

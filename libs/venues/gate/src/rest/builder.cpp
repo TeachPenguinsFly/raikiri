@@ -203,6 +203,18 @@ net::RestRequest RequestBuilder::currency_pairs() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_currency_pairs, .body = {}};
 }
 
+net::RestRequest RequestBuilder::option_underlyings() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_option_underlyings, .body = {}};
+}
+
+net::RestRequest RequestBuilder::option_contracts(std::string_view underlying) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_option_contracts);
+    writer.put("?underlying=");
+    writer.put(underlying);
+    return writer.get();
+}
+
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }

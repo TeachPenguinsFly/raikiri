@@ -1,5 +1,6 @@
 #include <raikiri/admin/format.hpp>
 #include <raikiri/admin/registry.hpp>
+#include <raikiri/admin/routes.hpp>
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/http/server.hpp>
 #include <raikiri/shm/records.hpp>
@@ -279,6 +280,74 @@ TEST(AdminReattach, ATargetBelongsToTheAttachmentItWasResolvedAgainst) {
     EXPECT_EQ(after.front().cell, 0U);
     ASSERT_EQ(missing.size(), 1U);
     EXPECT_EQ(missing.front(), digits(gone));
+}
+
+TEST(AdminVenueMetrics, TheRouteReadsTheClockAndFeedEachGatewayPublished) {
+    const SegmentDir dir;
+    constexpr std::uint64_t k_run = 1'000;
+    constexpr std::uint64_t k_wall_now = 1'788'000'000'000'000'000ULL;
+    constexpr std::uint64_t k_ms = 1'000'000;
+    const auto gateway = start_gateway(k_run, {"AAA", "BBB"});
+    ASSERT_TRUE(gateway.has_value());
+    Registry registry;
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    const auto router = make_router(
+        registry, nullptr, nullptr, [] { return MonoNanos{k_run}; }, [] { return UnixNanos{k_wall_now}; });
+    const http::Request request{.method = "GET", .path = "/v1/venues/metrics"};
+
+    auto answer = router(request);
+    ASSERT_EQ(answer.status, 200);
+    EXPECT_NE(answer.body.find(R"("account":"sim")"), std::string::npos) << answer.body;
+    EXPECT_NE(answer.body.find(R"("method":"none")"), std::string::npos) << answer.body;
+    EXPECT_EQ(answer.body.find("offset_ns"), std::string::npos) << "no clock, no offset: " << answer.body;
+
+    shm::VenueMetrics m{};
+    m.published_ns = k_wall_now - 2'000 * k_ms;
+    m.clock_source = shm::ClockSource::RestProbe;
+    m.offset_ns = -7 * static_cast<std::int64_t>(k_ms);
+    m.rtt_ns = 180 * k_ms;
+    m.uncertainty_ns = 90 * k_ms + k_ms / 2;
+    m.measured_ns = k_wall_now - 60'000 * k_ms;
+    m.drift_ns = static_cast<std::int64_t>(k_ms);
+    m.drift_over_ns = 3'600'000 * k_ms;
+    m.catalogue = 2;
+    m.priced = 1;
+    m.reopens = 3;
+    const std::string_view endpoint = "fapi.binance.com/fapi/v1/time";
+    std::copy(endpoint.begin(), endpoint.end(), m.endpoint);
+    m.channels[0] = {.messages = 600,
+                     .window_ns = 60'000 * k_ms,
+                     .lag_samples = 600,
+                     .lag_p50_ns = 12 * static_cast<std::int64_t>(k_ms),
+                     .lag_p99_ns = 40 * static_cast<std::int64_t>(k_ms),
+                     .last_recv_ns = k_wall_now - 5 * k_ms};
+    registry.find("sim")->channels.metrics->write(m);
+
+    answer = router(request);
+    ASSERT_EQ(answer.status, 200);
+    std::vector<VenueMetrics> rows;
+    ASSERT_FALSE(glz::read_json(rows, answer.body)) << answer.body;
+    ASSERT_EQ(rows.size(), 1U);
+    const auto& row = rows.front();
+    EXPECT_EQ(row.venue, "sim");
+    EXPECT_TRUE(row.alive);
+    EXPECT_EQ(row.clock.method, "rest_probe");
+    EXPECT_EQ(row.clock.endpoint, endpoint);
+    EXPECT_EQ(row.clock.offset_ns, -7 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(row.clock.uncertainty_ns, static_cast<std::int64_t>(90 * k_ms + k_ms / 2));
+    EXPECT_EQ(row.clock.measured_at, digits(k_wall_now - 60'000 * k_ms));
+    EXPECT_EQ(row.clock.measured_ago_ns, static_cast<std::int64_t>(60'000 * k_ms));
+    EXPECT_EQ(row.clock.drift_ns, static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(row.reopens, 3);
+    EXPECT_EQ(row.priced, 1);
+    ASSERT_EQ(row.channels.size(), 1U) << "silent channels are left out";
+    const auto& bbo = row.channels.front();
+    EXPECT_EQ(bbo.channel, "bbo");
+    EXPECT_EQ(bbo.msgs_per_s, 10);
+    EXPECT_EQ(bbo.lag_p50_ns, 12 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(bbo.lag_p50_corrected_ns, 5 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(bbo.lag_p99_corrected_ns, 33 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(bbo.last_message_age_ns, static_cast<std::int64_t>(5 * k_ms));
 }
 
 } // namespace

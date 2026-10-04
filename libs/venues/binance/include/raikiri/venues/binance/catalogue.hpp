@@ -26,6 +26,10 @@ struct WireInstrument {
     bool spot_allowed{false}; // isSpotTradingAllowed; futures rows leave it false
     // stamped from /fapi/v1/fundingInfo; 0 means the schedule is unstated
     std::uint32_t funding_interval_s{0};
+    // options only: CALL or PUT, the strike in quote, and unit, the underlying per contract
+    std::string_view option_side;
+    std::string_view strike;
+    std::uint64_t unit{0};
 };
 
 // spot lists 3700 pairs, two thirds of them halted
@@ -52,6 +56,10 @@ struct FundingInfoBuffer {
 
 [[nodiscard]] std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(std::string_view body,
                                                                                             InstrumentBuffer& storage);
+
+// /eapi/v1/exchangeInfo: optionSymbols, with expiryDate read into delivery_ms
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
+parse_option_exchange_info(std::string_view body, InstrumentBuffer& storage);
 
 [[nodiscard]] std::expected<std::span<const WireFundingInfo>, WireError> parse_funding_info(std::string_view body,
                                                                                             FundingInfoBuffer& storage);

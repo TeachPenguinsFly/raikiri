@@ -47,7 +47,7 @@ running a gateway and adding a venue.
 | `apex` | DEX | perp | **market data only** | – | – | – | – |
 | `aster` | DEX | perp | **market data only** | – | – | – | – |
 | `backpack` | CEX | spot · perp | **market data only** | – | – | – | – |
-| `binance` | CEX | spot · perp | REST + WS | ✓ | ✓ | ListenKey | ✓ |
+| `binance` | CEX | spot · perp · options | REST + WS | ✓ | ✓ | ListenKey | ✓ |
 | `bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 | `bitfinex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
 | `bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
@@ -56,17 +56,17 @@ running a gateway and adding a venue.
 | `bybit` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `coinbase` | CEX | spot | REST | – | – | AuthSubscribe | – |
 | `cryptocom` | CEX | spot · perp | **market data only** | – | – | – | – |
-| `deribit` | CEX | perp · futures · options | REST | – | – | AuthSubscribe | – |
+| `deribit` | CEX | perp · futures · options | REST | – | – | AuthSubscribe | ✓ |
 | `derive` | DEX | perp · options | **market data only** | – | – | – | – |
 | `dydx` | DEX | perp | **market data only** | – | – | – | – |
 | `edgex` | DEX | spot · perp | **market data only** | – | – | – | – |
 | `extended` | DEX | perp | **market data only** | – | – | – | – |
-| `gate` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| `gate` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
 | `grvt` | DEX | perp | **market data only** | – | – | – | – |
 | `htx` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
 | `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `kraken` | CEX | perp | REST | – | – | AuthSubscribe | – |
-| `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | – |
+| `kraken` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
+| `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | ✓ |
 | `lbank` | CEX | spot · perp | **market data only**, no perp order API | – | – | – | – |
 | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – |
 | `mexc` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |

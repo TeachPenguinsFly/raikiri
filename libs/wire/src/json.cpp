@@ -1,5 +1,6 @@
 #include <raikiri/wire/json.hpp>
 
+#include <atomic>
 #include <charconv>
 #include <cstring>
 
@@ -37,6 +38,18 @@ constexpr std::size_t k_max_frame = 64 * 1024 * 1024;
 // plain pointer to skip the thread_local guard
 thread_local const Session* t_current = nullptr;
 
+// a parser may open the same frame twice, so the count waits for the next frame
+thread_local bool t_counted = false;
+
+std::atomic<std::uint64_t> g_broken{0};
+
+void note_broken() noexcept {
+    if (!t_counted) {
+        t_counted = true;
+        g_broken.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 } // namespace
 
 Error map_error(simdjson::error_code ec) noexcept {
@@ -50,12 +63,24 @@ Error map_error(simdjson::error_code ec) noexcept {
     case simdjson::SCALAR_DOCUMENT_AS_VALUE:
         return Error::WrongType;
     default:
+        note_broken();
         return Error::NotJson;
     }
 }
 
+std::uint64_t broken_frames() noexcept {
+    return g_broken.load(std::memory_order_relaxed);
+}
+
 std::expected<void, Error> Session::start(std::string_view frame) {
-    if (frame.empty() || frame.size() > k_max_frame) {
+    if (frame.data() != origin_ || frame.size() != origin_size_) {
+        t_counted = false;
+    }
+    if (frame.empty()) {
+        return std::unexpected(Error::NotJson);
+    }
+    if (frame.size() > k_max_frame) {
+        note_broken();
         return std::unexpected(Error::NotJson);
     }
 

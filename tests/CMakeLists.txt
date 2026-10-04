@@ -67,6 +67,7 @@ target_compile_definitions(settings_test PRIVATE RAIKIRI_CONFIG_DIR="${PROJECT_S
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
 
 raikiri_add_test(gate_venue_test SRCS venues/gate/venue_test.cpp LIBS raikiri::venue_gate raikiri::exec)
+raikiri_add_test(gate_option_test SRCS venues/gate/option_test.cpp LIBS raikiri::venue_gate raikiri::options raikiri::exec)
 raikiri_add_test(gate_trade_test SRCS venues/gate/trade_test.cpp LIBS raikiri::venue_gate raikiri::net raikiri::exec)
 raikiri_add_test(kucoin_venue_test SRCS venues/kucoin/venue_test.cpp LIBS raikiri::venue_kucoin raikiri::exec)
 raikiri_add_test(kucoin_trade_test SRCS venues/kucoin/trade_test.cpp LIBS raikiri::venue_kucoin raikiri::exec raikiri::net)
@@ -81,6 +82,7 @@ target_compile_definitions(hyperliquid_post_test PRIVATE
   RAIKIRI_HYPERLIQUID_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/hyperliquid/fixtures")
 raikiri_add_test(coinbase_venue_test SRCS venues/coinbase/venue_test.cpp LIBS raikiri::venue_coinbase raikiri::exec)
 raikiri_add_test(kraken_venue_test SRCS venues/kraken/venue_test.cpp LIBS raikiri::venue_kraken raikiri::exec)
+raikiri_add_test(kraken_spot_test SRCS venues/kraken/spot_test.cpp LIBS raikiri::venue_kraken raikiri::exec)
 raikiri_add_test(bitget_venue_test SRCS venues/bitget/venue_test.cpp LIBS raikiri::venue_bitget raikiri::exec)
 raikiri_add_test(bitget_trade_test SRCS venues/bitget/trade_test.cpp LIBS raikiri::venue_bitget raikiri::exec raikiri::net)
 raikiri_add_test(htx_venue_test SRCS venues/htx/venue_test.cpp LIBS raikiri::venue_htx raikiri::exec)
@@ -107,6 +109,9 @@ raikiri_add_test(bitunix_venue_test SRCS venues/bitunix/venue_test.cpp LIBS raik
 raikiri_add_test(toobit_venue_test SRCS venues/toobit/venue_test.cpp LIBS raikiri::venue_toobit raikiri::exec)
 raikiri_add_test(derive_venue_test SRCS venues/derive/venue_test.cpp LIBS raikiri::venue_derive raikiri::options raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
+raikiri_add_test(binance_option_test SRCS venues/binance/option_test.cpp LIBS raikiri::venue_binance raikiri::options raikiri::exec raikiri::net)
+target_compile_definitions(binance_option_test PRIVATE
+  RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 
 raikiri_add_test(binance_wire_test SRCS venues/binance/wire_test.cpp LIBS raikiri::venue_binance)
@@ -156,6 +161,16 @@ target_link_libraries(rest_await_test
   PRIVATE Boost::headers OpenSSL::Crypto OpenSSL::SSL)
 
 raikiri_add_test(venue_contract_test SRCS exec/venue_contract_test.cpp LIBS raikiri::exec)
+raikiri_add_test(venue_clock_test SRCS exec/venue_clock_test.cpp LIBS raikiri::exec raikiri::common
+  raikiri::venue_apex raikiri::venue_aster raikiri::venue_backpack raikiri::venue_binance raikiri::venue_bingx
+  raikiri::venue_bitfinex raikiri::venue_bitget raikiri::venue_bitunix raikiri::venue_blofin raikiri::venue_bybit
+  raikiri::venue_coinbase raikiri::venue_cryptocom raikiri::venue_deribit raikiri::venue_derive raikiri::venue_dydx
+  raikiri::venue_edgex raikiri::venue_extended raikiri::venue_gate raikiri::venue_grvt raikiri::venue_htx
+  raikiri::venue_hyperliquid raikiri::venue_kraken raikiri::venue_kucoin raikiri::venue_lbank raikiri::venue_lighter
+  raikiri::venue_mexc raikiri::venue_okx raikiri::venue_pacifica raikiri::venue_phemex raikiri::venue_toobit
+  raikiri::venue_weex raikiri::venue_xt)
+target_compile_definitions(venue_clock_test PRIVATE
+  RAIKIRI_SERVER_TIME_FIXTURES="${PROJECT_SOURCE_DIR}/tests/exec/fixtures/server_time")
 raikiri_add_test(reconcile_test SRCS portfolio/reconcile_test.cpp LIBS raikiri::portfolio)
 
 raikiri_add_test(attribution_test SRCS oms/attribution_test.cpp LIBS raikiri::oms)
@@ -208,3 +223,5 @@ raikiri_add_test(introspect_routes_test SRCS introspect/routes_test.cpp
   LIBS raikiri::introspect_http glaze::glaze)
 raikiri_add_test(introspect_latency_test SRCS introspect/latency_test.cpp
   LIBS raikiri::introspect_http raikiri::introspect_probe)
+
+raikiri_add_test(joe_domain_test SRCS joe/domain_test.cpp LIBS raikiri::joe)

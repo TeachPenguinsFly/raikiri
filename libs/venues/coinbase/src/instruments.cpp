@@ -36,7 +36,6 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "coinbase exchange lists spot only")};
         }
         rest_.start();
-        sync_clock(*state_, rest_);
 
         const auto response = await_response(*state_, rest_, state_->builder.products(), 20'000);
         if (!response.has_value()) {

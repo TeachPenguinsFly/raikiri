@@ -48,4 +48,28 @@ struct WireTicker {
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
+// options.contract_tickers: one contract per push, a full snapshot each second, stamped in whole seconds;
+// vols are fractions, vega per vol point and theta per day, per unit of the underlying
+struct WireOptionTicker {
+    std::string_view contract;
+    std::string_view mark_price;
+    std::string_view index_price;
+    std::string_view underlying_price;
+    std::string_view bid_price;
+    std::string_view ask_price;
+    std::string_view bid_qty;
+    std::string_view ask_qty;
+    std::string_view mark_iv;
+    std::string_view bid_iv;
+    std::string_view ask_iv;
+    std::string_view delta;
+    std::string_view gamma;
+    std::string_view vega;
+    std::string_view theta;
+    std::string_view rho;
+    std::uint64_t ts_s{0};
+};
+
+[[nodiscard]] std::expected<WireOptionTicker, WireError> parse_option_ticker(std::string_view frame);
+
 } // namespace raikiri::venues::gate

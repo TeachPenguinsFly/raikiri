@@ -49,7 +49,6 @@ public:
     std::expected<void, exec::VenueError> start() {
         perp_rest_.start();
         spot_rest_.start();
-        sync_clock(*state_, perp_rest_);
         if (spot_enabled_ && !load_spot_account()) {
             // without the account id every spot order is refused
             return std::unexpected{

@@ -2,6 +2,7 @@
 #include <raikiri/wire/json.hpp>
 
 #include <array>
+#include <utility>
 
 namespace raikiri::venues::binance {
 
@@ -101,6 +102,81 @@ std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(st
                     }
                     *want.into = *value;
                 }
+            }
+            storage.instruments[count] = out;
+            ++count;
+        }
+        return std::span<const WireInstrument>{storage.instruments.data(), count};
+    });
+}
+
+std::expected<std::span<const WireInstrument>, WireError> parse_option_exchange_info(std::string_view body,
+                                                                                     InstrumentBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireInstrument>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto symbols = wire::req_array(*root, "optionSymbols");
+        if (!symbols.has_value()) {
+            return std::unexpected(symbols.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *symbols) {
+            if (count == k_max_instruments) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireInstrument out{};
+            const auto symbol = wire::req_str(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            out.symbol = *symbol;
+            for (const auto& [key, into] : {std::pair{"side", &out.option_side},
+                                            std::pair{"strikePrice", &out.strike},
+                                            std::pair{"quoteAsset", &out.quote_asset},
+                                            std::pair{"status", &out.status},
+                                            std::pair{"contractType", &out.contract_type},
+                                            std::pair{"underlyingType", &out.underlying_type}}) {
+                const auto value = wire::opt_str(obj, key);
+                if (!value.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                *into = *value;
+            }
+            const auto expiry = wire::opt_u64(obj, "expiryDate");
+            const auto unit = wire::opt_u64(obj, "unit");
+            if (!expiry.has_value() || !unit.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.delivery_ms = *expiry;
+            out.unit = *unit;
+            auto filters = wire::req_array(obj, "filters");
+            if (!filters.has_value()) {
+                return std::unexpected(filters.error());
+            }
+            for (auto filter_entry : *filters) {
+                wire::ondemand::object filter;
+                if (const auto ec = filter_entry.get_object().get(filter); ec != simdjson::SUCCESS) {
+                    return std::unexpected(wire::map_error(ec));
+                }
+                const auto type = wire::opt_str(filter, "filterType");
+                if (!type.has_value()) {
+                    return std::unexpected(type.error());
+                }
+                auto* into = *type == "PRICE_FILTER" ? &out.tick_size : *type == "LOT_SIZE" ? &out.step_size : nullptr;
+                if (into == nullptr) {
+                    continue;
+                }
+                const auto value = wire::opt_str(filter, *type == "PRICE_FILTER" ? "tickSize" : "stepSize");
+                if (!value.has_value()) {
+                    return std::unexpected(value.error());
+                }
+                *into = *value;
             }
             storage.instruments[count] = out;
             ++count;

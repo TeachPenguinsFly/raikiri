@@ -38,6 +38,38 @@ struct ContractBuffer {
 [[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
                                                                                       ContractBuffer& storage);
 
+// sizes are whole contracts of `multiplier` underlying units; expiration_time is in seconds
+struct WireOptionContract {
+    std::string_view name; // BTC_USDT-20261225-90000-C
+    std::string_view underlying;
+    std::string_view strike_price;
+    std::string_view order_price_round;
+    std::string_view multiplier;
+    std::uint64_t expiration_s{0};
+    bool is_call{false};
+    bool is_active{false};
+};
+
+inline constexpr std::size_t k_max_option_contracts = 2048;
+
+struct OptionContractBuffer {
+    std::array<WireOptionContract, k_max_option_contracts> contracts{};
+};
+
+// /options/contracts for one underlying; the body is a top-level array
+[[nodiscard]] std::expected<std::span<const WireOptionContract>, WireError>
+parse_option_contracts(std::string_view body, OptionContractBuffer& storage);
+
+inline constexpr std::size_t k_max_option_underlyings = 64;
+
+struct OptionUnderlyingBuffer {
+    std::array<std::string_view, k_max_option_underlyings> names{};
+};
+
+// /options/underlyings: the names, BTC_USDT and the like
+[[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
+parse_option_underlyings(std::string_view body, OptionUnderlyingBuffer& storage);
+
 // precisions are digit counts: steps are 10^-n
 struct WireCurrencyPair {
     std::string_view id;

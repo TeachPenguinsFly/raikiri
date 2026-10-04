@@ -22,6 +22,13 @@ inline constexpr std::string_view k_spot_stream_test = "ws-testnet.gate.com";
     return testnet ? k_futures_stream_test : k_futures_stream_live;
 }
 
+inline constexpr std::string_view k_option_stream_live = "op-ws.gateio.live";
+inline constexpr std::string_view k_option_stream_test = "ws-testnet.gate.com";
+
+[[nodiscard]] constexpr std::string_view option_stream_host(bool testnet) noexcept {
+    return testnet ? k_option_stream_test : k_option_stream_live;
+}
+
 [[nodiscard]] constexpr std::string_view spot_stream_host(bool testnet) noexcept {
     return testnet ? k_spot_stream_test : k_spot_stream_live;
 }
@@ -33,6 +40,13 @@ inline constexpr std::string_view k_ws_spot_test = "/v4/ws/spot";
 
 [[nodiscard]] constexpr std::string_view ws_spot_path(bool testnet) noexcept {
     return testnet ? k_ws_spot_test : k_ws_spot_live;
+}
+
+inline constexpr std::string_view k_ws_option_live = "/v4/ws";
+inline constexpr std::string_view k_ws_option_test = "/v4/ws/options";
+
+[[nodiscard]] constexpr std::string_view ws_option_path(bool testnet) noexcept {
+    return testnet ? k_ws_option_test : k_ws_option_live;
 }
 
 // the settlement currency goes here, then a tail below
@@ -58,5 +72,9 @@ inline constexpr std::string_view k_futures_tickers = "/tickers";
 inline constexpr std::string_view k_futures_order_book = "/order_book";
 inline constexpr std::string_view k_spot_currency_pairs = "/api/v4/spot/currency_pairs";
 inline constexpr std::string_view k_server_time = "/api/v4/spot/time";
+
+inline constexpr std::string_view k_option_underlyings = "/api/v4/options/underlyings";
+// one underlying per call: ?underlying=BTC_USDT
+inline constexpr std::string_view k_option_contracts = "/api/v4/options/contracts";
 
 } // namespace raikiri::venues::gate::ep

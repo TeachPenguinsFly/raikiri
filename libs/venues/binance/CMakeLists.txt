@@ -23,4 +23,4 @@ target_include_directories(raikiri_venue_binance PUBLIC
 )
 target_link_libraries(raikiri_venue_binance
   PUBLIC raikiri::book raikiri::domain raikiri::exec raikiri::net raikiri::wire
-  PRIVATE raikiri::config raikiri::log simdjson::simdjson raikiri::warnings)
+  PRIVATE raikiri::config raikiri::log raikiri::options simdjson::simdjson raikiri::warnings)

@@ -17,6 +17,24 @@ using wire::malformed::hammer;
 TEST(Malformed, Binance) {
     hammer("binance",
            {
+               {"rest_option_exchange_info.json",
+                [](std::string_view f) {
+                    static InstrumentBuffer storage;
+                    (void)parse_option_exchange_info(f, storage);
+                }},
+               {"ws_option_mark.json",
+                [](std::string_view f) {
+                    static OptionMarkBuffer storage;
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_option_marks(*inner, storage);
+                    }
+                }},
+               {"ws_option_book_ticker.json",
+                [](std::string_view f) {
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_book_ticker(*inner);
+                    }
+                }},
                {"ws_book_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);
@@ -24,7 +42,7 @@ TEST(Malformed, Binance) {
                         (void)parse_book_ticker(*inner);
                     }
                 }},
-               {"ws_agg_trade.json",
+               {"*ws_*trade.json",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     if (const auto inner = unwrap(f); inner.has_value()) {
@@ -38,7 +56,7 @@ TEST(Malformed, Binance) {
                         (void)parse_mark_price(*inner);
                     }
                 }},
-               {"ws_depth_update.json",
+               {"ws_depth_*",
                 [](std::string_view f) {
                     static LevelBuffer storage;
                     (void)parse_event(f);
@@ -46,15 +64,8 @@ TEST(Malformed, Binance) {
                         (void)parse_depth_update(*inner, storage);
                     }
                 }},
-               {"ws_depth_straddle.json",
-                [](std::string_view f) {
-                    static LevelBuffer storage;
-                    (void)parse_event(f);
-                    if (const auto inner = unwrap(f); inner.has_value()) {
-                        (void)parse_depth_update(*inner, storage);
-                    }
-                }},
-               {"rest_depth_snapshot.json",
+
+               {"rest_depth_s*",
                 [](std::string_view f) {
                     static LevelBuffer storage;
                     (void)parse_depth_snapshot(f, storage);
@@ -85,9 +96,9 @@ TEST(Malformed, Binance) {
                     static IncomeBuffer storage;
                     (void)parse_income(f, storage);
                 }},
-               {"rest_error_bad_symbol.json", [](std::string_view f) { (void)parse_rest_error(f); }},
-               {"ws_api_order_place.json", [](std::string_view f) { (void)parse_ws_api_reply(f); }},
-               {"ws_api_error.json", [](std::string_view f) { (void)parse_ws_api_reply(f); }},
+               {"rest_error_*", [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"ws_api_*", [](std::string_view f) { (void)parse_ws_api_reply(f); }},
+
                {"spot_ws_book_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);
@@ -95,7 +106,7 @@ TEST(Malformed, Binance) {
                         (void)parse_book_ticker(*inner);
                     }
                 }},
-               {"spot_ws_depth_update.json",
+               {"spot_ws_depth_*",
                 [](std::string_view f) {
                     static LevelBuffer storage;
                     if (const auto inner = unwrap(f); inner.has_value()) {

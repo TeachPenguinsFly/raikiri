@@ -46,6 +46,7 @@ struct Snapshot {
     MessageCounts messages{};
     Coverage coverage;
     std::uint64_t venue_refusals{0};
+    std::uint64_t broken_frames{0};
     std::vector<introspect::RestEndpointStats> rest_endpoints;
     introspect::ClockStats clock;
     std::vector<introspect::LatencyStats> latency;
@@ -155,6 +156,7 @@ public:
         stats.rates.messages_per_second = window_.total_per_second();
         stats.rates.window_s = k_window_ns / 1'000'000'000ULL;
         stats.rates.venue_refusals = now.venue_refusals;
+        stats.rates.broken_frames = now.broken_frames;
         stats.rates.rest_endpoints = std::move(now.rest_endpoints);
         stats.clock = std::move(now.clock);
         stats.latency = std::move(now.latency);

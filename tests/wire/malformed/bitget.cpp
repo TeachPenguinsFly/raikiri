@@ -20,14 +20,14 @@ TEST(Malformed, Bitget) {
     hammer("bitget",
            {
                {"ws_subscribe_ack.json", [](std::string_view f) { (void)parse_event(f); }},
-               {"ws_error_unknown_instrument.json",
+               {"ws_error_*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_stream_error(f);
                 }},
-               {"ws_login_ack.json", [](std::string_view f) { (void)parse_event(f); }},
-               {"ws_trade_place_order.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
-               {"ws_trade_error.json", [](std::string_view f) { (void)parse_trade_reply(f); }},
+               {"ws_login_*", [](std::string_view f) { (void)parse_event(f); }},
+               {"ws_trade_*", [](std::string_view f) { (void)parse_trade_reply(f); }},
+
                {"ws_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);
@@ -45,13 +45,13 @@ TEST(Malformed, Bitget) {
                     (void)parse_event(f);
                     (void)parse_books(f, storage);
                 }},
-               {"ws_books_update.json",
+               {"ws_books_update*",
                 [](std::string_view f) {
                     static LevelBuffer storage;
                     (void)parse_event(f);
                     (void)parse_books(f, storage);
                 }},
-               {"ws_orders_mix_accepted.json",
+               {"ws_orders_*",
                 [](std::string_view f) {
                     static OrderUpdateBuffer storage;
                     (void)parse_event(f);
@@ -73,7 +73,7 @@ TEST(Malformed, Bitget) {
                     (void)parse_rest_orderbook(f, storage);
                 }},
                {"rest_current_fund_rate.json", [](std::string_view f) { (void)parse_current_fund_rate(f); }},
-               {"rest_error_unknown_symbol.json", [](std::string_view f) { (void)parse_rest_envelope(f); }},
+               {"rest_error_*", [](std::string_view f) { (void)parse_rest_envelope(f); }},
                {"rest_mix_account_bill.json",
                 [](std::string_view f) {
                     static BillBuffer storage;
@@ -88,6 +88,32 @@ TEST(Malformed, Bitget) {
                 [](std::string_view f) {
                     static PositionBuffer storage;
                     (void)parse_positions(f, storage);
+                }},
+               {"rest_server_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
+               {"rest_ticker.json",
+                [](std::string_view f) {
+                    (void)parse_rest_envelope(f);
+                    (void)parse_ticker(f);
+                }},
+               {"rest_mix_fills.json",
+                [](std::string_view f) {
+                    static FillBuffer storage;
+                    (void)parse_mix_fills(f, storage);
+                }},
+               {"rest_spot_fills.json",
+                [](std::string_view f) {
+                    static FillBuffer storage;
+                    (void)parse_spot_fills(f, storage);
+                }},
+               {"rest_spot_unfilled_orders.json",
+                [](std::string_view f) {
+                    static OrderUpdateBuffer storage;
+                    (void)parse_spot_orders(f, storage);
+                }},
+               {"rest_batch_cancel_partial.json",
+                [](std::string_view f) {
+                    static BatchFailureBuffer storage;
+                    (void)parse_batch_failures(f, storage);
                 }},
                {"rest_order_ack.json", [](std::string_view f) { (void)parse_order_ack(f); }},
            });

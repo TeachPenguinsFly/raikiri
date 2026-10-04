@@ -98,7 +98,7 @@ std::string prometheus_text(const MachineStats& machine) {
 
     const std::array<ClockGauge, 4> clock_gauges{{
         {"raikiri_clock_offset_seconds",
-         "Venue clock minus ours; a feed_bound method is a lower bound",
+         "Venue clock minus ours, measured against its server-time method",
          [](const ClockStats& c, std::uint64_t) { return seconds(c.offset_ns); }},
         {"raikiri_clock_uncertainty_seconds",
          "Half the probe round trip plus half the stamp resolution",

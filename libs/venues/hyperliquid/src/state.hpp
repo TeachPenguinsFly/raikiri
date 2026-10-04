@@ -41,6 +41,7 @@ struct VenueState {
     const Clock* clock;
     exec::RateBudget* budget{nullptr};
     bool testnet;
+    MarketType market{MarketType::Perp};
     std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;

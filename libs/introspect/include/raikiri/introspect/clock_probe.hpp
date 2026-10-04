@@ -1,6 +1,6 @@
 #pragma once
 
-// when to probe a venue's clock and how to read the answers; the clock is injected
+// when to measure a venue's clock and how to read a burst; the clock and the pauses are injected
 
 #include <raikiri/introspect/latency.hpp>
 
@@ -23,26 +23,27 @@ public:
 };
 
 struct ProbeSchedule {
-    std::uint32_t burst{4};
-    std::uint64_t burst_gap_ns{2'000'000'000ULL};
-    std::uint64_t period_min_ns{30'000'000'000ULL};
-    std::uint64_t period_max_ns{60'000'000'000ULL};
+    std::uint32_t burst{5};
+    std::uint64_t burst_gap_ns{200'000'000ULL};
+    std::uint64_t period_ns{3'600'000'000'000ULL};
+    std::uint64_t retry_ns{60'000'000'000ULL};
 };
 
-class ProbeClock {
+class ClockSync {
 public:
     using MonoClock = std::function<std::uint64_t()>;
-    // false skips this round
+    // false skips that request
     using Admit = std::function<bool()>;
-    // uniform in [lo, hi]
-    using Jitter = std::function<std::uint64_t(std::uint64_t lo, std::uint64_t hi)>;
+    // false when the caller is stopping
+    using Pause = std::function<bool(std::uint64_t ns)>;
 
-    ProbeClock(ServerTimeSource& source, MonoClock now, Admit admit, Jitter jitter, ProbeSchedule schedule = {});
+    ClockSync(ServerTimeSource& source, MonoClock now, Admit admit, Pause pause, ProbeSchedule schedule = {});
 
-    // probes when due; returns the monotonic time of the next attempt
+    // measures when due; returns the monotonic time of the next burst
     std::uint64_t tick();
 
-    [[nodiscard]] ClockEstimate estimate() const noexcept { return estimator_.estimate(); }
+    // method None until a burst has answered
+    [[nodiscard]] const ClockEstimate& estimate() const noexcept { return estimate_; }
 
     [[nodiscard]] std::uint64_t failures() const noexcept { return failures_; }
 
@@ -50,11 +51,10 @@ private:
     ServerTimeSource* source_;
     MonoClock now_;
     Admit admit_;
-    Jitter jitter_;
+    Pause pause_;
     ProbeSchedule schedule_;
-    OffsetEstimator estimator_;
+    ClockEstimate estimate_{};
     std::uint64_t due_ns_{0};
-    std::uint32_t attempts_{0};
     std::uint64_t failures_{0};
 };
 

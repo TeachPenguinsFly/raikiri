@@ -94,6 +94,11 @@ public:
         return api_.fill_reports(market, since);
     }
 
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) override {
+        return api_.funding_charges(market, since);
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {
         return api_.position_reports(market);
     }

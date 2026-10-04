@@ -27,6 +27,9 @@ struct WsPoolConfig {
 
     // a ceiling on sockets; per-ip connection caps are worse to trip
     std::size_t max_connections{16};
+
+    // keys per connection that the venue file cannot raise, for streams too heavy to share a socket; 0 is none
+    std::size_t key_cap{0};
 };
 
 struct WsPoolStats {
@@ -70,7 +73,7 @@ public:
     void start();
     void stop();
 
-    // false only at the connection ceiling with no room
+    // false when the ip channel cap or the connection ceiling leaves a key unplaced
     [[nodiscard]] bool subscribe(std::span<const std::string> keys);
 
     // sends one frame on every connection, for per-socket keepalives

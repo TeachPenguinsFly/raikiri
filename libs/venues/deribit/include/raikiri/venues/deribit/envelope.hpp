@@ -57,7 +57,7 @@ template <typename Row, typename Reader>
 [[nodiscard]] std::expected<std::size_t, WireError>
 read_rows(wire::ondemand::object& parent, std::string_view key, std::span<Row> into, Reader reader) {
     wire::ondemand::value value;
-    if (const auto ec = parent.find_field_unordered(key).get(value); ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(parent, key).get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
     }
     std::size_t count = 0;

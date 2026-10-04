@@ -36,6 +36,7 @@ namespace {
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
+    state->market = config.market;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     if (config.market == MarketType::Perp) {
         std::string_view feed{config.market_data_feed};

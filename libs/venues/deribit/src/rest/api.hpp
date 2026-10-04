@@ -1,6 +1,7 @@
 #pragma once
 
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/venues/deribit/account.hpp>
 #include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/venues/deribit/map.hpp>
@@ -8,13 +9,18 @@
 #include <raikiri/venues/deribit/positions.hpp>
 #include <raikiri/venues/deribit/rest.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "../state.hpp"
 
 namespace raikiri::venues::deribit::internal {
+
+// one settlement row per perpetual a day, so a page of 1000 is months
+inline constexpr std::size_t k_max_log_pages = 10;
 
 inline exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(
@@ -28,10 +34,7 @@ public:
           rest_{state.io, net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}},
           builder_{state.signer} {}
 
-    void start() {
-        rest_.start();
-        sync_clock(*state_, rest_);
-    }
+    void start() { rest_.start(); }
 
     void stop() { rest_.stop(); }
 
@@ -168,6 +171,43 @@ public:
             }
         }
         return reports;
+    }
+
+    // the transaction log is per currency; only inverse btc and eth perpetuals are listed
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
+        if (market != MarketType::Perp) {
+            return std::unexpected{exec::not_implemented("deribit funding outside perpetuals")};
+        }
+        std::vector<LedgerEntry> charges;
+        for (const auto currency : k_currencies) {
+            std::unordered_set<std::uint64_t> seen;
+            std::uint64_t continuation = 0;
+            for (std::size_t page = 0; page < k_max_log_pages; ++page) {
+                const auto request = builder_.funding_settlements(currency, since, continuation, state_->venue_now());
+                if (!request.has_value()) {
+                    return std::unexpected{build_failure(request.error())};
+                }
+                const auto body = fetch(*request);
+                if (!body.has_value()) {
+                    // a partial sweep fails whole
+                    return std::unexpected{body.error()};
+                }
+                static thread_local const auto storage_owner = std::make_unique<LogBuffer>();
+                const auto wire = parse_transaction_log(*body, *storage_owner);
+                if (!wire.has_value()) {
+                    // an unreadable body is an error; an empty ledger would book zero funding
+                    return std::unexpected{
+                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+                }
+                const bool fresh = collect_funding_settlements(
+                    wire->entries, state_->instruments, state_->clock->wall(), seen, charges);
+                if (wire->continuation == 0 || !fresh) {
+                    break;
+                }
+                continuation = wire->continuation;
+            }
+        }
+        return charges;
     }
 
 private:

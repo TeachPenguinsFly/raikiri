@@ -30,6 +30,48 @@ struct Account {
     GatewayHealth gateway;
 };
 
+// signed durations stay integers; they fit a double's 53 bits for the next century
+struct MeasuredClock {
+    // "rest_probe" or "none"
+    std::string method{};
+    std::string endpoint{};
+    std::optional<std::int64_t> offset_ns{};
+    std::optional<std::int64_t> rtt_ns{};
+    std::optional<std::int64_t> uncertainty_ns{};
+    std::optional<std::string> measured_at{};
+    std::optional<std::int64_t> measured_ago_ns{};
+    // offset change since the measurement before, and how far apart the two were
+    std::optional<std::int64_t> drift_ns{};
+    std::optional<std::int64_t> drift_over_ns{};
+    std::int64_t probe_failures{0};
+};
+
+struct ChannelFeed {
+    std::string channel{};
+    std::int64_t messages{0};
+    std::int64_t window_ns{0};
+    std::int64_t msgs_per_s{0};
+    std::int64_t lag_samples{0};
+    std::optional<std::int64_t> lag_p50_ns{};
+    std::optional<std::int64_t> lag_p99_ns{};
+    std::optional<std::int64_t> lag_p50_corrected_ns{};
+    std::optional<std::int64_t> lag_p99_corrected_ns{};
+    std::optional<std::int64_t> last_message_age_ns{};
+};
+
+struct VenueMetrics {
+    std::string account{};
+    std::string venue{};
+    std::string market{};
+    bool alive{false};
+    std::optional<std::string> published_at{};
+    MeasuredClock clock{};
+    std::int64_t catalogue{0};
+    std::int64_t priced{0};
+    std::int64_t reopens{0};
+    std::vector<ChannelFeed> channels{};
+};
+
 struct DatabaseHealth {
     bool reachable{false};
     std::optional<double> lag_seconds;

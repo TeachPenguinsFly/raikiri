@@ -44,6 +44,35 @@ struct PremiumBuffer {
 [[nodiscard]] std::expected<std::span<const WireMarkPrice>, WireError> parse_premium_index(std::string_view body,
                                                                                            PremiumBuffer& storage);
 
+// one row of <underlying>@optionMarkPrice, which pushes every option of the underlying each second;
+// vols are fractions, vega per vol point and theta per day, all per unit of the underlying
+struct WireOptionMark {
+    std::string_view symbol;
+    std::string_view mark_price;
+    std::string_view index_price;
+    std::string_view bid_price;
+    std::string_view ask_price;
+    std::string_view bid_qty;
+    std::string_view ask_qty;
+    std::string_view bid_iv;
+    std::string_view ask_iv;
+    std::string_view mark_iv;
+    std::string_view delta;
+    std::string_view gamma;
+    std::string_view vega;
+    std::string_view theta;
+    std::uint64_t event_ms{0};
+};
+
+inline constexpr std::size_t k_max_option_marks = 2048;
+
+struct OptionMarkBuffer {
+    std::array<WireOptionMark, k_max_option_marks> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOptionMark>, WireError> parse_option_marks(std::string_view data,
+                                                                                           OptionMarkBuffer& storage);
+
 struct WireTicker24h {
     std::string_view symbol;
     std::string_view volume;       // base asset

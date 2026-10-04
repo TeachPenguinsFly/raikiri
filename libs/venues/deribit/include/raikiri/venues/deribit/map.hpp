@@ -2,10 +2,12 @@
 
 // decimals arrive in float formatting, exponents included
 
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/deribit/account.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/catalogue.hpp>
 #include <raikiri/venues/deribit/market_data.hpp>
@@ -14,6 +16,9 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <unordered_set>
+#include <vector>
 
 namespace raikiri::venues::deribit {
 
@@ -62,5 +67,17 @@ map_fill(const WireUserTrade& wire, const exec::InstrumentTable& table, QtyLots 
 // rows whose size is not a multiple of the step are dropped
 [[nodiscard]] std::optional<exec::PositionReport>
 map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixNanos ts_venue);
+
+// a perpetual's daily settlement, carrying the session's funding in the log currency; nullopt for any other
+// entry, a zero amount, or a currency the contract does not settle in
+[[nodiscard]] std::optional<LedgerEntry>
+map_funding_settlement(const WireLogEntry& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// appends the entries whose id is not in `seen`; false when the page brought no new id
+[[nodiscard]] bool collect_funding_settlements(std::span<const WireLogEntry> entries,
+                                               const exec::InstrumentTable& table,
+                                               UnixNanos ts_init,
+                                               std::unordered_set<std::uint64_t>& seen,
+                                               std::vector<LedgerEntry>& out);
 
 } // namespace raikiri::venues::deribit

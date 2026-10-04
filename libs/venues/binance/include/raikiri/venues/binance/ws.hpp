@@ -22,7 +22,7 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view stream_host(bool testnet, MarketType market = MarketType::Perp) noexcept;
 
 // the multiplexed endpoint that delivers kind; frames arrive wrapped
-[[nodiscard]] std::string_view stream_path(exec::SubKind kind) noexcept;
+[[nodiscard]] std::string_view stream_path(exec::SubKind kind, MarketType market = MarketType::Perp) noexcept;
 
 // 500 ms: at 100 ms the venue drops sockets whose reader falls behind
 inline constexpr std::string_view k_depth_stream = "@depth@500ms";
@@ -31,8 +31,12 @@ inline constexpr std::string_view k_spot_depth_stream = "@depth";
 inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
 inline constexpr std::string_view k_bbo_stream = "@bookTicker";
 inline constexpr std::string_view k_trade_stream = "@trade";
+// an option prints and marks by underlying, every contract of it on one stream
+inline constexpr std::string_view k_option_trade_stream = "@optionTrade";
+inline constexpr std::string_view k_option_mark_stream = "@optionMarkPrice";
 
-// lowercases the symbol, which binance requires; empty for a kind binance does not stream
+// lowercases the symbol, which binance requires; empty for a kind binance does not stream;
+// an option's trades and marks name its underlying, BTC-261225-85000-C giving btcusdt
 [[nodiscard]] std::string_view stream_name(exec::SubKind kind,
                                            std::string_view exchange_symbol,
                                            std::span<char> out,

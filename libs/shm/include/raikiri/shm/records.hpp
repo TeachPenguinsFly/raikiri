@@ -142,6 +142,42 @@ using FillReader = BroadcastReader<FillRec, k_fill_ring>;
 using CmdProducer = SpscProducer<OrderCmd, k_cmd_ring>;
 using CmdConsumer = SpscConsumer<OrderCmd, k_cmd_ring>;
 
+// feed health over the gateway's rolling window; lag is ts_recv - ts_event on the local clock
+struct ChannelMetrics {
+    std::uint64_t messages{0};
+    std::uint64_t window_ns{0};
+    std::uint64_t lag_samples{0};
+    std::int64_t lag_p50_ns{0};
+    std::int64_t lag_p99_ns{0};
+    std::uint64_t last_recv_ns{0};
+};
+
+enum class ClockSource : std::uint32_t { None = 0, RestProbe = 1 };
+
+inline constexpr std::size_t k_metric_channels = 4; // bbo, trades, depth, funding
+
+struct VenueMetrics {
+    std::uint64_t published_ns{0};
+    ClockSource clock_source{ClockSource::None};
+    std::uint32_t probe_failures{0};
+    // venue minus local
+    std::int64_t offset_ns{0};
+    std::uint64_t rtt_ns{0};
+    std::uint64_t uncertainty_ns{0};
+    std::uint64_t measured_ns{0};
+    std::int64_t drift_ns{0};
+    std::uint64_t drift_over_ns{0};
+    std::uint64_t catalogue{0};
+    std::uint64_t priced{0};
+    std::uint64_t reopens{0};
+    char endpoint[64]{};
+    std::array<ChannelMetrics, k_metric_channels> channels{};
+};
+
+static_assert(std::is_trivially_copyable_v<VenueMetrics>);
+
+using VenueMetricsCell = SeqlockCell<VenueMetrics>;
+
 struct GatewayChannels {
     CatalogueTable* catalogue{nullptr};
     BboTable* bbo{nullptr};
@@ -163,6 +199,7 @@ struct GatewayChannels {
     CmdRing* cmd_cancel{nullptr};
     // manual orders from admind; strategyd reads them so they meet the same risk gate
     CmdRing* order_intents{nullptr};
+    VenueMetricsCell* metrics{nullptr};
 };
 
 [[nodiscard]] std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& owner);

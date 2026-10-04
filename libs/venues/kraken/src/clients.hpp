@@ -12,6 +12,8 @@ namespace raikiri::venues::kraken::internal {
 
 [[nodiscard]] std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state);
 
+[[nodiscard]] std::unique_ptr<exec::DataClient> make_spot_data_client(std::shared_ptr<VenueState> state);
+
 [[nodiscard]] std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state);
 
 [[nodiscard]] std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<VenueState> state);

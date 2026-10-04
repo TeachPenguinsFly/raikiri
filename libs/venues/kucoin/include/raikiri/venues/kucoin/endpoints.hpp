@@ -27,6 +27,9 @@ inline constexpr std::string_view k_spot_active_symbols = "/api/v1/hf/orders/act
 inline constexpr std::string_view k_spot_fills = "/api/v1/hf/fills";
 inline constexpr std::string_view k_futures_fills = "/api/v1/fills";
 inline constexpr std::string_view k_positions = "/api/v1/positions";
+inline constexpr std::string_view k_history_positions = "/api/v1/history-positions";
+// one symbol per call, at most three months per window
+inline constexpr std::string_view k_funding_history = "/api/v1/funding-history";
 // futures only, one settle currency per call
 inline constexpr std::string_view k_account_overview = "/api/v1/account-overview";
 

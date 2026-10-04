@@ -122,6 +122,11 @@ std::size_t IpMeters::claim_channels(std::size_t wanted) noexcept {
     return granted;
 }
 
+std::size_t IpMeters::channels_claimed() const noexcept {
+    const std::scoped_lock lock{mu_};
+    return channels_used_;
+}
+
 void set_process_ws_limits(const WsLimits& limits) {
     g_limits = limits;
     g_meters = std::make_unique<IpMeters>(limits);

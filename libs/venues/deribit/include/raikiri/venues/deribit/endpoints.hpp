@@ -33,6 +33,8 @@ inline constexpr std::string_view k_open_orders_by_currency = "/api/v2/private/g
 inline constexpr std::string_view k_order_state_by_label = "/api/v2/private/get_order_state_by_label";
 inline constexpr std::string_view k_user_trades_by_currency = "/api/v2/private/get_user_trades_by_currency";
 inline constexpr std::string_view k_positions = "/api/v2/private/get_positions";
+// a sustained one request a second, apart from the ip budget
+inline constexpr std::string_view k_transaction_log = "/api/v2/private/get_transaction_log";
 
 inline constexpr std::string_view k_instruments = "/api/v2/public/get_instruments";
 inline constexpr std::string_view k_server_time = "/api/v2/public/get_time";

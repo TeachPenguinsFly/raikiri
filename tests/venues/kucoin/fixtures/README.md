@@ -98,6 +98,16 @@ example for that endpoint or channel, with two edits: `clientOid` is the ULID
 | `rest_spot_fills.json` | `GET /api/v1/hf/fills` |
 | `rest_positions.json` | `GET /api/v1/positions` |
 | `rest_account_overview.json` | `GET /api/v1/account-overview?currency=USDT` |
+| `rest_funding_history.json` | `GET /api/v1/funding-history?symbol=XBTUSDTM`, verbatim |
+| `rest_history_positions.json` | `GET /api/v1/history-positions`, verbatim |
+
+The funding files have no live capture behind them either: there are no keys.
+`rest_funding_history.json` is the example on
+`https://www.kucoin.com/docs-new/rest/futures-trading/funding-fees/get-private-funding-history`
+as published on 2026-10-04. `rest_funding_history_last.json` is assembled from
+it as a last page (`hasMore` false): the same row again, as overlapping pages
+return it, a received charge written by hand, and a row whose
+`settleCurrency` is not the contract's.
 
 ## Pro order socket, `wss://wsapi.kucoin.com/v1/private`
 

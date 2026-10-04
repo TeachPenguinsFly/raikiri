@@ -2,6 +2,8 @@
 #include <raikiri/admin/registry.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <unordered_map>
@@ -136,6 +138,86 @@ std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
 Health Registry::health(MonoNanos now, UnixNanos wall) const {
     // the database half is filled by the caller
     return {.gateways = accounts(now, wall), .database = {}};
+}
+
+namespace {
+
+// a gateway may not have published yet; its row still says who it is
+VenueMetrics describe_metrics(const shm::VenueMetrics& m, bool published, UnixNanos wall) {
+    constexpr std::array<std::string_view, shm::k_metric_channels> k_channels{"bbo", "trades", "depth", "funding"};
+    const auto since = [&](std::uint64_t at) -> std::optional<std::int64_t> {
+        if (at == 0) {
+            return std::nullopt;
+        }
+        return static_cast<std::int64_t>(wall.ns) - static_cast<std::int64_t>(at);
+    };
+    VenueMetrics out;
+    out.clock.method = m.clock_source == shm::ClockSource::RestProbe ? "rest_probe" : "none";
+    out.clock.endpoint = std::string{m.endpoint, ::strnlen(m.endpoint, sizeof m.endpoint)};
+    out.clock.probe_failures = m.probe_failures;
+    const bool measured = m.clock_source == shm::ClockSource::RestProbe;
+    if (measured) {
+        out.clock.offset_ns = m.offset_ns;
+        out.clock.rtt_ns = static_cast<std::int64_t>(m.rtt_ns);
+        out.clock.uncertainty_ns = static_cast<std::int64_t>(m.uncertainty_ns);
+        out.clock.measured_at = digits(m.measured_ns);
+        out.clock.measured_ago_ns = since(m.measured_ns);
+        if (m.drift_over_ns != 0) {
+            out.clock.drift_ns = m.drift_ns;
+            out.clock.drift_over_ns = static_cast<std::int64_t>(m.drift_over_ns);
+        }
+    }
+    if (!published) {
+        return out;
+    }
+    out.published_at = digits(m.published_ns);
+    out.catalogue = static_cast<std::int64_t>(m.catalogue);
+    out.priced = static_cast<std::int64_t>(m.priced);
+    out.reopens = static_cast<std::int64_t>(m.reopens);
+    for (std::size_t i = 0; i < k_channels.size(); ++i) {
+        const auto& c = m.channels[i];
+        if (c.messages == 0 && c.last_recv_ns == 0) {
+            continue;
+        }
+        ChannelFeed feed{.channel = std::string{k_channels[i]},
+                         .messages = static_cast<std::int64_t>(c.messages),
+                         .window_ns = static_cast<std::int64_t>(c.window_ns),
+                         .msgs_per_s = c.window_ns == 0
+                                           ? 0
+                                           : static_cast<std::int64_t>(
+                                                 (c.messages * 1'000'000'000ULL + c.window_ns / 2) / c.window_ns),
+                         .lag_samples = static_cast<std::int64_t>(c.lag_samples),
+                         .last_message_age_ns = since(c.last_recv_ns)};
+        if (c.lag_samples != 0) {
+            feed.lag_p50_ns = c.lag_p50_ns;
+            feed.lag_p99_ns = c.lag_p99_ns;
+            if (measured) {
+                feed.lag_p50_corrected_ns = c.lag_p50_ns + m.offset_ns;
+                feed.lag_p99_corrected_ns = c.lag_p99_ns + m.offset_ns;
+            }
+        }
+        out.channels.push_back(std::move(feed));
+    }
+    return out;
+}
+
+} // namespace
+
+std::vector<VenueMetrics> Registry::venue_metrics(MonoNanos now, UnixNanos wall) const {
+    std::vector<VenueMetrics> out;
+    out.reserve(gateways_.size());
+    for (const auto& owned : gateways_) {
+        const auto& gw = *owned;
+        shm::VenueMetrics m{};
+        const bool published = gw.channels.metrics != nullptr && gw.channels.metrics->read(m) != 0;
+        auto row = describe_metrics(m, published, wall);
+        row.account = gw.name;
+        row.venue = std::string{to_string(gw.account.venue)};
+        row.market = std::string{to_string(gw.account.market)};
+        row.alive = gw.client.owner_alive(now.ns);
+        out.push_back(std::move(row));
+    }
+    return out;
 }
 
 std::vector<Instrument> Registry::instruments(std::string_view account, std::optional<MarketType> market) const {

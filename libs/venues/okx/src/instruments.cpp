@@ -53,7 +53,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        sync_clock(*state_, rest_);
         if (market == MarketType::Option) {
             return fetch_options();
         }

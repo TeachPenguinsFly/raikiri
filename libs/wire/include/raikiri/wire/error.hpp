@@ -18,4 +18,7 @@ enum class Error : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(Error err) noexcept;
 
+// frames simdjson found broken, counted once per frame across every thread
+[[nodiscard]] std::uint64_t broken_frames() noexcept;
+
 } // namespace raikiri::wire

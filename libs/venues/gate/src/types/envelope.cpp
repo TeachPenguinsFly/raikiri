@@ -62,6 +62,16 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "spot.order_book") {
         return EventKind::BookSnapshot;
     }
+    if (channel == "options.book_ticker") {
+        return EventKind::BookTicker;
+    }
+    if (channel == "options.trades") {
+        return EventKind::Trade;
+    }
+    // an option's greeks and its 1 s top of book; the gateway's market tells it from futures.tickers
+    if (channel == "options.contract_tickers") {
+        return EventKind::Ticker;
+    }
     if (channel == "futures.orders" || channel == "spot.orders") {
         return EventKind::OrderUpdate;
     }

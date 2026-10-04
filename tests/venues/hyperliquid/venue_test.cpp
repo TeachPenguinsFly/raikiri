@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <span>
 #include <sstream>
 #include <string>
@@ -356,7 +357,6 @@ TEST(HyperliquidRest, NullBodyIsRefusedRatherThanReadAsAnEmptyCatalogue) {
 }
 
 TEST(HyperliquidRest, AssetCtxsPairPositionallyWithTheUniverse) {
-    // rows carry no coin and pair positionally with meta.universe
     auto assets_storage = std::make_unique<AssetBuffer>();
     auto ctx_storage = std::make_unique<AssetCtxBuffer>();
     const auto body = fixture("rest_meta_and_asset_ctxs.json");
@@ -366,8 +366,12 @@ TEST(HyperliquidRest, AssetCtxsPairPositionallyWithTheUniverse) {
     const auto ctxs = parse_asset_ctxs(body, *ctx_storage);
     ASSERT_TRUE(ctxs.has_value());
     ASSERT_EQ(ctxs->size(), 4U);
+    // the rows carry no coin; each takes the name at its position, delisted rows included
+    EXPECT_EQ((*ctxs)[0].coin, "BTC");
+    EXPECT_EQ((*ctxs)[1].coin, "ETH");
+    EXPECT_EQ((*ctxs)[2].coin, "MATIC");
+    EXPECT_EQ((*ctxs)[3].coin, "XRP");
     for (const auto& ctx : *ctxs) {
-        EXPECT_TRUE(ctx.coin.empty()) << "REST rows must not claim a coin they do not carry";
         EXPECT_FALSE(ctx.mark_price.empty());
     }
     // the delisted row's null midPx reads as absent
@@ -431,15 +435,11 @@ TEST(HyperliquidMap, PublishedPricesAllDivideByTheDerivedTick) {
     const auto ctxs = parse_asset_ctxs(body, *ctx_storage);
     ASSERT_TRUE(ctxs.has_value());
 
-    auto btc = (*ctxs)[0];
-    btc.coin = "BTC";
-    const auto btc_funding = map_funding(btc, table, UnixNanos{1});
+    const auto btc_funding = map_funding((*ctxs)[0], table, UnixNanos{1});
     ASSERT_TRUE(btc_funding.has_value());
     EXPECT_FALSE(btc_funding->mark_price.is_undef());
 
-    auto xrp = (*ctxs)[3];
-    xrp.coin = "XRP";
-    const auto xrp_funding = map_funding(xrp, table, UnixNanos{1});
+    const auto xrp_funding = map_funding((*ctxs)[3], table, UnixNanos{1});
     ASSERT_TRUE(xrp_funding.has_value());
     // 1.0195 over a tick of 1e-6
     EXPECT_EQ(xrp_funding->mark_price.raw, 1'019'500);
@@ -546,8 +546,7 @@ TEST(HyperliquidMap, TheDaysVolumeRidesTheSameContextAsFunding) {
     EXPECT_EQ(stats->ts_init.ns, 11U);
 }
 
-TEST(HyperliquidMap, ARestContextNamesNoCoinAndPublishesNoVolume) {
-    // rest rows carry no coin until paired with meta.universe
+TEST(HyperliquidMap, ARestContextPublishesTheSameVolumeAsThePushedOne) {
     const auto table = loaded_table();
     auto ctx_storage = std::make_unique<AssetCtxBuffer>();
     const auto body = fixture("rest_meta_and_asset_ctxs.json");
@@ -555,11 +554,7 @@ TEST(HyperliquidMap, ARestContextNamesNoCoinAndPublishesNoVolume) {
     ASSERT_TRUE(ctxs.has_value());
     ASSERT_FALSE(ctxs->empty());
     EXPECT_EQ((*ctxs)[0].day_base_volume, "27654.4941000001");
-    EXPECT_FALSE(map_ticker_stats((*ctxs)[0], table, UnixNanos{1}).has_value());
-
-    auto btc = (*ctxs)[0];
-    btc.coin = "BTC";
-    const auto stats = map_ticker_stats(btc, table, UnixNanos{1});
+    const auto stats = map_ticker_stats((*ctxs)[0], table, UnixNanos{1});
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote.raw * (k_e9 / k_e6) / stats->volume_24h_base.raw, 64'614);
 }
@@ -601,6 +596,11 @@ TEST(HyperliquidWs, FundingAndMarkShareOneChannel) {
     EXPECT_EQ(channel_for(exec::SubKind::Funding), "activeAssetCtx");
     EXPECT_EQ(channel_for(exec::SubKind::MarkPrice), channel_for(exec::SubKind::Funding));
     EXPECT_TRUE(channel_for(exec::SubKind::Kline).empty());
+    // a perp polls its context instead; spot still streams it
+    EXPECT_TRUE(stream_channel(exec::SubKind::Funding, MarketType::Perp).empty());
+    EXPECT_TRUE(stream_channel(exec::SubKind::MarkPrice, MarketType::Perp).empty());
+    EXPECT_EQ(stream_channel(exec::SubKind::Funding, MarketType::Spot), "activeAssetCtx");
+    EXPECT_EQ(stream_channel(exec::SubKind::Trades, MarketType::Perp), "trades");
     EXPECT_EQ(stream_path(), "/ws");
     EXPECT_NE(stream_host(true), stream_host(false));
 }
@@ -1693,9 +1693,9 @@ TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
     EXPECT_FALSE(is_benign_cancel_failure("Insufficient margin to place order."));
 }
 
-exec::InstrumentTable dex_table() {
+exec::InstrumentTable dex_table(std::string_view meta = "rest_meta_dex_xyz.json") {
     auto storage = std::make_unique<AssetBuffer>();
-    const auto body = fixture("rest_meta_dex_xyz.json");
+    const auto body = fixture(meta);
     const auto assets = parse_meta(body, *storage);
     EXPECT_TRUE(assets.has_value());
     exec::InstrumentTable table;
@@ -1944,6 +1944,73 @@ TEST(HyperliquidHip3, EveryLiveDexRowHasAClass) {
         }
     }
     EXPECT_EQ(live, 150U);
+}
+
+TEST(HyperliquidHip3, AContextReadNamesItsDexAndOnlyTheMainDexOmitsIt) {
+    std::string body;
+    EXPECT_EQ(RequestBuilder::meta_and_asset_ctxs("io", body).body, R"({"type":"metaAndAssetCtxs","dex":"io"})");
+    EXPECT_EQ(RequestBuilder::meta_and_asset_ctxs("", body).body, RequestBuilder::meta_and_asset_ctxs().body);
+    EXPECT_EQ(dex_of("io:OAI"), "io");
+    EXPECT_TRUE(dex_of("BTC").empty());
+}
+
+TEST(HyperliquidHip3, EveryLiveDexContextPublishesFundingAndVolume) {
+    const auto table = dex_table("rest_meta_dex_io_live.json");
+    auto storage = std::make_unique<AssetCtxBuffer>();
+    const auto body = fixture("rest_meta_and_asset_ctxs_dex_io_live.json");
+    const auto ctxs = parse_asset_ctxs(body, *storage);
+    ASSERT_TRUE(ctxs.has_value());
+    ASSERT_EQ(ctxs->size(), 11U);
+    EXPECT_EQ((*ctxs)[0].coin, "io:OAI");
+    std::size_t published = 0;
+    for (const auto& ctx : *ctxs) {
+        const auto funding = map_funding(ctx, table, UnixNanos{7});
+        if (!funding.has_value()) {
+            continue; // a delisted row is not in the table
+        }
+        EXPECT_FALSE(funding->mark_price.is_undef()) << ctx.coin;
+        EXPECT_EQ(funding->interval_s, k_funding_interval_s);
+        EXPECT_EQ(funding->accrual, FundingAccrual::Discrete);
+        EXPECT_TRUE(map_ticker_stats(ctx, table, UnixNanos{7}).has_value()) << ctx.coin;
+        ++published;
+    }
+    EXPECT_EQ(published, 8U);
+    const auto oai = map_funding((*ctxs)[0], table, UnixNanos{7});
+    ASSERT_TRUE(oai.has_value());
+    EXPECT_EQ(oai->rate.raw, 13'219); // 0.0000132191 an hour, truncated at 1e-9
+}
+
+TEST(HyperliquidHip3, AContextBodyWhoseRowsOutnumberItsUniverseIsRefused) {
+    auto storage = std::make_unique<AssetCtxBuffer>();
+    const auto body = fixture("rest_meta_and_asset_ctxs_dex_para_live.json");
+    ASSERT_TRUE(parse_asset_ctxs(body, *storage).has_value());
+    // drop the universe's first row so every context would shift onto the wrong coin
+    auto shifted = body;
+    const auto first = shifted.find(R"({"szDecimals")");
+    const auto second = shifted.find(R"({"szDecimals")", first + 1);
+    ASSERT_NE(second, std::string::npos);
+    shifted.erase(first, second - first);
+    EXPECT_FALSE(parse_asset_ctxs(shifted, *storage).has_value());
+}
+
+TEST(HyperliquidHip3, TheHip3PlanFitsUnderTheIpCapOnlyWithContextsPolled) {
+    // live 2026-10-04: 178 main + 110 xyz + 29 para + 8 io + 5 mkts
+    constexpr std::size_t live = 330;
+    constexpr std::size_t ip_cap = 1000;
+    const auto plan = [](std::initializer_list<exec::SubKind> kinds, MarketType market) {
+        std::set<std::string_view> channels;
+        for (const auto kind : kinds) {
+            if (const auto channel = stream_channel(kind, market); !channel.empty()) {
+                channels.insert(channel);
+            }
+        }
+        return channels.size() * live;
+    };
+    using enum exec::SubKind;
+    EXPECT_EQ(plan({Bbo, Trades, Depth, Funding}, MarketType::Perp), 990U);
+    EXPECT_LE(plan({Bbo, Trades, Depth, Funding}, MarketType::Perp), ip_cap);
+    // streaming the context too, as before, would have left trades out
+    EXPECT_GT((plan({Bbo, Trades, Depth}, MarketType::Perp) + live), ip_cap);
 }
 
 } // namespace

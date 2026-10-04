@@ -1,5 +1,6 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -17,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -29,29 +31,6 @@ using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
 using internal::VenueState;
-
-// bybit checks recvWindow against its own clock; the offset is measured at startup, less half the round trip
-void internal::sync_clock(VenueState& state, net::RestClient& rest) {
-    net::RestRequest request{};
-    request.method = net::HttpMethod::Get;
-    request.target = ep::k_server_time;
-
-    const auto before = state.clock->wall();
-    // the transport's bound plus the wait loop's one-second granularity
-    const auto response = await_response(state, rest, request, rest.max_wait_ms() + 1'000);
-    if (!response.has_value() || response->transport_failed()) {
-        return; // no correction is better than a wrong one
-    }
-    const auto after = state.clock->wall();
-    const auto envelope = parse_envelope(response->body);
-    if (!envelope.has_value() || envelope->ret_code != k_ret_ok || envelope->time_ms == 0) {
-        return;
-    }
-    const auto server_ns = static_cast<std::int64_t>(envelope->time_ms) * 1'000'000;
-    const auto midpoint_ns = static_cast<std::int64_t>(before.ns) +
-                             (static_cast<std::int64_t>(after.ns) - static_cast<std::int64_t>(before.ns)) / 2;
-    state.clock_offset_ns = server_ns - midpoint_ns;
-}
 
 exec::VenueAdapter make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
@@ -89,6 +68,12 @@ exec::VenueAdapter make_bybit(const exec::VenueConfig& config, exec::GatewaySink
     exec::VenueAdapter adapter;
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Bybit);
+    adapter.clock.emplace(
+        exec::ServerTimeQuery{.host = "api.bybit.com",
+                              .target = "/v5/market/time",
+                              .resolution_ns = 1'000,
+                              .parse = [](std::string_view body) { return exec::json_number(body, "timeNano", 1); }},
+        std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state, market);
     adapter.execution = make_execution_client(state);
     adapter.instruments = make_instrument_source(state);

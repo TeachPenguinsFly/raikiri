@@ -17,27 +17,21 @@ TEST(Malformed, CryptoCom) {
            {
                {"ws_heartbeat.json", [](std::string_view f) { (void)parse_event(f); }},
                {"ws_book_ack.json", [](std::string_view f) { (void)parse_event(f); }},
-               {"ws_book_perp.json",
+               {"ws_book_[ps]*",
                 [](std::string_view f) {
                     static LevelBuffer levels;
                     (void)parse_event(f);
                     (void)parse_book(f, true, levels);
                     (void)parse_book(f, false, levels);
                 }},
-               {"ws_book_update_perp.json",
+               {"ws_book_update_*",
                 [](std::string_view f) {
                     static LevelBuffer levels;
                     (void)parse_event(f);
                     (void)parse_book(f, true, levels);
                     (void)parse_book(f, false, levels);
                 }},
-               {"ws_book_spot.json",
-                [](std::string_view f) {
-                    static LevelBuffer levels;
-                    (void)parse_event(f);
-                    (void)parse_book(f, true, levels);
-                    (void)parse_book(f, false, levels);
-                }},
+
                {"fuzz_book_trailing_comma.json",
                 [](std::string_view f) {
                     static LevelBuffer levels;
@@ -52,13 +46,13 @@ TEST(Malformed, CryptoCom) {
                     (void)parse_book(f, true, levels);
                     (void)parse_book(f, false, levels);
                 }},
-               {"ws_trade_perp.json",
+               {"ws_trade_*",
                 [](std::string_view f) {
                     static TradeBuffer trades;
                     (void)parse_event(f);
                     (void)parse_trades(f, trades);
                 }},
-               {"ws_ticker_perp.json",
+               {"ws_ticker_*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_ticker(f);
@@ -73,12 +67,12 @@ TEST(Malformed, CryptoCom) {
                     (void)parse_event(f);
                     (void)parse_value(f);
                 }},
-               {"ws_mark_perp.json",
+               {"ws_mark_*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_value(f);
                 }},
-               {"ws_error_max_subscriptions.json", [](std::string_view f) { (void)parse_event(f); }},
+               {"ws_error_*", [](std::string_view f) { (void)parse_event(f); }},
                {"rest_error.json", [](std::string_view f) { (void)parse_rest_status(f); }},
                {"rest_instruments.json",
                 [](std::string_view f) {

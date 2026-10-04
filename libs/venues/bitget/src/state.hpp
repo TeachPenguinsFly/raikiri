@@ -109,6 +109,5 @@ fetch_checked(VenueState& state, net::RestClient& rest, const net::RestRequest& 
 }
 
 // a skewed clock reads to the venue as a bad signature
-void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::bitget::internal

@@ -4,6 +4,7 @@
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/introspect/feed_window.hpp>
 #include <raikiri/introspect/latency.hpp>
 
 #include <array>
@@ -33,12 +34,11 @@ public:
         const auto init = static_cast<std::int64_t>(ts_init.ns);
         internal_[i]->record(now - init);
         if (ts_event.ns == 0) {
+            windows_[i].count(ts_init.ns);
             return;
         }
         const auto raw = init - static_cast<std::int64_t>(ts_event.ns);
-        if (channel == Channel::Bbo || channel == Channel::Trades) {
-            bound_.add(raw);
-        }
+        windows_[i].record(raw, ts_init.ns);
         if (offset_known_) {
             feed_[i]->record(raw + offset_ns_);
         }
@@ -69,15 +69,14 @@ public:
         offset_ns_ = estimate.offset_ns;
     }
 
-    [[nodiscard]] introspect::ClockEstimate bound(std::uint64_t now_ns) const noexcept {
-        return bound_.estimate(now_ns);
+    void advance(std::uint64_t mono_ns) noexcept {
+        for (auto& window : windows_) {
+            window.advance(mono_ns);
+        }
     }
 
-    void rotate_if_due(std::uint64_t mono_ns) noexcept {
-        if (mono_ns >= rotate_due_) {
-            rotate_due_ = mono_ns + introspect::LatencyBook::k_slice_ns;
-            bound_.rotate();
-        }
+    [[nodiscard]] introspect::FeedSummary feed(std::size_t channel, std::uint64_t mono_ns) const noexcept {
+        return windows_[channel].summary(mono_ns);
     }
 
 private:
@@ -95,11 +94,10 @@ private:
     std::array<introspect::LatencySeries*, k_metered> internal_{};
     introspect::LatencySeries* ack_{nullptr};
     introspect::LatencySeries* fill_{nullptr};
-    introspect::FeedBound bound_;
+    std::array<introspect::FeedWindow, k_metered> windows_{};
     std::array<Sent, k_orders> sent_{};
     std::int64_t offset_ns_{0};
     bool offset_known_{false};
-    std::uint64_t rotate_due_{0};
 };
 
 } // namespace raikiri::gatewayd

@@ -105,6 +105,5 @@ inline void meter_market_data(VenueState& state, net::RestClient& rest) {
 inline constexpr std::size_t k_max_unanswered = 512;
 
 // offset to weex's clock for the 30 s signature window
-void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::weex::internal

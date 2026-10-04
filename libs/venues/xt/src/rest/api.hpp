@@ -72,17 +72,12 @@ public:
           rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .pool_size = net::k_order_pool_size}},
           spot_rest_{state.io,
                      net::RestConfig{.host = std::string{spot_rest_host()}, .pool_size = net::k_order_pool_size}},
-          builder_{state.signer}, spot_{market == MarketType::Spot}, perp_{market == MarketType::Perp} {}
+          builder_{state.signer}, spot_{market == MarketType::Spot} {}
 
-    // each tree's clock offset is measured against its own host
     void start() {
         rest_.start();
-        if (perp_) {
-            sync_clock(*state_, rest_, unsigned_builder_);
-        }
         if (spot_) {
             spot_rest_.start();
-            sync_spot_clock(*state_, spot_rest_, unsigned_builder_);
         }
     }
 
@@ -380,10 +375,8 @@ private:
     VenueState* state_;
     net::RestClient rest_;
     net::RestClient spot_rest_;
-    RequestBuilder unsigned_builder_;
     SignedRequestBuilder builder_;
     bool spot_{false};
-    bool perp_{false};
 };
 
 } // namespace raikiri::venues::xt::internal

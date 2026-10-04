@@ -108,6 +108,5 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 }
 
 // defined beside the catalogue loader
-void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::bybit::internal

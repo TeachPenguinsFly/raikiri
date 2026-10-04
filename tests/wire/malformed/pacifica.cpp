@@ -38,7 +38,7 @@ TEST(Malformed, Pacifica) {
                {"ws_pong.json", [](std::string_view f) { (void)parse_channel(f); }},
                {"ws_subscribe.json", [](std::string_view f) { (void)parse_channel(f); }},
                {"ws_error.json", [](std::string_view f) { (void)parse_channel(f); }},
-               {"rest_info.json",
+               {"rest_info*",
                 [](std::string_view f) {
                     static MarketBuffer markets;
                     (void)parse_markets(f, markets);

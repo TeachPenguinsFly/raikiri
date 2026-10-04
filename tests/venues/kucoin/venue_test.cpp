@@ -20,6 +20,8 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 namespace raikiri::venues::kucoin {
 namespace {
@@ -1942,6 +1944,93 @@ TEST(KucoinMap, AssetClassClassifiesTheUnderlying) {
     EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
     EXPECT_EQ(spx.underlying.view(), "SPX");
     EXPECT_EQ(classified_contract("BOND", "BOND").asset_class, AssetClass::Unknown);
+}
+
+TEST(KucoinRest, FundingHistoryIsAskedPerSymbolInsideThreeMonths) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+
+    // no cursor yet: the window opens 89 days back, the widest the venue takes
+    const auto first = builder.funding_history("XBTUSDTM", UnixNanos{}, 0, k_signed_at);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->target,
+              "/api/v1/funding-history?symbol=XBTUSDTM&startAt=1722521433335&endAt=1730211033335&maxCount=100");
+
+    constexpr UnixNanos k_cursor{1'730'000'000'000'000'000ULL};
+    const auto next = builder.funding_history("XBTUSDTM", k_cursor, 1472387374042586, k_signed_at);
+    ASSERT_TRUE(next.has_value());
+    EXPECT_EQ(next->target,
+              "/api/v1/funding-history?symbol=XBTUSDTM&startAt=1730000000000&endAt=1730211033335&maxCount=100"
+              "&offset=1472387374042586");
+    EXPECT_EQ(builder.funding_history("", UnixNanos{}, 0, k_signed_at).error(), BuildError::UnknownInstrument);
+
+    const auto closed = builder.closed_positions(k_cursor, 2, k_signed_at);
+    ASSERT_TRUE(closed.has_value());
+    EXPECT_EQ(closed->target, "/api/v1/history-positions?limit=200&pageId=2&from=1730000000000");
+}
+
+TEST(KucoinMapRest, AFundingChargeKeepsTheVenueSignWhichIsTheLedgers) {
+    const auto table = loaded_table();
+    static FundingChargeBuffer storage;
+    const auto body = fixture("rest_funding_history.json");
+    const auto page = parse_funding_history(body, storage);
+    ASSERT_TRUE(page.has_value());
+    EXPECT_TRUE(page->has_more);
+    ASSERT_EQ(page->charges.size(), 1U);
+    EXPECT_EQ(page->charges[0].id, 1472387374042586ULL);
+    EXPECT_EQ(page->charges[0].settle_currency, "USDT");
+
+    // a long at a positive rate pays, and the venue writes that negative
+    const auto charge = map_funding_charge(page->charges[0], table, UnixNanos{7});
+    ASSERT_TRUE(charge.has_value());
+    EXPECT_EQ(charge->instrument, base_of(*table.find("XBTUSDTM")).id);
+    EXPECT_EQ(charge->kind, LedgerKind::Funding);
+    EXPECT_EQ(charge->amount.raw, -55'856'690);
+    EXPECT_EQ(charge->settled_at.ns, 1731470400000ULL * 1'000'000ULL);
+    EXPECT_EQ(charge->reference.view(), "1472387374042586");
+    EXPECT_EQ(charge->ts_init.ns, 7U);
+}
+
+TEST(KucoinMapRest, OverlappingFundingPagesBookEachSettlementOnce) {
+    const auto table = loaded_table();
+    std::unordered_set<std::uint64_t> seen;
+    std::vector<LedgerEntry> charges;
+
+    static FundingChargeBuffer first_storage;
+    const auto first_body = fixture("rest_funding_history.json");
+    const auto first = parse_funding_history(first_body, first_storage);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_TRUE(collect_funding_page(first->charges, table, UnixNanos{1}, seen, charges));
+
+    static FundingChargeBuffer last_storage;
+    const auto last_body = fixture("rest_funding_history_last.json");
+    const auto last = parse_funding_history(last_body, last_storage);
+    ASSERT_TRUE(last.has_value());
+    EXPECT_FALSE(last->has_more);
+    ASSERT_EQ(last->charges.size(), 3U);
+    EXPECT_TRUE(collect_funding_page(last->charges, table, UnixNanos{1}, seen, charges));
+
+    // the repeated row is dropped and the xbt-settled row is not this contract's currency
+    ASSERT_EQ(charges.size(), 2U);
+    EXPECT_EQ(charges[0].amount.raw, -55'856'690);
+    EXPECT_EQ(charges[1].amount.raw, 10'440'000); // 1.044E-2 received
+    EXPECT_EQ(charges[1].reference.view(), "1472387374042001");
+
+    // a page of ids already seen ends the walk
+    EXPECT_FALSE(collect_funding_page(last->charges, table, UnixNanos{1}, seen, charges));
+    EXPECT_EQ(charges.size(), 2U);
+}
+
+TEST(KucoinMapRest, ClosedPositionsNameTheSymbolsThatMayOweFunding) {
+    static ClosedPositionBuffer storage;
+    const auto body = fixture("rest_history_positions.json");
+    const auto page = parse_history_positions(body, storage);
+    ASSERT_TRUE(page.has_value());
+    EXPECT_EQ(page->total_pages, 1U);
+    ASSERT_EQ(page->positions.size(), 1U);
+    EXPECT_EQ(page->positions[0].symbol, "XBTUSDTM");
+    EXPECT_EQ(page->positions[0].close_ms, 1735589352069ULL);
 }
 
 } // namespace

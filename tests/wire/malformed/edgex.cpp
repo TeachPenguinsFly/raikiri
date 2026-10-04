@@ -12,13 +12,7 @@ using wire::malformed::hammer;
 TEST(Malformed, Edgex) {
     hammer("edgex",
            {
-               {"ws_depth_snapshot.json",
-                [](std::string_view f) {
-                    static LevelBuffer levels;
-                    (void)parse_event(f);
-                    (void)parse_depth(f, levels);
-                }},
-               {"ws_depth_changed.json",
+               {"ws_depth_*",
                 [](std::string_view f) {
                     static LevelBuffer levels;
                     (void)parse_event(f);
@@ -30,13 +24,7 @@ TEST(Malformed, Edgex) {
                     (void)parse_event(f);
                     (void)parse_depth(f, levels);
                 }},
-               {"ws_trades_snapshot.json",
-                [](std::string_view f) {
-                    static PrintBuffer prints;
-                    (void)parse_event(f);
-                    (void)parse_trades(f, prints);
-                }},
-               {"ws_trades_changed.json",
+               {"ws_trades_*",
                 [](std::string_view f) {
                     static PrintBuffer prints;
                     (void)parse_event(f);
@@ -48,13 +36,7 @@ TEST(Malformed, Edgex) {
                     (void)parse_event(f);
                     (void)parse_trades(f, prints);
                 }},
-               {"ws_ticker_all.json",
-                [](std::string_view f) {
-                    static TickerBuffer tickers;
-                    (void)parse_event(f);
-                    (void)parse_tickers(f, tickers);
-                }},
-               {"ws_spot_ticker_all.json",
+               {"ws_*ticker_all.json",
                 [](std::string_view f) {
                     static TickerBuffer tickers;
                     (void)parse_event(f);
@@ -66,14 +48,18 @@ TEST(Malformed, Edgex) {
                     (void)parse_ping(f);
                 }},
                {"ws_subscribed.json", [](std::string_view f) { (void)parse_event(f); }},
-               {"ws_error_contract.json",
+               {"ws_error_*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_stream_error(f);
                 }},
-               {"ws_error_channel.json", [](std::string_view f) { (void)parse_stream_error(f); }},
                {"ws_funding_rate_all.json", [](std::string_view f) { (void)parse_event(f); }},
                {"rest_meta_perp.json",
+                [](std::string_view f) {
+                    static ContractBuffer contracts;
+                    (void)parse_perp_catalogue(f, contracts);
+                }},
+               {"rest_latest_funding_rate.json",
                 [](std::string_view f) {
                     static ContractBuffer contracts;
                     (void)parse_perp_catalogue(f, contracts);

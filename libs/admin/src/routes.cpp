@@ -30,6 +30,10 @@ namespace {
 // Namespaced so a proxied path can never shadow one this API owns.
 constexpr std::string_view k_upstream_prefix = "/v1/x/";
 
+// joe runs inside strategyd and answers /joe/ on its control port
+constexpr std::string_view k_joe_prefix = "/v1/joe/";
+constexpr std::string_view k_joe_upstream = "strategyd";
+
 // glaze omits an empty optional; the contract's absent fields rely on it
 constexpr glz::opts k_opts{.skip_null_members = true};
 
@@ -270,6 +274,22 @@ http::Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNano
     return answer;
 }
 
+http::Response joe(const std::map<std::string, std::uint16_t>& upstreams, const http::Request& req) {
+    const auto found = upstreams.find(std::string{k_joe_upstream});
+    if (found == upstreams.end()) {
+        return problem(503, "joe is not configured", "start admind with --upstream strategyd=<control port>");
+    }
+    if (req.method != "GET" && req.method != "POST") {
+        return problem(405, "method not allowed");
+    }
+    const auto target = std::string{"/joe/"} + std::string{req.path.substr(k_joe_prefix.size())};
+    const auto answer = http::fetch("127.0.0.1", found->second, target, 250, req.method, req.body);
+    if (!answer.has_value()) {
+        return problem(503, "strategyd is not answering", "joe's state is unknown until it does");
+    }
+    return {.status = answer->status, .content_type = "application/json", .body = answer->body};
+}
+
 } // namespace
 
 http::Handler make_router(const Registry& registry,
@@ -285,6 +305,9 @@ http::Handler make_router(const Registry& registry,
         }
         if (req.method == "DELETE" && req.path.starts_with("/v1/orders/")) {
             return cancel_order(desk, req.path.substr(std::string_view{"/v1/orders/"}.size()), wall());
+        }
+        if (req.path.starts_with(k_joe_prefix)) {
+            return joe(upstreams, req);
         }
         if (req.method != "GET") {
             return problem(405, "method not allowed", "this path serves reads");
@@ -317,6 +340,10 @@ http::Handler make_router(const Registry& registry,
                 health.database = history->health();
             }
             return json(health);
+        }
+
+        if (req.path == "/v1/venues/metrics") {
+            return json(registry.venue_metrics(now(), wall()));
         }
 
         if (req.path == "/v1/accounts") {

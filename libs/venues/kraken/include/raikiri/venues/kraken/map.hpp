@@ -25,6 +25,10 @@ inline constexpr std::uint32_t k_funding_interval_s = 3600;
 // exact decimal or exponent token to 1e9 fixed point; refuses digits below 1e-9
 [[nodiscard]] std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept;
 
+// an off-step value means kraken changed precision, so the message is dropped, not rounded;
+// counted wide, so a meme coin's ten billion units still convert to lots
+[[nodiscard]] std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) noexcept;
+
 // precision is negated: 4 means 0.0001, -3 means 1000
 [[nodiscard]] std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept;
 

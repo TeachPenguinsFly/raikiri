@@ -50,6 +50,16 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
     return {};
 }
 
+std::string_view stream_channel(exec::SubKind kind, MarketType market) noexcept {
+    const bool context = kind == exec::SubKind::Funding || kind == exec::SubKind::MarkPrice;
+    return context && market == MarketType::Perp ? std::string_view{} : channel_for(kind);
+}
+
+std::string_view dex_of(std::string_view coin) noexcept {
+    const auto colon = coin.find(':');
+    return colon == std::string_view::npos ? std::string_view{} : coin.substr(0, colon);
+}
+
 std::expected<std::string_view, WsBuildError> Protocol::method_frame(std::string_view method,
                                                                      const Subscription& subscription) {
     if (subscription.channel.empty() || subscription.coin.empty()) {

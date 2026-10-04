@@ -60,15 +60,19 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// one blocking get to a local service; `timeout_ms` bounds the whole exchange
+// one blocking request to a local service; `timeout_ms` bounds the whole exchange
 // nullopt means no answer, distinct from an empty body
 struct Fetched {
     int status{0};
     std::string body;
 };
 
-[[nodiscard]] std::optional<Fetched>
-fetch(std::string_view host, std::uint16_t port, std::string_view target, std::uint32_t timeout_ms) noexcept;
+[[nodiscard]] std::optional<Fetched> fetch(std::string_view host,
+                                           std::uint16_t port,
+                                           std::string_view target,
+                                           std::uint32_t timeout_ms,
+                                           std::string_view method = "GET",
+                                           std::string_view body = {}) noexcept;
 
 // rfc 9457 problem response shared by every api here; `detail` is escaped
 [[nodiscard]] Response problem(int status, std::string_view title, std::string_view detail = {});

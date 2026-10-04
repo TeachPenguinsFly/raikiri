@@ -2,6 +2,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <filesystem>
+#include <string>
+#include <vector>
+
 #include "harness.hpp"
 
 namespace raikiri::wire {
@@ -122,20 +127,44 @@ void lookups(std::string_view frame) {
     }
 }
 
-TEST(Malformed, WireHelpers) {
-    for (const auto venue : {"cryptocom"}) {
-        hammer(venue,
-               {
-                   {"fuzz_book_trailing_comma.json", in_order},
-                   {"fuzz_book_trailing_comma.json", lookups},
-                   {"fuzz_book_update_unclosed.json", in_order},
-                   {"fuzz_book_update_unclosed.json", lookups},
-                   {"ws_book_perp.json", in_order},
-                   {"ws_book_perp.json", lookups},
-                   {"ws_book_update_perp.json", lookups},
-               });
+TEST(Malformed, BrokenFramesCountOncePerFrame) {
+    const auto before = broken_frames();
+    const std::string broken = R"({"a":"x})";
+    EXPECT_FALSE(session().open_object(broken).has_value());
+    EXPECT_FALSE(session().open_object(broken).has_value());
+    EXPECT_EQ(broken_frames(), before + 1);
+    EXPECT_FALSE(session().open_object(R"({"b":"y})").has_value());
+    EXPECT_EQ(broken_frames(), before + 2);
+    EXPECT_TRUE(session().open_object(R"({"c":1})").has_value());
+    EXPECT_FALSE(session().open_object("").has_value());
+    for (const std::string_view text : {"pong", "ping", "1", "[1]", "true"}) {
+        EXPECT_FALSE(session().open_object(text).has_value()) << text;
+    }
+    EXPECT_EQ(broken_frames(), before + 2);
+}
+
+std::vector<std::string> venues() {
+    std::vector<std::string> out;
+    for (const auto& entry : std::filesystem::directory_iterator{RAIKIRI_VENUE_FIXTURES}) {
+        if (std::filesystem::is_directory(entry.path() / "fixtures")) {
+            out.push_back(entry.path().filename().string());
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+class WireHelpers : public testing::TestWithParam<std::string> {};
+
+TEST_P(WireHelpers, SurviveEveryFixture) {
+    if (GetParam() == "cryptocom") {
+        hammer(GetParam(), {{"*", in_order}, {"*", lookups}});
+    } else {
+        hammer(GetParam(), {{"*", lookups}});
     }
 }
+
+INSTANTIATE_TEST_SUITE_P(Malformed, WireHelpers, testing::ValuesIn(venues()));
 
 } // namespace
 } // namespace raikiri::wire

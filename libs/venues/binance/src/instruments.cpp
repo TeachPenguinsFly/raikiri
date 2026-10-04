@@ -28,21 +28,6 @@ namespace raikiri::venues::binance::internal {
 
 namespace {
 
-void sync_clock(VenueState& state, net::RestClient& rest) {
-    const auto sent = state.clock->wall();
-    const auto response = await_response(state, rest, state.builder.server_time(), 5'000);
-    if (!response.has_value() || response->transport_failed()) {
-        return;
-    }
-    const auto venue_ms = parse_server_time(response->body);
-    if (!venue_ms.has_value()) {
-        return;
-    }
-    const auto received = state.clock->wall();
-    const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
-    state.clock_offset_ns = static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
-}
-
 class BinanceInstruments final : public exec::InstrumentSource {
 public:
     explicit BinanceInstruments(std::shared_ptr<VenueState> state)
@@ -55,7 +40,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        sync_clock(*state_, rest_);
 
         const auto response = await_response(*state_, rest_, state_->builder.instruments(), 20'000);
         if (!response.has_value()) {
@@ -72,7 +56,8 @@ public:
         static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
 
         auto& storage = *storage_owner;
-        const auto wire = parse_exchange_info(response->body, storage);
+        const auto wire = market == MarketType::Option ? parse_option_exchange_info(response->body, storage)
+                                                       : parse_exchange_info(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
@@ -144,6 +129,11 @@ public:
         }
         for (auto& [packed, book] : state_->books) {
             book.readmit();
+        }
+        if (market == MarketType::Option && ::raikiri::log::logger() != nullptr) {
+            RLOG_INFO("binance: {} of {} options loaded; the rest are closed or strike off the premium tick",
+                      loaded.size(),
+                      wire->size());
         }
         return loaded;
     }

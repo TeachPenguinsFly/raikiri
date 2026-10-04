@@ -116,8 +116,8 @@ private:
 
 } // namespace
 
-std::string_view rest_host() noexcept {
-    return ep::k_rest;
+std::string_view rest_host(MarketType market) noexcept {
+    return market == MarketType::Spot ? ep::k_spot_rest : ep::k_rest;
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -164,6 +164,12 @@ net::RestRequest RequestBuilder::instruments() noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_route_prefix);
     writer.put(ep::k_instruments);
+    return writer.get();
+}
+
+net::RestRequest RequestBuilder::spot_asset_pairs() noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_spot_asset_pairs);
     return writer.get();
 }
 

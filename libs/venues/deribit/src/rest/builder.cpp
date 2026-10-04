@@ -410,6 +410,28 @@ SignedRequestBuilder::user_trades(MarketType market, std::string_view currency, 
     return sign(target.view(), now);
 }
 
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::funding_settlements(std::string_view currency,
+                                                                                      UnixNanos since,
+                                                                                      std::uint64_t continuation,
+                                                                                      UnixNanos now) {
+    if (currency.empty()) {
+        return std::unexpected{BuildError::UnknownCurrency};
+    }
+    const auto start = since.ns != 0
+                           ? since
+                           : UnixNanos{now.ns > k_first_funding_window_ns ? now.ns - k_first_funding_window_ns : 0};
+    Appender target{target_};
+    target << ep::k_transaction_log << "?currency=" << currency << "&start_timestamp=" << to_ms(start)
+           << "&end_timestamp=" << to_ms(now) << "&query=settlement&count=" << std::uint64_t{k_max_log_page};
+    if (continuation != 0) {
+        target << "&continuation=" << continuation;
+    }
+    if (!target.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(target.view(), now);
+}
+
 std::expected<net::RestRequest, BuildError>
 SignedRequestBuilder::positions(MarketType market, std::string_view currency, UnixNanos now) {
     if (const auto refusal = market_refusal(market); refusal.has_value()) {

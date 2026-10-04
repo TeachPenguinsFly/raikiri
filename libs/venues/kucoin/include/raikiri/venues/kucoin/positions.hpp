@@ -29,4 +29,25 @@ struct PositionBuffer {
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
                                                                                       PositionBuffer& storage);
 
+// a closed position, read only to learn which symbols may still owe funding
+struct WireClosedPosition {
+    std::string_view symbol;
+    std::uint64_t close_ms{0};
+};
+
+inline constexpr std::size_t k_closed_position_page = 200;
+
+struct ClosedPositionBuffer {
+    std::array<WireClosedPosition, k_closed_position_page> positions{};
+};
+
+struct WireClosedPositionPage {
+    std::span<const WireClosedPosition> positions;
+    std::uint64_t total_pages{0};
+};
+
+// GET /api/v1/history-positions: data.items, paged by pageId
+[[nodiscard]] std::expected<WireClosedPositionPage, WireError> parse_history_positions(std::string_view body,
+                                                                                       ClosedPositionBuffer& storage);
+
 } // namespace raikiri::venues::kucoin

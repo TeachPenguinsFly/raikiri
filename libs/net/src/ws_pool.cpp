@@ -83,11 +83,14 @@ struct WsPool::Impl {
         : io{&io_ref}, config{std::move(cfg)}, handler{&shared}, settings{pool}, build_frames{std::move(build)},
           on_open{std::move(opened)}, backoff{host_backoff(config.host, config.port, config.backoff)} {
         const auto& limits = process_ws_limits();
+        if (limits.configured && limits.streams_per_socket != 0) {
+            settings.max_keys_per_connection = limits.streams_per_socket;
+        }
+        if (settings.key_cap != 0) {
+            settings.max_keys_per_connection = std::min(settings.max_keys_per_connection, settings.key_cap);
+        }
         if (!limits.configured) {
             return;
-        }
-        if (limits.streams_per_socket != 0) {
-            settings.max_keys_per_connection = limits.streams_per_socket;
         }
         if (limits.sockets != 0) {
             settings.max_connections = limits.sockets;
@@ -163,6 +166,7 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
                   keys.size() - room_on_ip,
                   keys.size());
     }
+    const bool whole = room_on_ip == keys.size();
     keys = keys.first(room_on_ip);
     std::size_t placed = 0;
     while (placed < keys.size()) {
@@ -223,7 +227,7 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
         // queued whole: the frames describe the connection's full set
         impl.refill(*target);
     }
-    return true;
+    return whole;
 }
 
 void WsPool::broadcast(std::string_view text) noexcept {

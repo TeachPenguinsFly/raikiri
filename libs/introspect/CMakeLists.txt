@@ -5,6 +5,7 @@ add_library(raikiri_introspect STATIC
   src/latency.cpp
   src/queries.cpp
   src/clock_probe.cpp
+  src/feed_window.cpp
 )
 add_library(raikiri::introspect ALIAS raikiri_introspect)
 target_include_directories(raikiri_introspect PUBLIC
@@ -21,7 +22,7 @@ target_link_libraries(raikiri_introspect_files
 add_library(raikiri_introspect_probe STATIC src/server_time.cpp)
 add_library(raikiri::introspect_probe ALIAS raikiri_introspect_probe)
 target_link_libraries(raikiri_introspect_probe
-  PUBLIC raikiri::introspect
+  PUBLIC raikiri::introspect raikiri::exec
   PRIVATE raikiri::common raikiri::net raikiri::warnings)
 
 add_library(raikiri_introspect_http STATIC src/routes.cpp src/metrics.cpp)

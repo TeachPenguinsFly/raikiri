@@ -1,6 +1,8 @@
 #include <raikiri/venues/binance/market_data.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <utility>
+
 namespace raikiri::venues::binance {
 
 namespace {
@@ -70,6 +72,59 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data) 
         out.next_funding_ms = *next;
         out.event_ms = *event;
         return out;
+    });
+}
+
+std::expected<std::span<const WireOptionMark>, WireError> parse_option_marks(std::string_view data,
+                                                                             OptionMarkBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOptionMark>, WireError> {
+        auto array = session().open_array(data);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_option_marks) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireOptionMark out{};
+            const auto symbol = wire::req_str(obj, "s");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            out.symbol = *symbol;
+            for (const auto& [key, into] : {std::pair{"mp", &out.mark_price},
+                                            std::pair{"i", &out.index_price},
+                                            std::pair{"bo", &out.bid_price},
+                                            std::pair{"ao", &out.ask_price},
+                                            std::pair{"bq", &out.bid_qty},
+                                            std::pair{"aq", &out.ask_qty},
+                                            std::pair{"b", &out.bid_iv},
+                                            std::pair{"a", &out.ask_iv},
+                                            std::pair{"vo", &out.mark_iv},
+                                            std::pair{"d", &out.delta},
+                                            std::pair{"g", &out.gamma},
+                                            std::pair{"v", &out.vega},
+                                            std::pair{"t", &out.theta}}) {
+                const auto value = wire::opt_str(obj, key);
+                if (!value.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                *into = *value;
+            }
+            const auto event = wire::opt_u64(obj, "E");
+            if (!event.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.event_ms = *event;
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireOptionMark>{storage.rows.data(), count};
     });
 }
 

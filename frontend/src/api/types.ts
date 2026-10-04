@@ -21,6 +21,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/venues/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each gateway's venue clock and feed health
+         * @description One row per gateway, read from its segment. The clock is measured at start
+         *     and then hourly, as the shortest of five round trips to the venue's own
+         *     server-time method. A venue without one says `none` and its lag is only on
+         *     the local clock. Feed figures cover the gateway's rolling minute.
+         */
+        get: operations["listVenueMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/accounts": {
         parameters: {
             query?: never;
@@ -360,6 +383,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/joe/parents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Parent orders joe is working or has worked, newest first
+         * @description joe runs inside strategyd (`--joe <strategy id>`) and admind forwards
+         *     `/v1/joe/` to the upstream named `strategyd`. Parents live in memory and a
+         *     restart forgets them; their children are ordinary orders in the journal.
+         */
+        get: operations["listParentOrders"];
+        put?: never;
+        /**
+         * Start a parent order
+         * @description joe slices the parent in time (`twap`, `vwap`, `pov`) or sends it at once
+         *     (`sor`), and routes each slice across the venues that list the symbol and
+         *     take orders, by price after the taker fee. Children are IOC limits and each
+         *     one passes strategyd's risk gate under joe's strategy id.
+         */
+        post: operations["startParentOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/joe/parents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One parent order with its child orders */
+        get: operations["getParentOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/joe/parents/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a parent order and its working children */
+        post: operations["cancelParentOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/joe/parents/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause a parent order and cancel its working children */
+        post: operations["pauseParentOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/joe/parents/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused parent order */
+        post: operations["resumeParentOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recon-breaks": {
         parameters: {
             query?: never;
@@ -587,6 +707,8 @@ export interface components {
                 window_s: number;
                 /** @description Subscriptions the venue refused */
                 venue_refusals: number;
+                /** @description Malformed frames dropped since start. */
+                broken_frames: number;
                 budget_denials: number;
                 rest_limits: {
                     name: string;
@@ -607,22 +729,23 @@ export interface components {
         };
         /**
          * @description The venue's clock minus ours; a venue stamp converts as
-         *     `ts_event - offset_ns`. `rest_probe` uses the minimum-round-trip probe of the
-         *     last eight against `endpoint`, and `uncertainty_ns` is half that round trip
-         *     plus half the stamp's resolution. `feed_bound` is for a venue with no time
-         *     endpoint: the smallest `ts_init - ts_event` over the last 30-60 s, negated,
-         *     a lower bound. `none` until either has a sample.
+         *     `ts_event - offset_ns`. `rest_probe` is the shortest of five round trips to
+         *     the venue's server-time method, taken at start and then hourly, and
+         *     `uncertainty_ns` is half that round trip plus half the stamp's resolution.
+         *     `none` for a venue without such a method, or until one has answered.
          */
         VenueClock: {
             venue: string;
             /** @enum {string} */
-            method: "rest_probe" | "feed_bound" | "none";
+            method: "rest_probe" | "none";
             endpoint: string;
             offset_ns: number;
             uncertainty_ns: number;
             rtt_ns: number;
             sampled_ns: components["schemas"]["Nanos"];
             samples: number;
+            drift_ns?: number;
+            drift_over_ns?: number;
         };
         /**
          * @description Quantiles over the trailing 30-60 s; `total` and `sum_ns` since start.
@@ -700,6 +823,60 @@ export interface components {
             coverage_pct: number;
             /** @description Subscriptions the venue explicitly refused. */
             subscribe_refusals: number;
+        };
+        MeasuredClock: {
+            /** @enum {string} */
+            method: "rest_probe" | "none";
+            /** @description Host and path of the server-time request; empty when there is none. */
+            endpoint: string;
+            /** @description Venue clock minus the local clock. */
+            offset_ns?: number;
+            /** @description Round trip of the sample the offset came from. */
+            rtt_ns?: number;
+            /**
+             * @description Half the round trip plus half the venue's stamp resolution
+             *     (0.5 ms for a venue that answers in milliseconds).
+             */
+            uncertainty_ns?: number;
+            measured_at?: components["schemas"]["Nanos"];
+            measured_ago_ns?: number;
+            /** @description How far the offset moved since the measurement before. */
+            drift_ns?: number;
+            /** @description Time between those two measurements. */
+            drift_over_ns?: number;
+            /** @description Bursts in which no request answered. */
+            probe_failures: number;
+        };
+        ChannelFeed: {
+            /** @enum {string} */
+            channel: "bbo" | "trades" | "depth" | "funding";
+            messages: number;
+            /** @description How much of the last minute the counts cover. */
+            window_ns: number;
+            msgs_per_s: number;
+            /** @description Messages that carried a venue timestamp. */
+            lag_samples: number;
+            /** @description Receive time minus the venue's event time, both as stamped. */
+            lag_p50_ns?: number;
+            lag_p99_ns?: number;
+            /** @description The same with the venue's clock offset taken out; absent without a clock. */
+            lag_p50_corrected_ns?: number;
+            lag_p99_corrected_ns?: number;
+            last_message_age_ns?: number;
+        };
+        VenueMetrics: {
+            account: string;
+            venue: string;
+            market: string;
+            alive: boolean;
+            published_at?: components["schemas"]["Nanos"];
+            clock: components["schemas"]["MeasuredClock"];
+            catalogue: number;
+            /** @description Instruments quoted within the last minute. */
+            priced: number;
+            /** @description Socket reopens since the gateway started. */
+            reopens: number;
+            channels: components["schemas"]["ChannelFeed"][];
         };
         Health: {
             gateways: components["schemas"]["Account"][];
@@ -833,6 +1010,112 @@ export interface components {
              */
             volume_24h_quote: components["schemas"]["Decimal"];
             ts_event: components["schemas"]["Nanos"];
+        };
+        ParentId: string;
+        NewParentOrder: {
+            /**
+             * @description The venue-neutral symbol, as the catalogue's `local_symbol`.
+             * @example BTC/USDT
+             */
+            symbol: string;
+            /**
+             * @default perp
+             * @enum {string}
+             */
+            market: "perp" | "spot";
+            side: components["schemas"]["Side"];
+            /** @description In the base asset. Give this or `notional`. */
+            qty?: components["schemas"]["Decimal"];
+            /** @description In the quote asset, turned into a quantity at the arrival mid. */
+            notional?: components["schemas"]["Decimal"];
+            /** @description No child trades through it. */
+            limit?: components["schemas"]["Decimal"];
+            /**
+             * @default twap
+             * @enum {string}
+             */
+            algo: "sor" | "twap" | "vwap" | "pov";
+            /** @default 0 */
+            horizon_s: number;
+            /** @default 1 */
+            slices: number;
+            /**
+             * @description Each slice moves by up to this share of its interval.
+             * @default 0
+             */
+            jitter_bp: number;
+            /**
+             * @description How far past its planned size a slice may go to make up a shortfall.
+             * @default 200
+             */
+            catchup_pct: number;
+            /**
+             * @description The volume curve `vwap` slices by.
+             * @default flat
+             * @enum {string}
+             */
+            profile: "flat" | "u" | "recorded";
+            /**
+             * @description For `pov`, the share of market volume to trade.
+             * @default 0
+             */
+            pov_bp: number;
+            /** @description The most one child may be worth; 20 by default, as the risk gate's order limit. */
+            max_child_notional?: components["schemas"]["Decimal"];
+        };
+        ParentOrder: {
+            id: components["schemas"]["ParentId"];
+            symbol: string;
+            /** @enum {string} */
+            market: "perp" | "spot";
+            side: components["schemas"]["Side"];
+            /** @enum {string} */
+            algo: "sor" | "twap" | "vwap" | "pov";
+            /** @enum {string} */
+            profile: "flat" | "u" | "recorded";
+            /** @enum {string} */
+            status: "pending" | "working" | "paused" | "done" | "cancelled" | "failed";
+            /** @description Why it failed. */
+            reason?: string;
+            /** @description The target in the base asset; zero until it starts. */
+            qty: components["schemas"]["Decimal"];
+            filled: components["schemas"]["Decimal"];
+            /** @description Sent and not yet filled or closed. */
+            working: components["schemas"]["Decimal"];
+            limit?: components["schemas"]["Decimal"];
+            /** @description The best mid across venues when it started. */
+            arrival?: components["schemas"]["Decimal"];
+            avg_price?: components["schemas"]["Decimal"];
+            /** @description Every venue's trades in the symbol while it worked. */
+            market_vwap?: components["schemas"]["Decimal"];
+            /** @description Positive is a cost against the arrival mid. */
+            slippage_arrival_bp?: components["schemas"]["Decimal"];
+            /** @description Positive is a cost against the market VWAP. */
+            slippage_vwap_bp?: components["schemas"]["Decimal"];
+            fees: components["schemas"]["Decimal"];
+            horizon_s: number;
+            slices: number;
+            slices_fired: number;
+            pov_bp: number;
+            created: components["schemas"]["Nanos"];
+            started?: components["schemas"]["Nanos"];
+            ended?: components["schemas"]["Nanos"];
+            child_count: number;
+            /** @description Only on `GET /v1/joe/parents/{id}`. */
+            children?: components["schemas"]["ChildOrder"][];
+        };
+        ChildOrder: {
+            client_order_id: components["schemas"]["ClientOrderId"];
+            instrument_id: components["schemas"]["InstrumentId"];
+            venue: string;
+            /** @description In the base asset. */
+            qty: components["schemas"]["Decimal"];
+            limit: components["schemas"]["Decimal"];
+            filled: components["schemas"]["Decimal"];
+            avg_price?: components["schemas"]["Decimal"];
+            fees: components["schemas"]["Decimal"];
+            sent: components["schemas"]["Nanos"];
+            open: boolean;
         };
         NewOrder: {
             /**
@@ -1216,6 +1499,7 @@ export interface components {
         /** @description An account name, as `GET /v1/accounts` returns it. */
         Account: string;
         InstrumentId: components["schemas"]["InstrumentId"];
+        ParentId: components["schemas"]["ParentId"];
         ClientOrderId: components["schemas"]["ClientOrderId"];
         /** @description Lower bound on `ts_event`, inclusive. */
         Since: components["schemas"]["Nanos"];
@@ -1245,6 +1529,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    listVenueMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueMetrics"][];
                 };
             };
         };
@@ -1796,6 +2100,277 @@ export interface operations {
                 };
             };
             /** @description The upstream did not answer */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listParentOrders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ParentOrder"][];
+                    };
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startParentOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewParentOrder"];
+            };
+        };
+        responses: {
+            /** @description Started */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: components["schemas"]["ParentId"];
+                    };
+                };
+            };
+            /** @description The body is not a parent order */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The parent cannot run as given */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getParentOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ParentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParentOrder"];
+                };
+            };
+            /** @description No such parent order */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancelParentOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ParentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The parent after the change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParentOrder"];
+                };
+            };
+            /** @description No such parent order */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The parent is not in a state for that */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    pauseParentOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ParentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The parent after the change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParentOrder"];
+                };
+            };
+            /** @description No such parent order */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The parent is not in a state for that */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resumeParentOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ParentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The parent after the change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParentOrder"];
+                };
+            };
+            /** @description No such parent order */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The parent is not in a state for that */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
             503: {
                 headers: {
                     [name: string]: unknown;
