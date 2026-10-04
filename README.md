@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src=".github/assets/lightning.gif" alt="raikiri lightning" width="640">
+
 # raikiri
 
 A low-latency, multi-process crypto trading framework in C++23
@@ -9,7 +11,7 @@ A low-latency, multi-process crypto trading framework in C++23
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
 [![Venues](https://img.shields.io/badge/venues-32%20live-2da44e?style=flat-square)](#venues)
 [![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
-[![Tests](https://img.shields.io/badge/tests-2122-2da44e?style=flat-square)](docs/README.md#build-and-test)
+[![Tests](https://img.shields.io/badge/tests-2300-2da44e?style=flat-square)](docs/README.md#build-and-test)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](docs/README.md#build-and-test)
 
 [Documentation](docs/README.md) · [Venues](#venues) ·
