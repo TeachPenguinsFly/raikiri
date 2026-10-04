@@ -51,7 +51,7 @@ struct WireTicker24h {
     std::uint64_t close_ms{0};
 };
 
-inline constexpr std::size_t k_max_ticker_rows = 2048;
+inline constexpr std::size_t k_max_ticker_rows = 4096;
 
 struct Ticker24hBuffer {
     std::array<WireTicker24h, k_max_ticker_rows> rows{};

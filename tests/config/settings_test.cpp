@@ -1,4 +1,5 @@
 #include <raikiri/config/rest_limits.hpp>
+#include <raikiri/config/risk.hpp>
 #include <raikiri/config/settings.hpp>
 
 #include <gtest/gtest.h>
@@ -35,11 +36,14 @@ TEST(Settings, TheCommittedVenueFileLoads) {
     ASSERT_TRUE(file->venues.contains("bybit"));
 
     const auto& bin = file->venues.at("binance");
-    ASSERT_EQ(rest_limits(bin).size(), 1U) << "binance meters one pool";
-    EXPECT_EQ(bin.limits[0].window_ms, 60000U);
-    EXPECT_LE(bin.limits[0].max, 2400U);
-    EXPECT_GT(bin.limits[0].reserve, 0U) << "order entry must keep a floor";
-    EXPECT_TRUE(bin.limits[0].match.empty());
+    const auto bin_rest = rest_limits(bin);
+    ASSERT_EQ(bin_rest.size(), 2U) << "binance meters futures and spot weight apart";
+    EXPECT_EQ(bin_rest[0].window_ns, 60'000'000'000U);
+    EXPECT_LE(bin_rest[0].max, 2400U);
+    EXPECT_GT(bin_rest[0].reserve, 0U) << "order entry must keep a floor";
+    EXPECT_EQ(bin_rest[0].match, std::vector<std::string>{"/fapi/"});
+    EXPECT_LE(bin_rest[1].max, 6000U);
+    EXPECT_EQ(bin_rest[1].match, std::vector<std::string>{"/api/v3/"});
 
     const auto& by = file->venues.at("bybit");
     ASSERT_EQ(rest_limits(by).size(), 3U) << "bybit meters each endpoint";
@@ -219,6 +223,65 @@ TEST(Settings, TheDatabaseFileNamesTheSecretRatherThanHoldingIt) {
 TEST(Settings, AMissingFileSaysSoRatherThanReadingAsEmpty) {
     const auto file = load_venues("config/there-is-no-such-file.yaml");
     EXPECT_FALSE(file.has_value());
+    EXPECT_FALSE(load_risk("config/there-is-no-such-file.yaml").has_value());
+}
+
+TEST(RiskSettings, TheCommittedFileLoadsWithNotionalLimitsAndNoLotCap) {
+    const auto file = load_risk(std::string{RAIKIRI_CONFIG_DIR} + "/risk.yaml");
+    ASSERT_TRUE(file.has_value()) << file.error();
+    const auto config = to_risk_config(risk_for(*file, "anything", 7));
+    EXPECT_EQ(config.max_open_orders, 64U);
+    EXPECT_EQ(config.max_price_band_bp, 500);
+    EXPECT_FALSE(config.max_order_notional.is_undef());
+    EXPECT_FALSE(config.max_strategy_notional.is_undef());
+    for (const auto market : {MarketType::Spot, MarketType::Perp, MarketType::Future, MarketType::Option}) {
+        EXPECT_TRUE(config.max_lots.of(market).is_undef());
+    }
+}
+
+TEST(RiskSettings, UnsetIsOffAndAStrategyEntryOverridesFieldByField) {
+    const auto path = write_temp(R"(defaults:
+  max_order_notional: 1000
+  max_lots: { perp: 500000 }
+strategies:
+  stale-quote: { max_order_notional: 250 }
+  "9": { max_instrument_notional: 4000, max_open_orders: 8 }
+)");
+    const auto file = load_risk(path);
+    std::remove(path.c_str());
+    ASSERT_TRUE(file.has_value()) << file.error();
+
+    const auto plain = to_risk_config(risk_for(*file, "other", 3));
+    EXPECT_EQ(plain.max_open_orders, 64U) << "the gate's own default";
+    EXPECT_EQ(plain.max_price_band_bp, 0);
+    EXPECT_EQ(plain.max_order_notional, FixedE9::from_raw(1'000 * k_e9));
+    EXPECT_TRUE(plain.max_instrument_notional.is_undef());
+    EXPECT_TRUE(plain.max_strategy_notional.is_undef());
+    EXPECT_EQ(plain.max_lots.perp, QtyLots::from_raw(500'000));
+    EXPECT_TRUE(plain.max_lots.spot.is_undef());
+
+    const auto named = to_risk_config(risk_for(*file, "stale-quote", 9));
+    EXPECT_EQ(named.max_order_notional, FixedE9::from_raw(250 * k_e9)) << "the name wins over the id";
+    EXPECT_TRUE(named.max_instrument_notional.is_undef());
+    EXPECT_EQ(named.max_lots.perp, QtyLots::from_raw(500'000));
+
+    const auto by_id = to_risk_config(risk_for(*file, "other", 9));
+    EXPECT_EQ(by_id.max_order_notional, FixedE9::from_raw(1'000 * k_e9));
+    EXPECT_EQ(by_id.max_instrument_notional, FixedE9::from_raw(4'000 * k_e9));
+    EXPECT_EQ(by_id.max_open_orders, 8U);
+}
+
+TEST(RiskSettings, ANonPositiveLimitOrAnUnknownKeyIsRefused) {
+    for (const auto* body : {"defaults: { max_order_notional: 0 }\n",
+                             "defaults: { max_lots: { spot: -1 } }\n",
+                             "strategies:\n  x: { max_strategy_notional: -5 }\n",
+                             "defaults: { max_order_notional: 10000000000 }\n",
+                             "defaults: { max_qty_lots: 1000 }\n"}) {
+        const auto path = write_temp(body);
+        const auto file = load_risk(path);
+        std::remove(path.c_str());
+        EXPECT_FALSE(file.has_value()) << body;
+    }
 }
 
 } // namespace

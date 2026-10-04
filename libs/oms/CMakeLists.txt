@@ -3,8 +3,10 @@ add_library(raikiri_oms STATIC
   src/fee_ledger.cpp
   src/funding_identity.cpp
   src/funding_split.cpp
+  src/notional.cpp
   src/order_store.cpp
   src/recon.cpp
+  src/risk.cpp
 )
 add_library(raikiri::oms ALIAS raikiri_oms)
 

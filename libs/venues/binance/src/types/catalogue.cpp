@@ -65,15 +65,22 @@ std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(st
                 return std::unexpected(delivery.error());
             }
             out.delivery_ms = *delivery;
+            const auto spot_allowed = wire::opt_bool(obj, "isSpotTradingAllowed");
+            if (!spot_allowed.has_value()) {
+                return std::unexpected(spot_allowed.error());
+            }
+            out.spot_allowed = *spot_allowed;
 
             auto filters = wire::req_array(obj, "filters");
             if (!filters.has_value()) {
                 return std::unexpected(filters.error());
             }
-            const std::array<FilterWanted, 3> wanted{{
+            // futures write MIN_NOTIONAL.notional, spot NOTIONAL.minNotional
+            const std::array<FilterWanted, 4> wanted{{
                 {"PRICE_FILTER", "tickSize", &out.tick_size},
                 {"LOT_SIZE", "stepSize", &out.step_size},
                 {"MIN_NOTIONAL", "notional", &out.min_notional},
+                {"NOTIONAL", "minNotional", &out.min_notional},
             }};
             for (auto filter_entry : *filters) {
                 wire::ondemand::object filter;

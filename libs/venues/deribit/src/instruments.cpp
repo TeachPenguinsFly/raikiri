@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "clients.hpp"
@@ -49,7 +50,7 @@ public:
         rest_.start();
         sync_clock(*state_, rest_);
 
-        std::vector<Instrument> loaded;
+        std::vector<Instrument> mapped;
         for (const auto currency : k_currencies) {
             const auto response = await_response(*state_, rest_, state_->builder.instruments(currency, kind), 20'000);
             if (!response.has_value()) {
@@ -76,16 +77,18 @@ public:
             if (!wire.has_value()) {
                 return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
             }
-            state_->instruments.reserve(state_->instruments.size() + wire->size());
             for (const auto& entry : *wire) {
-                auto instrument = map_instrument(entry, market);
-                if (!instrument.has_value()) {
-                    continue; // inactive, linear, wrong market, or missing a step
+                if (auto instrument = map_instrument(entry, market); instrument.has_value()) {
+                    mapped.push_back(std::move(*instrument));
                 }
-                const auto id = state_->instruments.add(*instrument);
-                if (!id.has_value()) {
-                    continue; // duplicate or table full: reported by count, not by throw
-                }
+            }
+        }
+
+        // nothing enters the table until every currency answered, so a retry after a timeout numbers from zero
+        std::vector<Instrument> loaded;
+        state_->instruments.reserve(state_->instruments.size() + mapped.size());
+        for (auto& instrument : mapped) {
+            if (const auto id = state_->instruments.add(std::move(instrument)); id.has_value()) {
                 loaded.push_back(*state_->instruments.find(*id));
             }
         }

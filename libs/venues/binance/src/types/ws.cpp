@@ -13,7 +13,13 @@ namespace {
     return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
 }
 
-[[nodiscard]] std::string_view suffix_for(exec::SubKind kind) noexcept {
+[[nodiscard]] std::string_view suffix_for(exec::SubKind kind, MarketType market) noexcept {
+    if (market == MarketType::Spot && kind == exec::SubKind::Depth) {
+        return k_spot_depth_stream;
+    }
+    if (market == MarketType::Spot && kind != exec::SubKind::Bbo && kind != exec::SubKind::Trades) {
+        return {};
+    }
     switch (kind) {
     case exec::SubKind::Bbo:
         return k_bbo_stream;
@@ -44,16 +50,17 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view stream_host(bool testnet) noexcept {
-    return ep::stream_host(testnet);
+std::string_view stream_host(bool testnet, MarketType market) noexcept {
+    return ep::stream_host(testnet, market);
 }
 
 std::string_view stream_path(exec::SubKind kind) noexcept {
     return kind == exec::SubKind::MarkPrice || kind == exec::SubKind::Funding ? ep::k_ws_market : ep::k_ws_combined;
 }
 
-std::string_view stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
-    const auto suffix = suffix_for(kind);
+std::string_view
+stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out, MarketType market) noexcept {
+    const auto suffix = suffix_for(kind, market);
     if (suffix.empty() || exchange_symbol.empty()) {
         return {};
     }

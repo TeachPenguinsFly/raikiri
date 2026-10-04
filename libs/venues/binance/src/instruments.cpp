@@ -47,7 +47,8 @@ class BinanceInstruments final : public exec::InstrumentSource {
 public:
     explicit BinanceInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host(state_->testnet, state_->market)}, .port = "443"}} {
         // no next tick here, so a refusal stops the gateway from starting
         meter_market_data(*state_, rest_);
     }
@@ -84,10 +85,12 @@ public:
         };
 
         std::unordered_map<std::string_view, Schedule> schedule;
-        const auto funding = await_response(*state_, rest_, state_->builder.funding_info(), 20'000);
-        if (!funding.has_value() || funding->transport_failed()) {
+        const bool wants_schedule = market == MarketType::Perp;
+        const auto funding = wants_schedule ? await_response(*state_, rest_, state_->builder.funding_info(), 20'000)
+                                            : std::nullopt;
+        if (wants_schedule && (!funding.has_value() || funding->transport_failed())) {
             RLOG_WARN("binance: no funding schedule — every interval reads unstated");
-        } else {
+        } else if (funding.has_value()) {
             static thread_local const auto intervals_owner = std::make_unique<FundingInfoBuffer>();
             auto& intervals = *intervals_owner;
             const auto rows = parse_funding_info(funding->body, intervals);

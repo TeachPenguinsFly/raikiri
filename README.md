@@ -45,7 +45,7 @@ running a gateway and adding a venue.
 | `apex` | DEX | perp | **market data only** | – | – | – | – |
 | `aster` | DEX | perp | **market data only** | – | – | – | – |
 | `backpack` | CEX | spot · perp | **market data only** | – | – | – | – |
-| `binance` | CEX | perp | REST + WS | ✓ | ✓ | ListenKey | ✓ |
+| `binance` | CEX | spot · perp | REST + WS | ✓ | ✓ | ListenKey | ✓ |
 | `bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 | `bitfinex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
 | `bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |

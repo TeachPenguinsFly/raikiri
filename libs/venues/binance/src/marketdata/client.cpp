@@ -43,6 +43,12 @@ constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 // the 24h table costs weight 40, so it is polled slowly
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
+void add_once(std::vector<InstrumentId>& ids, InstrumentId id) {
+    if (std::ranges::find(ids, id) == ids.end()) {
+        ids.push_back(id);
+    }
+}
+
 // applies a 429 or 418 to the shared market-data pool; a ban arrives as 418 with a deadline body
 void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noexcept {
     if (state.budget == nullptr) {
@@ -267,19 +273,18 @@ public:
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        if (kind == exec::SubKind::Funding) {
-            for (const auto existing : state_->funding_instruments) {
-                if (existing == instrument) {
-                    return {};
-                }
-            }
-            state_->funding_instruments.push_back(instrument);
+        if (kind == exec::SubKind::Funding && !state_->spot()) {
+            add_once(state_->funding_instruments, instrument);
+            add_once(state_->ticker_instruments, instrument);
             return {};
         }
         std::array<char, 64> buf{};
-        const auto stream = stream_name(kind, symbol, buf);
+        const auto stream = stream_name(kind, symbol, buf, state_->market);
         if (stream.empty()) {
             return DataClient::subscribe(kind, instrument);
+        }
+        if (state_->spot()) {
+            add_once(state_->ticker_instruments, instrument);
         }
         const auto before = state_->desired_streams.size();
         state_->add_stream(stream);
@@ -433,9 +438,8 @@ private:
         state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
     }
 
-    // polled only for instruments subscribed to funding
     void poll_ticker(UnixNanos now) noexcept {
-        if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
+        if (state_->ticker_instruments.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
             return;
         }
         ticker_in_flight_ = true;
@@ -470,9 +474,7 @@ private:
                 continue;
             }
             const auto id = base_of(*instrument).id;
-            const bool wanted = std::ranges::any_of(state_->funding_instruments,
-                                                    [id](InstrumentId sub) { return sub == id; });
-            if (!wanted) {
+            if (std::ranges::find(state_->ticker_instruments, id) == state_->ticker_instruments.end()) {
                 continue;
             }
             if (const auto stats = map_ticker_stats(row, state_->instruments, received); stats.has_value()) {
@@ -513,7 +515,7 @@ private:
     // binance caps one connection at 1024 streams
     net::WsPool make_pool(std::string_view target) {
         return net::WsPool{state_->io,
-                           net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                           net::WsConfig{.host = std::string{stream_host(state_->testnet, state_->market)},
                                          .port = "443",
                                          .target = std::string{target}},
                            handler_,

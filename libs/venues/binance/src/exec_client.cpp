@@ -27,6 +27,10 @@ constexpr std::uint32_t k_trade_stream_id = 2;
 // a request is never left without a verdict, even where config sets no answer timeout
 constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 
+[[nodiscard]] exec::VenueError spot_refused() {
+    return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "binance spot is market data only");
+}
+
 // holds orders sent over rest and not yet answered on the user stream, and owns the listen key
 class BinanceExec final : public exec::ExecutionClient {
 public:
@@ -45,7 +49,7 @@ public:
     std::expected<void, exec::VenueError> start() override {
         api_.start();
         started_ = true;
-        if (!state_->signer.has_credentials()) {
+        if (!state_->signer.has_credentials() || state_->spot()) {
             return {};
         }
         open_trade_socket();
@@ -97,6 +101,10 @@ public:
     }
 
     void submit(const OrderCmd& cmd) noexcept override {
+        if (state_->spot()) {
+            emit(cmd, OrderEventType::Rejected, spot_refused());
+            return;
+        }
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {
             emit(cmd,
@@ -120,6 +128,10 @@ public:
     }
 
     void cancel(const OrderCmd& cmd) noexcept override {
+        if (state_->spot()) {
+            emit(cmd, OrderEventType::CancelRejected, spot_refused());
+            return;
+        }
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {
             emit(cmd,
@@ -143,6 +155,10 @@ public:
     }
 
     void amend(const OrderCmd& cmd) noexcept override {
+        if (state_->spot()) {
+            emit(cmd, OrderEventType::ModifyRejected, spot_refused());
+            return;
+        }
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {
             emit(cmd,

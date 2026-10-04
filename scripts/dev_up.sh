@@ -17,7 +17,7 @@ export RAIKIRI_DATA_DIR="${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}"
 
 # Measured once, written down once. See there for every number behind it.
 # shellcheck source=../deploy/venue_args.sh
-source "$(dirname "$0")/../deploy/venue_args.sh"
+source "$(dirname "$0")/../deploy/venue_args.sh" || exit 1
 # empty means every listing; set SYMBOLS_<venue> to narrow one
 declare -A SYMBOLS=(
   [deribit]="BTC-PERPETUAL"

@@ -112,6 +112,9 @@ raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikir
 raikiri_add_test(binance_wire_test SRCS venues/binance/wire_test.cpp LIBS raikiri::venue_binance)
 target_compile_definitions(binance_wire_test PRIVATE
   RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
+raikiri_add_test(binance_spot_test SRCS venues/binance/spot_test.cpp LIBS raikiri::venue_binance raikiri::exec raikiri::net)
+target_compile_definitions(binance_spot_test PRIVATE
+  RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
 raikiri_add_test(binance_ws_api_test SRCS venues/binance/ws_api_test.cpp LIBS raikiri::venue_binance raikiri::net)
 target_compile_definitions(binance_ws_api_test PRIVATE
   RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
@@ -193,6 +196,10 @@ add_test(NAME apps_help
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh
     $<TARGET_FILE:gatewayd> $<TARGET_FILE:admind> $<TARGET_FILE:persisterd> $<TARGET_FILE:strategyd>)
 set_tests_properties(apps_help PROPERTIES TIMEOUT 30)
+
+add_test(NAME deploy_venue_args
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/deploy/venue_args_test.sh ${CMAKE_CURRENT_SOURCE_DIR}/../deploy/venue_args.sh)
+set_tests_properties(deploy_venue_args PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
 
 raikiri_add_test(introspect_domain_test SRCS introspect/domain_test.cpp LIBS raikiri::introspect)
 raikiri_add_test(introspect_files_test SRCS introspect/files_test.cpp

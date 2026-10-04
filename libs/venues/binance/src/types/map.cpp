@@ -143,20 +143,23 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // usd-m futures only; spot is another host and api
     switch (market) {
     case MarketType::Perp:
+        if (wire.contract_type != "PERPETUAL" && wire.contract_type != "TRADIFI_PERPETUAL") {
+            return std::nullopt;
+        }
         break;
     case MarketType::Spot:
+        if (!wire.contract_type.empty() || !wire.spot_allowed) {
+            return std::nullopt;
+        }
+        break;
     case MarketType::Future:
     case MarketType::Option:
         return std::nullopt;
     }
     if (wire.status != "TRADING") {
-        return std::nullopt; // SETTLING, PENDING_TRADING, CLOSE: not tradable now
-    }
-    if (wire.contract_type != "PERPETUAL" && wire.contract_type != "TRADIFI_PERPETUAL") {
-        return std::nullopt;
+        return std::nullopt; // SETTLING, BREAK, HALT, PENDING_TRADING: not tradable now
     }
 
     const auto tick = parse_decimal_e9(wire.tick_size);
@@ -184,6 +187,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
+    if (market == MarketType::Spot) {
+        base.asset_class = AssetClass::Crypto;
+        return SpotInstrument{base};
+    }
     base.asset_class = asset_class_of(wire.underlying_type);
     // stamped from fundingInfo by the catalogue loader; 0 means unstated
     return PerpInstrument{base, wire.funding_interval_s};

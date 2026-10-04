@@ -1,6 +1,8 @@
 // strategyd: strategy kernel; attaches gateways, runs strategies and serves a loopback control port
 // single thread: rings, timers and the control surface are polled in one loop
 
+#include <raikiri/config/risk.hpp>
+#include <raikiri/config/settings.hpp>
 #include <raikiri/http/server.hpp>
 #include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/reader.hpp>
@@ -40,6 +42,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <filesystem>
+#include <functional>
 #include <map>
 #include <ranges>
 #include <set>
@@ -100,11 +104,12 @@ public:
 
     KernelContext(std::vector<Gateway>& gateways,
                   oms::OrderStore& store,
-                  oms::RiskGate& risk,
+                  config::RiskFile risk,
                   oms::IdGen& ids,
                   journal::JournalWriter& journal,
                   const Clock& clock)
-        : gateways_{&gateways}, store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal}, clock_{&clock} {}
+        : gateways_{&gateways}, store_{&store}, risk_file_{std::move(risk)}, ids_{&ids}, journal_{&journal},
+          clock_{&clock} {}
 
     [[nodiscard]] Gateway* gateway_for(InstrumentId id) const noexcept {
         const AccountId want{.venue = id.venue(), .market = id.market()};
@@ -138,20 +143,30 @@ public:
         if (gw == nullptr) {
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
+        const auto& gate = gate_for(id.strategy_id());
+        const auto held = held_by(id.strategy_id());
         oms::Exposure exposure{.reconciliation_break = recon_gate.halted(order.instrument) || !gw->kernel.may_open(),
-                               .open_orders = store_->open_count()};
-        if (const auto* held = positions.find({id.strategy_id(), order.instrument}); held != nullptr) {
-            exposure.position_lots = held->qty();
+                               .open_orders = store_->open_count(),
+                               .instrument = instrument(order.instrument)};
+        if (const auto it = held.find(order.instrument.packed); it != held.end()) {
+            exposure.position_lots = it->second.position;
+            exposure.working_buy_lots = it->second.buy;
+            exposure.working_sell_lots = it->second.sell;
         }
-        const auto working = oms::working_lots(*store_, order.instrument);
-        exposure.working_buy_lots = working.buy;
-        exposure.working_sell_lots = working.sell;
         if (const auto quote = bbo(order.instrument);
             quote.has_value() && !quote->bid.is_undef() && !quote->ask.is_undef()) {
             exposure.reference_price = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
+            exposure.bid = quote->bid;
+            exposure.ask = quote->ask;
         }
-        if (const auto allowed = risk_->check(cmd, exposure); !allowed.has_value()) {
-            RLOG_WARN("strategyd: risk refused coid={} — {}", cmd.client_order_id.raw, oms::to_string(allowed.error()));
+        if (!gate.config().max_strategy_notional.is_undef()) {
+            exposure.strategy_open_notional = open_notional_besides(held, order.instrument);
+        }
+        if (const auto allowed = gate.check(cmd, exposure); !allowed.has_value()) {
+            RLOG_WARN("strategyd: risk refused coid={} on {} — {}",
+                      cmd.client_order_id.raw,
+                      exposure.instrument != nullptr ? base_of(*exposure.instrument).exchange_symbol.view() : "?",
+                      oms::describe(allowed.error()));
             return std::unexpected{strategy::RejectReason::Risk};
         }
         if (!store_->create(cmd, cmd.exchange_client_order_id).has_value()) {
@@ -222,6 +237,9 @@ public:
     }
 
     [[nodiscard]] const Clock& clock() const noexcept { return *clock_; }
+
+    // set once the registry exists, since the risk file may key a strategy by name
+    std::function<std::string(std::uint16_t)> strategy_name;
 
     portfolio::PositionBook positions;
     // cleared only by a restart
@@ -366,9 +384,69 @@ private:
         });
     }
 
+    struct Held {
+        QtyLots position{QtyLots::from_raw(0)};
+        QtyLots buy{QtyLots::from_raw(0)};
+        QtyLots sell{QtyLots::from_raw(0)};
+    };
+
+    // read from the risk file once per strategy, under its name or id
+    const oms::RiskGate& gate_for(std::uint16_t strategy_id) {
+        if (const auto it = gates_.find(strategy_id); it != gates_.end()) {
+            return it->second;
+        }
+        const auto name = strategy_name ? strategy_name(strategy_id) : std::string{};
+        const oms::RiskGate gate{config::to_risk_config(config::risk_for(risk_file_, name, strategy_id))};
+        return gates_.emplace(strategy_id, gate).first->second;
+    }
+
+    [[nodiscard]] std::unordered_map<std::uint64_t, Held> held_by(std::uint16_t strategy_id) const {
+        std::unordered_map<std::uint64_t, Held> out;
+        for (const auto& position : positions.all()) {
+            if (position.key().strategy_id == strategy_id && position.qty().raw != 0) {
+                out[position.key().instrument.packed].position = position.qty();
+            }
+        }
+        store_->for_each_open([&](const oms::Order& open) {
+            if (open.client_order_id().strategy_id() != strategy_id) {
+                return;
+            }
+            auto& held = out[open.instrument().packed];
+            auto& side = open.side() == Side::Buy ? held.buy : held.sell;
+            side = side + open.leaves();
+        });
+        return out;
+    }
+
+    // each instrument valued at its mid; undef when one has no quote or cannot be valued
+    [[nodiscard]] FixedE9 open_notional_besides(const std::unordered_map<std::uint64_t, Held>& held,
+                                                InstrumentId skip) const {
+        Notional128 total{};
+        for (const auto& [packed, lots] : held) {
+            const auto open = oms::open_lots(lots.position, lots.buy, lots.sell);
+            if (packed == skip.packed || open == 0) {
+                continue;
+            }
+            const InstrumentId id{packed};
+            const auto* listed = instrument(id);
+            const auto quote = bbo(id);
+            if (listed == nullptr || !quote.has_value() || quote->bid.is_undef() || quote->ask.is_undef()) {
+                return FixedE9::undef();
+            }
+            const auto mid = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
+            const auto value = oms::notional(*listed, mid, QtyLots::from_raw(open));
+            if (!value.has_value()) {
+                return FixedE9::undef();
+            }
+            total = total + *value;
+        }
+        return oms::to_e9(total);
+    }
+
     std::vector<Gateway>* gateways_;
     oms::OrderStore* store_;
-    oms::RiskGate* risk_;
+    config::RiskFile risk_file_;
+    std::unordered_map<std::uint16_t, oms::RiskGate> gates_;
     oms::IdGen* ids_;
     journal::JournalWriter* journal_;
     const Clock* clock_;
@@ -841,6 +919,7 @@ struct Requested {
 
 constexpr std::string_view k_usage = R"(usage: strategyd [--gateway=<account>]... [--duration <sec>] [--strategy-id=<n>]
                  [--strategy <type>[:<id>[:<name>[:<config>]]]]... [--port <n>]
+                 [--risk <path>]
 )";
 
 int main(int argc, char** argv) {
@@ -860,6 +939,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> requested;
     // zero serves no control surface
     std::uint16_t control_port = 0;
+    std::string risk_path;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--duration" && i + 1 < argc) {
@@ -874,6 +954,8 @@ int main(int argc, char** argv) {
             requested.emplace_back(argv[++i]);
         } else if (arg == "--port" && i + 1 < argc) {
             control_port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
+        } else if (arg == "--risk" && i + 1 < argc) {
+            risk_path = argv[++i];
         }
     }
     if (wanted.empty()) {
@@ -931,11 +1013,22 @@ int main(int argc, char** argv) {
     }
 
     oms::OrderStore store{4096};
-    // 500 bp off the mid
-    oms::RiskGate risk{{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(1'000), .max_price_band_bp = 500}};
+    // a named file must load; the committed one may be absent, which leaves no notional limit
+    const auto default_risk = config::config_dir() + "/risk.yaml";
+    const bool unlimited = risk_path.empty() && !std::filesystem::exists(default_risk);
+    if (unlimited) {
+        RLOG_WARN("strategyd: no {} — orders are not checked against any notional limit", default_risk);
+    }
+    auto risk = unlimited ? std::expected<config::RiskFile, std::string>{config::RiskFile{
+                                .defaults = {.max_open_orders = 64, .max_price_band_bp = 500}}}
+                          : config::load_risk(risk_path.empty() ? default_risk : risk_path);
+    if (!risk.has_value()) {
+        fmt::print(stderr, "strategyd: {}\n", risk.error());
+        return 2;
+    }
     // used only for the exchange-side id; client order ids are minted per instance
     oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
-    KernelContext ctx{gateways, store, risk, ids, *journal_writer, clock};
+    KernelContext ctx{gateways, store, std::move(*risk), ids, *journal_writer, clock};
 
     std::size_t instrument_count = 0;
     for (const auto& gw : gateways) {
@@ -991,6 +1084,10 @@ int main(int argc, char** argv) {
                                  return 0;
                              },
                              .wall = [&clock] { return clock.wall(); }}};
+    ctx.strategy_name = [&live](std::uint16_t id) {
+        const auto found = live.find(id);
+        return found.has_value() ? found->name : std::string{};
+    };
 
     // demo-maker only against sim; live gateways are observed
     if (requested.empty()) {

@@ -29,12 +29,14 @@
 namespace raikiri::venues::binance::internal {
 
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
-        : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag, MarketType market_type)
+        : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag}, market{market_type} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
+    // spot is market data only, on its own hosts and weight pool
+    MarketType market;
     // binance counts one weight pool per ip, shared with the account poller
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
@@ -43,10 +45,10 @@ struct VenueState {
     net::Signer signer;
     exec::InstrumentTable instruments;
     Protocol protocol;
-    RequestBuilder builder{signer};
+    RequestBuilder builder{signer, market};
 
     // its own pool so seeds and orders do not queue behind each other; six connections for catalogue-wide seeding
-    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}, .pool_size = 6}};
+    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet, market)}, .pool_size = 6}};
     std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::vector<std::string> desired_streams;
@@ -55,11 +57,14 @@ struct VenueState {
     std::vector<InstrumentId> funding_instruments;
     std::uint64_t next_funding_poll_ns{0};
 
+    // the 24h table reaches these: funding subscriptions on perp, every subscription on spot
+    std::vector<InstrumentId> ticker_instruments;
+
     // seeds are rest calls the socket pool does not pace; the queue paces them and meter_market_data charges them
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};
 
-    // Venue clock offset, measured against /fapi/v1/time.
+    // venue clock offset, measured against the market's time endpoint
     std::int64_t clock_offset_ns{0};
 
     std::uint64_t subscribe_refusals{0};
@@ -78,6 +83,8 @@ struct VenueState {
         const auto local = clock->wall();
         return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
+
+    [[nodiscard]] bool spot() const noexcept { return market == MarketType::Spot; }
 
     void add_stream(std::string_view stream) {
         for (const auto& existing : desired_streams) {

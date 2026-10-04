@@ -6,7 +6,7 @@ ACCOUNT="${1:?usage: gateway-run <account>}"
 ROOT="${RAIKIRI_ROOT:-/opt/raikiri}"
 
 # shellcheck source=venue_args.sh
-source "$ROOT/share/venue_args.sh"
+source "$ROOT/share/venue_args.sh" || exit 1
 
 read -r -a args <<< "$(venue_argv "$ACCOUNT")"
 

@@ -1,6 +1,6 @@
 #pragma once
 
-// seeded from GET /fapi/v1/depth, then chained on pu == the previous u;
+// seeded from GET /fapi/v1/depth or /api/v3/depth, then chained on pu == the previous u;
 // levels outside the seed's band are dropped
 
 #include <raikiri/book/ladder.hpp>
@@ -28,7 +28,7 @@ struct WireBookTicker {
     std::string_view ask_price;
     std::string_view ask_qty;
     std::uint64_t update_id{0};
-    std::uint64_t transaction_ms{0}; // T: when the book changed
+    std::uint64_t transaction_ms{0}; // T: when the book changed; spot states neither T nor E
     std::uint64_t event_ms{0};       // E: when binance sent it
 };
 
@@ -156,6 +156,11 @@ private:
 
     void apply_wire(std::span<const WireLevel> levels, book::Ladder& side);
     static void apply_levels(std::span<const Level> levels, book::Ladder& side);
+
+    // the delta straddles the seed or starts right after it
+    [[nodiscard]] bool bridges(std::uint64_t first_id, std::uint64_t prev_id) const noexcept {
+        return first_id <= held_id_ || prev_id == held_id_;
+    }
 
     BookResult buffer(const WireDepthUpdate& delta);
     BookResult bridge(const WireDepthUpdate& delta);

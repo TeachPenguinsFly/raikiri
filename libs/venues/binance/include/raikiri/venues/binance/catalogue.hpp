@@ -23,11 +23,13 @@ struct WireInstrument {
     std::string_view step_size;
     std::string_view min_notional;
     std::uint64_t delivery_ms{0};
+    bool spot_allowed{false}; // isSpotTradingAllowed; futures rows leave it false
     // stamped from /fapi/v1/fundingInfo; 0 means the schedule is unstated
     std::uint32_t funding_interval_s{0};
 };
 
-inline constexpr std::size_t k_max_instruments = 1024;
+// spot lists 3700 pairs, two thirds of them halted
+inline constexpr std::size_t k_max_instruments = 4096;
 
 struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};

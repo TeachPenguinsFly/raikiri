@@ -120,7 +120,8 @@ std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view da
         }
         out.first_id = *first;
         out.last_id = *last;
-        out.prev_id = *prev;
+        // spot states no pu; its ids run contiguous, so U - 1 is the previous u
+        out.prev_id = *prev != 0 || *first == 0 ? *prev : *first - 1;
         out.event_ms = *event;
 
         const auto bids = read_levels(*root, "b", storage.bids);
@@ -285,7 +286,7 @@ BookResult DepthBook::bridge(const WireDepthUpdate& delta) {
     if (delta.last_id < held_id_) {
         return BookResult::Stale;
     }
-    if (delta.first_id > held_id_) {
+    if (!bridges(delta.first_id, delta.prev_id)) {
         // the stream has moved past the seed
         discard_held();
         return BookResult::Reseed;
@@ -340,7 +341,7 @@ BookResult DepthBook::replay() {
         pending_.clear();
         return BookResult::Waiting; // the seed is newer than anything buffered
     }
-    if (pending_[i].first_id > held_id_) {
+    if (!bridges(pending_[i].first_id, pending_[i].prev_id)) {
         discard_held();
         return BookResult::Reseed;
     }

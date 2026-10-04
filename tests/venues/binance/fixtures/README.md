@@ -53,3 +53,24 @@ Their ids are the docs' uuids, so a test swaps in a numeric id.
 | `ws_api_order_modify.json` | doc example: the `order.modify` success reply on the trade page |
 | `ws_api_error.json` | doc example: the error reply on the general page, code -1102 |
 | `ws_api_auth_failure.json` | assembled. The docs give no WebSocket auth failure, so this is the documented error envelope carrying -1022 with its text from the error-code page |
+
+## Spot
+
+Captured live from production binance spot on 2026-10-04, REST on
+`https://api.binance.com` and the socket on `wss://stream.binance.com:443/stream`.
+Public endpoints, no credentials.
+
+| file | source |
+|---|---|
+| `spot_ws_book_ticker.json` | `btcusdt@bookTicker`; spot's frame has no `e`, `E` or `T` |
+| `spot_ws_trade.json` | `btcusdt@trade` |
+| `spot_rest_depth_seed.json`, `spot_ws_depth_contained.json`, `spot_ws_depth_update.json`, `spot_ws_depth_update_next.json` | one capture, described below |
+| `spot_rest_exchange_info.json` | `GET /api/v3/exchangeInfo?showPermissionSets=false`, trimmed to four symbols: BTCUSDT, ETHBTC, NEOBTC (`BREAK`) and 币安人生USDT, a pair whose base is not ascii |
+| `spot_rest_ticker_24h.json` | `GET /api/v3/ticker/24hr`, trimmed to BTCUSDT, ETHBTC and NEOBTC |
+
+The socket on `btcusdt@depth@100ms` was recorded first, and
+`GET /api/v3/depth?symbol=BTCUSDT&limit=100` was issued three seconds in.
+Its `lastUpdateId` is 101022247332. `spot_ws_depth_contained.json` ends on that
+id, `spot_ws_depth_update.json` starts on the next one, and
+`spot_ws_depth_update_next.json` follows it. Spot ids run contiguous and the
+frames carry no `pu`.

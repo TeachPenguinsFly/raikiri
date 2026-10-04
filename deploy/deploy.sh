@@ -20,7 +20,7 @@ echo "==> the terminal, as static files"
 echo "==> source and units to $HOST"
 rsync -a --delete \
     --exclude build/ --exclude .git/ --exclude frontend/node_modules/ \
-    --exclude raikiri-data/ --exclude tools/ \
+    --exclude raikiri-data/ --exclude tools/ --exclude docs/ \
     ./ "$HOST:$SRC_DIR/"
 rsync -a frontend/dist/ "$HOST:$SRC_DIR/web-dist/"
 if [[ -n "$BINARIES" ]]; then

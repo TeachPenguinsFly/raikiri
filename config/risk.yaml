@@ -1,0 +1,7 @@
+defaults:
+  max_open_orders: 64
+  max_price_band_bp: 500
+  max_order_notional: 20
+  max_instrument_notional: 20
+  max_strategy_notional: 100
+strategies: {}

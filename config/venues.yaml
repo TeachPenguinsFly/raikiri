@@ -2,11 +2,17 @@ venues:
   binance:
     order_answer_timeout_ms: 15000
     limits:
-      - { name: weight, window_ms: 60000, max: 2160, reserve: 216 }
-      - { name: ws_streams, kind: ws_streams, max: 300 }
-      - { name: ws_sockets, kind: ws_sockets, max: 8 }
-      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
-      - { name: ws_frame, kind: ws_frame, max: 32 }
+      - { name: weight, window_ms: 60000, max: 2160, reserve: 216, match: ["/fapi/"] }
+      - { name: ws_streams, kind: ws_streams, market: perp, max: 300 }
+      - { name: ws_sockets, kind: ws_sockets, market: perp, max: 8 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, market: perp, window_ms: 250, max: 1 }
+      - { name: ws_frame, kind: ws_frame, market: perp, max: 32 }
+      - { name: spot_weight, window_ms: 60000, max: 5400, match: ["/api/v3/"] }
+      - { name: ws_streams_spot, kind: ws_streams, market: spot, max: 300 }
+      - { name: ws_sockets_spot, kind: ws_sockets, market: spot, max: 16 }
+      - { name: ws_subscribe_spot, kind: ws_messages, scope: socket, market: spot, window_ms: 300, max: 1 }
+      - { name: ws_frame_spot, kind: ws_frame, market: spot, max: 32 }
+      - { name: ws_connects_spot, kind: ws_connects, market: spot, window_ms: 300000, max: 240 }
     default_cost: 40
     costs:
       - { match: "/fapi/v1/order", cost: 1 }
@@ -27,6 +33,13 @@ venues:
       - { match: "/fapi/v1/depth?limit=50", cost: 2 }
       - { match: "/fapi/v1/depth?limit=100", cost: 5 }
       - { match: "/fapi/v1/depth?limit=500", cost: 10 }
+      - { match: "/api/v3/exchangeInfo", cost: 20 }
+      - { match: "/api/v3/time", cost: 1 }
+      - { match: "/api/v3/ticker/24hr", cost: 80 }
+      - { match: "/api/v3/depth", cost: 250 }
+      - { match: "/api/v3/depth?limit=100", cost: 5 }
+      - { match: "/api/v3/depth?limit=500", cost: 25 }
+      - { match: "/api/v3/depth?limit=1000", cost: 50 }
 
   aster:
     order_answer_timeout_ms: 15000

@@ -12,8 +12,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Binance)] = {
         .venue = VenueId::Binance,
-        // usd-m futures only; spot is another host and api
-        .markets = {.spot = false, .perp = true},
+        // spot is market data only
+        .markets = {.spot = true, .perp = true},
         .ws_order_entry = true, // ws-fapi (futures) and ws-api (spot)
         .fix_order_entry = true,
         .cancel_by_client_order_id = true,

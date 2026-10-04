@@ -88,6 +88,35 @@ TEST(Malformed, Binance) {
                {"rest_error_bad_symbol.json", [](std::string_view f) { (void)parse_rest_error(f); }},
                {"ws_api_order_place.json", [](std::string_view f) { (void)parse_ws_api_reply(f); }},
                {"ws_api_error.json", [](std::string_view f) { (void)parse_ws_api_reply(f); }},
+               {"spot_ws_book_ticker.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_book_ticker(*inner);
+                    }
+                }},
+               {"spot_ws_depth_update.json",
+                [](std::string_view f) {
+                    static LevelBuffer storage;
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_depth_update(*inner, storage);
+                    }
+                }},
+               {"spot_rest_depth_seed.json",
+                [](std::string_view f) {
+                    static LevelBuffer storage;
+                    (void)parse_depth_snapshot(f, storage);
+                }},
+               {"spot_rest_exchange_info.json",
+                [](std::string_view f) {
+                    static InstrumentBuffer storage;
+                    (void)parse_exchange_info(f, storage);
+                }},
+               {"spot_rest_ticker_24h.json",
+                [](std::string_view f) {
+                    static Ticker24hBuffer storage;
+                    (void)parse_ticker_24h(f, storage);
+                }},
            });
 }
 

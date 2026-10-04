@@ -19,20 +19,24 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-[[nodiscard]] std::string_view stream_host(bool testnet) noexcept;
+[[nodiscard]] std::string_view stream_host(bool testnet, MarketType market = MarketType::Perp) noexcept;
 
 // the multiplexed endpoint that delivers kind; frames arrive wrapped
 [[nodiscard]] std::string_view stream_path(exec::SubKind kind) noexcept;
 
 // 500 ms: at 100 ms the venue drops sockets whose reader falls behind
 inline constexpr std::string_view k_depth_stream = "@depth@500ms";
+// spot offers 100 ms or 1000 ms only
+inline constexpr std::string_view k_spot_depth_stream = "@depth";
 inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
 inline constexpr std::string_view k_bbo_stream = "@bookTicker";
 inline constexpr std::string_view k_trade_stream = "@trade";
 
 // lowercases the symbol, which binance requires; empty for a kind binance does not stream
-[[nodiscard]] std::string_view
-stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept;
+[[nodiscard]] std::string_view stream_name(exec::SubKind kind,
+                                           std::string_view exchange_symbol,
+                                           std::span<char> out,
+                                           MarketType market = MarketType::Perp) noexcept;
 
 class Protocol {
 public:

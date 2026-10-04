@@ -1,5 +1,7 @@
 #pragma once
 
+#include <raikiri/domain/identifiers.hpp>
+
 #include <cstdint>
 #include <string_view>
 
@@ -10,11 +12,22 @@ inline constexpr std::string_view k_rest_test = "testnet.binancefuture.com";
 inline constexpr std::string_view k_stream_live = "fstream.binance.com";
 inline constexpr std::string_view k_stream_test = "fstream.binancefuture.com";
 
-[[nodiscard]] constexpr std::string_view rest_host(bool testnet) noexcept {
+inline constexpr std::string_view k_spot_rest_live = "api.binance.com";
+inline constexpr std::string_view k_spot_rest_test = "testnet.binance.vision";
+inline constexpr std::string_view k_spot_stream_live = "stream.binance.com";
+inline constexpr std::string_view k_spot_stream_test = "stream.testnet.binance.vision";
+
+[[nodiscard]] constexpr std::string_view rest_host(bool testnet, MarketType market = MarketType::Perp) noexcept {
+    if (market == MarketType::Spot) {
+        return testnet ? k_spot_rest_test : k_spot_rest_live;
+    }
     return testnet ? k_rest_test : k_rest_live;
 }
 
-[[nodiscard]] constexpr std::string_view stream_host(bool testnet) noexcept {
+[[nodiscard]] constexpr std::string_view stream_host(bool testnet, MarketType market = MarketType::Perp) noexcept {
+    if (market == MarketType::Spot) {
+        return testnet ? k_spot_stream_test : k_spot_stream_live;
+    }
     return testnet ? k_stream_test : k_stream_live;
 }
 
@@ -52,5 +65,12 @@ inline constexpr std::string_view k_depth = "/fapi/v1/depth";
 inline constexpr std::string_view k_server_time = "/fapi/v1/time";
 // the only place binance states the settlement interval
 inline constexpr std::string_view k_funding_info = "/fapi/v1/fundingInfo";
+
+// unfiltered, the listing is 6.7 MB with every halted pair and a permission matrix per row
+inline constexpr std::string_view
+    k_spot_exchange_info = "/api/v3/exchangeInfo?symbolStatus=TRADING&showPermissionSets=false";
+inline constexpr std::string_view k_spot_ticker_24h = "/api/v3/ticker/24hr";
+inline constexpr std::string_view k_spot_depth = "/api/v3/depth";
+inline constexpr std::string_view k_spot_server_time = "/api/v3/time";
 
 } // namespace raikiri::venues::binance::ep

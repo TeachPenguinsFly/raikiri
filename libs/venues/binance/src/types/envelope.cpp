@@ -75,15 +75,22 @@ std::expected<EventInfo, WireError> parse_event_payload(std::string_view payload
             if (!err.has_value()) {
                 return std::unexpected(err.error());
             }
-            info.kind = err->empty() ? EventKind::SubscribeAck : EventKind::Error;
-            return info;
+            if (!err->empty()) {
+                info.kind = EventKind::Error;
+                return info;
+            }
         }
-        info.kind = kind_from_event(*event);
         auto symbol = wire::opt_str(*root, "s");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
         info.symbol = *symbol;
+        // spot's bookTicker is the one payload with a symbol and no event type
+        if (event->empty()) {
+            info.kind = symbol->empty() ? EventKind::SubscribeAck : EventKind::BookTicker;
+            return info;
+        }
+        info.kind = kind_from_event(*event);
         return info;
     });
 }

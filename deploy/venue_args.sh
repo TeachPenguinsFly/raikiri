@@ -1,6 +1,12 @@
 # gatewayd arguments per account, sourced by scripts/dev_up.sh and deploy/gateway-run
 # source deploy/venue_args.sh
-# venue_argv okx-spot          # prints: --venue=okx --market=spot --channels=bbo,funding
+# venue_argv okx-spot          # prints: --venue=okx --market=spot --channels=bbo,trades
+
+# the tables below need bash 4; bash 3.2 takes each as one entry and hands every venue the last value
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    echo "venue_args.sh: needs bash 4 or newer, this is ${BASH_VERSION:-not bash}" >&2
+    return 1 2>/dev/null || exit 1
+fi
 
 # symbols to stream; the catalogue loads in full regardless
 declare -A MARKET=(
@@ -8,10 +14,10 @@ declare -A MARKET=(
   [okx]=perp [bingx]=perp [bitget]=perp [deribit-opt]=option [deribit]=perp [derive-opt]=option [derive]=perp
 )
 
-SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex lbank"
+SPOT_CAPABLE="binance bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex lbank"
 
-# spot gateways serve the carry board and need only bbo and funding
-SPOT_CHANNELS="bbo,funding"
+# spot is recorded beside the perps: the quote and the tape, no ladder
+SPOT_CHANNELS="bbo,trades"
 
 # hyperliquid spot needs depth since bbo is silent on a book whose top does not move
 # hyperliquid gateways on one ip share 1000 channels; hip3 replaces the plain perp gateway
