@@ -77,6 +77,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     }
     base.contract_value = FixedE9::from_raw(1'000'000'000);
     base.kind = ContractKind::Linear;
+    base.asset_class = wire.asset_class == "CRYPTO"      ? AssetClass::Crypto
+                       : wire.asset_class == "EQUITY"    ? AssetClass::Equity
+                       : wire.asset_class == "COMMODITY" ? AssetClass::Commodity
+                                                         : AssetClass::Unknown;
 
     PerpInstrument perp{};
     perp.base = base;

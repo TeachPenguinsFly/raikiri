@@ -139,7 +139,7 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, MarketTy
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.transaction_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.transaction_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -163,7 +163,7 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, MarketType 
     out.qty = *qty;
     // m true means the buyer was maker, so the aggressor sold
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
-    out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.trade_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -178,7 +178,7 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, MarketType m
 
     BookSnapshot out{};
     out.instrument = base.id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
 
     const auto fill = [&](std::span<const WireLevel> src, std::array<BookLevel, k_book_levels>& dst) {
@@ -241,7 +241,7 @@ map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, Un
     if (wire.funding_interval_hours > 0) {
         out.interval_s = static_cast<std::uint32_t>(wire.funding_interval_hours) * k_seconds_per_hour;
     }
-    out.ts_event = ts_init;
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

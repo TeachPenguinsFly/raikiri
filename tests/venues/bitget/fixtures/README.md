@@ -34,6 +34,7 @@ Other sessions:
 | file | source |
 |---|---|
 | `rest_contracts.json` | `GET /api/v2/mix/market/contracts?productType=USDT-FUTURES`, trimmed to `BTCUSDT`, `ETHUSDT`, `SHIBUSDT` and `PEPEUSDT` |
+| `rest_contracts_rwa.json` | the same call on 2026-10-05, trimmed to `BTCUSDT` and four `isRwa` rows: a stock, an ETF, gold and the PAXG token |
 | `rest_ticker.json` | `GET /api/v2/mix/market/ticker?symbol=BTCUSDT&productType=USDT-FUTURES` |
 | `rest_orderbook.json` | `GET /api/v2/mix/market/orderbook?symbol=BTCUSDT&productType=USDT-FUTURES&limit=5` |
 | `rest_current_fund_rate.json` | `GET /api/v2/mix/market/current-fund-rate?symbol=BTCUSDT&productType=USDT-FUTURES` |

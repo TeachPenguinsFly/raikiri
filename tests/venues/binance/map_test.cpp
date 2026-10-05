@@ -125,8 +125,8 @@ TEST(BinanceMap, MissingVenueTimeFallsBackToIngest) {
     wire.trade_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // a zero timestamp falls back to ingest time
-    EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
+    // a zero timestamp leaves the trade unstamped
+    EXPECT_EQ(trade->ts_event.ns, 0U);
 }
 
 TEST(BinanceMap, MarkPriceBecomesFunding) {

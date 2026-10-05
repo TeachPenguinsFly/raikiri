@@ -63,7 +63,7 @@ TEST(Malformed, Grvt) {
                     (void)parse_message(f, storage);
                 }},
                {"rest_error.json", [](std::string_view f) { (void)parse_rest_error(f); }},
-               {"rest_all_instruments.json",
+               {"rest_all_instruments*",
                 [](std::string_view f) {
                     static InstrumentBuffer storage;
                     (void)parse_instruments(f, storage);

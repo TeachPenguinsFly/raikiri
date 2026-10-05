@@ -125,7 +125,7 @@ map_trade(const WirePrint& wire, std::string_view symbol, const exec::Instrument
     // m true means the buyer was maker, so the aggressor sold
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
     // the print's T; one frame carries several prints
-    out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.trade_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -189,7 +189,7 @@ map_funding(const WirePremium& wire, const exec::InstrumentTable& table, UnixNan
             }
         },
         *instrument);
-    out.ts_event = ms_to_unix(wire.event_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.event_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

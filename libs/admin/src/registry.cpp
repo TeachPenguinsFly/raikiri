@@ -1,10 +1,14 @@
 #include <raikiri/admin/format.hpp>
 #include <raikiri/admin/registry.hpp>
+#include <raikiri/domain/asset_class.hpp>
+
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <variant>
@@ -14,6 +18,12 @@ namespace raikiri::admin {
 namespace {
 
 constexpr std::string_view k_segment_prefix = "gw.";
+
+[[nodiscard]] std::uint64_t file_id_of(const std::string& path) {
+    struct stat st {};
+
+    return ::stat(path.c_str(), &st) == 0 ? static_cast<std::uint64_t>(st.st_ino) : 0;
+}
 
 } // namespace
 
@@ -31,6 +41,10 @@ Instrument describe(const raikiri::Instrument& instrument, std::string_view acco
     out.min_notional = decimal(base.min_notional);
     out.contract_value = decimal(base.contract_value);
     out.contract_kind = std::string{contract_kind_name(base.kind)};
+    out.asset_class = std::string{to_string(base.asset_class)};
+    if (auto key = asset_key(base); !key.empty()) {
+        out.asset_key = std::move(key);
+    }
 
     if (const auto* future = std::get_if<FutureInstrument>(&instrument); future != nullptr) {
         out.expiry = digits(future->expiry);
@@ -48,23 +62,32 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
     if (ec) {
         return 0; // no runtime directory means no gateways, not an error
     }
+    std::unordered_map<std::string, std::uint64_t> present;
     for (const auto& entry : it) {
         const auto name = entry.path().filename().string();
-        if (!name.starts_with(k_segment_prefix)) {
-            continue;
+        if (name.starts_with(k_segment_prefix)) {
+            present.emplace(name.substr(k_segment_prefix.size()), file_id_of(entry.path().string()));
         }
-        const auto account_name = name.substr(k_segment_prefix.size());
+    }
+    // a stopped gateway unlinks its file, and holding the mapping would pin its memory
+    const auto held_before = gateways_.size();
+    std::erase_if(gateways_, [&](const std::unique_ptr<Gateway>& gw) { return !present.contains(gw->name); });
+    if (gateways_.size() != held_before) {
+        ++epoch_;
+    }
+    for (const auto& [account_name, file_id] : present) {
+        const auto path = shm_dir + "/" + std::string{k_segment_prefix} + account_name;
         const auto account = account_from_string(account_name);
         if (account.venue == VenueId::Invalid) {
             continue; // a file whose name is not an account is not ours
         }
         auto* held = find_mutable(account_name);
-        auto client = shm::SegmentClient::attach(entry.path().string());
+        auto client = shm::SegmentClient::attach(path);
         if (!client.has_value()) {
             continue; // wrong abi, wrong layout or dead owner: skip
         }
-        // same generation is the same run; a moved generation is a restarted gateway
-        if (held != nullptr && held->client.generation() == client->generation()) {
+        // same file and generation is the same run; a new file or generation is a restarted gateway
+        if (held != nullptr && held->file_id == file_id && held->client.generation() == client->generation()) {
             continue;
         }
         auto channels = shm::open_gateway_channels(*client);
@@ -73,7 +96,11 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
             continue;
         }
         (void)client->register_reader(reader_pid);
-        Gateway fresh{.account = account, .name = account_name, .client = std::move(*client), .channels = *channels};
+        Gateway fresh{.account = account,
+                      .name = account_name,
+                      .client = std::move(*client),
+                      .channels = *channels,
+                      .file_id = file_id};
         if (held != nullptr) {
             // in place so the gateway keeps its address; pointers into the old mapping now dangle, hence the epoch
             *held = std::move(fresh);
@@ -142,6 +169,22 @@ Health Registry::health(MonoNanos now, UnixNanos wall) const {
 
 namespace {
 
+std::string_view offset_source_name(shm::OffsetSource source) noexcept {
+    switch (source) {
+    case shm::OffsetSource::None:
+        return "none";
+    case shm::OffsetSource::Rest:
+        return "rest";
+    case shm::OffsetSource::Feed:
+        return "feed";
+    case shm::OffsetSource::RestAndFeed:
+        return "rest_and_feed";
+    case shm::OffsetSource::Conflict:
+        return "conflict";
+    }
+    return "none";
+}
+
 // a gateway may not have published yet; its row still says who it is
 VenueMetrics describe_metrics(const shm::VenueMetrics& m, bool published, UnixNanos wall) {
     constexpr std::array<std::string_view, shm::k_metric_channels> k_channels{"bbo", "trades", "depth", "funding"};
@@ -167,6 +210,21 @@ VenueMetrics describe_metrics(const shm::VenueMetrics& m, bool published, UnixNa
             out.clock.drift_over_ns = static_cast<std::int64_t>(m.drift_over_ns);
         }
     }
+    out.clock.offset_source = std::string{offset_source_name(m.offset_source)};
+    if (m.feed_bounded != 0) {
+        out.clock.feed_bound_ns = m.feed_bound_ns;
+    }
+    if (m.offset_source != shm::OffsetSource::None) {
+        if (m.offset_lo_ns != std::numeric_limits<std::int64_t>::min()) {
+            out.clock.offset_low_ns = m.offset_lo_ns;
+        }
+        if (m.offset_hi_ns != std::numeric_limits<std::int64_t>::max()) {
+            out.clock.offset_high_ns = m.offset_hi_ns;
+        }
+    }
+    out.clock.correction_ns = m.correction_ns;
+    const bool corrected = m.correction_ns != 0;
+    out.clock.lag_shown = corrected ? "corrected" : "raw";
     if (!published) {
         return out;
     }
@@ -191,9 +249,10 @@ VenueMetrics describe_metrics(const shm::VenueMetrics& m, bool published, UnixNa
         if (c.lag_samples != 0) {
             feed.lag_p50_ns = c.lag_p50_ns;
             feed.lag_p99_ns = c.lag_p99_ns;
-            if (measured) {
-                feed.lag_p50_corrected_ns = c.lag_p50_ns + m.offset_ns;
-                feed.lag_p99_corrected_ns = c.lag_p99_ns + m.offset_ns;
+            feed.lag_min_ns = c.lag_min_ns;
+            if (corrected) {
+                feed.lag_p50_corrected_ns = c.lag_p50_ns + m.correction_ns;
+                feed.lag_p99_corrected_ns = c.lag_p99_ns + m.correction_ns;
             }
         }
         out.channels.push_back(std::move(feed));
@@ -263,38 +322,49 @@ namespace {
 } // namespace
 
 std::vector<Market> Registry::markets(std::string_view query, std::size_t limit) const {
-    std::unordered_map<std::string, Market> by_symbol;
+    std::unordered_map<std::string, Market> by_key;
     for (const auto& owned : gateways_) {
         const auto& gw = *owned;
         for (const auto& listed : gw.channels.catalogue->all()) {
             const auto& base = base_of(listed);
             const auto symbol = std::string{base.local_symbol.view()};
-            if (symbol.empty() || !contains_fold(symbol, query)) {
+            auto key = market_key(base);
+            if (symbol.empty() || (!contains_fold(symbol, query) && !contains_fold(key, query))) {
                 continue;
             }
-            auto& market = by_symbol[symbol];
-            if (market.symbol.empty()) {
-                market.symbol = symbol;
+            if (key.empty()) {
+                key = symbol;
             }
+            auto& market = by_key[key];
+            market.key = std::move(key);
             market.listings.push_back({.instrument_id = digits(base.id.packed),
                                        .account = gw.name,
                                        .venue = std::string{to_string(gw.account.venue)},
                                        .market = std::string{to_string(gw.account.market)},
-                                       .exchange_symbol = std::string{base.exchange_symbol.view()}});
+                                       .exchange_symbol = std::string{base.exchange_symbol.view()},
+                                       .local_symbol = symbol});
         }
     }
 
     std::vector<Market> out;
-    out.reserve(by_symbol.size());
-    for (auto& [symbol, market] : by_symbol) {
+    out.reserve(by_key.size());
+    for (auto& [key, market] : by_key) {
         std::ranges::sort(market.listings, {}, &Listing::venue);
+        std::unordered_map<std::string, std::size_t> uses;
+        std::size_t most = 0;
+        for (const auto& listing : market.listings) {
+            if (const auto n = ++uses[listing.local_symbol]; n > most) {
+                most = n;
+                market.symbol = listing.local_symbol;
+            }
+        }
         out.push_back(std::move(market));
     }
     std::ranges::sort(out, [](const Market& a, const Market& b) {
         if (a.listings.size() != b.listings.size()) {
             return a.listings.size() > b.listings.size();
         }
-        return a.symbol < b.symbol;
+        return a.key < b.key;
     });
     if (out.size() > limit) {
         out.resize(limit);

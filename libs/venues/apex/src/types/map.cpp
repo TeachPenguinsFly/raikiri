@@ -98,7 +98,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& 
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = wire.buyer_aggressor ? Side::Buy : Side::Sell;
-    out.ts_event = wire.ts_ms == 0 ? ts_init : UnixNanos{wire.ts_ms * 1'000'000ULL};
+    out.ts_event = UnixNanos{wire.ts_ms * 1'000'000ULL};
     out.ts_init = ts_init;
     return out;
 }
@@ -130,7 +130,7 @@ map_funding(const WireTicker& wire, const PerpInstrument& perp, FundingMemo& mem
     out.mark_price = memo.mark;
     out.next_funding_time = memo.next_funding;
     out.interval_s = perp.funding_interval_s;
-    out.ts_event = us_to_unix(wire.ts_us, ts_init);
+    out.ts_event = us_to_unix(wire.ts_us, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

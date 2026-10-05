@@ -5,6 +5,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
 
 namespace raikiri::introspect {
 
@@ -47,6 +49,8 @@ struct FeedSummary {
     std::uint64_t lag_samples{0};
     std::int64_t lag_p50_ns{0};
     std::int64_t lag_p99_ns{0};
+    // exact, not bucketed; meaningful when lag_samples is not zero
+    std::int64_t lag_min_ns{0};
     std::uint64_t last_recv_ns{0};
 };
 
@@ -60,6 +64,9 @@ public:
         auto& slice = slices_[head_];
         ++slice.messages;
         slice.lag.record(lag_ns);
+        if (lag_ns < slice.lag_min) {
+            slice.lag_min = lag_ns;
+        }
         last_recv_ns_ = recv_ns;
     }
 
@@ -73,10 +80,14 @@ public:
 
     [[nodiscard]] FeedSummary summary(std::uint64_t mono_ns) const noexcept;
 
+    // the smallest stamped lag over the window
+    [[nodiscard]] std::optional<std::int64_t> lag_min() const noexcept;
+
 private:
     struct Slice {
         std::uint64_t messages{0};
         LagHistogram lag;
+        std::int64_t lag_min{std::numeric_limits<std::int64_t>::max()};
     };
 
     std::array<Slice, k_slices> slices_{};

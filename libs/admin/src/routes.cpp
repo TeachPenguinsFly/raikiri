@@ -323,7 +323,11 @@ http::Handler make_router(const Registry& registry,
                 // an unconfigured upstream is a 404
                 return problem(404, "no such upstream", req.path);
             }
-            const auto target = slash == std::string_view::npos ? std::string{"/"} : std::string{tail.substr(slash)};
+            auto target = slash == std::string_view::npos ? std::string{"/"} : std::string{tail.substr(slash)};
+            if (!req.query.empty()) {
+                target += '?';
+                target += req.query;
+            }
             const auto answer = http::fetch("127.0.0.1", found->second, target, 250);
             if (!answer.has_value()) {
                 return problem(503,

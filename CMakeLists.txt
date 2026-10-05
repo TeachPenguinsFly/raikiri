@@ -128,6 +128,7 @@ add_subdirectory(apps/admind)
 add_subdirectory(apps/strategyd)
 add_subdirectory(apps/launcher)
 add_subdirectory(apps/optcompare)
+add_subdirectory(apps/symbolaudit)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)

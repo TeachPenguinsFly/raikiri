@@ -272,7 +272,7 @@ std::optional<TradeTick> map_trade(const WireRealPrint& wire, const InstrumentBa
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = wire.taker_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ns_to_unix(wire.ts_ns, ts_init);
+    out.ts_event = ns_to_unix(wire.ts_ns, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -289,7 +289,7 @@ map_trade(const WireScaledPrint& wire, const InstrumentBase& base, const Listing
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = wire.taker_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ns_to_unix(wire.ts_ns, ts_init);
+    out.ts_event = ns_to_unix(wire.ts_ns, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -312,7 +312,7 @@ std::optional<FundingUpdate> map_funding(const WirePackRow& wire,
     if (const auto mark = mark_ticks(parse_number_e9(wire.mark), base.tick_size); mark.has_value()) {
         out.mark_price = *mark;
     }
-    out.ts_event = ns_to_unix(ts_ns, ts_init);
+    out.ts_event = ns_to_unix(ts_ns, UnixNanos{});
     out.interval_s = listing.funding_interval_s;
     out.next_funding_time = next_funding_time(out.ts_event, listing.funding_interval_s);
     out.ts_init = ts_init;
@@ -339,7 +339,7 @@ map_funding(const WireInverseTicker& wire, const InstrumentBase& base, const Lis
     if (wire.mark_ep.has_value() && listing.price_step > 0) {
         out.mark_price = PriceTicks::from_raw(*wire.mark_ep / listing.price_step);
     }
-    out.ts_event = ns_to_unix(wire.ts_ns, ts_init);
+    out.ts_event = ns_to_unix(wire.ts_ns, UnixNanos{});
     out.interval_s = listing.funding_interval_s;
     out.next_funding_time = next_funding_time(out.ts_event, listing.funding_interval_s);
     out.ts_init = ts_init;

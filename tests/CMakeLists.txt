@@ -209,7 +209,8 @@ raikiri_add_test(admin_stream_test SRCS admin/stream_test.cpp LIBS raikiri::admi
 
 add_test(NAME apps_help
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh
-    $<TARGET_FILE:gatewayd> $<TARGET_FILE:admind> $<TARGET_FILE:persisterd> $<TARGET_FILE:strategyd>)
+    $<TARGET_FILE:gatewayd> $<TARGET_FILE:admind> $<TARGET_FILE:persisterd> $<TARGET_FILE:strategyd>
+    $<TARGET_FILE:symbolaudit>)
 set_tests_properties(apps_help PROPERTIES TIMEOUT 30)
 
 add_test(NAME deploy_venue_args

@@ -13,7 +13,8 @@ namespace raikiri::venues::mexc {
 // futures precision arrives as digit scales; the mapper derives steps
 struct WireInstrument {
     std::string_view symbol;
-    std::string_view base_coin; // the futures catalogue names both halves
+    std::string_view base_coin;      // the futures catalogue names both halves
+    std::string_view base_coin_name; // "GOLDCIR" of GOLDCIRSTOCK, "SILVER(XAG)" of SILVER
     std::string_view quote_coin;
     std::string_view settle_coin; // the base coin on an inverse contract
     std::int64_t state{-1};       // 0 = enabled

@@ -160,8 +160,8 @@ TEST(OkxMap, MissingVenueTimeFallsBackToIngest) {
     wire.ts_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // zero timestamps fall back to ingest time
-    EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
+    // a zero timestamp leaves the trade unstamped
+    EXPECT_EQ(trade->ts_event.ns, 0U);
 }
 
 TEST(OkxMap, FundingUsesFundingTimeAndDerivesTheInterval) {

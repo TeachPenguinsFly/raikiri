@@ -66,7 +66,7 @@ std::optional<Bbo> map_bbo(const WireBbo& wire, const InstrumentBase& base, Unix
                .ask = PriceTicks::from_raw(*ask),
                .bid_qty = QtyLots::from_raw(*bid_qty),
                .ask_qty = QtyLots::from_raw(*ask_qty),
-               .ts_event = ms_to_unix(wire.ts_ms, ts_init),
+               .ts_event = ms_to_unix(wire.ts_ms, UnixNanos{}),
                .ts_init = ts_init};
 }
 
@@ -86,7 +86,7 @@ std::optional<WireBbo> top_of(const WireBook& wire) noexcept {
 std::optional<BookSnapshot> map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init) {
     BookSnapshot out{};
     out.instrument = base.id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     out.venue_seq = wire.li;
     const auto fill = [&](std::span<const WireLevel> src,
@@ -135,7 +135,7 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& 
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = aggressor;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -155,7 +155,7 @@ std::optional<FundingUpdate> map_funding(const WirePrice& wire, const Instrument
     if (const auto mark = parse_amount_e9(wire.mark); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.next_funding_time = next_settlement(out.ts_event);
     out.interval_s = k_funding_interval_s;
     out.accrual = FundingAccrual::Discrete;

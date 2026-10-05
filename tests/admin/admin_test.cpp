@@ -246,6 +246,22 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     EXPECT_EQ(instruments.front().exchange_symbol, "BBB");
 }
 
+TEST(AdminReattach, AStoppedGatewayIsLetGoOnceItsFileIsGone) {
+    const SegmentDir dir;
+    auto run = start_gateway(1'000, {"AAA"});
+    ASSERT_TRUE(run.has_value());
+
+    Registry registry;
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    const auto epoch = registry.epoch();
+    run.reset();
+    ASSERT_FALSE(std::filesystem::exists(segment_dir() + "/gw.sim"));
+
+    EXPECT_EQ(registry.discover(segment_dir(), 1), 0U) << "an unlinked segment is not held mapped";
+    EXPECT_EQ(registry.find("sim"), nullptr);
+    EXPECT_GT(registry.epoch(), epoch);
+}
+
 TEST(AdminReattach, ATargetBelongsToTheAttachmentItWasResolvedAgainst) {
     const SegmentDir dir;
     const auto kept = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0});
@@ -300,6 +316,9 @@ TEST(AdminVenueMetrics, TheRouteReadsTheClockAndFeedEachGatewayPublished) {
     EXPECT_NE(answer.body.find(R"("account":"sim")"), std::string::npos) << answer.body;
     EXPECT_NE(answer.body.find(R"("method":"none")"), std::string::npos) << answer.body;
     EXPECT_EQ(answer.body.find("offset_ns"), std::string::npos) << "no clock, no offset: " << answer.body;
+    EXPECT_NE(answer.body.find(R"("offset_source":"none")"), std::string::npos) << answer.body;
+    EXPECT_NE(answer.body.find(R"("lag_shown":"raw")"), std::string::npos) << answer.body;
+    EXPECT_EQ(answer.body.find("offset_low_ns"), std::string::npos) << answer.body;
 
     shm::VenueMetrics m{};
     m.published_ns = k_wall_now - 2'000 * k_ms;
@@ -310,6 +329,12 @@ TEST(AdminVenueMetrics, TheRouteReadsTheClockAndFeedEachGatewayPublished) {
     m.measured_ns = k_wall_now - 60'000 * k_ms;
     m.drift_ns = static_cast<std::int64_t>(k_ms);
     m.drift_over_ns = 3'600'000 * k_ms;
+    m.offset_source = shm::OffsetSource::RestAndFeed;
+    m.feed_bounded = 1;
+    m.feed_bound_ns = 2 * static_cast<std::int64_t>(k_ms);
+    m.offset_lo_ns = 2 * static_cast<std::int64_t>(k_ms);
+    m.offset_hi_ns = 83 * static_cast<std::int64_t>(k_ms) + static_cast<std::int64_t>(k_ms / 2);
+    m.correction_ns = 2 * static_cast<std::int64_t>(k_ms);
     m.catalogue = 2;
     m.priced = 1;
     m.reopens = 3;
@@ -320,6 +345,7 @@ TEST(AdminVenueMetrics, TheRouteReadsTheClockAndFeedEachGatewayPublished) {
                      .lag_samples = 600,
                      .lag_p50_ns = 12 * static_cast<std::int64_t>(k_ms),
                      .lag_p99_ns = 40 * static_cast<std::int64_t>(k_ms),
+                     .lag_min_ns = -2 * static_cast<std::int64_t>(k_ms),
                      .last_recv_ns = k_wall_now - 5 * k_ms};
     registry.find("sim")->channels.metrics->write(m);
 
@@ -338,6 +364,12 @@ TEST(AdminVenueMetrics, TheRouteReadsTheClockAndFeedEachGatewayPublished) {
     EXPECT_EQ(row.clock.measured_at, digits(k_wall_now - 60'000 * k_ms));
     EXPECT_EQ(row.clock.measured_ago_ns, static_cast<std::int64_t>(60'000 * k_ms));
     EXPECT_EQ(row.clock.drift_ns, static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(row.clock.offset_source, "rest_and_feed");
+    EXPECT_EQ(row.clock.feed_bound_ns, 2 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(row.clock.offset_low_ns, 2 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(row.clock.offset_high_ns, m.offset_hi_ns);
+    EXPECT_EQ(row.clock.correction_ns, 2 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(row.clock.lag_shown, "corrected");
     EXPECT_EQ(row.reopens, 3);
     EXPECT_EQ(row.priced, 1);
     ASSERT_EQ(row.channels.size(), 1U) << "silent channels are left out";
@@ -345,9 +377,27 @@ TEST(AdminVenueMetrics, TheRouteReadsTheClockAndFeedEachGatewayPublished) {
     EXPECT_EQ(bbo.channel, "bbo");
     EXPECT_EQ(bbo.msgs_per_s, 10);
     EXPECT_EQ(bbo.lag_p50_ns, 12 * static_cast<std::int64_t>(k_ms));
-    EXPECT_EQ(bbo.lag_p50_corrected_ns, 5 * static_cast<std::int64_t>(k_ms));
-    EXPECT_EQ(bbo.lag_p99_corrected_ns, 33 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(bbo.lag_p50_corrected_ns, 14 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(bbo.lag_p99_corrected_ns, 42 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(bbo.lag_min_ns, -2 * static_cast<std::int64_t>(k_ms));
     EXPECT_EQ(bbo.last_message_age_ns, static_cast<std::int64_t>(5 * k_ms));
+
+    // the feed stamped above the probe's upper edge: both edges shown, nothing corrected
+    m.offset_source = shm::OffsetSource::Conflict;
+    m.feed_bound_ns = 90 * static_cast<std::int64_t>(k_ms);
+    m.offset_lo_ns = m.feed_bound_ns;
+    m.correction_ns = 0;
+    registry.find("sim")->channels.metrics->write(m);
+    answer = router(request);
+    rows.clear();
+    ASSERT_FALSE(glz::read_json(rows, answer.body)) << answer.body;
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows.front().clock.offset_source, "conflict");
+    EXPECT_GT(rows.front().clock.offset_low_ns, rows.front().clock.offset_high_ns);
+    EXPECT_EQ(rows.front().clock.lag_shown, "raw");
+    ASSERT_EQ(rows.front().channels.size(), 1U);
+    EXPECT_FALSE(rows.front().channels.front().lag_p50_corrected_ns.has_value());
+    EXPECT_EQ(rows.front().channels.front().lag_p50_ns, 12 * static_cast<std::int64_t>(k_ms));
 }
 
 } // namespace

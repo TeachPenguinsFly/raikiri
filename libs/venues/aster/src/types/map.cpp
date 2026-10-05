@@ -4,6 +4,7 @@
 
 #include <charconv>
 #include <optional>
+#include <string>
 
 namespace raikiri::venues::aster {
 
@@ -66,7 +67,7 @@ std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTab
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.transaction_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.transaction_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -89,7 +90,7 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::Instrument
     out.qty = *qty;
     // m means the buyer was the maker, so the aggressor sold
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
-    out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.trade_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -121,10 +122,28 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
             }
         },
         *instrument);
-    out.ts_event = ms_to_unix(wire.event_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.event_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
+
+namespace {
+
+// underlyingType says COIN on every row; the sub-type and symbolType tell a stock from a coin
+[[nodiscard]] AssetClass asset_class_of(const WireInstrument& wire) noexcept {
+    const auto has = [&](std::string_view tag) {
+        return wire.underlying_sub_type.find(std::string{"\""} + std::string{tag} + "\"") != std::string_view::npos;
+    };
+    if (has("STOCK") || has("ETF")) {
+        return AssetClass::Equity;
+    }
+    if (has("Commodities")) {
+        return AssetClass::Commodity;
+    }
+    return wire.symbol_type == 1 ? AssetClass::Unknown : AssetClass::Crypto;
+}
+
+} // namespace
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     // usd-m futures only; aster spot is another api
@@ -168,6 +187,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire);
     // interval stamped from fundingInfo by the catalogue loader; 0 means unstated
     return PerpInstrument{base, wire.funding_interval_s};
 }

@@ -203,7 +203,7 @@ private:
         if (base == nullptr) {
             return;
         }
-        const auto ts_event = ns_or(feed.event_ns, received);
+        const auto ts_event = ns_or(feed.event_ns, UnixNanos{});
         switch (feed.kind) {
         case FeedKind::Quote:
             on_quote(feed, *base, ts_event, received);
@@ -228,7 +228,8 @@ private:
             if (const auto funding = map_funding(feed.ticker, *listed, ts_event, received); funding.has_value()) {
                 state_->sink->on_funding(*funding);
             }
-            if (const auto stats = map_ticker_stats(feed.ticker, *base, ts_event, received); stats.has_value()) {
+            if (const auto stats = map_ticker_stats(feed.ticker, *base, ns_or(feed.event_ns, received), received);
+                stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
             break;

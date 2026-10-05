@@ -87,6 +87,16 @@ void FeedWindow::advance(std::uint64_t mono_ns) noexcept {
     head_start_ns_ += steps * k_slice_ns;
 }
 
+std::optional<std::int64_t> FeedWindow::lag_min() const noexcept {
+    std::optional<std::int64_t> out;
+    for (const auto& slice : slices_) {
+        if (slice.lag.count() != 0 && (!out.has_value() || slice.lag_min < *out)) {
+            out = slice.lag_min;
+        }
+    }
+    return out;
+}
+
 FeedSummary FeedWindow::summary(std::uint64_t mono_ns) const noexcept {
     LagHistogram lag;
     std::uint64_t messages = 0;
@@ -100,6 +110,7 @@ FeedSummary FeedWindow::summary(std::uint64_t mono_ns) const noexcept {
                        .lag_samples = lag.count(),
                        .lag_p50_ns = lag.quantile(500),
                        .lag_p99_ns = lag.quantile(990),
+                       .lag_min_ns = lag_min().value_or(0),
                        .last_recv_ns = last_recv_ns_};
 }
 

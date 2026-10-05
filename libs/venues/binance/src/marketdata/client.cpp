@@ -109,7 +109,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
         if (target.seed(*wire) != BookResult::Applied) {
             return;
         }
-        const auto ts_event = ms_to_unix(wire->transaction_ms, response.received);
+        const auto ts_event = ms_to_unix(wire->transaction_ms, UnixNanos{});
         if (const auto seeded = target.snapshot(ts_event, response.received); seeded.has_value()) {
             owner->sink->on_depth(*seeded);
         }
@@ -151,7 +151,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
-    if (const auto snapshot = book.snapshot(ms_to_unix(wire->event_ms, received), received); snapshot.has_value()) {
+    if (const auto snapshot = book.snapshot(ms_to_unix(wire->event_ms, UnixNanos{}), received); snapshot.has_value()) {
         state.sink->on_depth(*snapshot);
     }
 }

@@ -21,6 +21,8 @@ struct WireInstrument {
     std::string_view step_size;
     std::string_view min_notional;
     std::uint64_t delivery_ms{0};
+    std::int64_t symbol_type{0};          // 1 on a tradfi row
+    std::string_view underlying_sub_type; // raw array: "STOCK", "ETF", "Commodities", ...
     // stamped from /fapi/v1/fundingInfo; 0 means aster did not state it
     std::uint32_t funding_interval_s{0};
 };

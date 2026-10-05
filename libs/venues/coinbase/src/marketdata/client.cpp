@@ -32,14 +32,14 @@ namespace {
 // the level2_batch opening snapshot exceeds the 1 MiB transport default; this is a ceiling
 constexpr std::size_t k_max_message_bytes = std::size_t{8} * 1024 * 1024;
 
-// an unreadable timestamp falls back to ingest
+// an unreadable timestamp leaves the book unstamped
 UnixNanos book_time(std::string_view text, UnixNanos fallback) {
     const auto parsed = parse_iso8601(text);
     return parsed.has_value() ? *parsed : fallback;
 }
 
 void publish(VenueState& state, Book& book, std::string_view time, UnixNanos received) {
-    if (const auto depth = book.snapshot(book_time(time, received), received); depth.has_value()) {
+    if (const auto depth = book.snapshot(book_time(time, UnixNanos{}), received); depth.has_value()) {
         state.sink->on_depth(*depth);
     }
 }

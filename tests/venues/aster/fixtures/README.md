@@ -11,6 +11,7 @@ REST on `https://fapi.asterdex.com` and the socket on
 | `ws_mark_price.json` | `btcusdt@markPrice@1s` |
 | `ws_depth_update.json`, `ws_depth_update_next.json` | `btcusdt@depth@100ms`, two consecutive frames of one session (`u` 554245272553 is the next frame's `pu`) |
 | `rest_exchange_info.json` | `GET /fapi/v1/exchangeInfo`, trimmed to three symbols: one plain USDT perp, one USD1-quoted, one not yet trading |
+| `rest_exchange_info_tradfi.json` | the same call on 2026-10-05, trimmed to a coin, a stock, an ETF and a commodity row |
 | `rest_premium_index.json` | `GET /fapi/v1/premiumIndex?symbol=BTCUSDT` |
 | `rest_funding_info.json` | `GET /fapi/v1/fundingInfo`, trimmed to three rows |
 | `rest_depth_snapshot.json` | `GET /fapi/v1/depth?symbol=BTCUSDT&limit=5` |

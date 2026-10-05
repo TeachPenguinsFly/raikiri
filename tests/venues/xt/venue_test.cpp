@@ -764,7 +764,7 @@ TEST(XtMap, FundingCarriesTheIntervalInSeconds) {
     EXPECT_EQ(funding->interval_s, 8U * 3600U);
     EXPECT_GT(funding->next_funding_time.ns, 0ULL);
     // no publish time on this endpoint; the mark arrives on its own channel
-    EXPECT_EQ(funding->ts_event, received);
+    EXPECT_EQ(funding->ts_event.ns, 0U);
     EXPECT_TRUE(funding->mark_price.is_undef());
     EXPECT_TRUE(funding->predicted_rate.is_undef());
 }

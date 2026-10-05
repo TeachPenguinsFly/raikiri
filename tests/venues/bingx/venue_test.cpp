@@ -723,7 +723,7 @@ TEST(BingxMap, MapsFundingFromThePremiumIndexPoll) {
     EXPECT_EQ(funding->interval_s, 8U * 3600U);
     // bingx gives no forecast
     EXPECT_TRUE(funding->predicted_rate.is_undef());
-    EXPECT_EQ(funding->ts_event.ns, 1234U);
+    EXPECT_EQ(funding->ts_event.ns, 0U);
 
     WirePremiumIndex silent = *wire;
     silent.last_funding_rate = {};

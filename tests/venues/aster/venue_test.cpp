@@ -1,5 +1,6 @@
 // aster parser tests against captured bytes; see fixtures/README.md
 
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/aster/book.hpp>
 #include <raikiri/venues/aster/catalogue.hpp>
 #include <raikiri/venues/aster/endpoints.hpp>
@@ -11,6 +12,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -158,5 +160,22 @@ TEST(AsterEndpoints, TestnetHasNowhereToPointSoBothAccessorsAnswerLive) {
     EXPECT_EQ(ep::stream_host(true), ep::k_stream_live);
 }
 
+TEST(AsterMap, TheSubTypeTellsAStockFromACoin) {
+    InstrumentBuffer storage;
+    const auto body = fixture("rest_exchange_info_tradfi.json");
+    const auto rows = parse_exchange_info(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    std::map<std::string, std::string, std::less<>> keys;
+    for (const auto& row : *rows) {
+        auto instrument = map_instrument(row, MarketType::Perp);
+        ASSERT_TRUE(instrument.has_value()) << row.symbol;
+        classify(VenueId::Aster, *instrument);
+        keys.emplace(std::string{row.symbol}, asset_key(base_of(*instrument)));
+    }
+    EXPECT_EQ(keys["BTCUSDT"], "crypto:BTC");
+    EXPECT_EQ(keys["AAPLUSDT"], "equity:AAPL");
+    EXPECT_EQ(keys["IWMUSDT"], "equity:IWM");
+    EXPECT_EQ(keys["XAGUSDT"], "commodity:XAG");
+}
 } // namespace
 } // namespace raikiri::venues::aster

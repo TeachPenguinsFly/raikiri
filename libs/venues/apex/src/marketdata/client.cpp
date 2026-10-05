@@ -212,7 +212,7 @@ private:
         if (result != SyncResult::Applied && result != SyncResult::Resynced) {
             return;
         }
-        const auto ts_event = us_to_unix(wire->ts_us, received);
+        const auto ts_event = us_to_unix(wire->ts_us, UnixNanos{});
         if (const auto bbo = book.bbo(ts_event, received); bbo.has_value()) {
             state_->sink->on_bbo(*bbo);
             state_->quoted.insert(base.id.packed);

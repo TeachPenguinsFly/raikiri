@@ -73,7 +73,7 @@ std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTab
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -116,7 +116,7 @@ map_book(const WireBookUpdate& wire, const exec::InstrumentTable& table, UnixNan
         return std::nullopt;
     }
     out.venue_seq = wire.last_update_id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -138,7 +138,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::Instrument
     out.price = *price;
     out.qty = *qty;
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -163,7 +163,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     }
     out.next_funding_time = s_to_unix(wire.funding_next_apply_s);
     out.interval_s = wire.funding_interval_s;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -398,7 +398,7 @@ map_option_quote(const WireOptionTicker& wire, const exec::InstrumentTable& tabl
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
     blank_empty_sides(out);
-    out.ts_event = wire.ts_s == 0 ? ts_init : s_to_unix(wire.ts_s);
+    out.ts_event = s_to_unix(wire.ts_s);
     out.ts_init = ts_init;
     return out;
 }

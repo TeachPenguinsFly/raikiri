@@ -49,7 +49,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
                                               std::pair{"sizeMultiplier", &out.size_multiplier},
                                               std::pair{"minTradeNum", &out.min_trade_num},
                                               std::pair{"minTradeUSDT", &out.min_trade_usdt},
-                                              std::pair{"fundInterval", &out.fund_interval}}) {
+                                              std::pair{"fundInterval", &out.fund_interval},
+                                              std::pair{"isRwa", &out.is_rwa}}) {
                 const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());

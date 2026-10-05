@@ -80,7 +80,8 @@ export const api = {
   health: () => get<Schema<'Health'>>('/v1/health'),
   accounts: () => get<Schema<'Account'>[]>('/v1/accounts'),
   upstreamIndex: (name: string) => get<Schema<'UpstreamIndex'>>(`/v1/x/${name}/`),
-  upstreamTable: (name: string, path: string) => get<Schema<'UpstreamTable'>>(`/v1/x/${name}/${path}`),
+  upstreamTable: (name: string, path: string, params: Record<string, string | undefined> = {}) =>
+    get<Schema<'UpstreamTable'>>(`/v1/x/${name}/${path}`, params),
   markets: (q?: string) => get<Market[]>('/v1/markets', { q }),
   // the routes below read postgres and answer 503 without a dsn
   openOrders: () => get<Page<Order>>('/v1/orders', { open: 'true' }),

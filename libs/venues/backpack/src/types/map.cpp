@@ -73,7 +73,7 @@ std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTab
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = us_to_unix(wire.engine_us, ts_init);
+    out.ts_event = us_to_unix(wire.engine_us, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -104,7 +104,7 @@ std::optional<Bbo> map_touch(const WireDepthSnapshot& wire, const InstrumentBase
     out.ask = ask->price;
     out.bid_qty = bid->qty;
     out.ask_qty = ask->qty;
-    out.ts_event = us_to_unix(wire.timestamp_us, ts_init);
+    out.ts_event = us_to_unix(wire.timestamp_us, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -126,7 +126,7 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::Instrument
     out.price = *price;
     out.qty = *qty;
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
-    out.ts_event = us_to_unix(wire.engine_us, ts_init);
+    out.ts_event = us_to_unix(wire.engine_us, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -154,7 +154,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     }
     out.next_funding_time = wire.next_funding_ms == 0 ? UnixNanos{0} : UnixNanos{wire.next_funding_ms * 1'000'000ULL};
     out.interval_s = interval_of(*instrument);
-    out.ts_event = us_to_unix(wire.event_us, ts_init);
+    out.ts_event = us_to_unix(wire.event_us, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

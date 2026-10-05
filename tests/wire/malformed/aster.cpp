@@ -57,7 +57,7 @@ TEST(Malformed, Aster) {
                     static LevelBuffer storage;
                     (void)parse_depth_snapshot(f, storage);
                 }},
-               {"rest_exchange_info.json",
+               {"rest_exchange_info*",
                 [](std::string_view f) {
                     static InstrumentBuffer storage;
                     (void)parse_exchange_info(f, storage);

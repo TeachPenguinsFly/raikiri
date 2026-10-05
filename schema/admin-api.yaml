@@ -1167,7 +1167,7 @@ components:
 
     MeasuredClock:
       type: object
-      required: [method, endpoint, probe_failures]
+      required: [method, endpoint, probe_failures, offset_source, correction_ns, lag_shown]
       properties:
         method:
           type: string
@@ -1184,8 +1184,9 @@ components:
         uncertainty_ns:
           type: integer
           description: |
-            Half the round trip plus half the venue's stamp resolution
-            (0.5 ms for a venue that answers in milliseconds).
+            Half the width of the probe's interval: every sample in the burst says the
+            venue stamped between our send and receive, and the offset is the middle of
+            where they all agree.
         measured_at: { $ref: "#/components/schemas/Nanos" }
         measured_ago_ns:
           type: integer
@@ -1198,6 +1199,32 @@ components:
         probe_failures:
           type: integer
           description: Bursts in which no request answered.
+        offset_source:
+          type: string
+          enum: [none, rest, feed, rest_and_feed, conflict]
+          description: |
+            What bounds the offset: the probe, the feed, the feed tightening the probe,
+            or a conflict when the feed bound lies above the probe's upper edge.
+        feed_bound_ns:
+          type: integer
+          description: |
+            The largest venue stamp minus receive time over the last minute. The offset
+            is at least this, since no message arrives before it is stamped.
+        offset_low_ns:
+          type: integer
+          description: Lower edge of the combined interval; absent when open.
+        offset_high_ns:
+          type: integer
+          description: Upper edge; absent when only the feed bounds the clock.
+        correction_ns:
+          type: integer
+          description: |
+            The point of the interval nearest zero, added to the raw lag. Zero when the
+            interval holds zero, when nothing bounds the clock, and on a conflict.
+        lag_shown:
+          type: string
+          enum: [raw, corrected]
+          description: Whether the corrected lag fields are present.
 
     ChannelFeed:
       type: object
@@ -1223,9 +1250,12 @@ components:
           type: integer
         lag_p50_corrected_ns:
           type: integer
-          description: The same with the venue's clock offset taken out; absent without a clock.
+          description: The same plus the clock's correction; absent when the raw lag stands.
         lag_p99_corrected_ns:
           type: integer
+        lag_min_ns:
+          type: integer
+          description: The smallest raw lag over the window, exact.
         last_message_age_ns:
           type: integer
 
@@ -1275,7 +1305,7 @@ components:
 
     Listing:
       type: object
-      required: [instrument_id, account, venue, market, exchange_symbol]
+      required: [instrument_id, account, venue, market, exchange_symbol, local_symbol]
       properties:
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
         account: { type: string }
@@ -1285,14 +1315,23 @@ components:
           type: string
           description: |
             The venue's own name for the instrument, as orders carry it.
+        local_symbol:
+          type: string
+          description: 'Venue-neutral, keeping a HIP-3 deployer prefix: "xyz:TSLA/USDC".'
 
     Market:
       type: object
-      required: [symbol, listings]
+      required: [key, symbol, listings]
       properties:
+        key:
+          type: string
+          description: |
+            What the listings share: asset class, underlying and quote, with USDT and
+            USDC folded together. An unclassified listing keys on its local symbol.
+          examples: ["equity:TSLA/USD*", "crypto:BTC/USD*"]
         symbol:
           type: string
-          description: 'Canonical and venue-neutral: "BTC/USDT".'
+          description: The local symbol most of the listings use.
           examples: ["BTC/USDT"]
         listings:
           type: array
@@ -1301,7 +1340,8 @@ components:
     Instrument:
       type: object
       required:
-        [instrument_id, account, venue, market, exchange_symbol, tick_size, lot_size, contract_value, contract_kind]
+        [instrument_id, account, venue, market, exchange_symbol, tick_size, lot_size, contract_value, contract_kind,
+         asset_class]
       properties:
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
         account: { type: string }
@@ -1321,6 +1361,14 @@ components:
           description: |
             Linear settles in the quote currency, inverse in the base with a
             reciprocal pnl.
+        asset_class:
+          type: string
+          enum: [unknown, crypto, equity, index, commodity, fx]
+        asset_key:
+          type: string
+          description: |
+            The asset cross-venue matching keys on, absent when the class is unknown.
+          examples: ["equity:TSLA", "commodity:XAU"]
         # Dated futures and options only.
         expiry:
           allOf: [{ $ref: "#/components/schemas/Nanos" }]
@@ -1827,6 +1875,12 @@ components:
           items:
             type: object
             additionalProperties: { type: string }
+        venues:
+          type: array
+          items: { type: string }
+          description: |
+            Every venue the upstream reads, named as the rows name them, so a filter
+            can offer venues the shown rows happen to miss.
 
     ReconVerdict:
       type: string

@@ -426,7 +426,11 @@ function Ticket({ onStarted }: { onStarted: (id: string) => void }) {
   const [inFlight, setInFlight] = useState(false)
 
   const markets = useQuery(() => api.markets(), [], k_catalogue_refresh_ms)
-  const symbols = markets.state === 'ready' ? markets.data.map((m) => m.symbol) : []
+  // joe routes by the exact local symbol, so every one a market groups is offered
+  const symbols =
+    markets.state === 'ready'
+      ? [...new Set(markets.data.flatMap((m) => m.listings.map((l) => l.local_symbol)))]
+      : []
 
   const base = symbol.split('/')[0] ?? ''
   const timed = algo !== 'sor'

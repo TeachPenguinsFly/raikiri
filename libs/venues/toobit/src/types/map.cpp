@@ -238,7 +238,7 @@ std::optional<Bbo> map_bbo(const WireBbo& wire, const InstrumentBase& base, Unix
     out.ask = PriceTicks::from_raw(*ask);
     out.bid_qty = QtyLots::from_raw(*bid_qty);
     out.ask_qty = QtyLots::from_raw(*ask_qty);
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -254,7 +254,7 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& 
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = wire.buyer_maker ? Side::Sell : Side::Buy;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -282,7 +282,7 @@ map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark
     out.next_funding_time = ms_to_unix(wire.next_ms, UnixNanos{});
     out.interval_s = interval;
     out.accrual = FundingAccrual::Discrete;
-    out.ts_event = ts_init;
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }
@@ -341,7 +341,7 @@ std::optional<BookSnapshot> DepthBook::snapshot(InstrumentId instrument, UnixNan
     if (!seeded_) {
         return std::nullopt;
     }
-    return ladders_.snapshot(instrument, frames_, ms_to_unix(ts_ms_, ts_init), ts_init);
+    return ladders_.snapshot(instrument, frames_, ms_to_unix(ts_ms_, UnixNanos{}), ts_init);
 }
 
 void DepthBook::reset() noexcept {

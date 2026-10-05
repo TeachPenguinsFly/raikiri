@@ -90,7 +90,7 @@ void handle_book_update(VenueState& state, std::string_view frame, UnixNanos rec
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
-    if (const auto snapshot = book.snapshot(ms_to_unix(wire->ts_ms, received), received); snapshot.has_value()) {
+    if (const auto snapshot = book.snapshot(ms_to_unix(wire->ts_ms, UnixNanos{}), received); snapshot.has_value()) {
         state.sink->on_depth(*snapshot);
     }
 }

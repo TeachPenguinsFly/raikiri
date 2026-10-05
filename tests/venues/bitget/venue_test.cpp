@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/bitget/account.hpp>
 #include <raikiri/venues/bitget/bitget_venue.hpp>
@@ -17,6 +18,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -586,8 +588,8 @@ TEST(BitgetMap, MissingVenueTimeFallsBackToIngest) {
     wire.ts_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // a zero timestamp falls back to ingest time
-    EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
+    // a zero timestamp leaves the trade unstamped
+    EXPECT_EQ(trade->ts_event.ns, 0U);
 }
 
 TEST(BitgetMap, FundingRidesTheTickerFrame) {
@@ -932,5 +934,23 @@ TEST(BitgetMap, SpotCatalogueRowsBecomeInstrumentsOrAreRefused) {
     EXPECT_EQ(table.find(std::string_view{"REAUSDT"}), nullptr);
 }
 
+TEST(BitgetMap, ARwaRowIsNotACoin) {
+    auto storage = std::make_unique<ContractBuffer>();
+    const auto body = fixture("rest_contracts_rwa.json");
+    const auto rows = parse_contracts(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    std::map<std::string, std::string, std::less<>> keys;
+    for (const auto& row : *rows) {
+        auto instrument = map_instrument(row, MarketType::Perp);
+        ASSERT_TRUE(instrument.has_value()) << row.symbol;
+        classify(VenueId::Bitget, *instrument);
+        keys.emplace(std::string{row.symbol}, asset_key(base_of(*instrument)));
+    }
+    EXPECT_EQ(keys["BTCUSDT"], "crypto:BTC");
+    EXPECT_EQ(keys["AAPLUSDT"], "equity:AAPL");
+    EXPECT_EQ(keys["IWMUSDT"], "equity:IWM");
+    EXPECT_EQ(keys["XAUUSDT"], "commodity:XAU") << "the curated row names the metal";
+    EXPECT_EQ(keys["PAXGUSDT"], "crypto:PAXG") << "rwa, but a token";
+}
 } // namespace
 } // namespace raikiri::venues::bitget

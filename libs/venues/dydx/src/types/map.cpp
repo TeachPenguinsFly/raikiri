@@ -166,7 +166,7 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& 
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = aggressor;
-    out.ts_event = parse_iso8601(wire.created_at).value_or(ts_init);
+    out.ts_event = parse_iso8601(wire.created_at).value_or(UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -202,7 +202,7 @@ std::optional<FundingUpdate> map_funding(const WireMarket& wire, const Instrumen
     }
     out.next_funding_time = next_hour(ts_init);
     out.interval_s = k_funding_interval_s;
-    out.ts_event = ts_init;
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

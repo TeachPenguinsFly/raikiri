@@ -23,6 +23,7 @@ struct WireInstrument {
     // the size step as well as its floor
     std::string_view min_size;
     std::string_view min_notional;
+    std::string_view asset_class; // CRYPTO, EQUITY, COMMODITY; UNSPECIFIED on older rows
     std::uint32_t funding_interval_hours{0};
     // percent per interval
     std::string_view funding_cap;

@@ -109,7 +109,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!state.sink->wants_depth(base_of(*instrument).id, received)) {
             break;
         }
-        if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received); depth.has_value()) {
+        if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, UnixNanos{}), received); depth.has_value()) {
             state.sink->on_depth(*depth);
         }
         break;

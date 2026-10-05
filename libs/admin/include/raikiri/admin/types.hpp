@@ -44,6 +44,15 @@ struct MeasuredClock {
     std::optional<std::int64_t> drift_ns{};
     std::optional<std::int64_t> drift_over_ns{};
     std::int64_t probe_failures{0};
+    // "none", "rest", "feed", "rest_and_feed" or "conflict"
+    std::string offset_source{};
+    std::optional<std::int64_t> feed_bound_ns{};
+    // an absent edge is open; low above high on a conflict
+    std::optional<std::int64_t> offset_low_ns{};
+    std::optional<std::int64_t> offset_high_ns{};
+    std::int64_t correction_ns{0};
+    // "raw" or "corrected"
+    std::string lag_shown{};
 };
 
 struct ChannelFeed {
@@ -56,6 +65,7 @@ struct ChannelFeed {
     std::optional<std::int64_t> lag_p99_ns{};
     std::optional<std::int64_t> lag_p50_corrected_ns{};
     std::optional<std::int64_t> lag_p99_corrected_ns{};
+    std::optional<std::int64_t> lag_min_ns{};
     std::optional<std::int64_t> last_message_age_ns{};
 };
 
@@ -94,6 +104,9 @@ struct Instrument {
     std::string min_notional;
     std::string contract_value;
     std::string contract_kind;
+    std::string asset_class;
+    // what cross-venue matching keys on; absent when the class is unknown
+    std::optional<std::string> asset_key;
 
     // dated futures and options only
     std::optional<std::string> expiry;
@@ -112,11 +125,13 @@ struct Listing {
     std::string venue;
     std::string market;
     std::string exchange_symbol;
+    std::string local_symbol; // keeps a hip-3 deployer's prefix: "xyz:TSLA/USDC"
 };
 
-// one market across every venue listing it, grouped server-side
+// one asset across every venue listing it, grouped server-side by its market key
 struct Market {
-    std::string symbol; // canonical: "BTC/USDT"
+    std::string key;    // "equity:TSLA/USD*"; an unclassified listing keys on its local symbol
+    std::string symbol; // the local symbol most of its listings use
     std::vector<Listing> listings;
 };
 

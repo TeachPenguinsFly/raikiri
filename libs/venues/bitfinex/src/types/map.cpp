@@ -262,7 +262,7 @@ std::optional<Bbo> map_bbo(const WireTicker& wire,
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ts_event.ns == 0 ? ts_init : ts_event;
+    out.ts_event = ts_event;
     out.ts_init = ts_init;
     return out;
 }
@@ -309,7 +309,7 @@ map_trade(const WireTrade& wire, std::string_view symbol, const exec::Instrument
     out.price = *price;
     out.qty = *qty;
     out.aggressor = amount.negative ? Side::Sell : Side::Buy;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -339,7 +339,7 @@ std::optional<FundingUpdate> map_funding(const WireDerivStatus& wire,
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     out.interval_s = k_funding_interval_s;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

@@ -154,12 +154,12 @@ void handle_data(VenueState& state,
         if (result != BookResult::Applied && result != BookResult::Resynced) {
             return; // unsynced or dropped: silence, never a guess
         }
-        // book frames have no timestamp, so ts_event is ingest time
-        if (const auto depth = book.snapshot(received, received); depth.has_value()) {
+        // book frames have no timestamp, so ts_event stays zero
+        if (const auto depth = book.snapshot(UnixNanos{}, received); depth.has_value()) {
             state.sink->on_depth(*depth);
         }
         // the fast top of book, beside the ticker's
-        if (const auto bbo = book.touch(received, received); bbo.has_value()) {
+        if (const auto bbo = book.touch(UnixNanos{}, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
         break;

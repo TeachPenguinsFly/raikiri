@@ -521,8 +521,8 @@ TEST(HyperliquidMap, FundingIsHourlyAndSettlesOnTheNextWholeHour) {
     ASSERT_TRUE(later.has_value());
     EXPECT_EQ(later->next_funding_time.ns, 1'790'002'800'000'000'000ULL);
     EXPECT_TRUE(funding->predicted_rate.is_undef());
-    // no timestamp on the payload, so ts_event is ingest
-    EXPECT_EQ(funding->ts_event.ns, 11U);
+    // no timestamp on the payload, so ts_event stays zero
+    EXPECT_EQ(funding->ts_event.ns, 0U);
     EXPECT_EQ(funding->ts_init.ns, 11U);
 }
 

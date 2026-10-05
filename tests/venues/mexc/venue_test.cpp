@@ -400,7 +400,7 @@ TEST(MexcMap, TheConceptPlateStatesTheClass) {
     expect("XAU_USDT", AssetClass::Commodity, "XAU");
     expect("USOIL_USDT", AssetClass::Commodity, "CL");
     expect("EUR_USDT", AssetClass::FX, "EURUSD");
-    expect("JPY_USDT", AssetClass::FX, "USDJPY");
+    expect("JPY_USDT", AssetClass::FX, "JPYUSD"); // the yen in dollars, about 0.0063
 }
 
 TEST(MexcMap, LiveBooksOfTheSilentContractsQuote) {
@@ -1033,5 +1033,26 @@ TEST(MexcMap, SpotTickerTableYieldsBothVolumesForKnownPairs) {
     EXPECT_EQ(btc.ts_event.ns, 1'790'329'980'160ULL * 1'000'000ULL);
 }
 
+TEST(MexcMap, TheDisplayNameKeysTheAssetAndACoinKeepsItsOwn) {
+    const auto body = fixture("rest_contract_detail_tradfi.json");
+    static thread_local InstrumentBuffer storage;
+    const auto rows = parse_instruments(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    std::map<std::string, std::string, std::less<>> keys;
+    for (const auto& row : *rows) {
+        auto instrument = map_instrument(row, MarketType::Perp);
+        ASSERT_TRUE(instrument.has_value()) << row.symbol;
+        classify(VenueId::Mexc, *instrument);
+        keys.emplace(std::string{row.symbol}, asset_key(base_of(*instrument)));
+    }
+    EXPECT_EQ(keys["GOLDCIRSTOCK_USDT"], "equity:GOLDCIR");
+    EXPECT_EQ(keys["STOCKER_USDT"], "crypto:STOCKER") << "a coin whose name starts with STOCK";
+    EXPECT_EQ(keys["SILVER_USDT"], "commodity:XAG");
+    EXPECT_EQ(keys["XAU_USDT"], "commodity:XAU");
+    EXPECT_EQ(keys["USOIL_USDT"], "commodity:CL");
+    EXPECT_EQ(keys["COINBASE_USDT"], "equity:COIN");
+    EXPECT_EQ(keys["XAUT_USDT"], "crypto:XAUT") << "filed under metals, still a token";
+    EXPECT_EQ(keys["PAXG_USDT"], "crypto:PAXG");
+}
 } // namespace
 } // namespace raikiri::venues::mexc

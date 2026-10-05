@@ -106,7 +106,7 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::Instrument
     out.qty = *qty;
     // m means the buyer was maker, so the aggressor sold
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
-    out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.trade_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -138,7 +138,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
             }
         },
         *instrument);
-    out.ts_event = ms_to_unix(wire.event_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.event_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -237,7 +237,7 @@ std::optional<Bbo> map_option_quote(const WireOptionMark& wire, const exec::Inst
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
     blank_empty_sides(out);
-    out.ts_event = ms_to_unix(wire.event_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.event_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

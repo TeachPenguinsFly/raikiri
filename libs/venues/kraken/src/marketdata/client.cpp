@@ -43,7 +43,7 @@ void handle_book(VenueState& state, std::string_view frame, UnixNanos received) 
     if (result != BookResult::Applied && result != BookResult::Resynced) {
         return; // unsynced, redelivered or dropped: silence, never a guess
     }
-    if (const auto depth = book.snapshot(ms_to_unix(wire->timestamp_ms, received), received); depth.has_value()) {
+    if (const auto depth = book.snapshot(ms_to_unix(wire->timestamp_ms, UnixNanos{}), received); depth.has_value()) {
         state.sink->on_depth(*depth);
     }
 }

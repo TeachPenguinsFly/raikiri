@@ -113,7 +113,7 @@ std::optional<Bbo> map_bbo(const WireBook& wire, const InstrumentBase& base, Uni
     out.ask = PriceTicks::from_raw(*ask);
     out.bid_qty = QtyLots::from_raw(*bid_qty);
     out.ask_qty = QtyLots::from_raw(*ask_qty);
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -121,7 +121,7 @@ std::optional<Bbo> map_bbo(const WireBook& wire, const InstrumentBase& base, Uni
 std::optional<BookSnapshot> map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init) {
     BookSnapshot out{};
     out.instrument = base.id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     out.venue_seq = wire.publish_id;
     using Levels = std::array<BookLevel, k_book_levels>;
@@ -162,7 +162,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& 
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -183,7 +183,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire, const Instrumen
     if (const auto mark = steps_of(wire.mark, base.tick_size); mark.has_value()) {
         out.mark_price = PriceTicks::from_raw(*mark);
     }
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

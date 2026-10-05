@@ -20,6 +20,7 @@ struct Gateway {
     std::string name; // the segment name, which is also the account name
     shm::SegmentClient client;
     shm::GatewayChannels channels{};
+    std::uint64_t file_id{0}; // the segment file's inode; a replaced file is attached again
 };
 
 class Registry {
@@ -27,7 +28,7 @@ public:
     Registry() = default;
 
     // attaches every gateway segment under `shm_dir`, skipping ones that refuse; also the rescan
-    // re-attaches a gateway whose generation changed
+    // re-attaches a gateway whose generation changed and lets go of one whose file is gone or replaced
     std::size_t discover(const std::string& shm_dir, std::int32_t reader_pid);
 
     // bumped on each re-attach; a holder of pointers into a segment must resolve again when it moves

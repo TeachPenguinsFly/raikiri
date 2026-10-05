@@ -2,6 +2,7 @@
 #include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/mexc/map.hpp>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <limits>
@@ -109,7 +110,7 @@ std::optional<Bbo> map_spot_bbo(const StreamQuote& wire,
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(ts_ms, ts_init);
+    out.ts_event = ms_to_unix(ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -132,7 +133,7 @@ std::optional<TradeTick> map_spot_trade(const StreamTrade& wire,
     out.price = *price;
     out.qty = *qty;
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -170,7 +171,7 @@ std::optional<BookSnapshot> map_spot_book(const StreamBook& wire,
     if (out.bid_count == 0 && out.ask_count == 0) {
         return std::nullopt;
     }
-    out.ts_event = ms_to_unix(ts_ms, ts_init);
+    out.ts_event = ms_to_unix(ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -197,7 +198,7 @@ std::optional<Bbo> map_bbo(const WireDepth& wire, const exec::InstrumentTable& t
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -213,7 +214,7 @@ std::optional<BookSnapshot> map_book(const WireDepth& wire, const exec::Instrume
 
     BookSnapshot out{};
     out.instrument = base->id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     if (wire.version > 0) {
         out.venue_seq = static_cast<std::uint64_t>(wire.version);
@@ -260,7 +261,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::Instrument
     out.price = *price;
     out.qty = *qty;
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -283,7 +284,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (const auto mark = to_ticks(wire.fair_price, *base); mark.has_value()) {
         out.mark_price = *mark;
     }
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
         out.interval_s = perp->funding_interval_s;
@@ -317,7 +318,7 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
     if (wire.collect_cycle_h > 0) {
         out.interval_s = static_cast<std::uint32_t>(wire.collect_cycle_h * 3600);
     }
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -411,6 +412,18 @@ namespace {
     return AssetClass::Crypto;
 }
 
+// "SILVER(XAG)" names the ticker in brackets; a plain name is the ticker itself
+[[nodiscard]] std::string_view named_ticker(std::string_view name) noexcept {
+    const auto open = name.find('(');
+    if (open != std::string_view::npos && name.ends_with(')')) {
+        name = name.substr(open + 1, name.size() - open - 2);
+    }
+    const bool plain = !name.empty() && std::ranges::all_of(name, [](char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    });
+    return plain ? name : std::string_view{};
+}
+
 } // namespace
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
@@ -451,6 +464,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.kind = !wire.settle_coin.empty() && wire.settle_coin != wire.quote_coin ? ContractKind::Inverse
                                                                                  : ContractKind::Linear;
     base.asset_class = asset_class_of(wire.concept_plate);
+    // the display name is the ticker other venues use: GOLDCIR, XAG, FIL for FILECOIN
+    if (const auto name = UnderlyingText::from(named_ticker(wire.base_coin_name)); name.has_value()) {
+        base.underlying = *name;
+    }
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 
@@ -824,7 +841,7 @@ map_spot_trade(const WireSpotTrade& wire, const exec::InstrumentTable& table, Qt
         out.fee = *fee;
     }
     out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

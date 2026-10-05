@@ -1,10 +1,12 @@
 #pragma once
 
 #include <raikiri/introspect/latency.hpp>
+#include <raikiri/introspect/offset_bounds.hpp>
 #include <raikiri/shm/records.hpp>
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "latency_meter.hpp"
@@ -22,7 +24,25 @@ struct FeedTotals {
     std::uint64_t reopens{0};
 };
 
+[[nodiscard]] inline shm::OffsetSource to_shm(introspect::OffsetSource source) noexcept {
+    switch (source) {
+    case introspect::OffsetSource::None:
+        return shm::OffsetSource::None;
+    case introspect::OffsetSource::Rest:
+        return shm::OffsetSource::Rest;
+    case introspect::OffsetSource::Feed:
+        return shm::OffsetSource::Feed;
+    case introspect::OffsetSource::RestAndFeed:
+        return shm::OffsetSource::RestAndFeed;
+    case introspect::OffsetSource::Conflict:
+        return shm::OffsetSource::Conflict;
+    }
+    return shm::OffsetSource::None;
+}
+
 [[nodiscard]] inline shm::VenueMetrics venue_metrics(const ClockState& clock,
+                                                     const introspect::CombinedOffset& combined,
+                                                     std::optional<std::int64_t> feed_bound,
                                                      std::string_view endpoint,
                                                      const LatencyMeter& meter,
                                                      const FeedTotals& totals,
@@ -40,6 +60,12 @@ struct FeedTotals {
     out.measured_ns = estimate.sampled_ns;
     out.drift_ns = estimate.drift_ns;
     out.drift_over_ns = estimate.drift_over_ns;
+    out.offset_source = to_shm(combined.source);
+    out.feed_bounded = feed_bound.has_value() ? 1 : 0;
+    out.feed_bound_ns = feed_bound.value_or(0);
+    out.offset_lo_ns = combined.interval.lo;
+    out.offset_hi_ns = combined.interval.hi;
+    out.correction_ns = combined.correction_ns;
     out.catalogue = totals.catalogue;
     out.priced = totals.priced;
     out.reopens = totals.reopens;
@@ -52,6 +78,7 @@ struct FeedTotals {
                                               .lag_samples = feed.lag_samples,
                                               .lag_p50_ns = feed.lag_p50_ns,
                                               .lag_p99_ns = feed.lag_p99_ns,
+                                              .lag_min_ns = feed.lag_min_ns,
                                               .last_recv_ns = feed.last_recv_ns};
     }
     return out;

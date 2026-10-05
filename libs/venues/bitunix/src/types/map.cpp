@@ -118,14 +118,14 @@ std::optional<Bbo> map_bbo(const WireBook& wire, const InstrumentBase& base, Uni
                .ask = PriceTicks::from_raw(*ask),
                .bid_qty = QtyLots::from_raw(*bid_qty),
                .ask_qty = QtyLots::from_raw(*ask_qty),
-               .ts_event = ms_to_unix(wire.ts_ms, ts_init),
+               .ts_event = ms_to_unix(wire.ts_ms, UnixNanos{}),
                .ts_init = ts_init};
 }
 
 std::optional<BookSnapshot> map_book(const WireBook& wire, const InstrumentBase& base, UnixNanos ts_init) {
     BookSnapshot out{};
     out.instrument = base.id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     using Levels = std::array<BookLevel, k_book_levels>;
     const auto fill = [&](std::span<const WireLevel> src, Levels& dst) -> std::optional<std::uint32_t> {
@@ -174,7 +174,7 @@ map_trade(const WirePrint& wire, std::uint64_t ts_ms, const InstrumentBase& base
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = aggressor;
-    out.ts_event = ms_to_unix(ts_ms, ts_init);
+    out.ts_event = ms_to_unix(ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -194,7 +194,7 @@ std::optional<FundingUpdate> map_funding(const WireFunding& wire, const Instrume
     out.next_funding_time = ms_to_unix(wire.next_ms, UnixNanos{});
     out.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600U);
     out.accrual = FundingAccrual::Discrete;
-    out.ts_event = ts_init;
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

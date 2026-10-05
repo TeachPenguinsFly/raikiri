@@ -60,7 +60,7 @@ void handle_depth(VenueState& state, std::string_view frame, UnixNanos received)
             RLOG_WARN("weex: {} book changed while its stream was silent, resubscribed", wire->symbol);
         }
     }
-    const auto ts_event = ms_to_unix(wire->event_ms, received);
+    const auto ts_event = ms_to_unix(wire->event_ms, UnixNanos{});
     // quote first; the ladder is weex's only bbo source
     if (const auto bbo = book.touch(ts_event, received); bbo.has_value()) {
         state.sink->on_bbo(*bbo);

@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "stats_collector.hpp"
 
@@ -39,9 +40,7 @@ public:
         }
         const auto raw = init - static_cast<std::int64_t>(ts_event.ns);
         windows_[i].record(raw, ts_init.ns);
-        if (offset_known_) {
-            feed_[i]->record(raw + offset_ns_);
-        }
+        feed_[i]->record(raw + correction_ns_);
     }
 
     void order_sent(std::uint64_t client_order_id) noexcept {
@@ -64,9 +63,17 @@ public:
         }
     }
 
-    void use_offset(const introspect::ClockEstimate& estimate) noexcept {
-        offset_known_ = estimate.method != introspect::ClockMethod::None;
-        offset_ns_ = estimate.offset_ns;
+    void use_correction(std::int64_t ns) noexcept { correction_ns_ = ns; }
+
+    // offset is at least this: no message arrives before the venue stamped it
+    [[nodiscard]] std::optional<std::int64_t> feed_bound() const noexcept {
+        std::optional<std::int64_t> out;
+        for (const auto& window : windows_) {
+            if (const auto least = window.lag_min(); least.has_value() && (!out.has_value() || -*least > *out)) {
+                out = -*least;
+            }
+        }
+        return out;
     }
 
     void advance(std::uint64_t mono_ns) noexcept {
@@ -96,8 +103,7 @@ private:
     introspect::LatencySeries* fill_{nullptr};
     std::array<introspect::FeedWindow, k_metered> windows_{};
     std::array<Sent, k_orders> sent_{};
-    std::int64_t offset_ns_{0};
-    bool offset_known_{false};
+    std::int64_t correction_ns_{0};
 };
 
 } // namespace raikiri::gatewayd

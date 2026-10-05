@@ -57,7 +57,7 @@ TEST(Malformed, Bitget) {
                     (void)parse_event(f);
                     (void)parse_order_updates(f, storage);
                 }},
-               {"rest_contracts.json",
+               {"rest_contracts*",
                 [](std::string_view f) {
                     static ContractBuffer storage;
                     (void)parse_contracts(f, storage);

@@ -280,7 +280,7 @@ std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& 
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.time_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.time_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -303,7 +303,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::Instrument
     out.qty = *qty;
     // liquidation prints are kept as real volume
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ms_to_unix(wire.time_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.time_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -331,7 +331,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_rate_time_ms, UnixNanos{0});
     out.interval_s = k_funding_interval_s;
-    out.ts_event = ms_to_unix(wire.time_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.time_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -653,7 +653,7 @@ std::optional<Bbo> map_spot_bbo(const WireSpotTicker& wire, const exec::Instrume
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = wire.ts_ns == 0 ? ts_init : UnixNanos{wire.ts_ns};
+    out.ts_event = UnixNanos{wire.ts_ns};
     out.ts_init = ts_init;
     return out;
 }
@@ -695,7 +695,7 @@ map_spot_trade(const WireSpotTrade& wire, const exec::InstrumentTable& table, Un
     out.price = *price;
     out.qty = *qty;
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = wire.ts_ns == 0 ? ts_init : UnixNanos{wire.ts_ns};
+    out.ts_event = UnixNanos{wire.ts_ns};
     out.ts_init = ts_init;
     return out;
 }

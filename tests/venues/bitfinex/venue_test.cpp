@@ -274,7 +274,7 @@ TEST(BitfinexWire, TickerBecomesTopOfBook) {
     EXPECT_EQ(bbo->bid_qty.raw, 218'739'360); // 2.1873936 / 1e-8
     EXPECT_EQ(bbo->ask_qty.raw, 205'831'129);
     // no time in the payload or envelope
-    EXPECT_EQ(bbo->ts_event.ns, k_ingest.ns);
+    EXPECT_EQ(bbo->ts_event.ns, 0U);
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 

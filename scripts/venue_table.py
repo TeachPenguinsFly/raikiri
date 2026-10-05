@@ -15,6 +15,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CAPS = ROOT / "libs/exec/src/caps.cpp"
 README = ROOT / "README.md"
+# the terminal's marks, one file per venue named after it
+ICONS = ROOT / "frontend/src/assets/exchanges"
 
 CUSTODY = {
     "apex": "DEX",
@@ -104,10 +106,18 @@ def rows():
     return sorted(out, key=lambda r: r["venue"])
 
 
+def icon(venue):
+    found = sorted(ICONS.glob(f"{venue}.*"))
+    if not found:
+        sys.exit(f"{venue}: no mark in {ICONS.relative_to(ROOT)} — add {venue}.png or {venue}.svg")
+    path = found[0].relative_to(ROOT).as_posix()
+    return f'<img src="{path}" width="20" height="20" alt="{venue}">'
+
+
 def table():
     lines = [
-        "| venue | custody | markets | order entry | WS | FIX | private stream | funding ledger |",
-        "| :-- | :-: | :-- | :-- | :-: | :-: | :-- | :-: |",
+        "| | venue | custody | markets | order entry | WS | FIX | private stream | funding ledger |",
+        "| :-: | :-- | :-: | :-- | :-- | :-: | :-: | :-- | :-: |",
     ]
     for r in rows():
         venue = r["venue"]
@@ -118,7 +128,7 @@ def table():
         if r["manual"]:
             entry += f", no {' · '.join(r['manual'])} order API"
         lines.append(
-            f"| `{venue}` | {CUSTODY[venue]} | {' · '.join(r['markets'])} | {entry} "
+            f"| {icon(venue)} | `{venue}` | {CUSTODY[venue]} | {' · '.join(r['markets'])} | {entry} "
             f"| {mark(r['ws'])} | {mark(r['fix'])} "
             f"| {r['stream'] if r['stream'] != 'None' else NO} | {mark(r['funding'])} |"
         )

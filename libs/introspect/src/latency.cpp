@@ -1,4 +1,5 @@
 #include <raikiri/introspect/latency.hpp>
+#include <raikiri/introspect/offset_bounds.hpp>
 
 #include <algorithm>
 
@@ -37,11 +38,13 @@ std::string_view to_string(Stage stage) noexcept {
 std::optional<ClockEstimate> best_of_burst(std::span<const OffsetSample> burst) noexcept {
     const OffsetSample* best = nullptr;
     std::uint64_t samples = 0;
+    OffsetInterval agreed{};
     for (const auto& sample : burst) {
         if (sample.received_ns < sample.sent_ns || sample.server_ns == 0) {
             continue;
         }
         ++samples;
+        agreed = intersect(agreed, sample_interval(sample));
         if (best == nullptr || sample.received_ns - sample.sent_ns < best->received_ns - best->sent_ns) {
             best = &sample;
         }
@@ -49,14 +52,16 @@ std::optional<ClockEstimate> best_of_burst(std::span<const OffsetSample> burst) 
     if (best == nullptr) {
         return std::nullopt;
     }
-    const auto rtt = best->received_ns - best->sent_ns;
-    const auto midpoint = best->sent_ns + rtt / 2;
-    // a truncated server stamp sits half a tick before the instant it names
-    const auto server = best->server_ns + best->resolution_ns / 2;
+    // disjoint samples mean two clocks behind one name or a step mid-burst; trust the shortest trip alone
+    if (agreed.empty()) {
+        agreed = sample_interval(*best);
+    }
+    const auto width = static_cast<std::uint64_t>(agreed.hi - agreed.lo);
+    const auto offset = agreed.lo + static_cast<std::int64_t>(width / 2);
     return ClockEstimate{.method = ClockMethod::RestProbe,
-                         .offset_ns = static_cast<std::int64_t>(server) - static_cast<std::int64_t>(midpoint),
-                         .uncertainty_ns = rtt / 2 + best->resolution_ns / 2,
-                         .rtt_ns = rtt,
+                         .offset_ns = offset,
+                         .uncertainty_ns = static_cast<std::uint64_t>(agreed.hi - offset),
+                         .rtt_ns = best->received_ns - best->sent_ns,
                          .resolution_ns = best->resolution_ns,
                          .sampled_ns = best->received_ns,
                          .samples = samples,

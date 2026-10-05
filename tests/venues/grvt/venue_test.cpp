@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/venues/grvt/book.hpp>
@@ -364,5 +365,20 @@ TEST(GrvtVenue, SpotIsRefusedBeforeAnythingConnects) {
     EXPECT_FALSE(caps.ws_order_entry || caps.amend_order || caps.position_pull.any());
 }
 
+TEST(GrvtMap, TheStatedAssetClassKeysTheListing) {
+    static const auto storage = std::make_unique<InstrumentBuffer>();
+    const auto rows = parse_instruments(fixture("rest_all_instruments_classes.json"), *storage);
+    ASSERT_TRUE(rows.has_value());
+    std::map<std::string, std::string, std::less<>> keys;
+    for (const auto& row : *rows) {
+        auto instrument = map_instrument(row, MarketType::Perp);
+        ASSERT_TRUE(instrument.has_value()) << row.instrument;
+        classify(VenueId::Grvt, *instrument);
+        keys.emplace(std::string{row.instrument}, asset_key(base_of(*instrument)));
+    }
+    EXPECT_EQ(keys["ETH_USDT_Perp"], "crypto:ETH");
+    EXPECT_EQ(keys["IWM_USDT_Perp"], "equity:IWM");
+    EXPECT_EQ(keys["XAU_USDT_Perp"], "commodity:XAU");
+}
 } // namespace
 } // namespace raikiri::venues::grvt

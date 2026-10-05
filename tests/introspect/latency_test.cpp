@@ -1,6 +1,7 @@
 #include <raikiri/introspect/clock_probe.hpp>
 #include <raikiri/introspect/feed_window.hpp>
 #include <raikiri/introspect/latency.hpp>
+#include <raikiri/introspect/offset_bounds.hpp>
 #include <raikiri/introspect/routes.hpp>
 
 #include <gtest/gtest.h>
@@ -18,21 +19,33 @@ namespace {
 constexpr std::uint64_t k_ms = 1'000'000;
 constexpr std::uint64_t k_s = 1'000'000'000;
 
-TEST(BestOfBurst, TakesTheShortestRoundTrip) {
+TEST(BestOfBurst, CentresWhereEverySampleAgrees) {
     EXPECT_FALSE(best_of_burst({}).has_value());
-    // server 5 ms ahead; the slow probe's asymmetric queueing skews it
+    // each sample puts the offset in [server - received, server - sent]: [-10, 90], [-5, 15] and [-40, 10] ms
     const std::vector<OffsetSample> burst{
         {.sent_ns = 1000 * k_ms, .received_ns = 1100 * k_ms, .server_ns = 1090 * k_ms, .resolution_ns = 0},
-        {.sent_ns = 2000 * k_ms, .received_ns = 2010 * k_ms, .server_ns = 2010 * k_ms, .resolution_ns = 0},
-        {.sent_ns = 3000 * k_ms, .received_ns = 3040 * k_ms, .server_ns = 3000 * k_ms, .resolution_ns = 0}};
+        {.sent_ns = 2000 * k_ms, .received_ns = 2020 * k_ms, .server_ns = 2015 * k_ms, .resolution_ns = 0},
+        {.sent_ns = 3000 * k_ms, .received_ns = 3050 * k_ms, .server_ns = 3010 * k_ms, .resolution_ns = 0}};
     const auto e = best_of_burst(burst);
     ASSERT_TRUE(e.has_value());
     EXPECT_EQ(e->method, ClockMethod::RestProbe);
-    EXPECT_EQ(e->offset_ns, static_cast<std::int64_t>(5 * k_ms));
-    EXPECT_EQ(e->rtt_ns, 10 * k_ms);
-    EXPECT_EQ(e->uncertainty_ns, 5 * k_ms);
-    EXPECT_EQ(e->sampled_ns, 2010 * k_ms);
+    EXPECT_EQ(e->offset_ns, static_cast<std::int64_t>(2'500'000));
+    EXPECT_EQ(e->uncertainty_ns, 7'500'000U) << "narrower than the shortest trip's 10 ms alone";
+    EXPECT_EQ(e->rtt_ns, 20 * k_ms);
+    EXPECT_EQ(e->sampled_ns, 2020 * k_ms);
     EXPECT_EQ(e->samples, 3U);
+}
+
+TEST(BestOfBurst, SamplesThatCannotAllBeTrueFallBackToTheShortestTrip) {
+    // [0, 10] and [20, 60] ms: two clocks answer under one name
+    const std::vector<OffsetSample> burst{
+        {.sent_ns = 1000 * k_ms, .received_ns = 1010 * k_ms, .server_ns = 1010 * k_ms, .resolution_ns = 0},
+        {.sent_ns = 2000 * k_ms, .received_ns = 2040 * k_ms, .server_ns = 2060 * k_ms, .resolution_ns = 0}};
+    const auto e = best_of_burst(burst);
+    ASSERT_TRUE(e.has_value());
+    EXPECT_EQ(e->offset_ns, static_cast<std::int64_t>(5 * k_ms));
+    EXPECT_EQ(e->uncertainty_ns, 5 * k_ms);
+    EXPECT_EQ(e->rtt_ns, 10 * k_ms);
 }
 
 TEST(BestOfBurst, ANegativeOffsetAndHalfTheStampResolution) {
@@ -94,22 +107,24 @@ TEST(ClockSync, BurstsAtStartThenHourlyAndReportsDrift) {
                    }};
     EXPECT_EQ(sync.estimate().method, ClockMethod::None);
     EXPECT_EQ(sync.tick(), ProbeSchedule{}.period_ns);
-    EXPECT_EQ(source.reads, 5);
-    EXPECT_EQ(pauses, 4);
-    EXPECT_EQ(sync.estimate().offset_ns, static_cast<std::int64_t>(3 * k_ms));
+    EXPECT_EQ(source.reads, 8);
+    EXPECT_EQ(pauses, 7);
+    // [-20, 20], [-1, 7], [-15, 15] and [-4.5, 4.5] ms meet in [-1, 4.5]
+    EXPECT_EQ(sync.estimate().offset_ns, static_cast<std::int64_t>(1'750'000));
+    EXPECT_EQ(sync.estimate().uncertainty_ns, 2'750'000U);
     EXPECT_EQ(sync.estimate().rtt_ns, 8 * k_ms);
     EXPECT_EQ(sync.estimate().samples, 4U);
     EXPECT_EQ(sync.estimate().drift_ns, 0);
 
     now = 10 * k_s;
     EXPECT_EQ(sync.tick(), ProbeSchedule{}.period_ns);
-    EXPECT_EQ(source.reads, 5);
+    EXPECT_EQ(source.reads, 8);
 
     now = ProbeSchedule{}.period_ns;
     source.answers = {sample(now, 6 * k_ms, -static_cast<std::int64_t>(k_ms))};
     EXPECT_EQ(sync.tick(), 2 * ProbeSchedule{}.period_ns);
     EXPECT_EQ(sync.estimate().offset_ns, -static_cast<std::int64_t>(k_ms));
-    EXPECT_EQ(sync.estimate().drift_ns, -4 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(sync.estimate().drift_ns, -static_cast<std::int64_t>(2'750'000));
     EXPECT_EQ(sync.estimate().drift_over_ns, now + 6 * k_ms - (2 * k_s + 8 * k_ms));
 }
 
@@ -124,7 +139,7 @@ TEST(ClockSync, ASilentVenueIsRetriedAndHonoursTheBudget) {
     admit = true;
     now = ProbeSchedule{}.retry_ns;
     EXPECT_EQ(sync.tick(), 2 * ProbeSchedule{}.retry_ns);
-    EXPECT_EQ(source.reads, 5);
+    EXPECT_EQ(source.reads, 8);
     EXPECT_EQ(sync.estimate().method, ClockMethod::None);
 }
 
@@ -205,6 +220,109 @@ TEST(FeedWindow, CountsAMinuteAndForgetsOlderSlices) {
     EXPECT_EQ(s.messages, 0U);
     EXPECT_EQ(s.window_ns, 5 * k_s);
     EXPECT_EQ(s.last_recv_ns, 300U);
+}
+
+TEST(FeedWindow, KeepsTheExactSmallestLagForAMinute) {
+    FeedWindow window;
+    EXPECT_FALSE(window.lag_min().has_value());
+    window.advance(k_s);
+    window.count(50);
+    EXPECT_FALSE(window.lag_min().has_value()) << "unstamped messages bound nothing";
+    window.record(static_cast<std::int64_t>(7 * k_ms), 100);
+    window.record(-static_cast<std::int64_t>(1'234'567), 110);
+    window.advance(11 * k_s);
+    window.record(static_cast<std::int64_t>(3 * k_ms), 300);
+    EXPECT_EQ(window.lag_min(), -static_cast<std::int64_t>(1'234'567));
+    EXPECT_EQ(window.summary(12 * k_s).lag_min_ns, -static_cast<std::int64_t>(1'234'567));
+
+    window.advance(61 * k_s);
+    EXPECT_EQ(window.lag_min(), static_cast<std::int64_t>(3 * k_ms)) << "the first slice has rolled out";
+    window.advance(200 * k_s);
+    EXPECT_FALSE(window.lag_min().has_value());
+}
+
+TEST(OffsetInterval, IntersectsAndReportsAnEmptyMeet) {
+    const OffsetInterval probe{.lo = -9, .hi = -2};
+    EXPECT_EQ(intersect(probe, {}), probe) << "an open interval takes nothing away";
+    EXPECT_EQ(intersect(probe, {.lo = -5, .hi = k_open_above}), (OffsetInterval{.lo = -5, .hi = -2}));
+    const auto apart = intersect(probe, {.lo = 1, .hi = 4});
+    EXPECT_TRUE(apart.empty());
+    EXPECT_EQ(apart, (OffsetInterval{.lo = 1, .hi = -2})) << "both edges stay visible";
+    EXPECT_FALSE(intersect(probe, {.lo = -2, .hi = 0}).empty()) << "touching edges still meet";
+}
+
+TEST(OffsetInterval, ASampleSpansSendToReceivePlusOneTick) {
+    // the venue says 99 ms on a millisecond clock while we sent at 100 and heard back at 104
+    const auto i = sample_interval(
+        {.sent_ns = 100 * k_ms, .received_ns = 104 * k_ms, .server_ns = 99 * k_ms, .resolution_ns = k_ms});
+    EXPECT_EQ(i.lo, -5 * static_cast<std::int64_t>(k_ms));
+    EXPECT_EQ(i.hi, 0);
+    const auto e = best_of_burst(std::vector<OffsetSample>{
+        {.sent_ns = 100 * k_ms, .received_ns = 104 * k_ms, .server_ns = 99 * k_ms, .resolution_ns = k_ms}});
+    ASSERT_TRUE(e.has_value());
+    EXPECT_EQ(rest_interval(*e), i);
+    EXPECT_EQ(rest_interval(ClockEstimate{}), OffsetInterval{});
+}
+
+TEST(LeastCorrection, MovesOurClockOnlyAsFarAsTheBoundsForce) {
+    EXPECT_EQ(least_correction({.lo = -3, .hi = 8}), 0) << "an interval holding zero is no evidence of an offset";
+    EXPECT_EQ(least_correction({.lo = 2, .hi = 8}), 2);
+    EXPECT_EQ(least_correction({.lo = -8, .hi = -2}), -2);
+    EXPECT_EQ(least_correction({.lo = 5, .hi = k_open_above}), 5);
+    EXPECT_EQ(least_correction({.lo = k_open_below, .hi = -1}), -1);
+    EXPECT_EQ(least_correction({}), 0);
+    EXPECT_EQ(least_correction({.lo = 4, .hi = 1}), 0) << "a conflict corrects nothing";
+}
+
+TEST(CombineOffset, TheFeedTightensTheProbeAndStandsAloneWithoutOne) {
+    const auto ms = [](std::int64_t n) { return n * static_cast<std::int64_t>(k_ms); };
+    const ClockEstimate probe{.method = ClockMethod::RestProbe, .offset_ns = ms(5), .uncertainty_ns = 13 * k_ms};
+
+    EXPECT_EQ(combine(ClockEstimate{}, std::nullopt).source, OffsetSource::None);
+
+    auto c = combine(probe, std::nullopt);
+    EXPECT_EQ(c.source, OffsetSource::Rest);
+    EXPECT_EQ(c.interval, (OffsetInterval{.lo = ms(-8), .hi = ms(18)}));
+    EXPECT_EQ(c.correction_ns, 0) << "|5| < 13: not significant";
+
+    c = combine(probe, ms(-20));
+    EXPECT_EQ(c.source, OffsetSource::Rest) << "a looser feed bound adds nothing";
+    EXPECT_EQ(c.interval.lo, ms(-8));
+
+    c = combine(probe, ms(3));
+    EXPECT_EQ(c.source, OffsetSource::RestAndFeed);
+    EXPECT_EQ(c.interval, (OffsetInterval{.lo = ms(3), .hi = ms(18)}));
+    EXPECT_EQ(c.correction_ns, ms(3));
+
+    c = combine(probe, ms(25));
+    EXPECT_EQ(c.source, OffsetSource::Conflict);
+    EXPECT_TRUE(c.interval.empty());
+    EXPECT_EQ(c.interval, (OffsetInterval{.lo = ms(25), .hi = ms(18)}));
+    EXPECT_EQ(c.correction_ns, 0);
+
+    const ClockEstimate behind{.method = ClockMethod::RestProbe, .offset_ns = ms(-30), .uncertainty_ns = 4 * k_ms};
+    c = combine(behind, ms(-40));
+    EXPECT_EQ(c.source, OffsetSource::Rest);
+    EXPECT_EQ(c.correction_ns, ms(-26)) << "a venue clearly behind: the edge nearest zero";
+
+    c = combine(ClockEstimate{}, ms(2));
+    EXPECT_EQ(c.source, OffsetSource::Feed);
+    EXPECT_EQ(c.interval, (OffsetInterval{.lo = ms(2), .hi = k_open_above}));
+    EXPECT_EQ(c.correction_ns, ms(2));
+    EXPECT_EQ(combine(ClockEstimate{}, ms(-2)).correction_ns, 0);
+}
+
+TEST(CombineOffset, CorrectedLagsInTheWindowAreNeverNegative) {
+    FeedWindow window;
+    window.advance(k_s);
+    for (const std::int64_t lag : {4'000'000, -1'500'000, 900'000}) {
+        window.record(lag, 1);
+    }
+    const auto bound = -*window.lag_min();
+    const auto c = combine(ClockEstimate{.method = ClockMethod::RestProbe, .offset_ns = 0, .uncertainty_ns = 20 * k_ms},
+                           bound);
+    EXPECT_EQ(c.correction_ns, 1'500'000);
+    EXPECT_EQ(*window.lag_min() + c.correction_ns, 0);
 }
 
 TEST(LatencySeries, BucketsCountEverythingSinceStart) {

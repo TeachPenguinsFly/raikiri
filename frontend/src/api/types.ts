@@ -834,8 +834,9 @@ export interface components {
             /** @description Round trip of the sample the offset came from. */
             rtt_ns?: number;
             /**
-             * @description Half the round trip plus half the venue's stamp resolution
-             *     (0.5 ms for a venue that answers in milliseconds).
+             * @description Half the width of the probe's interval: every sample in the burst says the
+             *     venue stamped between our send and receive, and the offset is the middle of
+             *     where they all agree.
              */
             uncertainty_ns?: number;
             measured_at?: components["schemas"]["Nanos"];
@@ -846,6 +847,31 @@ export interface components {
             drift_over_ns?: number;
             /** @description Bursts in which no request answered. */
             probe_failures: number;
+            /**
+             * @description What bounds the offset: the probe, the feed, the feed tightening the probe,
+             *     or a conflict when the feed bound lies above the probe's upper edge.
+             * @enum {string}
+             */
+            offset_source: "none" | "rest" | "feed" | "rest_and_feed" | "conflict";
+            /**
+             * @description The largest venue stamp minus receive time over the last minute. The offset
+             *     is at least this, since no message arrives before it is stamped.
+             */
+            feed_bound_ns?: number;
+            /** @description Lower edge of the combined interval; absent when open. */
+            offset_low_ns?: number;
+            /** @description Upper edge; absent when only the feed bounds the clock. */
+            offset_high_ns?: number;
+            /**
+             * @description The point of the interval nearest zero, added to the raw lag. Zero when the
+             *     interval holds zero, when nothing bounds the clock, and on a conflict.
+             */
+            correction_ns: number;
+            /**
+             * @description Whether the corrected lag fields are present.
+             * @enum {string}
+             */
+            lag_shown: "raw" | "corrected";
         };
         ChannelFeed: {
             /** @enum {string} */
@@ -859,9 +885,11 @@ export interface components {
             /** @description Receive time minus the venue's event time, both as stamped. */
             lag_p50_ns?: number;
             lag_p99_ns?: number;
-            /** @description The same with the venue's clock offset taken out; absent without a clock. */
+            /** @description The same plus the clock's correction; absent when the raw lag stands. */
             lag_p50_corrected_ns?: number;
             lag_p99_corrected_ns?: number;
+            /** @description The smallest raw lag over the window, exact. */
+            lag_min_ns?: number;
             last_message_age_ns?: number;
         };
         VenueMetrics: {
@@ -896,10 +924,19 @@ export interface components {
             market: components["schemas"]["MarketType"];
             /** @description The venue's own name for the instrument, as orders carry it. */
             exchange_symbol: string;
+            /** @description Venue-neutral, keeping a HIP-3 deployer prefix: "xyz:TSLA/USDC". */
+            local_symbol: string;
         };
         Market: {
             /**
-             * @description Canonical and venue-neutral: "BTC/USDT".
+             * @description What the listings share: asset class, underlying and quote, with USDT and
+             *     USDC folded together. An unclassified listing keys on its local symbol.
+             * @example equity:TSLA/USD*
+             * @example crypto:BTC/USD*
+             */
+            key: string;
+            /**
+             * @description The local symbol most of the listings use.
              * @example BTC/USDT
              */
             symbol: string;
@@ -923,6 +960,14 @@ export interface components {
              * @enum {string}
              */
             contract_kind: "unknown" | "linear" | "inverse";
+            /** @enum {string} */
+            asset_class: "unknown" | "crypto" | "equity" | "index" | "commodity" | "fx";
+            /**
+             * @description The asset cross-venue matching keys on, absent when the class is unknown.
+             * @example equity:TSLA
+             * @example commodity:XAU
+             */
+            asset_key?: string;
             /** @description Absent on spot and perpetuals. */
             expiry?: components["schemas"]["Nanos"];
             /** @description Options only. */
@@ -1326,6 +1371,11 @@ export interface components {
             rows: {
                 [key: string]: string;
             }[];
+            /**
+             * @description Every venue the upstream reads, named as the rows name them, so a filter
+             *     can offer venues the shown rows happen to miss.
+             */
+            venues?: string[];
         };
         /**
          * @description `unknown` means the venue did not answer, not agreement. Agreeing

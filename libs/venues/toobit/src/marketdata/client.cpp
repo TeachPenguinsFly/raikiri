@@ -267,7 +267,7 @@ private:
         }
         auto update = *market->funding;
         update.mark_price = *mark;
-        update.ts_event = ms_to_unix((*wire)->ts_ms, received);
+        update.ts_event = ms_to_unix((*wire)->ts_ms, UnixNanos{});
         update.ts_init = received;
         state_->sink->on_funding(update);
     }

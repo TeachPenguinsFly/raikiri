@@ -304,7 +304,7 @@ private:
         if (result != BookResult::Applied && result != BookResult::Resynced) {
             return;
         }
-        const auto ts_event = ms_to_unix(wire->ts_ms, received);
+        const auto ts_event = ms_to_unix(wire->ts_ms, UnixNanos{});
         if (market->quote && !market->fast_quote) {
             if (const auto top = book.top(ts_event, received); top.has_value()) {
                 state_->sink->on_bbo(*top);
@@ -370,7 +370,7 @@ private:
         if (market == nullptr || !market->funding || !note_rate(*wire, market->memo)) {
             return;
         }
-        state_->sink->on_funding(merged(*base, market->memo, ms_to_unix(wire->ts_ms, received), received));
+        state_->sink->on_funding(merged(*base, market->memo, ms_to_unix(wire->ts_ms, UnixNanos{}), received));
         market->funded = true;
     }
 
@@ -383,7 +383,7 @@ private:
         if (market == nullptr || !market->funding || !note_mark(*wire, *base, market->memo)) {
             return;
         }
-        state_->sink->on_funding(merged(*base, market->memo, ms_to_unix(wire->ts_ms, received), received));
+        state_->sink->on_funding(merged(*base, market->memo, ms_to_unix(wire->ts_ms, UnixNanos{}), received));
     }
 
     // The catalogue again, for what no stream carries: the next settlement
@@ -434,7 +434,7 @@ private:
             if (!market->funding) {
                 continue;
             }
-            state_->sink->on_funding(merged(*base, market->memo, received, received));
+            state_->sink->on_funding(merged(*base, market->memo, UnixNanos{}, received));
             if (const auto stats = map_ticker_stats(row, *base, received); stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }

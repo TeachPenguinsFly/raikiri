@@ -299,7 +299,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::Instrument
     out.price = *price;
     out.qty = *qty;
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -335,7 +335,7 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Fun
         memo.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600);
     }
     // no publish time on this endpoint
-    return merged(*base, memo, ts_init, ts_init);
+    return merged(*base, memo, UnixNanos{}, ts_init);
 }
 
 std::optional<FundingUpdate>
@@ -349,7 +349,7 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
         return std::nullopt; // a mark this contract's tick cannot express is no mark
     }
     memo.mark = *mark;
-    return merged(*base, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
+    return merged(*base, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
 }
 
 std::optional<TickerStats>

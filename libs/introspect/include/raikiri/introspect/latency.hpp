@@ -42,7 +42,8 @@ struct ClockEstimate {
     std::uint64_t drift_over_ns{0};
 };
 
-// the sample with the shortest round trip; backwards or unstamped samples do not count
+// the intersection of every sample's bounds, centred; rtt and time are the shortest trip's
+// backwards or unstamped samples do not count
 [[nodiscard]] std::optional<ClockEstimate> best_of_burst(std::span<const OffsetSample> burst) noexcept;
 
 // cumulative bucket upper bounds: five a decade, 1 us to 10 s

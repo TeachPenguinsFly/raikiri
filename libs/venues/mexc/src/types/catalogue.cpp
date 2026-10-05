@@ -50,6 +50,7 @@ std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std:
                 return std::unexpected(WireError::WrongType);
             }
             out.settle_coin = *settle_coin;
+            out.base_coin_name = opt_scalar(obj, "baseCoinName").value_or(std::string_view{});
             const auto contract_size = req_scalar(obj, "contractSize");
             const auto min_vol = req_scalar(obj, "minVol");
             if (!contract_size.has_value() || !min_vol.has_value()) {

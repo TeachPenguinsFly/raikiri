@@ -6,6 +6,7 @@ add_library(raikiri_introspect STATIC
   src/queries.cpp
   src/clock_probe.cpp
   src/feed_window.cpp
+  src/offset_bounds.cpp
 )
 add_library(raikiri::introspect ALIAS raikiri_introspect)
 target_include_directories(raikiri_introspect PUBLIC

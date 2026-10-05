@@ -213,7 +213,7 @@ private:
         if (result != BookResult::Applied && result != BookResult::Resynced) {
             return;
         }
-        const UnixNanos ts_event{wire->updated_us != 0 ? wire->updated_us * 1'000ULL : received.ns};
+        const UnixNanos ts_event{wire->updated_us * 1'000ULL};
         if (const auto top = book.top(ts_event, received); top.has_value()) {
             state_->sink->on_bbo(*top);
         }

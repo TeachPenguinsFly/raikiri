@@ -21,8 +21,7 @@ A low-latency, multi-process crypto trading framework in C++23
 
 ## Install
 
-CMake ≥ 3.28, Ninja, Conan 2 and a C++23 compiler (GCC 14, Clang 18 or
-AppleClang 17).
+CMake ≥ 3.28, Ninja, Conan 2 and a C++23 compiler (GCC 14, Clang 18 or AppleClang 17).
 
 ```sh
 git clone https://github.com/TeachPenguinsFly/raikiri.git
@@ -30,56 +29,52 @@ cd raikiri
 make deps && make build
 ```
 
-Public market data needs no credentials. To watch a live market:
+To watch a live market:
 
 ```sh
 build/dev-asan/apps/gatewayd/gatewayd --venue=bybit --symbol=BTCUSDT --duration 20
 ```
 
-The [documentation](docs/README.md) covers the architecture, the shared-memory transport,
-running a gateway and adding a venue.
+The [documentation](docs/README.md) covers the architecture, the shared-memory transport, running a gateway and adding a venue.
 
 ## Venues
 
 <!-- venues:begin -->
-| venue | custody | markets | order entry | WS | FIX | private stream | funding ledger |
-| :-- | :-: | :-- | :-- | :-: | :-: | :-- | :-: |
-| `apex` | DEX | perp | **market data only** | – | – | – | – |
-| `aster` | DEX | perp | **market data only** | – | – | – | – |
-| `backpack` | CEX | spot · perp | **market data only** | – | – | – | – |
-| `binance` | CEX | spot · perp · options | REST + WS | ✓ | ✓ | ListenKey | ✓ |
-| `bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
-| `bitfinex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
-| `bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `bitunix` | CEX | spot · perp | REST | – | – | – | – |
-| `blofin` | CEX | perp | **market data only** | – | – | – | – |
-| `bybit` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `coinbase` | CEX | spot | REST | – | – | AuthSubscribe | – |
-| `cryptocom` | CEX | spot · perp | **market data only** | – | – | – | – |
-| `deribit` | CEX | perp · futures · options | REST | – | – | AuthSubscribe | ✓ |
-| `derive` | DEX | perp · options | **market data only** | – | – | – | – |
-| `dydx` | DEX | perp | **market data only** | – | – | – | – |
-| `edgex` | DEX | spot · perp | **market data only** | – | – | – | – |
-| `extended` | DEX | perp | **market data only** | – | – | – | – |
-| `gate` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `grvt` | DEX | perp | **market data only** | – | – | – | – |
-| `htx` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
-| `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `kraken` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
-| `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | ✓ |
-| `lbank` | CEX | spot · perp | **market data only**, no perp order API | – | – | – | – |
-| `lighter` | DEX | spot · perp | **market data only** | – | – | – | – |
-| `mexc` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
-| `okx` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| `pacifica` | DEX | perp | **market data only** | – | – | – | – |
-| `phemex` | CEX | spot · perp | **market data only** | – | – | – | – |
-| `toobit` | CEX | spot · perp | REST | – | – | ListenKey | – |
-| `weex` | CEX | perp | REST | – | – | – | ✓ |
-| `xt` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
+| | venue | custody | markets | order entry | WS | FIX | private stream | funding ledger |
+| :-: | :-- | :-: | :-- | :-- | :-: | :-: | :-- | :-: |
+| <img src="frontend/src/assets/exchanges/apex.png" width="20" height="20" alt="apex"> | `apex` | DEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/aster.png" width="20" height="20" alt="aster"> | `aster` | DEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/backpack.png" width="20" height="20" alt="backpack"> | `backpack` | CEX | spot · perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/binance.svg" width="20" height="20" alt="binance"> | `binance` | CEX | spot · perp · options | REST + WS | ✓ | ✓ | ListenKey | ✓ |
+| <img src="frontend/src/assets/exchanges/bingx.png" width="20" height="20" alt="bingx"> | `bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
+| <img src="frontend/src/assets/exchanges/bitfinex.png" width="20" height="20" alt="bitfinex"> | `bitfinex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
+| <img src="frontend/src/assets/exchanges/bitget.png" width="20" height="20" alt="bitget"> | `bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/bitunix.png" width="20" height="20" alt="bitunix"> | `bitunix` | CEX | spot · perp | REST | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/blofin.png" width="20" height="20" alt="blofin"> | `blofin` | CEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/bybit.svg" width="20" height="20" alt="bybit"> | `bybit` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/coinbase.png" width="20" height="20" alt="coinbase"> | `coinbase` | CEX | spot | REST | – | – | AuthSubscribe | – |
+| <img src="frontend/src/assets/exchanges/cryptocom.png" width="20" height="20" alt="cryptocom"> | `cryptocom` | CEX | spot · perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/deribit.svg" width="20" height="20" alt="deribit"> | `deribit` | CEX | perp · futures · options | REST | – | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/derive.png" width="20" height="20" alt="derive"> | `derive` | DEX | perp · options | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/dydx.png" width="20" height="20" alt="dydx"> | `dydx` | DEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/edgex.png" width="20" height="20" alt="edgex"> | `edgex` | DEX | spot · perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/extended.svg" width="20" height="20" alt="extended"> | `extended` | DEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/gate.svg" width="20" height="20" alt="gate"> | `gate` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/grvt.png" width="20" height="20" alt="grvt"> | `grvt` | DEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/htx.png" width="20" height="20" alt="htx"> | `htx` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/hyperliquid.svg" width="20" height="20" alt="hyperliquid"> | `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/kraken.png" width="20" height="20" alt="kraken"> | `kraken` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
+| <img src="frontend/src/assets/exchanges/kucoin.png" width="20" height="20" alt="kucoin"> | `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | ✓ |
+| <img src="frontend/src/assets/exchanges/lbank.png" width="20" height="20" alt="lbank"> | `lbank` | CEX | spot · perp | **market data only**, no perp order API | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/lighter.png" width="20" height="20" alt="lighter"> | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/mexc.png" width="20" height="20" alt="mexc"> | `mexc` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/okx.svg" width="20" height="20" alt="okx"> | `okx` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
+| <img src="frontend/src/assets/exchanges/pacifica.png" width="20" height="20" alt="pacifica"> | `pacifica` | DEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/phemex.png" width="20" height="20" alt="phemex"> | `phemex` | CEX | spot · perp | **market data only** | – | – | – | – |
+| <img src="frontend/src/assets/exchanges/toobit.png" width="20" height="20" alt="toobit"> | `toobit` | CEX | spot · perp | REST | – | – | ListenKey | – |
+| <img src="frontend/src/assets/exchanges/weex.png" width="20" height="20" alt="weex"> | `weex` | CEX | perp | REST | – | – | – | ✓ |
+| <img src="frontend/src/assets/exchanges/xt.png" width="20" height="20" alt="xt"> | `xt` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 <!-- venues:end -->
-
-Generated from [`libs/exec/src/caps.cpp`](libs/exec/src/caps.cpp). The columns are explained
-in the [documentation](docs/README.md#venue-table).
 
 ## License
 

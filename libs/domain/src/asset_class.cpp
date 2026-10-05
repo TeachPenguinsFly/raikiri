@@ -42,6 +42,29 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Aster, "XPTUSDT", AssetClass::Commodity, "XPT"},
     {VenueId::Apex, "IWMUSDT", AssetClass::Equity, "IWM"},
     {VenueId::Blofin, "XAU-USDT", AssetClass::Commodity, "XAU"},
+    {VenueId::Blofin, "XAG-USDT", AssetClass::Commodity, "XAG"},
+    {VenueId::Blofin, "XPT-USDT", AssetClass::Commodity, "XPT"},
+    {VenueId::Blofin, "XPD-USDT", AssetClass::Commodity, "XPD"},
+    {VenueId::Blofin, "COPPER-USDT", AssetClass::Commodity, "COPPER"},
+    {VenueId::Blofin, "OPENAI-USDT", AssetClass::Equity, "OPENAI"},
+    {VenueId::Blofin, "ANTHROPIC-USDT", AssetClass::Equity, "ANTHROPIC"},
+    {VenueId::Blofin, "OURA-USDT", AssetClass::Equity, "OURA"},
+    // gate quotes these asian indices in dollars, the others in points
+    {VenueId::Gate, "JPN225_USDT", AssetClass::Index, "N225USD"},
+    {VenueId::Gate, "HK50_USDT", AssetClass::Index, "HK50USD"},
+    {VenueId::Gate, "KR200_USDT", AssetClass::Index, "KR200USD"},
+    // okx quotes its pre-ipo contracts in a unit no other venue uses
+    {VenueId::Okx, "OPENAI-USDT-SWAP", AssetClass::Unknown, ""},
+    {VenueId::Okx, "ANTHROPIC-USDT-SWAP", AssetClass::Unknown, ""},
+    {VenueId::Xt, "zhipu_usdt", AssetClass::Equity, "ZHIPU"},
+    {VenueId::Mexc, "JPY_USDT", AssetClass::FX, "JPYUSD"},
+    {VenueId::Weex, "JPYUSDT", AssetClass::FX, "JPYUSD"},
+    {VenueId::Hyperliquid, "xyz:JPY", AssetClass::FX, "USDJPY"},
+    // this deployer's index names trade at the price of the fund that tracks them
+    {VenueId::Hyperliquid, "mkts:US500", AssetClass::Equity, "SPY"},
+    {VenueId::Hyperliquid, "mkts:USTECH", AssetClass::Equity, "QQQ"},
+    {VenueId::Hyperliquid, "mkts:SMALL2000", AssetClass::Equity, "IWM"},
+    {VenueId::Hyperliquid, "mkts:USBOND", AssetClass::Equity, "TLT"},
     {VenueId::Hyperliquid, "PURR", AssetClass::Crypto, "PURR"},
     {VenueId::Hyperliquid, "PURR/USDC", AssetClass::Crypto, "PURR"},
     {VenueId::Hyperliquid, "para:2Y", AssetClass::Index, "US2Y"},
@@ -153,8 +176,6 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Lighter, "XCU", AssetClass::Commodity, "COPPER"},
     {VenueId::Lighter, "XPD", AssetClass::Commodity, "XPD"},
     {VenueId::Lighter, "XPT", AssetClass::Commodity, "XPT"},
-    {VenueId::Mexc, "PAXG_USDT", AssetClass::Crypto, "PAXG"},
-    {VenueId::Mexc, "XAUT_USDT", AssetClass::Crypto, "XAUT"},
     {VenueId::Mexc, "COINBASE_USDT", AssetClass::Equity, "COIN"},
     {VenueId::Mexc, "ROBINHOOD_USDT", AssetClass::Equity, "HOOD"},
     {VenueId::Bitunix, "QQQUSDT", AssetClass::Equity, "QQQ"},
@@ -676,8 +697,6 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Bingx, "NCSIH1002USD-USDT", AssetClass::Index, "H100"},
     {VenueId::Bingx, "NCSIB2002USD-USDT", AssetClass::Index, "B200"},
     {VenueId::Bingx, "NCFXUSDBRL2USD-USDT", AssetClass::FX, "USDBRL"},
-    {VenueId::Bingx, "PAXG-USDT", AssetClass::Commodity, "XAU"},
-    {VenueId::Bingx, "XAUT-USDT", AssetClass::Commodity, "XAU"},
     {VenueId::Bitfinex, "tAUSTRALIA200IXF0:USTF0", AssetClass::Index, "ASX200"},
     {VenueId::Bitfinex, "tEUROPE50IXF0:USTF0", AssetClass::Index, "SX5E"},
     {VenueId::Bitfinex, "tFRANCE40IXF0:USTF0", AssetClass::Index, "CAC40"},
@@ -877,7 +896,6 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Phemex, "NOKUSDT", AssetClass::Equity, "NOK"},
     {VenueId::Phemex, "NVDAUSDT", AssetClass::Equity, "NVDA"},
     {VenueId::Phemex, "PATHUSDT", AssetClass::Equity, "PATH"},
-    {VenueId::Phemex, "PAXGUSDT", AssetClass::Commodity, "XAU"},
     {VenueId::Phemex, "QCOMUSDT", AssetClass::Equity, "QCOM"},
     {VenueId::Phemex, "QQQUSDT", AssetClass::Equity, "QQQ"},
     {VenueId::Phemex, "RAMUSDT", AssetClass::Equity, "RAM"},
@@ -948,8 +966,64 @@ constexpr auto k_aliases = std::to_array<Alias>({
     {"NVIDIA", AssetClass::Equity, "NVDA"},
     {"SMSN", AssetClass::Equity, "SAMSUNG"},
     {"SKHX", AssetClass::Equity, "SKHYNIX"},
+    {"GIGADEVICE", AssetClass::Equity, "GIGADEV"},
+    {"NOKIA", AssetClass::Equity, "NOK"},
+    {"QNTX", AssetClass::Equity, "QNT"},
+    {"BBX", AssetClass::Equity, "BB"},
+    {"PURRDAT", AssetClass::Equity, "PURR"},
+    {"OAI", AssetClass::Equity, "OPENAI"},
+    {"ANTH", AssetClass::Equity, "ANTHROPIC"},
+    {"TCNT", AssetClass::Equity, "TENCENT"},
     {"10Y", AssetClass::Index, "US10Y"},
+    {"KR200", AssetClass::Index, "KR200"},
+    {"HSI", AssetClass::Index, "HSI"},
+    {"USDBRL", AssetClass::FX, "USDBRL"},
+    // a bare currency is its price in dollars
+    {"AUD", AssetClass::FX, "AUDUSD"},
+    {"CAD", AssetClass::FX, "CADUSD"},
+    {"CHF", AssetClass::FX, "CHFUSD"},
+    {"BRL", AssetClass::FX, "BRLUSD"},
+    {"TRY", AssetClass::FX, "TRYUSD"},
+    // funds that some venues file under indices
+    {"AAPU", AssetClass::Equity, "AAPU"},
+    {"ARKK", AssetClass::Equity, "ARKK"},
+    {"BITO", AssetClass::Equity, "BITO"},
+    {"EWJ", AssetClass::Equity, "EWJ"},
+    {"EWT", AssetClass::Equity, "EWT"},
+    {"EWY", AssetClass::Equity, "EWY"},
+    {"EWZ", AssetClass::Equity, "EWZ"},
+    {"GLD", AssetClass::Equity, "GLD"},
+    {"IEFA", AssetClass::Equity, "IEFA"},
+    {"INDA", AssetClass::Equity, "INDA"},
+    {"IWM", AssetClass::Equity, "IWM"},
+    {"KODEX200", AssetClass::Equity, "KODEX200"},
+    {"KORU", AssetClass::Equity, "KORU"},
+    {"MSFU", AssetClass::Equity, "MSFU"},
+    {"MSTU", AssetClass::Equity, "MSTU"},
+    {"NVDL", AssetClass::Equity, "NVDL"},
+    {"SMH", AssetClass::Equity, "SMH"},
+    {"SOXL", AssetClass::Equity, "SOXL"},
+    {"SOXS", AssetClass::Equity, "SOXS"},
+    {"SOXX", AssetClass::Equity, "SOXX"},
+    {"SQQQ", AssetClass::Equity, "SQQQ"},
+    {"TBT", AssetClass::Equity, "TBT"},
+    {"TMF", AssetClass::Equity, "TMF"},
+    {"TQQQ", AssetClass::Equity, "TQQQ"},
+    {"TSLL", AssetClass::Equity, "TSLL"},
+    {"TZA", AssetClass::Equity, "TZA"},
+    {"URNM", AssetClass::Equity, "URNM"},
+    {"USO", AssetClass::Equity, "USO"},
+    {"UVXY", AssetClass::Equity, "UVXY"},
+    {"XBI", AssetClass::Equity, "XBI"},
+    {"XLE", AssetClass::Equity, "XLE"},
+    {"XLI", AssetClass::Equity, "XLI"},
+    {"XLK", AssetClass::Equity, "XLK"},
+    {"XLU", AssetClass::Equity, "XLU"},
+    {"XLV", AssetClass::Equity, "XLV"},
 });
+
+// tokens that track gold or the dollar stay crypto whatever zone a venue files them under
+constexpr auto k_tokens = std::to_array<std::string_view>({"PAXG", "XAUT", "USDC"});
 
 constexpr auto k_stating_venues = std::to_array<VenueId>({
     VenueId::Binance,
@@ -965,6 +1039,9 @@ constexpr auto k_stating_venues = std::to_array<VenueId>({
     VenueId::Blofin,
     VenueId::Backpack,
     VenueId::Weex,
+    VenueId::Aster,
+    VenueId::Bitget,
+    VenueId::Grvt,
 });
 
 [[nodiscard]] std::string_view strip_suffix(std::string_view s, std::string_view suffix) noexcept {
@@ -1008,6 +1085,7 @@ void classify(VenueId venue, InstrumentBase& base) noexcept {
     std::string_view ticker = local.substr(0, slash != std::string_view::npos ? slash : local.find('-'));
     const auto dex = ticker.find(':');
     auto cls = base.asset_class;
+    const auto stated = base.underlying;
 
     const auto curated = std::ranges::find_if(k_curated, [&](const CuratedRow& row) {
         return row.venue == venue && row.symbol == base.exchange_symbol.view();
@@ -1019,11 +1097,16 @@ void classify(VenueId venue, InstrumentBase& base) noexcept {
         if (cls == AssetClass::Unknown && !states_asset_class(venue) && dex == std::string_view::npos) {
             cls = AssetClass::Crypto;
         }
-        if (dex != std::string_view::npos) {
+        if (!stated.empty()) {
+            ticker = stated.view();
+        } else if (dex != std::string_view::npos) {
             ticker.remove_prefix(dex + 1);
         }
     }
 
+    if (std::ranges::find(k_tokens, ticker) != k_tokens.end()) {
+        cls = AssetClass::Crypto;
+    }
     if (cls != AssetClass::Crypto && cls != AssetClass::Unknown) {
         ticker = strip_suffix(strip_suffix(strip_suffix(ticker, "_24_5"), "STOCK"), ".US");
         for (const auto& alias : k_aliases) {
@@ -1045,6 +1128,36 @@ void classify(VenueId venue, InstrumentBase& base) noexcept {
     } else if (cls != AssetClass::Crypto) {
         base.asset_class = AssetClass::Unknown; // no key to pair it by
     }
+}
+
+std::string asset_key(const InstrumentBase& base) {
+    if (base.asset_class == AssetClass::Unknown || base.underlying.empty()) {
+        return {};
+    }
+    std::string out{to_string(base.asset_class)};
+    out += ':';
+    out += base.underlying.view();
+    return out;
+}
+
+std::string market_key(const InstrumentBase& base) {
+    auto out = asset_key(base);
+    if (out.empty()) {
+        return out;
+    }
+    const auto local = base.local_symbol.view();
+    const auto slash = local.find('/');
+    auto quote = slash == std::string_view::npos ? std::string_view{} : local.substr(slash + 1);
+    quote = quote.substr(0, quote.find('-'));
+    out += '/';
+    out += quote == "USDT" || quote == "USDC" ? std::string_view{"USD*"} : quote;
+    return out;
+}
+
+std::string_view dex_of(const InstrumentBase& base) noexcept {
+    const auto local = base.local_symbol.view();
+    const auto colon = local.find(':');
+    return colon == std::string_view::npos || colon > local.find('/') ? std::string_view{} : local.substr(0, colon);
 }
 
 } // namespace raikiri

@@ -272,7 +272,7 @@ private:
         if (result != BookResult::Applied && result != BookResult::Resynced) {
             return;
         }
-        const auto ts_event = ms_to_unix(wire->ts_ms, received);
+        const auto ts_event = ms_to_unix(wire->ts_ms, UnixNanos{});
         if (quote_wanted_.contains(base.id.packed)) {
             if (const auto top = book.top(ts_event, received); top.has_value()) {
                 state_->sink->on_bbo(*top);
@@ -340,7 +340,7 @@ private:
         static thread_local const auto storage = std::make_unique<FundingBuffer>();
         const auto rows = parse_funding(frame, *storage);
         if (rows.has_value()) {
-            note_rates(*rows, received, received);
+            note_rates(*rows, UnixNanos{}, received);
         }
     }
 
@@ -445,7 +445,7 @@ private:
             if (memo == memos_.end() || !note_mark(memo->second, row, base) || memo->second.rate.is_undef()) {
                 continue;
             }
-            state_->sink->on_funding(merged(base, memo->second, ms_to_unix(row.ts_ms, received), received));
+            state_->sink->on_funding(merged(base, memo->second, ms_to_unix(row.ts_ms, UnixNanos{}), received));
         }
     }
 

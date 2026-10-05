@@ -101,7 +101,7 @@ void handle_book_change(VenueState& state, std::string_view frame, UnixNanos rec
     if (book.apply(*wire) != BookResult::Applied) {
         return; // unseeded, stale or resynchronising: silence, never a guess
     }
-    const auto ts_event = ms_to_unix(wire->ts_ms, received);
+    const auto ts_event = ms_to_unix(wire->ts_ms, UnixNanos{});
     // ask the sink before building the snapshot; the build is the expensive part
     if (!state.sink->wants_depth(base.id, received)) {
         return;
@@ -132,7 +132,7 @@ void handle_uta_frame(VenueState& state, std::string_view frame, UnixNanos recei
     if (book.apply(*wire) != BookResult::Applied) {
         return; // waiting, replayed, gapped or unconvertible: silence, never a guess
     }
-    const auto ts_event = wire->ts_ns != 0 ? UnixNanos{wire->ts_ns} : received;
+    const UnixNanos ts_event{wire->ts_ns};
     if (const auto top = book.bbo(ts_event, received); top.has_value()) {
         state.sink->on_bbo(*top);
     }

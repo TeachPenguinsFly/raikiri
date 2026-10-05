@@ -11,6 +11,7 @@
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/introspect/clock_probe.hpp>
 #include <raikiri/introspect/files.hpp>
+#include <raikiri/introspect/offset_bounds.hpp>
 #include <raikiri/introspect/server_time.hpp>
 #include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -240,7 +241,8 @@ public:
             m.nextFundingTime(jt::timestampNs{funding.next_funding_time.ns});
             m.intervalS(funding.interval_s);
             m.accrual(static_cast<jt::fundingAccrualEnum>(funding.accrual));
-            m.tsEvent(jt::timestampNs{funding.ts_event.ns});
+            // history orders funding by this, so an unstamped rate keeps our receive time
+            m.tsEvent(jt::timestampNs{funding.ts_event.ns != 0 ? funding.ts_event.ns : funding.ts_init.ns});
             m.tsInit(jt::timestampNs{funding.ts_init.ns});
         });
     }
@@ -1083,7 +1085,7 @@ int main(int argc, char** argv) {
                 "gatewayd[{}]: venue clock did not answer ({}); retrying in a minute", account_name, clock_endpoint);
         }
     } else {
-        RLOG_INFO("gatewayd[{}]: the venue has no server-time method; feed lag is on the local clock", account_name);
+        RLOG_INFO("gatewayd[{}]: the venue has no server-time method; only its feed bounds the clock", account_name);
     }
 
     if (const auto started = adapter->data->start(); !started.has_value()) {
@@ -1443,7 +1445,9 @@ int main(int argc, char** argv) {
                 applied_clock_ns = estimate.sampled_ns;
                 adapter->clock->use_offset(estimate.offset_ns);
             }
-            latency.use_offset(estimate);
+            const auto feed_bound = latency.feed_bound();
+            const auto combined = introspect::combine(estimate, feed_bound);
+            latency.use_correction(combined.correction_ns);
             feed_latency.rotate_if_due(mono.ns);
             const auto coverage = sink.coverage(wall, gatewayd::StatsCollector::k_window_ns);
             std::uint64_t reopens = 0;
@@ -1452,6 +1456,8 @@ int main(int argc, char** argv) {
             }
             channels->metrics->write(gatewayd::venue_metrics(
                 measured_clock,
+                combined,
+                feed_bound,
                 clock_endpoint,
                 latency,
                 {.catalogue = catalogue.size(), .priced = coverage.priced_60s, .reopens = reopens},

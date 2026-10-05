@@ -23,7 +23,7 @@ public:
 };
 
 struct ProbeSchedule {
-    std::uint32_t burst{5};
+    std::uint32_t burst{8};
     std::uint64_t burst_gap_ns{200'000'000ULL};
     std::uint64_t period_ns{3'600'000'000'000ULL};
     std::uint64_t retry_ns{60'000'000'000ULL};

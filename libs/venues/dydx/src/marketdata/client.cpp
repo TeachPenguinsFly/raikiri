@@ -226,13 +226,13 @@ private:
         if (result != BookResult::Applied && result != BookResult::Resynced) {
             return;
         }
-        if (const auto top = book.top(received, received); top.has_value()) {
+        if (const auto top = book.top(UnixNanos{}, received); top.has_value()) {
             state_->sink->on_bbo(*top);
         }
         if (!state_->depth_wanted.contains(base.id.packed) || !state_->sink->wants_depth(base.id, received)) {
             return;
         }
-        if (const auto depth = book.snapshot(received, received); depth.has_value()) {
+        if (const auto depth = book.snapshot(UnixNanos{}, received); depth.has_value()) {
             state_->sink->on_depth(*depth);
         }
     }

@@ -253,7 +253,7 @@ std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& tab
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -275,7 +275,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::Instrument
     out.price = *price;
     out.qty = *qty;
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -302,7 +302,7 @@ map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNan
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
         out.interval_s = perp->funding_interval_s;
     }
-    out.ts_event = ms_to_unix(wire.funding_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.funding_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -355,7 +355,7 @@ std::optional<BookSnapshot> map_depth(const WireDepth& wire, const exec::Instrum
 
     BookSnapshot out{};
     out.instrument = base.id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     out.venue_seq = wire.mrid;
     out.bid_count = fill(wire.bids, out.bids);

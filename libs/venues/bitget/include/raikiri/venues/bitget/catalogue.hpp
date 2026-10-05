@@ -23,6 +23,7 @@ struct WireContract {
     std::string_view min_trade_num;   // a lot floor, not a notional one
     std::string_view min_trade_usdt;
     std::string_view fund_interval; // hours: 1, 4 and 8 are all live
+    std::string_view is_rwa;        // YES on a tradfi row, which states no class beyond that
 };
 
 inline constexpr std::size_t k_max_contracts = 2048;

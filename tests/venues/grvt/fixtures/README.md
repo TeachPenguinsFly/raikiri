@@ -8,6 +8,7 @@ ETH_USDT_Perp.
 | file | source |
 |---|---|
 | `rest_all_instruments.json` | `POST /full/v1/all_instruments` with body `{"is_active":true}`, trimmed to four rows |
+| `rest_all_instruments_classes.json` | the same call on 2026-10-05, trimmed to a crypto, an equity and a commodity row |
 | `rest_error.json` | a malformed REST request, HTTP 400 |
 | `ws_book_d_ack.json`, `ws_book_d_snapshot.json`, `ws_book_d_delta.json`, `ws_book_d_delta_next.json` | `v1.book.d` at `@500`, one subscription in order; the ack's `latest_sequence_number` is the first delta's `prev_sequence_number` |
 | `ws_mini_d_snapshot.json`, `ws_mini_d_delta.json` | `v1.mini.d` at `@0` |

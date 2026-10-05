@@ -222,7 +222,7 @@ private:
         case BookResult::Resynced:
             break;
         }
-        const auto ts_event = ms_to_unix(wire->ts_ms, received);
+        const auto ts_event = ms_to_unix(wire->ts_ms, UnixNanos{});
         if (state_->wants_bbo.contains(base.id.packed)) {
             if (const auto bbo = book.bbo(ts_event, received); bbo.has_value()) {
                 state_->sink->on_bbo(*bbo);

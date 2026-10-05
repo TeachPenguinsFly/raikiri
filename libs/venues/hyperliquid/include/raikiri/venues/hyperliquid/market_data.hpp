@@ -31,7 +31,7 @@ struct TradeBuffer {
 [[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
                                                                                 TradeBuffer& storage);
 
-// `funding` is an hourly rate; there is no timestamp, so ts_event falls back to ingest
+// `funding` is an hourly rate; there is no timestamp, so ts_event stays zero
 struct WireAssetCtx {
     std::string_view coin{};
     std::string_view funding{};

@@ -47,7 +47,7 @@ publish_if_rated(const InstrumentBase& base, const FundingMemo& memo, std::uint6
     if (memo.rate.is_undef()) {
         return std::nullopt;
     }
-    return merged(base, memo, ms_to_unix(ms, ts_init), ts_init);
+    return merged(base, memo, ms_to_unix(ms, UnixNanos{}), ts_init);
 }
 
 } // namespace
@@ -80,7 +80,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& 
     out.instrument = base.id;
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
-    out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.trade_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

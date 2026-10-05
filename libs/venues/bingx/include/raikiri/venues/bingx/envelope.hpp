@@ -78,7 +78,7 @@ struct RestEnvelope {
 [[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj, std::string_view key);
 [[nodiscard]] std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj, std::string_view key);
 
-// absent reads as zero; map.cpp substitutes ingest time
+// absent reads as zero
 [[nodiscard]] std::expected<std::uint64_t, WireError> opt_ms_any(wire::ondemand::object& obj, std::string_view key);
 
 } // namespace raikiri::venues::bingx

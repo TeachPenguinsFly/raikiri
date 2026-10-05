@@ -453,8 +453,8 @@ TEST(GateMap, MissingVenueTimeFallsBackToIngest) {
     wire.ts_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // a zero timestamp falls back to ingest time
-    EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
+    // a zero timestamp leaves the trade unstamped
+    EXPECT_EQ(trade->ts_event.ns, 0U);
 }
 
 TEST(GateMap, FundingSettlementIsSecondsAndTheTickIsMilliseconds) {
@@ -1148,7 +1148,7 @@ TEST(GateMap, RestTickersSeedTheTouchOfAQuietContract) {
     EXPECT_EQ(bbo->bid.raw, 839'953);
     EXPECT_EQ(bbo->ask.raw, 839'954);
     EXPECT_EQ(bbo->bid_qty.raw, 444'192);
-    EXPECT_EQ(bbo->ts_event.ns, 42U);
+    EXPECT_EQ(bbo->ts_event.ns, 0U);
 
     WireBookTicker empty = *btc;
     empty.ask_price = {};

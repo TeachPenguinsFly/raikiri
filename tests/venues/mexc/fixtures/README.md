@@ -46,6 +46,7 @@ Protobuf frames, kept as raw `.pb` bytes. No capture date was recorded.
 | `rest_contract_detail.json` | `GET /api/v1/contract/detail`, trimmed to `BTC_USDT`, `ETH_USDT`, `AIINU_USDT` and `SATS_USDT` |
 | `rest_contract_detail_live.json` | the same call, trimmed to 21 rows; no capture date was recorded |
 | `rest_contract_detail_inverse.json` | the same call on 2026-09-26, trimmed to the `BTC_USD` row |
+| `rest_contract_detail_tradfi.json` | the same call on 2026-10-05, trimmed to stock, metal, oil and gold-token rows and `STOCKER_USDT`, a coin |
 | `rest_server_time.json` | `GET /api/v1/contract/ping` |
 | `rest_depth.json` | `GET /api/v1/contract/depth/BTC_USDT?limit=5` |
 | `rest_ticker.json` | `GET /api/v1/contract/ticker?symbol=BTC_USDT` |

@@ -47,7 +47,7 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
         if (result == SyncResult::GapDetected || result == SyncResult::BadLevel) {
             return;
         }
-        const auto ts_event = ms_to_unix(book->ts_ms, received);
+        const auto ts_event = ms_to_unix(book->ts_ms, UnixNanos{});
         if (const auto bbo = sync.bbo(ts_event, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
             if (!bbo->bid.is_undef() && !bbo->ask.is_undef()) {

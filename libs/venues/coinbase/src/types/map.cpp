@@ -145,7 +145,7 @@ std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& 
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = iso_to_unix(wire.time, ts_init);
+    out.ts_event = iso_to_unix(wire.time, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -188,7 +188,7 @@ std::optional<TradeTick> map_trade(const WireMatch& wire, const exec::Instrument
     out.qty = *qty;
     // match side is the maker's; flip it
     out.aggressor = wire.maker_sold ? Side::Buy : Side::Sell;
-    out.ts_event = iso_to_unix(wire.time, ts_init);
+    out.ts_event = iso_to_unix(wire.time, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

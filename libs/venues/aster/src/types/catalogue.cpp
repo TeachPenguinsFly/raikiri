@@ -62,6 +62,13 @@ std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(st
                 return std::unexpected(delivery.error());
             }
             out.delivery_ms = *delivery;
+            const auto symbol_type = wire::opt_i64(obj, "symbolType");
+            const auto sub_type = wire::opt_raw(obj, "underlyingSubType");
+            if (!symbol_type.has_value() || !sub_type.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.symbol_type = *symbol_type;
+            out.underlying_sub_type = *sub_type;
 
             auto filters = wire::req_array(obj, "filters");
             if (!filters.has_value()) {

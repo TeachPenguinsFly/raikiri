@@ -297,8 +297,9 @@ std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std:
                 return std::unexpected(name.error());
             }
             out.instrument = *name;
-            const std::array<std::pair<std::string_view, std::string_view*>, 9> fields{{
+            const std::array<std::pair<std::string_view, std::string_view*>, 10> fields{{
                 {"base", &out.base},
+                {"asset_class", &out.asset_class},
                 {"quote", &out.quote},
                 {"kind", &out.kind},
                 {"status", &out.status},

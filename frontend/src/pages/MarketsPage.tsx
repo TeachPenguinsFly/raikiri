@@ -98,12 +98,12 @@ export function MarketsPage() {
   const catalogue = useQuery(() => api.markets(query || undefined), [query], k_catalogue_refresh_ms)
   const found = catalogue.state === 'ready' ? catalogue.data : k_no_markets
   const markets = useMemo(() => {
-    const kept = onlyFavorites ? found.filter((m) => favorites.has(m.symbol)) : found
+    const kept = onlyFavorites ? found.filter((m) => favorites.has(m.key)) : found
     return [...kept].sort(
-      (a, b) => Number(favorites.has(b.symbol)) - Number(favorites.has(a.symbol)),
+      (a, b) => Number(favorites.has(b.key)) - Number(favorites.has(a.key)),
     )
   }, [found, favorites, onlyFavorites])
-  const selected = markets.find((m) => m.symbol === chosen) ?? markets[0] ?? null
+  const selected = markets.find((m) => m.key === chosen) ?? markets[0] ?? null
 
   const counts = useMemo(() => {
     const out = new Map<MarketType, number>()
@@ -143,7 +143,7 @@ export function MarketsPage() {
       }),
     [listings, quotes, funding, ticker],
   )
-  const entering = useEntranceOnce(selected !== null, selected?.symbol)
+  const entering = useEntranceOnce(selected !== null, selected?.key)
 
   const places = placesOf(live.flatMap((l) => [l.bid, l.ask]))
 
@@ -174,7 +174,7 @@ export function MarketsPage() {
       <MarketList
         catalogue={catalogue}
         markets={markets}
-        selected={selected?.symbol ?? null}
+        selected={selected?.key ?? null}
         query={query}
         entering={entering}
         favorites={favorites}
@@ -398,13 +398,13 @@ const MarketList = memo(function MarketList({
 
       <ul className="min-h-0 flex-1 overflow-auto px-1.5 pb-2">
         {markets.map((m, i) => {
-          const active = m.symbol === selected
-          const starred = favorites.has(m.symbol)
+          const active = m.key === selected
+          const starred = favorites.has(m.key)
           return (
-            <li key={m.symbol} className="group relative">
+            <li key={m.key} className="group relative">
               <button
                 type="button"
-                onClick={() => onFavorite(m.symbol)}
+                onClick={() => onFavorite(m.key)}
                 title={starred ? 'Remove from favorites' : 'Add to favorites'}
                 className={cn(
                   'absolute top-1/2 left-1.5 z-10 -translate-y-1/2 text-xs transition-opacity duration-150',
@@ -417,7 +417,7 @@ const MarketList = memo(function MarketList({
               </button>
               <button
                 type="button"
-                onClick={() => onPick(m.symbol)}
+                onClick={() => onPick(m.key)}
                 style={entering ? enterDelay(i) : undefined}
                 className={cn(
                   'relative flex h-7 w-full items-center justify-between overflow-hidden rounded-sm pr-2 pl-5',

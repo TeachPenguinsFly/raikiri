@@ -149,10 +149,14 @@ struct ChannelMetrics {
     std::uint64_t lag_samples{0};
     std::int64_t lag_p50_ns{0};
     std::int64_t lag_p99_ns{0};
+    std::int64_t lag_min_ns{0};
     std::uint64_t last_recv_ns{0};
 };
 
 enum class ClockSource : std::uint32_t { None = 0, RestProbe = 1 };
+
+// which bounds the offset interval came from; Conflict when they do not meet
+enum class OffsetSource : std::uint32_t { None = 0, Rest = 1, Feed = 2, RestAndFeed = 3, Conflict = 4 };
 
 inline constexpr std::size_t k_metric_channels = 4; // bbo, trades, depth, funding
 
@@ -167,6 +171,15 @@ struct VenueMetrics {
     std::uint64_t measured_ns{0};
     std::int64_t drift_ns{0};
     std::uint64_t drift_over_ns{0};
+    OffsetSource offset_source{OffsetSource::None};
+    std::uint32_t feed_bounded{0};
+    // largest ts_event - ts_recv over the window, when feed_bounded
+    std::int64_t feed_bound_ns{0};
+    // int64 min and max stand for an open edge
+    std::int64_t offset_lo_ns{0};
+    std::int64_t offset_hi_ns{0};
+    // what the gateway adds to the raw lag; zero means the raw lag stands
+    std::int64_t correction_ns{0};
     std::uint64_t catalogue{0};
     std::uint64_t priced{0};
     std::uint64_t reopens{0};

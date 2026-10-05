@@ -58,14 +58,16 @@ export function ScannerPage() {
   const tables = index.state === 'ready' ? index.data.tables : []
   const active = tab ?? tables[0]?.path ?? ''
 
-  const table = useQuery(
-    active === '' ? null : () => api.upstreamTable(k_upstream, active),
-    [active],
-    k_refresh_ms,
-  )
-
   const [sort, setSort] = useState<Sort<string>>({ key: '', desc: true })
   const [venues, setVenues] = useState<Set<string>>(new Set())
+  // filtered upstream, before its row cap, so a venue outside the top rows still shows
+  const venueParam = [...venues].sort().join(',')
+
+  const table = useQuery(
+    active === '' ? null : () => api.upstreamTable(k_upstream, active, { venue: venueParam }),
+    [active, venueParam],
+    k_refresh_ms,
+  )
 
   const columns = table.state === 'ready' ? table.data.columns : []
   const venueKeys = useMemo(
@@ -75,7 +77,8 @@ export function ScannerPage() {
 
   const available = useMemo(() => {
     if (table.state !== 'ready') return []
-    const seen = new Set<string>()
+    const seen = new Set<string>(table.data.venues ?? [])
+    for (const v of venues) seen.add(v)
     for (const row of table.data.rows) {
       for (const key of venueKeys) {
         const v = row[key]
@@ -83,7 +86,7 @@ export function ScannerPage() {
       }
     }
     return [...seen].sort()
-  }, [table, venueKeys])
+  }, [table, venueKeys, venues])
 
   const rows = useMemo(() => {
     if (table.state !== 'ready') return []

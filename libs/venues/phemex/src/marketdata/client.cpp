@@ -272,7 +272,7 @@ private:
         if (result != BookResult::Applied && result != BookResult::Replaced) {
             return;
         }
-        const auto ts_event = ns_to_unix(wire.head.ts_ns, received);
+        const auto ts_event = ns_to_unix(wire.head.ts_ns, UnixNanos{});
         if (const auto top = book.top(ts_event, received); top.has_value()) {
             state_->sink->on_bbo(*top);
             state_->quoted.insert(base.id.packed);

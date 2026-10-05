@@ -56,7 +56,7 @@ struct Found {
 }
 
 void publish(VenueState& state, const Found& found, std::uint64_t bno, UnixNanos received) {
-    const auto book = found.market->ladders.snapshot(found.base->id, bno, received, received);
+    const auto book = found.market->ladders.snapshot(found.base->id, bno, UnixNanos{}, received);
     if (!book.has_value()) {
         return;
     }

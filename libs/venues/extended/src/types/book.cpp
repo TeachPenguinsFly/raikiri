@@ -93,7 +93,7 @@ map_top(const WireBook& frame, InstrumentId instrument, FixedE9 tick_size, Fixed
                .ask = PriceTicks::from_raw(*ask),
                .bid_qty = QtyLots::from_raw(*bid_qty),
                .ask_qty = QtyLots::from_raw(*ask_qty),
-               .ts_event = frame.ts_ms == 0 ? ts_init : UnixNanos{frame.ts_ms * 1'000'000ULL},
+               .ts_event = UnixNanos{frame.ts_ms * 1'000'000ULL},
                .ts_init = ts_init};
 }
 

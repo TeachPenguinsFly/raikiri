@@ -69,7 +69,7 @@ void requeue(std::vector<InstrumentId>& queue, InstrumentId id) {
         if (target.seed(*wire) != BookResult::Applied) {
             return;
         }
-        const auto ts_event = us_to_unix(wire->timestamp_us, response.received);
+        const auto ts_event = us_to_unix(wire->timestamp_us, UnixNanos{});
         if (const auto seeded = target.snapshot(ts_event, response.received); seeded.has_value()) {
             owner->sink->on_depth(*seeded);
         }
@@ -137,7 +137,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
-    if (const auto snapshot = book.snapshot(us_to_unix(wire->engine_us, received), received); snapshot.has_value()) {
+    if (const auto snapshot = book.snapshot(us_to_unix(wire->engine_us, UnixNanos{}), received); snapshot.has_value()) {
         state.sink->on_depth(*snapshot);
     }
 }
