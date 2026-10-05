@@ -92,11 +92,14 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
             if (!asks.has_value()) {
                 return std::unexpected(asks.error());
             }
-            const auto ts = opt_ms(data, "t");
-            if (!ts.has_value()) {
-                return std::unexpected(ts.error());
+            // spot's t repeats the update id, which only looks like a time; futures t is the publish time
+            if (!spot) {
+                const auto ts = opt_ms(data, "t");
+                if (!ts.has_value()) {
+                    return std::unexpected(ts.error());
+                }
+                out.ts_ms = *ts;
             }
-            out.ts_ms = *ts;
             out.bids = {storage.bids.data(), *bids};
             out.asks = {storage.asks.data(), *asks};
             return out;

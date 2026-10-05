@@ -1,6 +1,7 @@
 #pragma once
 
 // ts_event is the venue's clock and ts_init ours; staleness gates use ts_init
+// a zero ts_event means the venue did not stamp the message
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>

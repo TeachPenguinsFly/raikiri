@@ -30,7 +30,7 @@ public:
 
     [[nodiscard]] std::uint64_t count() const noexcept { return count_; }
 
-    // the middle of the bucket holding that rank; zero when empty
+    // read linearly inside the bucket holding that rank; zero when empty
     [[nodiscard]] std::int64_t quantile(std::uint32_t permille) const noexcept;
 
     [[nodiscard]] static std::size_t index_of(std::int64_t ns) noexcept;

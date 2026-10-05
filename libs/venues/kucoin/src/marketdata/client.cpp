@@ -533,7 +533,7 @@ private:
         }
         // grouped by topic, quote first so it lands before the slower kinds
         const auto rank = [](std::string_view topic) {
-            if (topic.ends_with("tickerV2") || topic.ends_with("/market/ticker")) {
+            if (topic.ends_with("tickerV2") || topic.ends_with("level1")) {
                 return 0; // the quote
             }
             if (topic.ends_with("instrument")) {

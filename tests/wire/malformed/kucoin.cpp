@@ -35,7 +35,7 @@ TEST(Malformed, Kucoin) {
                     (void)parse_event(f);
                     (void)parse_bbo(f, MarketType::Perp);
                 }},
-               {"ws_spot_ticker.json",
+               {"ws_spot_level1.json",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_bbo(f, MarketType::Spot);

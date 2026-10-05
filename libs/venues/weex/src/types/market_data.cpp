@@ -1,6 +1,8 @@
 #include <raikiri/venues/weex/market_data.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <algorithm>
+
 namespace raikiri::venues::weex {
 
 namespace {
@@ -82,6 +84,14 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
         }
         return std::span<const WirePrint>{storage.prints.data(), count};
     });
+}
+
+std::uint64_t newest_trade_ms(std::span<const WirePrint> prints) noexcept {
+    std::uint64_t newest = 0;
+    for (const auto& print : prints) {
+        newest = std::max(newest, print.trade_ms);
+    }
+    return newest;
 }
 
 std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {

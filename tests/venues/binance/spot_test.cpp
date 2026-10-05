@@ -110,7 +110,7 @@ TEST(BinanceSpot, ABookTickerWithNoEventTypeIsStillABookTicker) {
     EXPECT_EQ(ack->kind, EventKind::SubscribeAck);
 }
 
-TEST(BinanceSpot, BboTakesTheLocalTimeSinceSpotStatesNone) {
+TEST(BinanceSpot, BboLeavesTheEventTimeUnstampedSinceSpotStatesNone) {
     const auto table = spot_table();
     const auto data = data_of("spot_ws_book_ticker.json");
     const auto wire = parse_book_ticker(data);
@@ -122,7 +122,8 @@ TEST(BinanceSpot, BboTakesTheLocalTimeSinceSpotStatesNone) {
     EXPECT_EQ(bbo->ask.raw, 8'518'993);
     EXPECT_EQ(bbo->bid_qty.raw, 853'244);
     EXPECT_EQ(bbo->ask_qty.raw, 124'122);
-    EXPECT_EQ(bbo->ts_event, k_ingest);
+    EXPECT_EQ(bbo->ts_event.ns, 0U);
+    EXPECT_EQ(bbo->ts_init, k_ingest);
 }
 
 TEST(BinanceSpot, TradeKeepsTheVenueTradeTime) {

@@ -74,7 +74,8 @@ TEST(XtSpotWire, TheSnapshotIdIsANumberOnSpotAndDigitsOnFutures) {
     const auto wire = parse_depth(body, levels, MarketType::Spot);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "btc_usdt");
-    EXPECT_NE(wire->update_id, 0U);
+    EXPECT_EQ(wire->update_id, 1'786'684'245'120ULL);
+    EXPECT_EQ(wire->ts_ms, 0U) << "spot t repeats the update id";
     ASSERT_FALSE(wire->bids.empty());
     ASSERT_FALSE(wire->asks.empty());
     EXPECT_LT(wire->bids[0].price, wire->asks[0].price) << "an uncrossed book";
@@ -104,6 +105,8 @@ TEST(XtSpotMap, ASpotSnapshotCrossesIntoTheDomain) {
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->instrument.market(), MarketType::Spot);
     EXPECT_LT(bbo->bid.raw, bbo->ask.raw);
+    EXPECT_EQ(bbo->ts_event.ns, 0U);
+    EXPECT_EQ(bbo->ts_init, UnixNanos{7});
 
     const auto book = map_book(*wire, table, UnixNanos{7});
     ASSERT_TRUE(book.has_value());
@@ -483,7 +486,7 @@ TEST(XtErrors, TextCodesSurviveAsZeroRatherThanGuessing) {
 
 TEST(XtWs, TopicsMatchWhatTheVenueAccepts) {
     EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp).channel, "depth");
-    EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp).params, ",50,100ms");
+    EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp).params, ",20,100ms");
     EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp).channel, "trade");
     EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp).channel, "depth");
     EXPECT_EQ(topic_for(exec::SubKind::MarkPrice, MarketType::Perp).channel, "mark_price");

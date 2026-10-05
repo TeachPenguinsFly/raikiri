@@ -66,7 +66,7 @@ Captured on XBTUSDTM; dates come from the frames' own timestamps.
 | --- | --- |
 | `rest_spot_symbols.json` | `GET https://api.kucoin.com/api/v2/symbols`, 2026-08-25, trimmed to BTC-USDT, ETH-USDT, DEBIT-USDT and WIN-BTC, each row byte-for-byte |
 | `rest_spot_all_tickers.json` | `GET https://api.kucoin.com/api/v1/market/allTickers`, trimmed, 2026-09-25 (from its `time`) |
-| `ws_spot_ticker.json` | `/market/ticker:BTC-USDT`, 2026-08-27 |
+| `ws_spot_level1.json` | `/spotMarket/level1:BTC-USDT`, 2026-10-05 |
 | `ws_spot_match.json` | `/market/match:BTC-USDT`, 2026-08-27 |
 | `ws_spot_level2depth.json` | `/spotMarket/level2Depth50:BTC-USDT`, 2026-08-27 |
 

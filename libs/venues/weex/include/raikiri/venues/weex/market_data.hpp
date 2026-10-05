@@ -28,9 +28,11 @@ struct PrintBuffer {
     std::array<WirePrint, k_max_prints> prints{};
 };
 
-// a tradeSnapshot backfill overlaps live prints, so the caller drops it
+// a tradeSnapshot backfill overlaps live prints, so the caller drops it and the live prints it already held
 [[nodiscard]] std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_view frame,
                                                                                 PrintBuffer& storage);
+
+[[nodiscard]] std::uint64_t newest_trade_ms(std::span<const WirePrint> prints) noexcept;
 
 // the only place weex publishes turnover; no bid, ask or funding rate
 struct WireTicker {

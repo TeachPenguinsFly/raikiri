@@ -12,7 +12,7 @@ using wire::session;
 
 // subject separates all five shapes; the topic gives only the symbol
 EventKind kind_from_subject(std::string_view subject) noexcept {
-    if (subject == "tickerV2" || subject == "trade.ticker") {
+    if (subject == "tickerV2" || subject == "level1") {
         return EventKind::Bbo;
     }
     if (subject == "match" || subject == "trade.l3match") {

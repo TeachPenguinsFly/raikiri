@@ -74,13 +74,34 @@ void handle_depth(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
+// the subscribe backfill is dropped, so the first live frame's prints it already held are history too
+void handle_trade_snapshot(VenueState& state, std::string_view frame, std::string_view symbol) {
+    static thread_local PrintBuffer storage;
+    const auto wire = parse_trades(frame, storage);
+    const auto* instrument = state.instruments.find(symbol);
+    if (!wire.has_value() || instrument == nullptr) {
+        return;
+    }
+    state.trade_floor_ms[base_of(*instrument).id.packed] = newest_trade_ms(*wire);
+}
+
 void handle_trades(VenueState& state, std::string_view frame, std::string_view symbol, UnixNanos received) {
     static thread_local PrintBuffer storage;
     const auto wire = parse_trades(frame, storage);
     if (!wire.has_value()) {
         return;
     }
+    std::uint64_t floor_ms = 0;
+    if (const auto* instrument = state.instruments.find(symbol); instrument != nullptr) {
+        if (const auto floor = state.trade_floor_ms.find(base_of(*instrument).id.packed);
+            floor != state.trade_floor_ms.end()) {
+            floor_ms = floor->second;
+        }
+    }
     for (const auto& print : *wire) {
+        if (print.trade_ms <= floor_ms) {
+            continue;
+        }
         if (const auto trade = map_trade(print, symbol, state.instruments, received); trade.has_value()) {
             state.sink->on_trade(*trade);
         }
@@ -98,7 +119,7 @@ void handle_frame(VenueState& state, const EventInfo& event, std::string_view fr
         handle_trades(state, frame, event.symbol, received);
         break;
     case EventKind::TradeSnapshot:
-        // the tradeSnapshot backfill overlaps live prints and nothing deduplicates trades
+        handle_trade_snapshot(state, frame, event.symbol);
         break;
     case EventKind::Ticker: {
         const auto wire = parse_ticker(frame);

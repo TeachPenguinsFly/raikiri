@@ -58,6 +58,8 @@ struct VenueState {
 
     std::unordered_map<std::uint64_t, DepthBook> books;
     std::unordered_map<std::uint64_t, BookWatch> book_watch;
+    // per instrument, the newest print time in its last subscribe backfill
+    std::unordered_map<std::uint64_t, std::uint64_t> trade_floor_ms;
     std::uint64_t next_reseed_scan_ns{0};
 
     // a set: Bbo and Depth name one channel

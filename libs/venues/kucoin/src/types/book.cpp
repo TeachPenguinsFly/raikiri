@@ -85,7 +85,7 @@ read_pair_levels(wire::ondemand::object& obj, std::string_view key, std::span<Wi
     return read_pair_levels(side, into);
 }
 
-// a level is [price, size], both json numbers
+// a level is [price, size], numbers or digit strings
 std::expected<void, WireError> read_pair(wire::ondemand::value entry, std::string_view& price, std::string_view& qty) {
     wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
@@ -98,7 +98,7 @@ std::expected<void, WireError> read_pair(wire::ondemand::value entry, std::strin
             return std::unexpected(wire::map_error(ec));
         }
         if (field < 2) {
-            const auto raw = raw_of(value);
+            const auto raw = decimal_of(value);
             if (!raw.has_value()) {
                 return std::unexpected(raw.error());
             }
@@ -140,6 +140,42 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
 }
 
+// spot level1: one [price, size] pair a side and the quote's own millisecond timestamp
+std::expected<WireBbo, WireError> parse_spot_level1(wire::ondemand::object& obj) {
+    WireBbo out{};
+    std::expected<void, WireError> bid{std::unexpected(WireError::MissingField)};
+    std::expected<void, WireError> ask{std::unexpected(WireError::MissingField)};
+    std::expected<std::string_view, WireError> ts{std::unexpected(WireError::MissingField)};
+    const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
+        if (key == "bids") {
+            bid = read_pair(value, out.bid_price, out.bid_qty);
+        } else if (key == "asks") {
+            ask = read_pair(value, out.ask_price, out.ask_qty);
+        } else if (key == "timestamp") {
+            ts = decimal_of(value);
+        }
+    });
+    if (!walked.has_value()) {
+        return std::unexpected(walked.error());
+    }
+    if (!bid.has_value()) {
+        return std::unexpected(bid.error());
+    }
+    if (!ask.has_value()) {
+        return std::unexpected(ask.error());
+    }
+    if (!ts.has_value()) {
+        return std::unexpected(ts.error());
+    }
+    for (const auto text : {out.bid_price, out.bid_qty, out.ask_price, out.ask_qty, *ts}) {
+        if (text.empty()) {
+            return std::unexpected(WireError::MissingField);
+        }
+    }
+    out.ts_ns = wire::digits_to_u64(*ts) * 1'000'000ULL;
+    return out;
+}
+
 } // namespace
 
 std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType market) {
@@ -154,28 +190,29 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
             return std::unexpected(symbol.error());
         }
         return with_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
-            // futures: bestBidPrice and nanosecond ts; spot: bestBid, millisecond time, sequence as a string
-            const std::string_view bid_key = spot ? "bestBid" : "bestBidPrice";
-            const std::string_view ask_key = spot ? "bestAsk" : "bestAskPrice";
+            if (spot) {
+                auto out = parse_spot_level1(obj);
+                if (out.has_value()) {
+                    out->symbol = *symbol;
+                }
+                return out;
+            }
             using Text = std::expected<std::string_view, WireError>;
             Text bid{std::string_view{}};
             Text bid_qty{std::string_view{}};
             Text ask{std::string_view{}};
             Text ask_qty{std::string_view{}};
-            Text time{std::string_view{}};
             Text ts{std::string_view{}};
             Text sequence{std::string_view{}};
             const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
-                if (key == bid_key) {
+                if (key == "bestBidPrice") {
                     bid = decimal_of(value);
                 } else if (key == "bestBidSize") {
                     bid_qty = decimal_of(value);
-                } else if (key == ask_key) {
+                } else if (key == "bestAskPrice") {
                     ask = decimal_of(value);
                 } else if (key == "bestAskSize") {
                     ask_qty = decimal_of(value);
-                } else if (key == "time") {
-                    time = decimal_of(value);
                 } else if (key == "ts") {
                     ts = decimal_of(value);
                 } else if (key == "sequence") {
@@ -196,14 +233,6 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
             out.bid_qty = *bid_qty;
             out.ask_price = *ask;
             out.ask_qty = *ask_qty;
-            if (spot) {
-                if (!time.has_value()) {
-                    return std::unexpected(WireError::WrongType);
-                }
-                out.ts_ns = wire::digits_to_u64(*time) * 1'000'000ULL;
-                out.sequence = 0; // a digit string here; nothing reads it
-                return out;
-            }
             if (!ts.has_value() || !sequence.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }

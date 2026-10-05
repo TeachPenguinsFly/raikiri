@@ -544,6 +544,20 @@ TEST(WeexMap, TheMakerFlagIsTheAggressorInverted) {
     }
 }
 
+TEST(WeexWire, TheFirstLiveFrameRepeatsTheNewestBackfillPrint) {
+    static thread_local PrintBuffer storage;
+    const auto snapshot = parse_trades(fixture("ws_trade_snapshot.json"), storage);
+    ASSERT_TRUE(snapshot.has_value());
+    const auto floor = newest_trade_ms(*snapshot);
+    EXPECT_EQ(floor, 1'788'774'085'716ULL);
+
+    const auto live = parse_trades(fixture("ws_trade_buy.json"), storage);
+    ASSERT_TRUE(live.has_value());
+    ASSERT_EQ(live->size(), 2U);
+    EXPECT_EQ((*live)[0].trade_ms, floor) << "already in the backfill";
+    EXPECT_GT((*live)[1].trade_ms, floor);
+}
+
 TEST(WeexMap, ATradeIdIsAUuidAndNotANumber) {
     static thread_local PrintBuffer storage;
     const auto prints = parse_trades(fixture("ws_trade_buy.json"), storage);

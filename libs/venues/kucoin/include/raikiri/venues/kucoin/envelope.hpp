@@ -12,7 +12,7 @@
 namespace raikiri::venues::kucoin {
 
 enum class EventKind : std::uint8_t {
-    Bbo,         // subject tickerV2
+    Bbo,         // subject tickerV2, spot level1
     Trade,       // subject match, on /contractMarket/execution
     Depth,       // subject level2
     MarkPrice,   // subject mark.index.price, on /contract/instrument

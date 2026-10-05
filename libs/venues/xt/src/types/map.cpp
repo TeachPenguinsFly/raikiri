@@ -241,7 +241,7 @@ std::optional<Bbo> map_bbo(const WireDepth& wire, const exec::InstrumentTable& t
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -254,7 +254,7 @@ std::optional<BookSnapshot> map_book(const WireDepth& wire, const exec::Instrume
 
     BookSnapshot out{};
     out.instrument = base->id;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     out.venue_seq = wire.update_id;
 

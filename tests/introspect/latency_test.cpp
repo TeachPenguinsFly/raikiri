@@ -163,6 +163,23 @@ TEST(LagHistogram, BucketsBothSignsAndReadsPercentiles) {
     EXPECT_NEAR(static_cast<double>(h.quantile(1)), -3e6, 3e6 / 8);
 }
 
+TEST(LagHistogram, ReadsInsideABucketInsteadOfItsMiddle) {
+    // 2100..2595 ms all land in the bucket from 2097 to 2621 ms
+    LagHistogram h;
+    for (std::uint64_t i = 0; i < 100; ++i) {
+        h.record(static_cast<std::int64_t>((2100 + 5 * i) * k_ms));
+    }
+    EXPECT_NEAR(static_cast<double>(h.quantile(500)), 2347.5e6, 30e6);
+    EXPECT_NEAR(static_cast<double>(h.quantile(990)), 2590e6, 30e6);
+
+    LagHistogram negative;
+    for (std::uint64_t i = 0; i < 100; ++i) {
+        negative.record(-static_cast<std::int64_t>((2100 + 5 * i) * k_ms));
+    }
+    EXPECT_NEAR(static_cast<double>(negative.quantile(10)), -2590e6, 35e6);
+    EXPECT_NEAR(static_cast<double>(negative.quantile(500)), -2347.5e6, 30e6);
+}
+
 TEST(FeedWindow, CountsAMinuteAndForgetsOlderSlices) {
     FeedWindow window;
     window.advance(k_s);

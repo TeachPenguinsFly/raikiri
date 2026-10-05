@@ -38,7 +38,8 @@ std::string_view topic_for(exec::SubKind kind, MarketType market) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
         // perp keeps tickerV2: a classic book without a rest seed has no touch
-        return spot ? "/market/ticker" : "/contractMarket/tickerV2";
+        // spot takes level1, since the spot ticker's time is the last print's, not the quote's
+        return spot ? "/spotMarket/level1" : "/contractMarket/tickerV2";
     case exec::SubKind::Trades:
         return spot ? "/market/match" : "/contractMarket/execution";
     case exec::SubKind::Depth:

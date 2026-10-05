@@ -38,8 +38,9 @@ Topic topic_for(exec::SubKind kind, MarketType market) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
     case exec::SubKind::Depth:
-        // depth gives both bbo and book; 50 levels is the max, and spot takes no interval
-        return {.channel = "depth", .params = spot ? ",50" : ",50,100ms"};
+        // depth gives both bbo and book; futures pushes 50 levels once a second whatever the interval, 20 every
+        // 100ms; spot takes no interval and pushes once a second at any depth
+        return {.channel = "depth", .params = spot ? ",50" : ",20,100ms"};
     case exec::SubKind::Trades:
         return {.channel = "trade", .params = {}};
     case exec::SubKind::MarkPrice:

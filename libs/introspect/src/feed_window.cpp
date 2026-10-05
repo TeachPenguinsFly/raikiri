@@ -44,10 +44,21 @@ std::int64_t LagHistogram::quantile(std::uint32_t permille) const noexcept {
     const auto rank = std::max<std::uint64_t>(1, (count_ * permille + 999) / 1000);
     std::uint64_t seen = 0;
     for (std::size_t i = 0; i < k_buckets; ++i) {
-        seen += counts_[i];
-        if (seen >= rank) {
-            return middle_of(i);
+        if (seen + counts_[i] >= rank) {
+            if (i == k_side) {
+                return 0;
+            }
+            // linear inside the bucket, so a steady tail does not read as one repeated bucket middle
+            const auto side = i > k_side ? i - k_side : k_side - i;
+            const auto base = 1000ULL << ((side - 1) / k_per_octave);
+            const auto width = base / k_per_octave;
+            const auto near = base + ((side - 1) % k_per_octave) * width;
+            const auto into = (2 * (rank - seen) - 1) * 1000 / (2 * counts_[i]);
+            const auto offset = i > k_side ? into : 1000 - into;
+            const auto magnitude = static_cast<std::int64_t>(near + width * offset / 1000);
+            return i > k_side ? magnitude : -magnitude;
         }
+        seen += counts_[i];
     }
     return middle_of(k_buckets - 1);
 }

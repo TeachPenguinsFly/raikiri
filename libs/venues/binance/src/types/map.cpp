@@ -83,7 +83,7 @@ std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTab
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    out.ts_event = ms_to_unix(wire.transaction_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.transaction_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

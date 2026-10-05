@@ -1594,17 +1594,33 @@ TEST(KucoinErrors, OrderEntryRefusalsLandInTheBucketTheGatewayActsOn) {
     EXPECT_EQ(classify(k_order_forbidden), exec::ErrorClass::Terminal);
 }
 
-TEST(KucoinSpotWire, TheSpotQuoteRenamesEveryFieldAndChangesTheClock) {
-    // futures: bestBidPrice, nanosecond ts; spot: bestBid, millisecond time
-    const auto frame = fixture("ws_spot_ticker.json");
+TEST(KucoinSpotWire, TheSpotQuoteIsLevel1StampedWithTheQuotesOwnTime) {
+    const auto frame = fixture("ws_spot_level1.json");
+    const auto event = parse_event(frame);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::Bbo);
     EXPECT_FALSE(parse_bbo(frame, MarketType::Perp).has_value());
 
     const auto wire = parse_bbo(frame, MarketType::Spot);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "BTC-USDT");
-    EXPECT_FALSE(wire->bid_price.empty());
-    EXPECT_FALSE(wire->ask_price.empty());
-    EXPECT_GT(wire->ts_ns, 1'000'000'000'000'000'000ULL);
+    EXPECT_EQ(wire->bid_price, "85989.3");
+    EXPECT_EQ(wire->bid_qty, "0.0005");
+    EXPECT_EQ(wire->ask_price, "85989.4");
+    EXPECT_EQ(wire->ask_qty, "0.00692887");
+    EXPECT_EQ(wire->ts_ns, 1'791'194'049'063'000'000ULL);
+    EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Spot), "/spotMarket/level1");
+}
+
+TEST(KucoinSpotWire, ALevel1FrameWithoutASideOrATimeIsRefused) {
+    EXPECT_FALSE(parse_bbo(R"({"topic":"/spotMarket/level1:BTC-USDT","type":"message","subject":"level1",)"
+                           R"("data":{"asks":["1","2"],"timestamp":1}})",
+                           MarketType::Spot)
+                     .has_value());
+    EXPECT_FALSE(parse_bbo(R"({"topic":"/spotMarket/level1:BTC-USDT","type":"message","subject":"level1",)"
+                           R"("data":{"asks":["1","2"],"bids":["1","2"]}})",
+                           MarketType::Spot)
+                     .has_value());
 }
 
 TEST(KucoinSpotWire, TheSpotPrintStampsNanosecondsAsAString) {
