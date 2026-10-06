@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -29,8 +30,6 @@ namespace {
 
 // the venue closes a socket after 60 s without client messages; inbound data does not count
 constexpr std::uint64_t k_app_ping_interval_ns = 10'000'000'000ULL;
-
-constexpr std::uint64_t k_spot_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
 // the payload field number decides the kind; json acks start
 // with '{', which no protobuf message can
@@ -256,11 +255,12 @@ public:
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const bool spot = state_->market == MarketType::Spot;
-        if (spot && kind == exec::SubKind::Funding) {
-            if (std::ranges::find(ticker_instruments_, instrument) == ticker_instruments_.end()) {
-                ticker_instruments_.push_back(instrument);
+        if (spot && (kind == exec::SubKind::Bbo || kind == exec::SubKind::Funding)) {
+            // spot volume comes from the 24h table, whatever channels the account runs
+            ticker_.want(instrument);
+            if (kind == exec::SubKind::Funding) {
+                return {};
             }
-            return {};
         }
         auto channel = spot ? spot_channel_for(kind) : channel_for(kind);
         if (channel.empty()) {
@@ -308,25 +308,14 @@ public:
 
 private:
     void poll_spot_ticker(UnixNanos now) noexcept {
-        if (ticker_instruments_.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
-            return;
-        }
-        ticker_in_flight_ = true;
-        try {
-            if (!spot_rest_.send(state_->builder.spot_ticker_24h(),
-                                 [this](const net::RestResponse& response) { on_spot_ticker(response); })) {
-                ticker_in_flight_ = false;
-                return;
-            }
-        } catch (...) {
-            ticker_in_flight_ = false;
-            return;
-        }
-        next_ticker_poll_ns_ = now.ns + k_spot_ticker_poll_interval_ns;
+        ticker_.poll(now, [this] {
+            return spot_rest_.send(state_->builder.spot_ticker_24h(),
+                                   [this](const net::RestResponse& response) { on_spot_ticker(response); });
+        });
     }
 
     void on_spot_ticker(const net::RestResponse& response) noexcept {
-        ticker_in_flight_ = false;
+        ticker_.answered();
         if (response.transport_failed() || response.status != 200) {
             return;
         }
@@ -338,8 +327,7 @@ private:
         const auto received = state_->clock->wall();
         for (const auto& row : *rows) {
             const auto stats = map_spot_ticker_stats(row, state_->instruments, received);
-            if (stats.has_value() &&
-                std::ranges::find(ticker_instruments_, stats->instrument) != ticker_instruments_.end()) {
+            if (stats.has_value() && ticker_.wanted(stats->instrument)) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -379,9 +367,7 @@ private:
     PublicHandler handler_;
     net::RestClient spot_rest_;
     net::WsPool pool_;
-    std::vector<InstrumentId> ticker_instruments_;
-    std::uint64_t next_ticker_poll_ns_{0};
-    bool ticker_in_flight_{false};
+    exec::TickerPoll ticker_;
     bool started_{false};
 };
 

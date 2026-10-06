@@ -289,9 +289,10 @@ TEST(BitfinexMap, TheVolumeSlotIsBaseAndNothingHereStatesTheQuoteSide) {
     const auto stats = map_ticker_stats(*wire, "tBTCUSD", table, UnixNanos{0}, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 411'139'634'960);
-    // zero: the venue states no quote turnover
-    EXPECT_EQ(stats->volume_24h_quote.raw, 0);
-    EXPECT_EQ(stats->ts_event.ns, k_ingest.ns);
+    // 411.13963496 at the 63953 last print
+    EXPECT_EQ(stats->volume_24h_quote.raw, 26293613074596);
+    // unstamped
+    EXPECT_EQ(stats->ts_event.ns, 0U);
     EXPECT_EQ(stats->ts_init.ns, k_ingest.ns);
 }
 
@@ -615,12 +616,23 @@ TEST(BitfinexMap, FundingCarriesMarkNotDerivPrice) {
     ASSERT_TRUE(wire.has_value());
     const auto funding = map_funding(*wire, "tBTCF0:USTF0", table, k_ingest);
     ASSERT_TRUE(funding.has_value());
-    EXPECT_EQ(funding->rate.raw, 141'610);                 // 0.00014161
-    EXPECT_EQ(funding->predicted_rate.raw, 440'050);       // 0.00044005
-    EXPECT_EQ(funding->mark_price.raw, 6'393'936'640'000); // 63939.3664 / 1e-8
+    EXPECT_EQ(funding->rate.raw, 141'610);                  // 0.00014161
+    EXPECT_EQ(funding->predicted_rate.raw, 440'050);        // 0.00044005
+    EXPECT_EQ(funding->mark_price.raw, 6'393'936'640'000);  // 63939.3664 / 1e-8
+    EXPECT_EQ(funding->index_price.raw, 6'393'800'000'000); // the 63938 spot price
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'435'200'000ULL * 1'000'000ULL);
     EXPECT_EQ(funding->interval_s, k_funding_interval_s);
     EXPECT_EQ(funding->ts_event.ns, 1'786'430'959'000ULL * 1'000'000ULL);
+}
+
+TEST(BitfinexMap, OpenInterestIsContractsOfTheBase) {
+    const auto table = table_with_btc();
+    const auto wire = parse_deriv_status(fixture("ws_deriv_status.json"));
+    ASSERT_TRUE(wire.has_value());
+    const auto oi = map_open_interest(*wire, "tBTCF0:USTF0", table);
+    ASSERT_TRUE(oi.has_value());
+    EXPECT_EQ(oi->raw, 8'874'694'061'530); // 8874.69406153 contracts of 1 BTC
+    EXPECT_FALSE(map_open_interest(*wire, "tDOGE:USD", table).has_value());
 }
 
 TEST(BitfinexMap, FundingSettlementLandsOnAnEightHourBoundary) {

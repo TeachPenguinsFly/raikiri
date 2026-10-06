@@ -20,13 +20,13 @@ namespace raikiri::venues::deribit {
 
 [[nodiscard]] std::string_view rest_host(bool testnet) noexcept;
 
-// usdc series are linear and the mapper refuses them
-inline constexpr std::array<std::string_view, 2> k_currencies{"BTC", "ETH"};
+// the settlement currencies the private sweeps cover; usdc carries the linear perpetuals
+inline constexpr std::array<std::string_view, 3> k_currencies{"BTC", "ETH", "USDC"};
 
 // the perpetual and dated future share kind future
 [[nodiscard]] std::string_view kind_of(MarketType market) noexcept;
 
-// settlement coin from the instrument name; empty when the name has no '-'
+// settlement currency from the instrument name, USDC for BTC_USDC-PERPETUAL; empty when the name has no '-'
 [[nodiscard]] std::string_view currency_of(std::string_view instrument_name) noexcept;
 
 // deribit caps label at 64 chars

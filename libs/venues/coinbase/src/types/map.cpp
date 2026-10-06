@@ -151,9 +151,11 @@ std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& 
 }
 
 std::optional<TickerStats>
-map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+map_ticker_stats(const WireProductVolume& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // a delisted product states neither column
     const auto volume = to_amount_e9(wire.volume_24h);
-    if (!volume.has_value()) {
+    const auto quote = parse_turnover_e6(wire.quote_volume_24h);
+    if (!volume.has_value() || !quote.has_value()) {
         return std::nullopt;
     }
     const auto* instrument = table.find(wire.product_id);
@@ -163,9 +165,8 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = *volume;
-    // the channel states no quote turnover, and it is not derived
-    out.volume_24h_quote = FixedE6::from_raw(0);
-    out.ts_event = iso_to_unix(wire.time, ts_init);
+    out.volume_24h_quote = *quote;
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

@@ -110,12 +110,14 @@ struct PrintBuffer {
 
 struct WireTicker {
     std::uint32_t contract_id{0};
-    std::string_view mark_price; // "0" on spot
+    std::string_view mark_price;  // "0" on spot
+    std::string_view index_price; // "0" on spot
     // the forecast for next_funding_ms; on fundingRate.* and rest the same name is the settled rate
     std::string_view funding_rate;
     std::uint64_t next_funding_ms{0};
-    std::string_view volume_base;  // `size`
-    std::string_view volume_quote; // `value`
+    std::string_view volume_base;   // `size`
+    std::string_view volume_quote;  // `value`
+    std::string_view open_interest; // base; empty on spot
 };
 
 inline constexpr std::size_t k_max_tickers = 1024;

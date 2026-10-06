@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/int128.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/options/convention.hpp>
 #include <raikiri/venues/deribit/map.hpp>
 #include <raikiri/venues/deribit/rest.hpp>
@@ -271,8 +272,12 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     out.rate = *rate;
     out.interval_s = k_funding_basis_s;
     out.accrual = FundingAccrual::Continuous;
-    if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
-        out.mark_price = *mark;
+    // the perpetual's mark and index sit off the tick, so both are truncated onto it
+    if (const auto mark = to_amount_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
+        out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
+    }
+    if (const auto index = to_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
     }
     out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
@@ -293,7 +298,23 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_amount_e9(wire.stats_volume).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = parse_turnover_e6(wire.stats_volume_usd).value_or(FixedE6::from_raw(0));
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    // spot states no quote column, so its base volume is priced at the mark
+    if (wire.stats_volume_usd.empty() && base_of(*instrument).id.market() == MarketType::Spot) {
+        const auto coins = to_amount_e9(wire.stats_volume);
+        const auto mark = to_amount_e9(wire.mark_price);
+        if (coins.has_value() && mark.has_value()) {
+            out.volume_24h_quote = turnover_e6(*coins, *mark);
+        }
+    }
+    if (const auto open = to_amount_e9(wire.open_interest); open.has_value()) {
+        const auto& base = base_of(*instrument);
+        if (base.kind != ContractKind::Inverse || base.id.market() == MarketType::Option) {
+            out.open_interest = *open;
+        } else if (const auto mark = to_amount_e9(wire.mark_price); mark.has_value() && mark->raw > 0) {
+            out.open_interest = FixedE9::from_raw(mul_div(open->raw, k_e9, mark->raw));
+        }
+    }
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -578,17 +599,6 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
     return report;
 }
 
-namespace {
-
-// BTC-PERPETUAL settles in BTC, BTC_USDC-PERPETUAL in USDC
-std::string_view settle_asset(const InstrumentBase& base) noexcept {
-    const auto prefix = currency_of(base.exchange_symbol.view());
-    const auto underscore = prefix.find('_');
-    return underscore == std::string_view::npos ? prefix : prefix.substr(underscore + 1);
-}
-
-} // namespace
-
 std::optional<LedgerEntry>
 map_funding_settlement(const WireLogEntry& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.type != "settlement") {
@@ -599,7 +609,7 @@ map_funding_settlement(const WireLogEntry& wire, const exec::InstrumentTable& ta
         return std::nullopt; // a dated future settles too, with no funding
     }
     const auto& base = base_of(*instrument);
-    if (wire.currency.empty() || wire.currency != settle_asset(base)) {
+    if (wire.currency.empty() || wire.currency != currency_of(base.exchange_symbol.view())) {
         return std::nullopt;
     }
     // funding pnl, so positive was received; finer than 1e-9 of a coin is truncated
@@ -641,6 +651,23 @@ bool collect_funding_settlements(std::span<const WireLogEntry> entries,
     return fresh;
 }
 
+namespace {
+
+[[nodiscard]] AssetClass asset_class_of(std::string_view underlying_type) noexcept {
+    if (underlying_type == "crypto" || underlying_type == "crypto_index") {
+        return AssetClass::Crypto;
+    }
+    if (underlying_type == "equity" || underlying_type == "equity_etf" || underlying_type == "preipo") {
+        return AssetClass::Equity;
+    }
+    if (underlying_type == "commodity") {
+        return AssetClass::Commodity;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     if (!wire.is_active) {
         return std::nullopt; // delivered, expired or not yet listed
@@ -663,9 +690,14 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         }
         break;
     case MarketType::Spot:
-        return std::nullopt; // listed, but the caps row calls it vestigial
+        if (wire.kind != "spot") {
+            return std::nullopt;
+        }
+        break;
     }
-    if (wire.instrument_type != "reversed") {
+    // linear series are taken as perpetuals and spot only: usdc options price the premium in usdc
+    const bool linear = wire.instrument_type == "linear";
+    if (wire.instrument_type != "reversed" && !(linear && (market == MarketType::Perp || market == MarketType::Spot))) {
         return std::nullopt;
     }
 
@@ -686,13 +718,16 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.id = InstrumentId::make(VenueId::Deribit, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;
+    base.asset_class = asset_class_of(wire.underlying_type);
     base.tick_size = *tick;
     base.lot_size = *lot;
-    base.min_notional = *lot;
-    // lot_size is already min_trade_amount in deribit's amount unit,
+    // lot_size is already min_trade_amount in deribit's amount unit, usd or base coin,
     // so storing contract_size as well would multiply the notional twice
     base.contract_value = FixedE9::from_raw(k_e9);
-    base.kind = ContractKind::Inverse;
+    base.kind = linear ? ContractKind::Linear : ContractKind::Inverse;
+    if (!linear) {
+        base.min_notional = *lot;
+    }
 
     if (market == MarketType::Option) {
         // options quote premium and size in the base coin, so the notional is linear
@@ -716,12 +751,27 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
                                 .greeks = OptionUnit::Quote};
     }
 
+    if (market == MarketType::Spot) {
+        const auto pair = canonical_symbol(wire.base_currency, wire.counter_currency);
+        if (!pair.has_value()) {
+            return std::nullopt;
+        }
+        base.local_symbol = *pair;
+        return SpotInstrument{base};
+    }
+
     if (market == MarketType::Future) {
         if (wire.expiration_ms == 0 || wire.expiration_ms > k_max_expiry_ms) {
             return std::nullopt;
         }
         return FutureInstrument{base, ms_to_unix(wire.expiration_ms, UnixNanos{0})};
     }
+    // BTC/USD for the inverse perpetual, BTC/USDC for the linear one
+    const auto local = canonical_symbol(wire.base_currency, wire.counter_currency);
+    if (!local.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *local;
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

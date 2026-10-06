@@ -118,6 +118,8 @@ TEST(DydxFunding, ATwentyDecimalRateAndAnOffGridOracleBothArrive) {
     EXPECT_TRUE(funding->predicted_rate.is_undef());
     EXPECT_EQ(btc.oracle_price, "84235.67822");
     EXPECT_EQ(funding->mark_price, PriceTicks::from_raw(84235));
+    EXPECT_EQ(funding->index_price, funding->mark_price);
+    EXPECT_EQ(funding->accrual, FundingAccrual::Discrete);
     EXPECT_EQ(funding->interval_s, 3600U);
     EXPECT_EQ(funding->next_funding_time.ns, 1'790'316'000'000'000'000ULL);
 }
@@ -148,6 +150,7 @@ TEST(DydxFunding, TurnoverIsQuoteOnly) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("7721124.7643"));
     EXPECT_TRUE(stats->volume_24h_base.is_undef());
+    EXPECT_EQ(stats->open_interest, *parse_decimal_e9("191.6459"));
 }
 
 TEST(DydxBook, TheSnapshotSeedsABandedBookAndTheBatchApplies) {

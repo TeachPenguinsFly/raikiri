@@ -49,6 +49,8 @@ parse_scaled_trades(std::string_view frame, PrintBuffer<WireScaledPrint>& storag
 struct PackColumns {
     int symbol{-1};
     int mark{-1};
+    int index{-1};
+    int open_interest{-1};
     int rate{-1};
     int predicted{-1};
     int volume{-1};
@@ -60,7 +62,9 @@ struct PackColumns {
 struct WirePackRow {
     std::string_view symbol;
     std::string_view mark;
-    std::string_view rate; // per the contract's own interval, not per 8 h
+    std::string_view index;
+    std::string_view open_interest; // base, despite the Rv suffix
+    std::string_view rate;          // per the contract's own interval, not per 8 h
     std::string_view predicted;
     std::string_view volume;   // base
     std::string_view turnover; // quote
@@ -87,8 +91,10 @@ struct WireInverseTicker {
     std::optional<std::int64_t> rate_er;
     std::optional<std::int64_t> predicted_er;
     std::optional<std::int64_t> mark_ep;
-    std::optional<std::int64_t> volume;      // contracts
-    std::optional<std::int64_t> turnover_ev; // the settle coin
+    std::optional<std::int64_t> index_ep;
+    std::optional<std::int64_t> open_interest; // contracts
+    std::optional<std::int64_t> volume;        // contracts
+    std::optional<std::int64_t> turnover_ev;   // the settle coin
     std::uint64_t ts_ns{0};
 };
 
@@ -103,5 +109,15 @@ struct WireSpotTicker {
 };
 
 [[nodiscard]] std::expected<WireSpotTicker, WireError> parse_spot_ticker(std::string_view frame);
+
+inline constexpr std::size_t k_max_spot_tickers = 2048;
+
+struct SpotTickerBuffer {
+    std::array<WireSpotTicker, k_max_spot_tickers> rows{};
+};
+
+// every spot pair's 24h row in one call, each stamped in nanoseconds
+[[nodiscard]] std::expected<std::span<const WireSpotTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                                           SpotTickerBuffer& storage);
 
 } // namespace raikiri::venues::phemex

@@ -25,14 +25,15 @@ enum class BuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;
 
-[[nodiscard]] std::string_view rest_host(bool testnet) noexcept;
+[[nodiscard]] std::string_view rest_host(bool testnet, MarketType market = MarketType::Perp) noexcept;
 
 // recvWindow is checked against the venue clock; pass the venue-corrected time as now
 inline constexpr std::uint32_t k_recv_window_ms = 5'000;
 
 class RequestBuilder {
 public:
-    explicit RequestBuilder(const net::Signer& signer) noexcept : signer_{&signer} {}
+    explicit RequestBuilder(const net::Signer& signer, MarketType market = MarketType::Perp) noexcept
+        : signer_{&signer}, market_{market} {}
 
     [[nodiscard]] net::RestRequest instruments() noexcept;
     // the funding interval lives only in fundingInfo
@@ -57,6 +58,8 @@ private:
     std::array<char, net::k_hex_bytes> signature_{};
     std::size_t sign_len_{0};
     const net::Signer* signer_;
+    // spot reads the same shapes from its own paths
+    MarketType market_{MarketType::Perp};
 };
 
 } // namespace raikiri::venues::aster

@@ -141,13 +141,31 @@ TEST(ToobitFunding, TakesTheIntervalAndBoundsFromTheRateTable) {
     EXPECT_EQ(perp.funding_floor, e9("-0.0024"));
 
     const auto base = base_for("BTC-SWAP-USDT");
-    const auto update = map_funding(*btc, base, PriceTicks::from_raw(848075), k_ingest);
+    const auto update = map_funding(*btc, base, PriceTicks::from_raw(848075), PriceTicks::from_raw(848120), k_ingest);
     ASSERT_TRUE(update.has_value());
     EXPECT_EQ(update->rate, e9("0.00003629"));
     EXPECT_EQ(update->interval_s, 28800U);
     EXPECT_EQ(update->next_funding_time.ns, 1'790'985'600'000ULL * 1'000'000ULL);
     EXPECT_EQ(update->mark_price.raw, 848075);
+    EXPECT_EQ(update->index_price.raw, 848120);
+    EXPECT_TRUE(update->predicted_rate.is_undef());
+    EXPECT_EQ(update->ts_event.ns, 0U);
     EXPECT_EQ(update->accrual, FundingAccrual::Discrete);
+}
+
+TEST(ToobitFunding, TheIndexIsKeyedByTheUnderlyingAndTruncatedOntoTheTick) {
+    const auto body = fixture("rest_index.json");
+    const auto storage = std::make_unique<IndexBuffer>();
+    const auto rows = parse_index_prices(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    EXPECT_EQ(index_key("BTC-SWAP-USDT"), "BTCUSDT");
+    EXPECT_EQ(rows->front().underlying, index_key("BTC-SWAP-USDT"));
+    EXPECT_EQ(rows->front().price, "86508.92130435");
+    const auto index = map_index_price(rows->front().price, base_for("BTC-SWAP-USDT"));
+    ASSERT_TRUE(index.has_value());
+    EXPECT_EQ(index->raw, 865089); // tick 0.1
+    EXPECT_FALSE(parse_index_prices(R"({"edp":{}})", *storage).has_value());
 }
 
 TEST(ToobitTicker, ReadsTheQuoteTurnover) {

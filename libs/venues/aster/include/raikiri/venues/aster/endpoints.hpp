@@ -11,6 +11,9 @@ namespace raikiri::venues::aster::ep {
 // aster has no testnet host, so the testnet flag is ignored
 inline constexpr std::string_view k_rest_live = "fapi.asterdex.com";
 inline constexpr std::string_view k_stream_live = "fstream.asterdex.com";
+// spot is its own api with the futures api's shapes
+inline constexpr std::string_view k_spot_rest_live = "sapi.asterdex.com";
+inline constexpr std::string_view k_spot_stream_live = "sstream.asterdex.com";
 
 [[nodiscard]] constexpr std::string_view rest_host(bool testnet) noexcept {
     (void)testnet;
@@ -31,5 +34,11 @@ inline constexpr std::string_view k_depth = "/fapi/v1/depth";
 inline constexpr std::string_view k_server_time = "/fapi/v1/time";
 // exchangeInfo does not carry the funding interval
 inline constexpr std::string_view k_funding_info = "/fapi/v1/fundingInfo";
+
+inline constexpr std::string_view k_spot_exchange_info = "/api/v1/exchangeInfo";
+// every symbol in one call, weight 40
+inline constexpr std::string_view k_spot_ticker_24h = "/api/v1/ticker/24hr";
+inline constexpr std::string_view k_spot_depth = "/api/v1/depth";
+inline constexpr std::string_view k_spot_server_time = "/api/v1/time";
 
 } // namespace raikiri::venues::aster::ep

@@ -27,9 +27,17 @@ map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// the row has no timestamp, so received is the event time
+// the row has no timestamp, so ts_event stays zero
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos received);
+
+struct OpenInterest {
+    InstrumentId instrument{};
+    FixedE9 base{};
+};
+
+[[nodiscard]] std::optional<OpenInterest> map_open_interest(const WireOpenInterest& wire,
+                                                            const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType market);
 

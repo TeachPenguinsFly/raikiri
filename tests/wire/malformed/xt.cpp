@@ -41,6 +41,11 @@ TEST(Malformed, Xt) {
                     (void)parse_trade(f, MarketType::Perp);
                 }},
                {"ws_spot_public_trade.json", [](std::string_view f) { (void)parse_trade(f, MarketType::Spot); }},
+               {"ws_index_price.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    (void)parse_mark_price(f);
+                }},
                {"ws_mark_price.json",
                 [](std::string_view f) {
                     (void)parse_event(f);
@@ -50,6 +55,7 @@ TEST(Malformed, Xt) {
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_ticker(f, MarketType::Perp);
+                    (void)parse_ticker(f, MarketType::Spot);
                 }},
                {"ws_subscribe_ack.json", [](std::string_view f) { (void)parse_event(f); }},
                {"ws_error_unknown_topic.json",

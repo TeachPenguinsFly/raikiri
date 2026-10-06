@@ -325,6 +325,7 @@ TEST(LighterFunding, TheRateIsLightersOwnHourlyPercent) {
     EXPECT_EQ(funding->rate, e9("0.000012"));
     EXPECT_TRUE(funding->predicted_rate.is_undef());
     EXPECT_EQ(funding->mark_price, PriceTicks::from_raw(842'896));
+    EXPECT_EQ(funding->index_price, PriceTicks::from_raw(843'232));
     EXPECT_EQ(funding->interval_s, 3600U);
     // Paid at 20:00:00.001; the next is the 21:00 mark.
     EXPECT_EQ(funding->next_funding_time.ns, 1'790'283'600'000ULL * 1'000'000ULL);
@@ -384,6 +385,8 @@ TEST(LighterFunding, VolumesAreReadFromTheNumberTextWithoutADouble) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("10699.68227"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("899521507.591693"));
+    // 171896230.085088 usd at the 84289.6 mark
+    EXPECT_EQ(stats->open_interest.raw, 2'039'352'780'000);
 }
 
 TEST(LighterWs, TheBookIsAskedForOnceForQuoteAndDepth) {

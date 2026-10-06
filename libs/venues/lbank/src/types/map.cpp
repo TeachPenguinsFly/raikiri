@@ -198,6 +198,9 @@ map_funding(const WireOverview& wire, const InstrumentBase& base, std::uint32_t 
     if (const auto mark = parse_amount_e9(wire.mark); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
+    if (const auto index = parse_amount_e9(wire.index); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     out.ts_event = s_or(wire.update_s, UnixNanos{});
     const auto interval_ns = std::uint64_t{interval_s} * k_ns_per_s;
     out.next_funding_time = UnixNanos{(out.ts_event.ns / interval_ns + 1U) * interval_ns};
@@ -218,7 +221,7 @@ std::optional<TickerStats> map_perp_stats(const WireOverview& wire, const Instru
         out.volume_24h_base = *volume;
     }
     out.volume_24h_quote = *quote;
-    out.ts_event = s_or(wire.update_s, ts_init);
+    out.ts_event = s_or(wire.update_s, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -299,7 +302,7 @@ std::optional<TickerStats> map_spot_stats(const WireSpotTick& wire, const Instru
         out.volume_24h_base = *volume;
     }
     out.volume_24h_quote = *quote;
-    out.ts_event = ms_or(wire.ts_ms, ts_init);
+    out.ts_event = ms_or(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

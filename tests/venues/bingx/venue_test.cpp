@@ -719,6 +719,7 @@ TEST(BingxMap, MapsFundingFromThePremiumIndexPoll) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000); // 0.0001
     EXPECT_EQ(funding->mark_price.raw, 640765);
+    EXPECT_EQ(funding->index_price.raw, 641047);
     EXPECT_EQ(funding->next_funding_time.ns, 1786406400000ULL * 1'000'000ULL);
     EXPECT_EQ(funding->interval_s, 8U * 3600U);
     // bingx gives no forecast
@@ -887,6 +888,27 @@ TEST(BingxSpotWire, TheSpotTickerSendsTheSameColumnsUnquoted) {
     // 254483206.58 / 3150.99 = 80762, inside the frame's 79000-82280.99 band.
     EXPECT_EQ(stats->volume_24h_base.raw, 3'150'990'000'000LL);
     EXPECT_EQ(stats->volume_24h_quote.raw, 254'483'206'580'000LL);
+}
+
+TEST(BingxSpotWire, TheSpotTableGivesEveryPairsVolumeInOneCall) {
+    const auto body = load("rest_spot_ticker_24h.json");
+    static SpotTickerBuffer storage;
+    const auto rows = parse_spot_tickers(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    EXPECT_EQ((*rows)[0].symbol, "BTC-USDT");
+    EXPECT_EQ((*rows)[0].volume, "1635.91");
+    EXPECT_EQ((*rows)[0].quote_volume, "140387919.69");
+    EXPECT_EQ((*rows)[0].event_ms, 1791299282189U);
+
+    const auto table = spot_catalogue();
+    const auto stats = map_ticker_stats((*rows)[0], table, MarketType::Spot, UnixNanos{5});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->instrument.market(), MarketType::Spot);
+    EXPECT_EQ(stats->volume_24h_base.raw, 1'635'910'000'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 140'387'919'690'000LL);
+    EXPECT_EQ(stats->ts_event.ns, 1791299282189ULL * 1'000'000ULL);
+    EXPECT_TRUE(stats->open_interest.is_undef());
 }
 
 TEST(BingxSpotMap, ASpotFrameResolvesAgainstTheSpotCatalogue) {

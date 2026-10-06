@@ -515,6 +515,8 @@ TEST(HyperliquidMap, FundingIsHourlyAndSettlesOnTheNextWholeHour) {
     EXPECT_EQ(funding->interval_s, 3600U);
     // mark rides the same payload
     EXPECT_EQ(funding->mark_price.raw, 641'430);
+    EXPECT_EQ(funding->index_price.raw, 641'560); // oraclePx 64156.0
+    EXPECT_TRUE(funding->predicted_rate.is_undef());
     // settles every whole hour
     EXPECT_EQ(funding->next_funding_time.ns, 3'600'000'000'000ULL);
     const auto later = map_funding(*wire, table, UnixNanos{1'790'000'000'000'000'000ULL});
@@ -541,8 +543,9 @@ TEST(HyperliquidMap, TheDaysVolumeRidesTheSameContextAsFunding) {
     EXPECT_EQ(stats->volume_24h_quote.raw, 1'786'723'009'146'250);
     // the ratio of the two volumes is a price, which shows Ntl is quote and Base is coin
     EXPECT_EQ(stats->volume_24h_quote.raw * (k_e9 / k_e6) / stats->volume_24h_base.raw, 64'614);
-    // no timestamp on either transport
-    EXPECT_EQ(stats->ts_event.ns, 11U);
+    EXPECT_EQ(stats->open_interest, *parse_decimal_e9("39664.49642"));
+    // no timestamp on either transport, so ts_event is zero
+    EXPECT_EQ(stats->ts_event.ns, 0U);
     EXPECT_EQ(stats->ts_init.ns, 11U);
 }
 
@@ -904,6 +907,35 @@ TEST(HyperliquidWire, PerpAssetIdsAreWirePositionsNotTableSlots) {
     const auto* xrp = table.find("XRP");
     ASSERT_NE(xrp, nullptr);
     EXPECT_EQ(base_of(*xrp).id.symbol().raw, 2U) << "the slot, which is NOT the asset id";
+}
+
+TEST(HyperliquidMap, EverySpotContextNamesItsCoinInOneRead) {
+    auto storage = std::make_unique<SpotAssetBuffer>();
+    const auto meta = fixture("rest_spot_meta.json");
+    const auto pairs = parse_spot_meta(meta, *storage);
+    ASSERT_TRUE(pairs.has_value());
+    exec::InstrumentTable table;
+    for (const auto& pair : *pairs) {
+        if (const auto instrument = map_spot_instrument(pair); instrument.has_value()) {
+            ASSERT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+
+    const auto ctxs_storage = std::make_unique<SpotCtxBuffer>();
+    const auto body = fixture("rest_spot_meta_and_asset_ctxs.json");
+    const auto rows = parse_spot_asset_ctxs(body, *ctxs_storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    EXPECT_EQ((*rows)[0].coin, "PURR/USDC");
+    EXPECT_EQ((*rows)[1].coin, "@107");
+    EXPECT_EQ((*rows)[1].day_notional_volume, "64681323.6948000193");
+
+    const auto stats = map_ticker_stats((*rows)[1], table, UnixNanos{9});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->instrument.market(), MarketType::Spot);
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("64681323.694800"));
+    EXPECT_GT(stats->volume_24h_base.raw, 691'918'000'000'000);
+    EXPECT_TRUE(stats->open_interest.is_undef());
 }
 
 TEST(HyperliquidMap, SpotPairsLoadFromTheirBaseTokenPrecision) {

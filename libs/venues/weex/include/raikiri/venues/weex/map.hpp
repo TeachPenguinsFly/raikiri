@@ -62,4 +62,11 @@ map_funding_charge(const WireBill& wire, const exec::InstrumentTable& table, Uni
 // nullopt for another market or steps that do not fit fixed point
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
+// nullopt for a halted symbol or steps that do not fit fixed point
+[[nodiscard]] std::optional<Instrument> map_spot_instrument(const WireSpotInstrument& wire);
+
+// nullopt for an unknown symbol or a price off the tick
+[[nodiscard]] std::optional<Bbo>
+map_book_ticker(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 } // namespace raikiri::venues::weex

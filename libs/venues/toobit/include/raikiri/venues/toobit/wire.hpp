@@ -54,6 +54,19 @@ struct FundingBuffer {
 [[nodiscard]] std::expected<std::span<const WireFunding>, WireError> parse_funding_rates(std::string_view body,
                                                                                          FundingBuffer& storage);
 
+// keyed by the underlying, BTCUSDT, which the contract BTC-SWAP-USDT spells with -SWAP-
+struct WireIndex {
+    std::string_view underlying;
+    std::string_view price;
+};
+
+struct IndexBuffer {
+    std::array<WireIndex, k_max_markets> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireIndex>, WireError> parse_index_prices(std::string_view body,
+                                                                                      IndexBuffer& storage);
+
 struct WireTicker {
     std::string_view symbol;
     std::string_view volume;

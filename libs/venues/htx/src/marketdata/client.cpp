@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -56,7 +57,13 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
+        if (auto funding = map_funding(*wire, state.instruments, received); funding.has_value()) {
+            const auto* listed = state.instruments.find(funding->instrument);
+            const auto index = state.index_prices.find(funding->instrument);
+            // an index is off the tick grid, so it is floored onto it
+            if (listed != nullptr && index != state.index_prices.end() && base_of(*listed).tick_size.raw > 0) {
+                funding->index_price = PriceTicks::from_raw(index->second.raw / base_of(*listed).tick_size.raw);
+            }
             state.sink->on_funding(*funding);
         }
         break;
@@ -66,7 +73,10 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
+        if (auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
+            if (const auto oi = state.open_interest.find(stats->instrument); oi != state.open_interest.end()) {
+                stats->open_interest = oi->second;
+            }
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -213,12 +223,14 @@ public:
                                             socket_config(notify_path()),
                                             notify_handler_,
                                             net::WsPoolConfig{},
-                                            [this](std::span<const std::string> keys) { return notify_frames(keys); }} {
+                                            [this](std::span<const std::string> keys) { return notify_frames(keys); }},
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
         market_handler_.attach(market_);
         notify_handler_.attach(notify_);
     }
 
     std::expected<void, exec::VenueError> start() override {
+        rest_.start();
         market_.start();
         notify_.start();
         started_ = true;
@@ -228,6 +240,7 @@ public:
     void stop() override {
         market_.stop();
         notify_.stop();
+        rest_.stop();
         started_ = false;
     }
 
@@ -249,6 +262,8 @@ public:
             if (const auto detail = place(code, k_detail_topic); !detail.has_value()) {
                 return detail; // a full pool refuses
             }
+            open_interest_.want(instrument);
+            index_.want(instrument);
             for (const auto& existing : state_->funding_codes) {
                 if (existing == code) {
                     return {};
@@ -283,9 +298,54 @@ public:
         // these polls do the pacing; without them nothing is sent
         market_.poll(now);
         notify_.poll(now);
+        open_interest_.poll(now, [this] {
+            return rest_.send(RequestBuilder::open_interest(),
+                              [this](const net::RestResponse& response) { on_open_interest(response); });
+        });
+        index_.poll(now, [this] {
+            return rest_.send(RequestBuilder::index_prices(),
+                              [this](const net::RestResponse& response) { on_index(response); });
+        });
     }
 
 private:
+    void on_index(const net::RestResponse& response) noexcept {
+        index_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<OpenInterestBuffer>();
+        const auto rows = parse_swap_index(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            if (const auto index = map_coin_figure(row, state_->instruments);
+                index.has_value() && index_.wanted(index->first)) {
+                state_->index_prices[index->first] = index->second;
+            }
+        }
+    }
+
+    // a memo only: a record from this poll alone would zero the volume beside it
+    void on_open_interest(const net::RestResponse& response) noexcept {
+        open_interest_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<OpenInterestBuffer>();
+        const auto rows = parse_open_interest(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            if (const auto oi = map_coin_figure(row, state_->instruments);
+                oi.has_value() && open_interest_.wanted(oi->first)) {
+                state_->open_interest[oi->first] = oi->second;
+            }
+        }
+    }
+
     std::expected<void, exec::VenueError> place(std::string_view code, std::string_view suffix) {
         const auto before = state_->desired.size();
         state_->add_subscription(code, suffix);
@@ -334,6 +394,9 @@ private:
     net::WsPool market_;
     NotifyHandler notify_handler_;
     net::WsPool notify_;
+    net::RestClient rest_;
+    exec::TickerPoll open_interest_;
+    exec::TickerPoll index_;
     bool started_{false};
 };
 

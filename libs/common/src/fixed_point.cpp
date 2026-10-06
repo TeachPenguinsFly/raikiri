@@ -235,6 +235,36 @@ std::optional<FixedE9> parse_rate_e9(std::string_view text) noexcept {
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/false) : std::nullopt;
 }
 
+std::optional<std::int64_t> parse_steps(std::string_view text, FixedE9 step, bool exact) noexcept {
+    const auto parts = decompose(text);
+    if (!parts.has_value() || step.raw <= 0) {
+        return std::nullopt;
+    }
+    constexpr int128_t k_ceiling = static_cast<int128_t>(1) << 120;
+    int shift = parts->exponent + 9;
+    int128_t value = parts->mantissa;
+    bool dropped = false;
+    for (; shift > 0; --shift) {
+        if (value > k_ceiling / 10) {
+            return std::nullopt;
+        }
+        value *= 10;
+    }
+    for (; shift < 0 && value != 0; ++shift) {
+        dropped = dropped || value % 10 != 0;
+        value /= 10;
+    }
+    if (exact && (dropped || value % step.raw != 0)) {
+        return std::nullopt;
+    }
+    value /= step.raw;
+    constexpr auto k_i64_max = static_cast<int128_t>(std::numeric_limits<std::int64_t>::max());
+    if (value > k_i64_max) {
+        return std::nullopt;
+    }
+    return parts->negative ? -static_cast<std::int64_t>(value) : static_cast<std::int64_t>(value);
+}
+
 std::optional<FixedE6> parse_turnover_e6(std::string_view text) noexcept {
     const auto parts = decompose(text);
     if (!parts.has_value()) {

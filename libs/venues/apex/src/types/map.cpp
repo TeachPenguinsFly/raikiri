@@ -116,6 +116,10 @@ map_funding(const WireTicker& wire, const PerpInstrument& perp, FundingMemo& mem
         memo.mark = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
         told = true;
     }
+    if (const auto index = parse_decimal_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        memo.index = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+        told = true;
+    }
     if (const auto next = parse_utc(wire.next_funding_time); next.has_value()) {
         memo.next_funding = *next;
         told = true;
@@ -128,8 +132,10 @@ map_funding(const WireTicker& wire, const PerpInstrument& perp, FundingMemo& mem
     // fundingRate is what the hour pays; predictedFundingRate is a fixed interest base, not a forecast
     out.rate = memo.rate;
     out.mark_price = memo.mark;
+    out.index_price = memo.index;
     out.next_funding_time = memo.next_funding;
     out.interval_s = perp.funding_interval_s;
+    out.accrual = FundingAccrual::Discrete;
     out.ts_event = us_to_unix(wire.ts_us, UnixNanos{});
     out.ts_init = ts_init;
     return out;
@@ -147,7 +153,10 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const Instru
     if (const auto turnover = parse_turnover_e6(wire.turnover_24h); turnover.has_value()) {
         out.volume_24h_quote = *turnover;
     }
-    out.ts_event = us_to_unix(wire.ts_us, ts_init);
+    if (const auto open = parse_amount_e9(wire.open_interest); open.has_value()) {
+        out.open_interest = *open;
+    }
+    out.ts_event = us_to_unix(wire.ts_us, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

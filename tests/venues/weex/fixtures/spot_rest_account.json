@@ -1,0 +1,1 @@
+{"canTrade":true,"canWithdraw":true,"canDeposit":true,"permissions":["SPOT_TRADING"],"balances":[{"asset":"BTC","free":"0.004","locked":"0"},{"asset":"USDT","free":"1200.00000000","locked":"0"}],"uid":1002003004}

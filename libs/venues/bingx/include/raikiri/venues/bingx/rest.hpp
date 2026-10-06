@@ -34,6 +34,8 @@ public:
 
     [[nodiscard]] net::RestRequest ticker(std::string_view symbol) noexcept;
 
+    [[nodiscard]] net::RestRequest spot_tickers() noexcept;
+
 private:
     std::array<char, 256> target_{};
 };

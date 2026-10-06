@@ -282,6 +282,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             out.contracts_24h = text(*stats, "c");
             out.notional_24h = text(*stats, "v");
             out.premium_24h = text(*stats, "pr");
+            out.open_interest = text(*stats, "oi");
         }
         if (out.mark.empty()) {
             return std::unexpected(WireError::MissingField);

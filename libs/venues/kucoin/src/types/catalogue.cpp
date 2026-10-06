@@ -83,8 +83,9 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             if (const auto next = opt_u64(obj, "nextFundingRateDateTime"); next.has_value()) {
                 out.next_funding_ms = *next;
             }
-            for (const auto& [key, field] :
-                 {std::pair{"volumeOf24h", &out.volume_24h}, std::pair{"turnoverOf24h", &out.turnover_24h}}) {
+            for (const auto& [key, field] : {std::pair{"volumeOf24h", &out.volume_24h},
+                                             std::pair{"turnoverOf24h", &out.turnover_24h},
+                                             std::pair{"openInterest", &out.open_interest}}) {
                 if (const auto value = opt_decimal(obj, key); value.has_value()) {
                     *field = *value;
                 }

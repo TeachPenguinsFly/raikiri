@@ -15,6 +15,7 @@
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/http/message.hpp>
+#include <boost/beast/http/parser.hpp>
 #include <boost/beast/http/read.hpp>
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/http/verb.hpp>
@@ -24,6 +25,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -226,6 +228,7 @@ private:
         beast::flat_buffer buffer;
         http::request<http::string_body> req;
         http::response<http::string_body> res;
+        std::optional<http::response_parser<http::string_body>> parser;
         RestCallback cb;
         UnixNanos sent{};
         UnixNanos last_used{};
@@ -401,9 +404,11 @@ private:
             fail_in_flight(idx, conn, ec);
             return;
         }
+        conn->parser.emplace();
+        conn->parser->body_limit(cfg_.body_limit);
         http::async_read(conn->stream,
                          conn->buffer,
-                         conn->res,
+                         *conn->parser,
                          [self = shared_from_this(), idx, gen, conn](const beast::error_code& read_ec, std::size_t) {
                              self->on_read(idx, gen, conn, read_ec);
                          });
@@ -417,6 +422,7 @@ private:
             fail_in_flight(idx, conn, ec);
             return;
         }
+        conn->res = conn->parser->release();
         RestResponse response;
         response.status = static_cast<int>(conn->res.result_int());
         response.body = std::move(conn->res.body());

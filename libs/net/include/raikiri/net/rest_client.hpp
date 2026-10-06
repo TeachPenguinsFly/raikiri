@@ -27,6 +27,7 @@ struct RestConfig {
     std::uint32_t timeout_ms{5'000};
     std::uint32_t connect_timeout_ms{3'000};
     bool verify_tls{true};
+    std::uint64_t body_limit{8ULL << 20};
 
     // the longest a send() that returned true can take to reach its callback; a caller's deadline must exceed it
     [[nodiscard]] constexpr std::uint64_t max_wait_ms() const noexcept { return std::uint64_t{timeout_ms} * 2; }

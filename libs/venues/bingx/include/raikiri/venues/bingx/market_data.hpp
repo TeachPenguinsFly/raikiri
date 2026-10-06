@@ -48,6 +48,16 @@ struct WireTicker {
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
+inline constexpr std::size_t k_max_spot_tickers = 4096;
+
+struct SpotTickerBuffer {
+    std::array<WireTicker, k_max_spot_tickers> rows{};
+};
+
+// the spot 24h table: volume, quoteVolume and closeTime as bare numbers
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                                       SpotTickerBuffer& storage);
+
 // the only funding source; last_funding_rate applies to the next settlement
 struct WirePremiumIndex {
     std::string_view symbol;

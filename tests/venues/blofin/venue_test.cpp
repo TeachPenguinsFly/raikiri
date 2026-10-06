@@ -228,6 +228,17 @@ TEST(BlofinFunding, ARowWithoutARateIsNotARateOfZero) {
     EXPECT_TRUE(memo.rate.is_undef());
 }
 
+TEST(BlofinOpenInterest, TheTableStatesItInTheBase) {
+    OpenInterestBuffer storage;
+    const auto body = fixture("rest_open_interest.json");
+    const auto rows = parse_open_interest(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    EXPECT_EQ((*rows)[0].inst_id, "BTC-USDT");
+    // 4007717 contracts of 0.001 BTC
+    EXPECT_EQ(parse_amount_e9((*rows)[0].base), FixedE9::from_raw(4'007'717'000'000));
+}
+
 TEST(BlofinFunding, TheMarkJoinsTheRecord) {
     MarkBuffer storage;
     const auto body = fixture("rest_mark_price.json");
@@ -243,6 +254,8 @@ TEST(BlofinFunding, TheMarkJoinsTheRecord) {
     EXPECT_EQ(update.instrument, btc.base.id);
     EXPECT_EQ(update.rate, FixedE9::from_raw(-61'270));
     EXPECT_EQ(update.mark_price, PriceTicks::from_raw(842'356));
+    EXPECT_EQ(update.index_price, PriceTicks::from_raw(842'807)); // 84280.7
+    EXPECT_TRUE(update.predicted_rate.is_undef());
     EXPECT_EQ(update.interval_s, 8U * 3600);
     EXPECT_TRUE(update.predicted_rate.is_undef());
     EXPECT_EQ(update.next_funding_time, UnixNanos{1'790'323'200'000ULL * 1'000'000ULL});

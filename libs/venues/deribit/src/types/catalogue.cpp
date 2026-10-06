@@ -43,7 +43,10 @@ std::expected<std::span<const WireInstrument>, WireError> parse_instruments(std:
             out.kind = *kind;
             for (const auto& [key, field] : {std::pair{"instrument_type", &out.instrument_type},
                                              std::pair{"settlement_period", &out.settlement_period},
-                                             std::pair{"option_type", &out.option_type}}) {
+                                             std::pair{"option_type", &out.option_type},
+                                             std::pair{"base_currency", &out.base_currency},
+                                             std::pair{"counter_currency", &out.counter_currency},
+                                             std::pair{"underlying_type", &out.underlying_type}}) {
                 const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());

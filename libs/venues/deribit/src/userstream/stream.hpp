@@ -73,8 +73,9 @@ private:
         }
         authenticated_ = true;
         // one channel per kind and currency covers the whole account
-        std::array<std::array<char, k_max_channel_len>, 4> storage{};
-        std::array<Subscription, 4> channels{};
+        constexpr std::size_t k_channels = 2 * k_currencies.size();
+        std::array<std::array<char, k_max_channel_len>, k_channels> storage{};
+        std::array<Subscription, k_channels> channels{};
         std::size_t count = 0;
         for (const auto market : {MarketType::Perp, MarketType::Option}) {
             for (const auto currency : k_currencies) {

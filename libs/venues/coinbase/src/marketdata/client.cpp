@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -57,9 +58,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
-        }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
-            state.sink->on_ticker_stats(*stats);
         }
         break;
     }
@@ -183,16 +181,20 @@ public:
                 // the ceiling is per connection
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }},
+          volume_rest_{state_->io,
+                       net::RestConfig{.host = std::string{volume_host()}, .port = "443", .timeout_ms = 20'000}} {}
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
+        volume_rest_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
         pool_.stop();
+        volume_rest_.stop();
         started_ = false;
     }
 
@@ -206,6 +208,10 @@ public:
         const auto channel = channel_for(kind);
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
+        }
+        if (kind == exec::SubKind::Bbo) {
+            // the ticker channel states base volume alone; the list has both columns
+            volumes_.want(instrument);
         }
         if (!state_->add_subscription(channel, symbol)) {
             return {}; // already asked for, and a second key would cost a socket's room
@@ -230,9 +236,32 @@ public:
         }
         state_->io.poll();
         pool_.poll(now);
+        volumes_.poll(now, [this] {
+            return volume_rest_.send(product_volumes(),
+                                     [this](const net::RestResponse& response) { on_volumes(response); });
+        });
     }
 
 private:
+    void on_volumes(const net::RestResponse& response) noexcept {
+        volumes_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<ProductVolumeBuffer>();
+        const auto rows = parse_product_volumes(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() && volumes_.wanted(stats->instrument)) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
     // only this socket's level2_batch books: without a sequence they stay stale until the next snapshot
     void invalidate_books(std::span<const std::string> keys) {
         const auto depth = channel_for(exec::SubKind::Depth);
@@ -282,6 +311,8 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::WsPool pool_;
+    net::RestClient volume_rest_;
+    exec::TickerPoll volumes_;
     bool started_{false};
 };
 

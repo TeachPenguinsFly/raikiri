@@ -1,4 +1,5 @@
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -112,6 +113,7 @@ public:
             if (funding_wanted_.insert(instrument.packed).second) {
                 memos_[instrument.packed].interval_s = std::get<PerpInstrument>(*listed).funding_interval_s;
             }
+            oi_.want(instrument);
             if (const auto opened = open(k_funding_channel, symbol); !opened.has_value()) {
                 return opened;
             }
@@ -138,6 +140,10 @@ public:
             next_ping_ns_ = now.ns + k_ping_interval_ns;
         }
         poll_funding(now);
+        oi_.poll(now, [this] {
+            const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_open_interest, .body = {}};
+            return rest_.send(request, [this](net::RestResponse&& response) { on_open_interest(response); });
+        });
     }
 
 private:
@@ -330,7 +336,10 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            if (const auto stats = map_ticker_stats(row, base_of(*instrument), received); stats.has_value()) {
+            if (auto stats = map_ticker_stats(row, base_of(*instrument), received); stats.has_value()) {
+                if (const auto oi = open_interest_.find(stats->instrument.packed); oi != open_interest_.end()) {
+                    stats->open_interest = oi->second;
+                }
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -424,6 +433,26 @@ private:
         }
     }
 
+    // kept until the next ticker push carries it out
+    void on_open_interest(const net::RestResponse& response) noexcept {
+        oi_.answered();
+        if (!answered(response)) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<OpenInterestBuffer>();
+        const auto rows = parse_open_interest(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto* instrument = find(row.inst_id);
+            const auto base = parse_amount_e9(row.base);
+            if (instrument != nullptr && base.has_value() && oi_.wanted(base_of(*instrument).id)) {
+                open_interest_[base_of(*instrument).id.packed] = *base;
+            }
+        }
+    }
+
     void on_mark_table(const net::RestResponse& response) noexcept {
         marks_in_flight_ = false;
         if (!answered(response)) {
@@ -495,6 +524,8 @@ private:
     Handler handler_;
     net::WsPool pool_;
     net::RestClient rest_;
+    exec::TickerPoll oi_;
+    std::unordered_map<std::uint64_t, FixedE9> open_interest_;
     Protocol protocol_;
 
     std::unordered_set<std::string> desired_;

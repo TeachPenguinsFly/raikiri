@@ -87,14 +87,31 @@ std::expected<std::span<const WireMark>, WireError> parse_mark_table(std::string
     return read_data<WireMark>(
         body, storage.rows, [](wire::ondemand::object& obj, WireMark& out) -> std::expected<void, WireError> {
             const auto inst_id = wire::req_str(obj, "instId");
+            const auto index = wire::opt_str(obj, "indexPrice");
             const auto mark = wire::opt_str(obj, "markPrice");
             const auto ts = wire::opt_ms(obj, "ts");
-            if (!inst_id.has_value() || !mark.has_value() || !ts.has_value()) {
+            if (!inst_id.has_value() || !index.has_value() || !mark.has_value() || !ts.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             out.inst_id = *inst_id;
+            out.index_price = *index;
             out.mark_price = *mark;
             out.ts_ms = *ts;
+            return {};
+        });
+}
+
+std::expected<std::span<const WireOpenInterest>, WireError> parse_open_interest(std::string_view body,
+                                                                                OpenInterestBuffer& storage) {
+    return read_data<WireOpenInterest>(
+        body, storage.rows, [](wire::ondemand::object& obj, WireOpenInterest& out) -> std::expected<void, WireError> {
+            const auto inst_id = wire::req_str(obj, "instId");
+            const auto base = wire::opt_str(obj, "openInterestCurrency");
+            if (!inst_id.has_value() || !base.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.inst_id = *inst_id;
+            out.base = *base;
             return {};
         });
 }

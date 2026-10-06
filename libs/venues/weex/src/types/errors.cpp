@@ -27,6 +27,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
         // weex bans for ten seconds after a breach
         return exec::ErrorClass::RateLimited;
 
+    case k_unknown_error:
     case k_system_error:
         return exec::ErrorClass::Retryable;
 
@@ -43,7 +44,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
 }
 
 bool is_benign_cancel_failure(std::int64_t code) noexcept {
-    return code == k_order_not_found;
+    return code == k_order_not_found || code == k_spot_order_not_found;
 }
 
 } // namespace raikiri::venues::weex

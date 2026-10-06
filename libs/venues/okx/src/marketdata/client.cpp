@@ -1,5 +1,7 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -32,6 +34,22 @@ namespace {
 
 // okx drops a socket with no app message for 30 s; control frames do not count
 constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
+
+[[nodiscard]] std::string_view swap_index(std::string_view inst_id) noexcept {
+    constexpr std::string_view suffix = "-SWAP";
+    return inst_id.ends_with(suffix) ? inst_id.substr(0, inst_id.size() - suffix.size()) : std::string_view{};
+}
+
+// an index is off the tick grid, so it is floored onto it
+void stamp_index(const VenueState& state, const InstrumentBase& base, FundingUpdate& funding) {
+    const auto name = swap_index(base.exchange_symbol.view());
+    if (name.empty() || base.tick_size.raw <= 0) {
+        return;
+    }
+    if (const auto index = state.index_prices.find(std::string{name}); index != state.index_prices.end()) {
+        funding.index_price = PriceTicks::from_raw(index->second.raw / base.tick_size.raw);
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -75,7 +93,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             break; // nothing to accumulate into, and nothing to publish
         }
         auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
-        if (const auto funding = map_funding(*wire, state.instruments, memo, received); funding.has_value()) {
+        if (auto funding = map_funding(*wire, state.instruments, memo, received); funding.has_value()) {
+            stamp_index(state, base_of(*listed), *funding);
             state.sink->on_funding(*funding);
         }
         break;
@@ -85,7 +104,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
+        if (auto stats = map_ticker_stats(*wire, state.instruments, received); stats.has_value()) {
+            if (const auto oi = state.open_interest.find(stats->instrument); oi != state.open_interest.end()) {
+                stats->open_interest = oi->second;
+            }
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -137,7 +159,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             break;
         }
         auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
-        if (const auto funding = map_mark_price(*wire, state.instruments, memo, received); funding.has_value()) {
+        if (auto funding = map_mark_price(*wire, state.instruments, memo, received); funding.has_value()) {
+            stamp_index(state, base_of(*listed), *funding);
             state.sink->on_funding(*funding);
         }
         break;
@@ -244,9 +267,13 @@ public:
                 // okx caps a connection at 1024 subscriptions
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }},
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
+        rest_.start();
         pool_.start();
         started_ = true;
         return {};
@@ -254,6 +281,7 @@ public:
 
     void stop() override {
         pool_.stop();
+        rest_.stop();
         started_ = false;
     }
 
@@ -273,6 +301,10 @@ public:
         if (state_->option_enabled && instrument.market() == MarketType::Option) {
             return subscribe_option(kind, symbol);
         }
+        // a spot gateway opens no tickers channel without funding, so the 24h window comes over rest
+        if (kind == exec::SubKind::Bbo && instrument.market() == MarketType::Spot) {
+            tickers_.want(instrument);
+        }
         if (kind == exec::SubKind::Funding) {
             // tickers has no SubKind, so it opens beside funding, and first since spot gets it too
             if (!open(k_tickers_channel, symbol)) {
@@ -284,6 +316,12 @@ public:
             }
             if (!open(channel, symbol)) {
                 return pool_full();
+            }
+            if (instrument.market() == MarketType::Perp) {
+                open_interest_.want(instrument);
+                if (const auto index = swap_index(symbol); !index.empty() && !open(k_index_channel, index)) {
+                    return pool_full();
+                }
             }
             // the mark has its own channel
             if (!open(channel_for(exec::SubKind::MarkPrice), symbol)) {
@@ -313,10 +351,56 @@ public:
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
         resync_books(now);
+        tickers_.poll(now, [this] {
+            return rest_.send(state_->builder.tickers("SPOT"),
+                              [this](const net::RestResponse& response) { on_tickers(response); });
+        });
+        open_interest_.poll(now, [this] {
+            return rest_.send(state_->builder.open_interest("SWAP"),
+                              [this](const net::RestResponse& response) { on_open_interest(response); });
+        });
         report_coverage(now, "okx", pool_.connection_count(), pool_.key_count());
     }
 
 private:
+    void on_tickers(const net::RestResponse& response) noexcept {
+        tickers_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<TickerBuffer>();
+        const auto rows = parse_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() && tickers_.wanted(stats->instrument)) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
+    // a memo only: a record from this poll alone would zero the volume beside it
+    void on_open_interest(const net::RestResponse& response) noexcept {
+        open_interest_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<OpenInterestBuffer>();
+        const auto rows = parse_open_interest(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            if (const auto oi = map_open_interest(row, state_->instruments);
+                oi.has_value() && open_interest_.wanted(oi->first)) {
+                state_->open_interest[oi->first] = oi->second;
+            }
+        }
+    }
+
     void report_coverage(UnixNanos now, std::string_view venue, std::size_t sockets, std::size_t keys) {
         if (!state_->option_enabled || now.ns < state_->next_coverage_ns) {
             return;
@@ -453,6 +537,9 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::WsPool pool_;
+    net::RestClient rest_;
+    exec::TickerPoll tickers_;
+    exec::TickerPoll open_interest_;
     bool started_{false};
 };
 

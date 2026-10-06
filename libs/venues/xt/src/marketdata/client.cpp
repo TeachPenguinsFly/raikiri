@@ -104,6 +104,20 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
+    case EventKind::IndexPrice: {
+        const auto wire = parse_mark_price(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        auto* memo = state.memo_for(wire->symbol);
+        if (memo == nullptr) {
+            break;
+        }
+        if (const auto funding = map_index_price(*wire, state.instruments, *memo, received); funding.has_value()) {
+            state.sink->on_funding(*funding);
+        }
+        break;
+    }
     case EventKind::Ack:
     case EventKind::Unknown:
         break;
@@ -207,6 +221,9 @@ public:
             // the mark has its own channel and FundingUpdate carries it
             if (const auto placed = want(topic_for(exec::SubKind::MarkPrice, state_->market), symbol);
                 !placed.has_value()) {
+                return placed;
+            }
+            if (const auto placed = want(index_topic(), symbol); !placed.has_value()) {
                 return placed;
             }
             return watch_funding(symbol);

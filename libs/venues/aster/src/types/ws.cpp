@@ -44,8 +44,8 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view stream_host(bool testnet) noexcept {
-    return ep::stream_host(testnet);
+std::string_view stream_host(bool testnet, MarketType market) noexcept {
+    return market == MarketType::Spot ? ep::k_spot_stream_live : ep::stream_host(testnet);
 }
 
 std::string_view stream_path() noexcept {

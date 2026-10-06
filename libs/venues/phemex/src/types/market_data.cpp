@@ -133,6 +133,10 @@ std::expected<void, WireError> read_columns(wire::ondemand::array fields, PackCo
             out.symbol = index;
         } else if (*name == "markRp") {
             out.mark = index;
+        } else if (*name == "indexRp") {
+            out.index = index;
+        } else if (*name == "openInterestRv") {
+            out.open_interest = index;
         } else if (*name == "fundingRateRr") {
             out.rate = index;
         } else if (*name == "predFundingRateRr") {
@@ -153,9 +157,11 @@ std::expected<void, WireError> read_columns(wire::ondemand::array fields, PackCo
 
 std::expected<WirePackRow, WireError> read_pack_row(wire::ondemand::array row, const PackColumns& columns) {
     WirePackRow out{};
-    const std::array<std::pair<int, std::string_view*>, 6> wanted{{
+    const std::array<std::pair<int, std::string_view*>, 8> wanted{{
+        {columns.open_interest, &out.open_interest},
         {columns.symbol, &out.symbol},
         {columns.mark, &out.mark},
+        {columns.index, &out.index},
         {columns.rate, &out.rate},
         {columns.predicted, &out.predicted},
         {columns.volume, &out.volume},
@@ -305,6 +311,8 @@ std::expected<WireInverseTicker, WireError> parse_inverse_ticker(std::string_vie
                                       {{"fundingRate", &out.rate_er},
                                        {"predFundingRate", &out.predicted_er},
                                        {"markPrice", &out.mark_ep},
+                                       {"indexPrice", &out.index_ep},
+                                       {"openInterest", &out.open_interest},
                                        {"volume", &out.volume},
                                        {"turnover", &out.turnover_ev}});
             !ok.has_value()) {
@@ -340,6 +348,48 @@ std::expected<WireSpotTicker, WireError> parse_spot_ticker(std::string_view fram
             return std::unexpected(ok.error());
         }
         return out;
+    });
+}
+
+std::expected<std::span<const WireSpotTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                             SpotTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireSpotTicker>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "result");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireSpotTicker out{};
+            const auto symbol = wire::req_str(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            out.symbol = *symbol;
+            const auto ts = wire::opt_u64(obj, "timestamp");
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            out.ts_ns = *ts;
+            if (const auto ok = read_ints(obj, {{"volumeEv", &out.volume_ev}, {"turnoverEv", &out.turnover_ev}});
+                !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireSpotTicker>{storage.rows.data(), count};
     });
 }
 

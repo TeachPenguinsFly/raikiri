@@ -165,5 +165,20 @@ TEST(MulDiv, TruncatesTowardZeroOnBothSigns) {
     EXPECT_EQ(mul_div(-7, 1, 2), -3);
 }
 
+TEST(ParseSteps, CountsStepsPastTheE9RangeAndInExponentForm) {
+    const auto cent = FixedE9::from_raw(10'000'000);
+    const auto satoshi = FixedE9::from_raw(10);
+    EXPECT_EQ(parse_steps("1.1591E8", FixedE9::from_raw(1'000'000'000)), 115'910'000);
+    EXPECT_EQ(parse_steps("9800996644.82929775", satoshi), 980'099'664'482'929'775);
+    EXPECT_EQ(parse_steps("85673.77", cent), 8'567'377);
+    EXPECT_EQ(parse_steps("1e-08", satoshi), 1);
+    EXPECT_FALSE(parse_steps("85673.775", cent).has_value());
+    EXPECT_EQ(parse_steps("85673.775", cent, false), 8'567'377);
+    EXPECT_EQ(parse_steps("3873327814429.1816", FixedE9::from_raw(10'000'000), false), 387'332'781'442'918);
+    EXPECT_FALSE(parse_steps("3873327814429.1816", satoshi, false).has_value());
+    EXPECT_FALSE(parse_steps("", cent).has_value());
+    EXPECT_FALSE(parse_steps("1", FixedE9::from_raw(0)).has_value());
+}
+
 } // namespace
 } // namespace raikiri

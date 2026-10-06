@@ -208,6 +208,7 @@ TEST(PacificaFunding, TheFixedRateTheEstimateAndTheNextHour) {
     EXPECT_EQ(funding->rate, FixedE9::from_raw(-76'210));
     EXPECT_EQ(funding->predicted_rate, FixedE9::from_raw(-37'300));
     EXPECT_EQ(funding->mark_price, PriceTicks::from_raw(94'061));
+    EXPECT_EQ(funding->index_price, PriceTicks::from_raw(94'146)); // the oracle, 94.146849
     EXPECT_EQ(funding->interval_s, 3600U);
     EXPECT_EQ(funding->accrual, FundingAccrual::Discrete);
     EXPECT_EQ(funding->ts_event, UnixNanos{1'790'412'391'391'000'000ULL});
@@ -217,6 +218,7 @@ TEST(PacificaFunding, TheFixedRateTheEstimateAndTheNextHour) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote, FixedE6::from_raw(1'165'890'934'640));
     EXPECT_TRUE(stats->volume_24h_base.is_undef());
+    EXPECT_EQ(stats->open_interest, FixedE9::from_raw(3'172'360'000'000));
 
     WirePrice blank = *cl;
     blank.funding = "";

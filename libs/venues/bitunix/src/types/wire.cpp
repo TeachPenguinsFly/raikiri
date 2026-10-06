@@ -226,15 +226,17 @@ std::expected<std::span<const WireFunding>, WireError> parse_funding(std::string
                                WireFunding out{};
                                const auto symbol = wire::req_str(row, "symbol");
                                const auto mark = wire::opt_str(row, "markPrice");
+                               const auto index = wire::opt_str(row, "indexPrice");
                                const auto rate = wire::req_str(row, "fundingRate");
                                const auto interval = req_count(row, "fundingInterval");
                                const auto next = wire::opt_ms(row, "nextFundingTime");
-                               if (!symbol.has_value() || !mark.has_value() || !rate.has_value() ||
-                                   !interval.has_value() || !next.has_value()) {
+                               if (!symbol.has_value() || !mark.has_value() || !index.has_value() ||
+                                   !rate.has_value() || !interval.has_value() || !next.has_value()) {
                                    return std::unexpected(WireError::MissingField);
                                }
                                out.symbol = *symbol;
                                out.mark = *mark;
+                               out.index = *index;
                                out.rate = *rate;
                                out.interval_h = *interval;
                                out.next_ms = *next;

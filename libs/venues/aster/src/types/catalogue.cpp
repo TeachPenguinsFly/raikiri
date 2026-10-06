@@ -74,10 +74,12 @@ std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(st
             if (!filters.has_value()) {
                 return std::unexpected(filters.error());
             }
-            const std::array<FilterWanted, 3> wanted{{
+            const std::array<FilterWanted, 4> wanted{{
                 {"PRICE_FILTER", "tickSize", &out.tick_size},
                 {"LOT_SIZE", "stepSize", &out.step_size},
                 {"MIN_NOTIONAL", "notional", &out.min_notional},
+                // spot's spelling of the same minimum
+                {"MIN_NOTIONAL", "minNotional", &out.min_notional},
             }};
             for (auto filter_entry : *filters) {
                 wire::ondemand::object filter;
@@ -92,11 +94,14 @@ std::expected<std::span<const WireInstrument>, WireError> parse_exchange_info(st
                     if (*type != want.type) {
                         continue;
                     }
+                    filter.reset();
                     const auto value = wire::opt_str(filter, want.field);
                     if (!value.has_value()) {
                         return std::unexpected(value.error());
                     }
-                    *want.into = *value;
+                    if (!value->empty()) {
+                        *want.into = *value;
+                    }
                 }
             }
             storage.instruments[count] = out;

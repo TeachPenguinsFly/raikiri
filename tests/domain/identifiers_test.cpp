@@ -41,7 +41,7 @@ TEST(AccountId, PerpKeepsThePlainVenueName) {
 }
 
 TEST(AccountId, ParsesBackToWhatItFormatted) {
-    char buf[16];
+    char buf[32];
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
         if (is_retired(static_cast<VenueId>(v))) {
             continue;

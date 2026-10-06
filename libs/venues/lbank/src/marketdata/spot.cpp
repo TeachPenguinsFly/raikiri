@@ -1,5 +1,8 @@
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/lbank/endpoints.hpp>
@@ -156,16 +159,22 @@ public:
                     .host = std::string{ep::k_spot_host}, .port = "443", .target = std::string{ep::k_spot_ws_path}},
                 handler_,
                 net::WsPoolConfig{},
-                [](std::span<const std::string> keys) { return build_frames(keys); }} {}
+                [](std::span<const std::string> keys) { return build_frames(keys); }},
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{ep::k_spot_host}, .port = "443", .timeout_ms = 20'000}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
+        rest_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
         pool_.stop();
+        rest_.stop();
         started_ = false;
     }
 
@@ -177,6 +186,10 @@ public:
         const auto pair = state_->instruments.exchange_symbol(instrument);
         if (pair.empty() || state_->market_of(instrument) == nullptr || instrument.market() != MarketType::Spot) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+        }
+        if (kind == exec::SubKind::Bbo) {
+            // the tick channel rides funding, which a spot account does not open
+            tickers_.want(instrument);
         }
         std::string_view channel;
         switch (kind) {
@@ -216,6 +229,10 @@ public:
         }
         state_->io.poll();
         pool_.poll(now);
+        tickers_.poll(now, [this] {
+            const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_spot_tickers, .body = {}};
+            return rest_.send(request, [this](const net::RestResponse& response) { on_tickers(response); });
+        });
         if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
             pool_.broadcast(ep::k_spot_ping);
             state_->next_app_ping_ns = now.ns + ep::k_app_ping_interval_ns;
@@ -229,6 +246,31 @@ public:
     }
 
 private:
+    void on_tickers(const net::RestResponse& response) noexcept {
+        tickers_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickBuffer>();
+        const auto rows = parse_spot_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto* instrument = state_->instruments.find(row.pair);
+            if (instrument == nullptr || !tickers_.wanted(base_of(*instrument).id)) {
+                continue;
+            }
+            if (const auto stats = map_spot_stats(row, base_of(*instrument), received); stats.has_value()) {
+                state_->sink->on_ticker_stats(*stats);
+                if (auto* market = state_->market_of(stats->instrument); market != nullptr) {
+                    market->funded = true;
+                }
+            }
+        }
+    }
+
     [[nodiscard]] static std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string> frames;
         frames.reserve(keys.size());
@@ -265,6 +307,8 @@ private:
     std::shared_ptr<VenueState> state_;
     Handler handler_;
     net::WsPool pool_;
+    net::RestClient rest_;
+    exec::TickerPoll tickers_;
     std::unordered_set<std::string> asked_;
     bool started_{false};
 };

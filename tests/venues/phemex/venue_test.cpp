@@ -295,7 +295,8 @@ TEST(PhemexFunding, TheRateIsPerTheContractsOwnIntervalAndTheNextTimeIsOnItsGrid
     EXPECT_EQ(funding->next_funding_time.ns % (4 * k_hour_ns), 0U);
     EXPECT_GT(funding->next_funding_time.ns, pack->ts_ns);
     EXPECT_LE(funding->next_funding_time.ns - pack->ts_ns, 4 * k_hour_ns);
-    EXPECT_EQ(funding->mark_price.raw, 27408); // markRp, not the indexRp beside it
+    EXPECT_EQ(funding->mark_price.raw, 27408);  // markRp, not the indexRp beside it
+    EXPECT_EQ(funding->index_price.raw, 27450); // 2.745025 truncated onto the tick
 
     const auto& btc = listed("BTCUSDT", MarketType::Perp);
     const auto btc_funding = map_funding(
@@ -307,6 +308,7 @@ TEST(PhemexFunding, TheRateIsPerTheContractsOwnIntervalAndTheNextTimeIsOnItsGrid
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("4551.127"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("382619179.95088"));
+    EXPECT_EQ(stats->open_interest, e9("1942.9502556")); // openInterestRv is coins
 
     EXPECT_FALSE(map_funding(WirePackRow{}, base_of(btc.instrument), btc.listing, pack->ts_ns, k_ingest).has_value());
 }
@@ -321,10 +323,13 @@ TEST(PhemexFunding, TheInverseTickerIsScaledAndCountsContractsAsTheQuote) {
     EXPECT_EQ(funding->rate, e9("0.0001"));
     EXPECT_EQ(funding->interval_s, 28800U);
     EXPECT_EQ(funding->mark_price.raw, 842170); // 84217.0 in 0.1 ticks
+    EXPECT_EQ(funding->index_price.raw, 842446);
     const auto stats = map_ticker_stats(*wire, base_of(row.instrument), row.listing, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("195087675"));
     EXPECT_EQ(stats->volume_24h_base, e9("2329.70059866"));
+    // 942594395 one-dollar contracts at the 84217.0 mark
+    EXPECT_EQ(stats->open_interest.raw, 11'192'448'021'183);
 }
 
 TEST(PhemexFunding, TheSpotTickerStatesBothVolumes) {
@@ -336,6 +341,26 @@ TEST(PhemexFunding, TheSpotTickerStatesBothVolumes) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, *scaled_e9(*wire->volume_ev, 8));
     EXPECT_EQ(stats->volume_24h_quote, FixedE6::from_raw(*wire->turnover_ev / 100));
+}
+
+TEST(PhemexFunding, TheSpotTableStatesEveryPairsVolumesInOneCall) {
+    const auto text = fixture("rest_spot_ticker_24h_all.json");
+    static SpotTickerBuffer storage;
+    const auto rows = parse_spot_tickers(text, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    const auto btc = std::ranges::find(*rows, std::string_view{"sBTCUSDT"}, &WireSpotTicker::symbol);
+    ASSERT_NE(btc, rows->end());
+    EXPECT_EQ(btc->volume_ev, 360'009'315'300);
+    EXPECT_EQ(btc->turnover_ev, 30'880'846'524'733'312);
+    EXPECT_EQ(btc->ts_ns, 1'791'299'604'634'776'014ULL);
+
+    const auto& row = listed("sBTCUSDT", MarketType::Spot);
+    const auto stats = map_ticker_stats(*btc, base_of(row.instrument), row.listing, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base, e9("3600.093153"));
+    EXPECT_EQ(stats->volume_24h_quote, FixedE6::from_raw(308'808'465'247'333));
+    EXPECT_TRUE(stats->open_interest.is_undef());
 }
 
 TEST(PhemexEnvelope, EveryFrameIsRecognisedByItsPayloadKey) {

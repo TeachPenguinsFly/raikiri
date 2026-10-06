@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"subscription","params":{"channel":"book.BTC_USDC.none.1.100ms","data":{"timestamp":1791300025397,"change_id":9488027192,"instrument_name":"BTC_USDC","bids":[[86514.95,0.04654996]],"asks":[[86514.96,0.09223835]]}}}

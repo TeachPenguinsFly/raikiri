@@ -1028,6 +1028,8 @@ export interface components {
             rate: components["schemas"]["Decimal"];
             predicted_rate?: components["schemas"]["Decimal"];
             mark_price?: components["schemas"]["Decimal"];
+            /** @description The venue's index for the contract. Absent where the venue publishes none. */
+            index_price?: components["schemas"]["Decimal"];
             next_funding_time?: components["schemas"]["Nanos"];
             /**
              * @description The rate's own interval; hyperliquid quotes hourly, most venues per eight
@@ -1054,6 +1056,8 @@ export interface components {
              *     is not dollars. Rank cross-venue boards on this column.
              */
             volume_24h_quote: components["schemas"]["Decimal"];
+            /** @description Open contracts in the base asset. Absent where the venue does not publish it. */
+            open_interest?: components["schemas"]["Decimal"];
             ts_event: components["schemas"]["Nanos"];
         };
         ParentId: string;

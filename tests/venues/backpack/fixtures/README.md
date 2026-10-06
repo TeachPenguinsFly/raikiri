@@ -9,6 +9,7 @@ verbatim; REST bodies are trimmed to a few rows.
 |---|---|
 | `rest_markets.json` | `GET /api/v1/markets`, trimmed |
 | `rest_tickers.json` | `GET /api/v1/tickers`, trimmed |
+| `rest_open_interest.json` | `GET /api/v1/openInterest` with no symbol on 2026-10-06, five of 98 rows kept verbatim, `SOL_USDC_PERP` first |
 | `rest_depth.json` | `GET /api/v1/depth`, trimmed |
 | `rest_error.json` | a REST request naming an unknown market symbol |
 | `ws_book_ticker.json` | `bookTicker`, SOL_USDC |

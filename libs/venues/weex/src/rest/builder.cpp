@@ -26,6 +26,8 @@ constexpr std::string_view k_income_funding = "position_funding";
 // weex refuses fill windows over 7 days and bill windows over 100, so clamp
 constexpr std::uint64_t k_max_fill_window_ms = 7ULL * 24 * 60 * 60 * 1000;
 constexpr std::uint64_t k_max_bill_window_ms = 100ULL * 24 * 60 * 60 * 1000;
+constexpr std::uint64_t k_max_spot_fill_window_ms = 90ULL * 24 * 60 * 60 * 1000;
+constexpr std::string_view k_spot_page_limit = "200";
 
 // reports overflow instead of truncating a signed payload
 class Appender {
@@ -131,6 +133,8 @@ std::string_view to_string(BuildError err) noexcept {
         return "buffer too small";
     case BuildError::NotSigned:
         return "credentials not loaded";
+    case BuildError::UnsupportedOrder:
+        return "weex spot takes limit orders without post-only or reduce-only";
     }
     return "unknown";
 }
@@ -150,6 +154,18 @@ net::RestRequest RequestBuilder::premium_index() noexcept {
 
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time};
+}
+
+net::RestRequest RequestBuilder::spot_instruments() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_exchange_info};
+}
+
+net::RestRequest RequestBuilder::spot_tickers() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_ticker_24h};
+}
+
+net::RestRequest RequestBuilder::spot_api_trading_symbols() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_api_trading_symbols};
 }
 
 std::string_view RequestBuilder::last_sign_message() const noexcept {
@@ -361,6 +377,105 @@ RequestBuilder::funding_charges(MarketType market, UnixNanos since, UnixNanos no
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return sign(net::HttpMethod::Post, ep::k_income, {}, json.view(), now);
+}
+
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::spot_create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+    if (cmd.instrument.market() != MarketType::Spot) {
+        return std::unexpected{BuildError::UnsupportedMarket};
+    }
+    const auto* instrument = table.find(cmd.instrument);
+    if (instrument == nullptr) {
+        return std::unexpected{BuildError::UnknownInstrument};
+    }
+    if (cmd.order_type != OrderType::Limit || has_flag(cmd.flags, OrderFlags::PostOnly) ||
+        has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
+        return std::unexpected{BuildError::UnsupportedOrder};
+    }
+    if (cmd.qty.is_undef() || cmd.price.is_undef()) {
+        return std::unexpected{BuildError::BadValue};
+    }
+    if (cmd.exchange_client_order_id.empty()) {
+        return std::unexpected{BuildError::NoOrderTarget};
+    }
+    const auto& base = base_of(*instrument);
+    net::JsonWriter json{body_};
+    json.obj_begin()
+        .str("symbol", table.exchange_symbol(cmd.instrument))
+        .str("side", side_text(cmd.side))
+        .str("type", "LIMIT")
+        .str("timeInForce", tif_text(cmd.tif, OrderFlags::None))
+        .decimal("quantity", base.lots_to_qty(cmd.qty))
+        .decimal("price", base.ticks_to_price(cmd.price))
+        .str("newClientOrderId", cmd.exchange_client_order_id.view())
+        .obj_end();
+    if (!json.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Post, ep::k_spot_order, {}, json.view(), now);
+}
+
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::spot_cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+    const auto symbol = table.exchange_symbol(cmd.instrument);
+    if (symbol.empty()) {
+        return std::unexpected{BuildError::UnknownInstrument};
+    }
+    Appender query{query_};
+    query << "symbol=" << symbol;
+    if (!cmd.exchange_client_order_id.empty()) {
+        query << "&origClientOrderId=" << cmd.exchange_client_order_id.view();
+    } else if (!cmd.target_exchange_order_id.empty()) {
+        query << "&orderId=" << cmd.target_exchange_order_id.view();
+    } else {
+        return std::unexpected{BuildError::NoOrderTarget};
+    }
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Delete, ep::k_spot_order, query.view(), {}, now);
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::spot_query_order(std::string_view client_order_id,
+                                                                             UnixNanos now) {
+    if (client_order_id.empty()) {
+        return std::unexpected{BuildError::NoOrderTarget};
+    }
+    Appender query{query_};
+    query << "origClientOrderId=" << client_order_id;
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, ep::k_spot_order, query.view(), {}, now);
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::spot_open_orders(UnixNanos now) {
+    return sign(net::HttpMethod::Get, ep::k_spot_open_orders, {}, {}, now);
+}
+
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::spot_fills(std::string_view symbol, UnixNanos since, UnixNanos now) {
+    if (symbol.empty()) {
+        return std::unexpected{BuildError::UnknownInstrument};
+    }
+    Appender query{query_};
+    query << "symbol=" << symbol << "&limit=" << k_spot_page_limit;
+    if (since.ns != 0) {
+        const std::uint64_t end_ms = now.ns / 1'000'000ULL;
+        std::uint64_t start_ms = since.ns / 1'000'000ULL;
+        if (end_ms < start_ms || end_ms - start_ms > k_max_spot_fill_window_ms) {
+            start_ms = end_ms > k_max_spot_fill_window_ms ? end_ms - k_max_spot_fill_window_ms : 0;
+        }
+        query << "&startTime=" << start_ms << "&endTime=" << end_ms;
+    }
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, ep::k_spot_my_trades, query.view(), {}, now);
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::spot_account(UnixNanos now) {
+    return sign(net::HttpMethod::Get, ep::k_spot_account, {}, {}, now);
 }
 
 } // namespace raikiri::venues::weex

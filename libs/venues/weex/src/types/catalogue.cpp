@@ -1,4 +1,5 @@
 #include <raikiri/venues/weex/catalogue.hpp>
+#include <raikiri/venues/weex/envelope.hpp>
 #include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::weex {
@@ -96,6 +97,32 @@ std::expected<std::span<const std::string_view>, WireError> parse_api_trading_sy
             storage.symbols[count++] = *name;
         }
         return std::span<const std::string_view>{storage.symbols.data(), count};
+    });
+}
+
+std::expected<std::span<const WireSpotInstrument>, WireError> parse_spot_exchange_info(std::string_view body,
+                                                                                       SpotInstrumentBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireSpotInstrument>, WireError> {
+        return read_list<WireSpotInstrument>(
+            body,
+            "symbols",
+            storage.instruments,
+            [](wire::ondemand::object& item, WireSpotInstrument& row) -> std::expected<void, WireError> {
+                for (const auto& [key, field] : {std::pair{"symbol", &row.symbol},
+                                                 std::pair{"status", &row.status},
+                                                 std::pair{"baseAsset", &row.base_asset},
+                                                 std::pair{"quoteAsset", &row.quote_asset},
+                                                 std::pair{"tickSize", &row.tick_size},
+                                                 std::pair{"stepSize", &row.step_size}}) {
+                    item.reset();
+                    const auto value = wire::opt_str(item, key);
+                    if (!value.has_value()) {
+                        return std::unexpected(value.error());
+                    }
+                    *field = *value;
+                }
+                return {};
+            });
     });
 }
 

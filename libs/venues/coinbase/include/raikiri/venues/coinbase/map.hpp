@@ -24,9 +24,9 @@ namespace raikiri::venues::coinbase {
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// 24-hour volume in base; the quote column stays zero
+// the list is unstamped, so ts_event is zero
 [[nodiscard]] std::optional<TickerStats>
-map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+map_ticker_stats(const WireProductVolume& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // nullopt for any market but spot, anything not "online", trading_disabled, or unparsed increments
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType market);

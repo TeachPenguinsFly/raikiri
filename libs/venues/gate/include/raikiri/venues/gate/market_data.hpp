@@ -41,12 +41,21 @@ struct WireTicker {
     // volume_24h alone is in contracts
     std::string_view volume_24h_base;
     std::string_view volume_24h_quote;
+    std::string_view open_interest; // total_size, in contracts
     std::uint64_t funding_next_apply_s{0};
     std::uint32_t funding_interval_s{0};
     std::uint64_t ts_ms{0};
 };
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
+
+// GET /spot/tickers: a pair's 24h turnover, unstamped, so ts_ms stays zero
+struct SpotTickerBuffer {
+    std::array<WireTicker, 4096> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                                       SpotTickerBuffer& storage);
 
 // options.contract_tickers: one contract per push, a full snapshot each second, stamped in whole seconds;
 // vols are fractions, vega per vol point and theta per day, per unit of the underlying

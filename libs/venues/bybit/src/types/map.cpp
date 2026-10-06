@@ -131,6 +131,16 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, FundingM
         memo.mark = *mark;
         told = true;
     }
+    // an index is off the tick grid, so it is floored onto it
+    if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        memo.index = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+        told = true;
+    }
+    // an index is off the tick grid, so it is floored onto it
+    if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        memo.index = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+        told = true;
+    }
     if (const auto ms = digits_to_ms(wire.next_funding_ms); ms != 0) {
         memo.next_funding = UnixNanos{ms * 1'000'000ULL};
         told = true;
@@ -145,14 +155,34 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, FundingM
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = memo.rate;
-    out.predicted_rate = FixedE9::from_raw(0); // bybit publishes no forecast here
     out.mark_price = memo.mark;
+    out.index_price = memo.index;
     out.next_funding_time = memo.next_funding;
     out.interval_s = memo.interval_s;
     out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
+
+namespace {
+
+// an inverse contract is one dollar, so its base needs the mark of the same frame
+FixedE9 open_interest_of(const WireTicker& wire, const InstrumentBase& base) {
+    const auto stated = parse_decimal_e9(wire.open_interest);
+    if (wire.open_interest.empty() || !stated.has_value()) {
+        return FixedE9::undef();
+    }
+    if (base.kind != ContractKind::Inverse) {
+        return *stated;
+    }
+    const auto mark = parse_decimal_e9(wire.mark_price);
+    if (wire.mark_price.empty() || !mark.has_value() || mark->raw <= 0) {
+        return FixedE9::undef();
+    }
+    return FixedE9::from_raw(mul_div(turnover_e9(*stated, base.contract_value).raw, k_e9, mark->raw));
+}
+
+} // namespace
 
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
@@ -168,7 +198,8 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_e9(wire.volume_24h);
     out.volume_24h_quote = parse_turnover_e6(wire.turnover_24h).value_or(FixedE6::undef());
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.open_interest = open_interest_of(wire, base_of(*instrument));
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

@@ -191,6 +191,9 @@ std::optional<FundingUpdate> map_funding(const WireFunding& wire, const Instrume
     if (const auto mark = parse_amount_e9(wire.mark); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
+    if (const auto index = parse_amount_e9(wire.index); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     out.next_funding_time = ms_to_unix(wire.next_ms, UnixNanos{});
     out.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600U);
     out.accrual = FundingAccrual::Discrete;
@@ -209,7 +212,8 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const Instru
     out.instrument = base.id;
     out.volume_24h_base = *volume;
     out.volume_24h_quote = *quote;
-    out.ts_event = ts_init;
+    // the rows carry no time
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

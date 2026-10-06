@@ -43,7 +43,8 @@ set(malformed_srcs wire/malformed/harness.cpp wire/malformed/wire.cpp)
 set(malformed_libs raikiri::wire)
 foreach(venue IN ITEMS apex aster backpack binance bingx bitfinex bitget blofin bybit coinbase
     cryptocom deribit dydx edgex extended gate grvt htx hyperliquid kraken kucoin lighter mexc
-    lbank okx pacifica phemex weex xt bitunix toobit derive)
+    lbank okx pacifica phemex weex xt bitunix toobit derive arcus ostium paradex vest bullish
+    ondoperps polymarketperps upbit bithumb bitstamp)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wire/malformed/${venue}.cpp)
     list(APPEND malformed_srcs wire/malformed/${venue}.cpp)
     list(APPEND malformed_libs raikiri::venue_${venue})
@@ -88,6 +89,7 @@ raikiri_add_test(bitget_trade_test SRCS venues/bitget/trade_test.cpp LIBS raikir
 raikiri_add_test(htx_venue_test SRCS venues/htx/venue_test.cpp LIBS raikiri::venue_htx raikiri::exec)
 raikiri_add_test(bitfinex_venue_test SRCS venues/bitfinex/venue_test.cpp LIBS raikiri::venue_bitfinex raikiri::exec)
 raikiri_add_test(weex_venue_test SRCS venues/weex/venue_test.cpp LIBS raikiri::venue_weex raikiri::exec)
+raikiri_add_test(weex_spot_exec_test SRCS venues/weex/spot_exec_test.cpp LIBS raikiri::venue_weex raikiri::exec)
 raikiri_add_test(ladder_test SRCS book/ladder_test.cpp LIBS raikiri::book)
 raikiri_add_test(order_gate_test SRCS exec/order_gate_test.cpp LIBS raikiri::exec)
 raikiri_add_test(catalogue_load_test SRCS exec/catalogue_load_test.cpp LIBS raikiri::exec)
@@ -107,7 +109,17 @@ raikiri_add_test(pacifica_venue_test SRCS venues/pacifica/venue_test.cpp LIBS ra
 raikiri_add_test(lbank_venue_test SRCS venues/lbank/venue_test.cpp LIBS raikiri::venue_lbank raikiri::exec)
 raikiri_add_test(bitunix_venue_test SRCS venues/bitunix/venue_test.cpp LIBS raikiri::venue_bitunix raikiri::exec)
 raikiri_add_test(toobit_venue_test SRCS venues/toobit/venue_test.cpp LIBS raikiri::venue_toobit raikiri::exec)
+raikiri_add_test(arcus_venue_test SRCS venues/arcus/venue_test.cpp LIBS raikiri::venue_arcus raikiri::exec)
+raikiri_add_test(paradex_venue_test SRCS venues/paradex/venue_test.cpp LIBS raikiri::venue_paradex raikiri::exec)
+raikiri_add_test(bullish_venue_test SRCS venues/bullish/venue_test.cpp LIBS raikiri::venue_bullish raikiri::exec)
+raikiri_add_test(upbit_venue_test SRCS venues/upbit/venue_test.cpp LIBS raikiri::venue_upbit raikiri::exec)
+raikiri_add_test(bithumb_venue_test SRCS venues/bithumb/venue_test.cpp LIBS raikiri::venue_bithumb raikiri::exec raikiri::venue_upbit)
+raikiri_add_test(bitstamp_venue_test SRCS venues/bitstamp/venue_test.cpp LIBS raikiri::venue_bitstamp raikiri::exec)
 raikiri_add_test(derive_venue_test SRCS venues/derive/venue_test.cpp LIBS raikiri::venue_derive raikiri::options raikiri::exec)
+raikiri_add_test(ostium_venue_test SRCS venues/ostium/venue_test.cpp LIBS raikiri::venue_ostium raikiri::exec)
+raikiri_add_test(vest_venue_test SRCS venues/vest/venue_test.cpp LIBS raikiri::venue_vest raikiri::exec)
+raikiri_add_test(ondoperps_venue_test SRCS venues/ondoperps/venue_test.cpp LIBS raikiri::venue_ondoperps raikiri::exec)
+raikiri_add_test(polymarketperps_venue_test SRCS venues/polymarketperps/venue_test.cpp LIBS raikiri::venue_polymarketperps raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
 raikiri_add_test(binance_option_test SRCS venues/binance/option_test.cpp LIBS raikiri::venue_binance raikiri::options raikiri::exec raikiri::net)
 target_compile_definitions(binance_option_test PRIVATE
@@ -168,7 +180,7 @@ raikiri_add_test(venue_clock_test SRCS exec/venue_clock_test.cpp LIBS raikiri::e
   raikiri::venue_edgex raikiri::venue_extended raikiri::venue_gate raikiri::venue_grvt raikiri::venue_htx
   raikiri::venue_hyperliquid raikiri::venue_kraken raikiri::venue_kucoin raikiri::venue_lbank raikiri::venue_lighter
   raikiri::venue_mexc raikiri::venue_okx raikiri::venue_pacifica raikiri::venue_phemex raikiri::venue_toobit
-  raikiri::venue_weex raikiri::venue_xt)
+  raikiri::venue_weex raikiri::venue_xt raikiri::venue_upbit raikiri::venue_bithumb raikiri::venue_bitstamp)
 target_compile_definitions(venue_clock_test PRIVATE
   RAIKIRI_SERVER_TIME_FIXTURES="${PROJECT_SOURCE_DIR}/tests/exec/fixtures/server_time")
 raikiri_add_test(reconcile_test SRCS portfolio/reconcile_test.cpp LIBS raikiri::portfolio)

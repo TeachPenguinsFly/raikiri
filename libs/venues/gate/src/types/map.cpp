@@ -161,6 +161,10 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
+    // an index is off the tick grid, so it is floored onto it
+    if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     out.next_funding_time = s_to_unix(wire.funding_next_apply_s);
     out.interval_s = wire.funding_interval_s;
     out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
@@ -192,7 +196,10 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_e9(wire.volume_24h_base).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = parse_turnover_e6(wire.volume_24h_quote).value_or(FixedE6::from_raw(0));
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    if (const auto contracts = to_e9(wire.open_interest); !wire.open_interest.empty() && contracts.has_value()) {
+        out.open_interest = turnover_e9(*contracts, base_of(*instrument).contract_value);
+    }
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -364,7 +371,7 @@ map_option_greeks(const WireOptionTicker& wire, const exec::InstrumentTable& tab
                                      .underlying_price = to_e9(wire.underlying_price),
                                      .mark_price = to_e9(wire.mark_price),
                                      .index_price = to_e9(wire.index_price)};
-    const auto ts_event = wire.ts_s == 0 ? ts_init : s_to_unix(wire.ts_s);
+    const auto ts_event = s_to_unix(wire.ts_s);
     return options::normalise(*id, venue, options::Convention{}, ts_event, ts_init);
 }
 

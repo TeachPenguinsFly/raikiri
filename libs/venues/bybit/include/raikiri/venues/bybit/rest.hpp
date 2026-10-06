@@ -64,6 +64,8 @@ public:
 
     [[nodiscard]] net::RestRequest
     instruments(MarketType market, std::string_view cursor = {}, std::string_view base_coin = {});
+    // every symbol of the market in one call
+    [[nodiscard]] net::RestRequest tickers(MarketType market);
 
     // exposed for tests: the exact bytes that go into the hmac
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

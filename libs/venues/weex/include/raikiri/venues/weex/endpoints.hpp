@@ -44,4 +44,21 @@ inline constexpr std::string_view k_balance = "/capi/v3/account/balance";
 // the account ledger, a POST with a body; funding is its position_funding rows
 inline constexpr std::string_view k_income = "/capi/v3/account/income";
 
+// spot is another exchange on its own hosts; its socket speaks the contract socket's protocol
+inline constexpr std::string_view k_spot_rest_host = "api-spot.weex.com";
+inline constexpr std::string_view k_spot_stream_host = "ws-spot.weex.com";
+inline constexpr std::string_view k_spot_exchange_info = "/api/v3/exchangeInfo";
+// every symbol in one bare array, weight 2 of 500 per 10 s
+inline constexpr std::string_view k_spot_ticker_24h = "/api/v3/market/ticker/24hr";
+inline constexpr std::string_view k_spot_server_time = "/api/v3/time";
+inline constexpr std::string_view k_spot_api_trading_symbols = "/api/v3/apiTradingSymbols";
+// POST places, DELETE cancels and GET reads one order by origClientOrderId
+inline constexpr std::string_view k_spot_order = "/api/v3/order";
+// every symbol when none is named
+inline constexpr std::string_view k_spot_open_orders = "/api/v3/openOrders";
+// one symbol per call, up to 200 rows, windows up to 90 days
+inline constexpr std::string_view k_spot_my_trades = "/api/v3/myTrades";
+inline constexpr std::string_view k_spot_account = "/api/v3/account";
+inline constexpr std::string_view k_spot_private_ws = "/v3/ws/private";
+
 } // namespace raikiri::venues::weex::ep

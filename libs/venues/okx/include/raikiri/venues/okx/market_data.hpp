@@ -59,6 +59,30 @@ struct WireTicker {
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
+// GET /market/tickers answers every instrument of one type in the same rows
+inline constexpr std::size_t k_max_tickers = 4096;
+
+struct TickerBuffer {
+    std::array<WireTicker, k_max_tickers> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body,
+                                                                                  TickerBuffer& storage);
+
+// GET /public/open-interest: oi counts contracts, oiCcy is the coin on linear and inverse alike
+struct WireOpenInterest {
+    std::string_view inst_id;
+    std::string_view oi_ccy;
+    std::uint64_t ts_ms{0};
+};
+
+struct OpenInterestBuffer {
+    std::array<WireOpenInterest, k_max_tickers> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOpenInterest>, WireError>
+parse_open_interest(std::string_view body, OpenInterestBuffer& storage);
+
 // shared with GET /public/mark-price
 struct WireMarkPrice {
     std::string_view inst_id;

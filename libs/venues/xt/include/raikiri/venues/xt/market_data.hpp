@@ -56,6 +56,7 @@ struct WireFundingRate {
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};
+    PriceTicks index{};
     UnixNanos next_funding{};
     std::uint32_t interval_s{0};
 };

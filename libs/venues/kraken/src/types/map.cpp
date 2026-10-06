@@ -326,8 +326,12 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (const auto predicted = to_truncated_e9(wire.relative_funding_rate_prediction); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
-    if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
-        out.mark_price = *mark;
+    // both sit off the tick grid, so they are truncated onto it rather than refused
+    if (const auto mark = to_truncated_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
+        out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
+    }
+    if (const auto index = to_truncated_e9(wire.index); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_rate_time_ms, UnixNanos{0});
     out.interval_s = k_funding_interval_s;
@@ -354,7 +358,20 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
                               ? FixedE9::from_raw(0)
                               : to_truncated_e9(wire.volume).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = parse_turnover_e6(wire.volume_quote).value_or(FixedE6::from_raw(0));
-    out.ts_event = ms_to_unix(wire.time_ms, ts_init);
+    // counted in contracts: base units on PF_, dollars on PI_, which the mark turns into coins
+    if (const auto contracts = to_truncated_e9(wire.open_interest); contracts.has_value()) {
+        const auto held = turnover_e9(*contracts, base.contract_value);
+        const auto price = to_truncated_e9(wire.mark_price.empty() ? wire.last : wire.mark_price);
+        if (base.kind != ContractKind::Inverse) {
+            out.open_interest = held;
+        } else if (!held.is_undef() && price.has_value() && price->raw > 0) {
+            const int128_t coins = static_cast<int128_t>(held.raw) * k_e9 / price->raw;
+            if (coins <= std::numeric_limits<std::int64_t>::max()) {
+                out.open_interest = FixedE9::from_raw(static_cast<std::int64_t>(coins));
+            }
+        }
+    }
+    out.ts_event = ms_to_unix(wire.time_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -672,7 +689,7 @@ map_spot_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& t
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_truncated_e9(wire.volume).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = notional_e6(wire.volume, wire.vwap).value_or(FixedE6::from_raw(0));
-    out.ts_event = wire.ts_ns == 0 ? ts_init : UnixNanos{wire.ts_ns};
+    out.ts_event = UnixNanos{wire.ts_ns};
     out.ts_init = ts_init;
     return out;
 }

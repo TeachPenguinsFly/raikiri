@@ -1,5 +1,8 @@
 #include <raikiri/config/secret.hpp>
+#include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
@@ -26,6 +29,15 @@ namespace raikiri::venues::bybit::internal {
 namespace {
 
 // separate from the client so dispatch is testable without a socket
+void stamp_open_interest(VenueState& state, TickerStats& stats) {
+    auto& memo = state.open_interest[stats.instrument];
+    if (stats.open_interest.is_undef()) {
+        stats.open_interest = memo;
+    } else {
+        memo = stats.open_interest;
+    }
+}
+
 void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto topic = parse_topic(frame);
     if (!topic.has_value()) {
@@ -105,7 +117,8 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
         if (const auto funding = map_funding(*ticker, state.instruments, memo, received); funding.has_value()) {
             state.sink->on_funding(*funding);
         }
-        if (const auto stats = map_ticker_stats(*ticker, state.instruments, received); stats.has_value()) {
+        if (auto stats = map_ticker_stats(*ticker, state.instruments, received); stats.has_value()) {
+            stamp_open_interest(state, *stats);
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -155,9 +168,14 @@ public:
                 // bybit caps args per connection; the pool turns that into a per-socket count
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }},
+          market_{market},
+          rest_{state_->io, net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)}, .port = "443"}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
+        rest_.start();
         pool_.start();
         started_ = true;
         return {};
@@ -165,6 +183,7 @@ public:
 
     void stop() override {
         pool_.stop();
+        rest_.stop();
         started_ = false;
     }
 
@@ -174,6 +193,10 @@ public:
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+        }
+        // spot opens no tickers topic without funding, so the 24h window comes over rest
+        if (kind == exec::SubKind::Bbo && market_ == MarketType::Spot) {
+            tickers_.want(instrument);
         }
         std::array<char, 64> buf{};
         // an option prints on its base coin's topic, the symbol's first field
@@ -211,10 +234,33 @@ public:
             pool_.broadcast(state_->protocol.ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
+        tickers_.poll(now, [this] {
+            return rest_.send(builder_.tickers(market_),
+                              [this](const net::RestResponse& response) { on_tickers(response); });
+        });
         report_coverage(now, "bybit", pool_.connection_count(), pool_.key_count());
     }
 
 private:
+    void on_tickers(const net::RestResponse& response) noexcept {
+        tickers_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<TickerBuffer>();
+        const auto rows = parse_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() && tickers_.wanted(stats->instrument)) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
     void report_coverage(UnixNanos now, std::string_view venue, std::size_t sockets, std::size_t keys) {
         if (!state_->option_enabled || now.ns < state_->next_coverage_ns) {
             return;
@@ -288,6 +334,10 @@ private:
     }
 
     net::WsPool pool_;
+    MarketType market_;
+    net::RestClient rest_;
+    RequestBuilder builder_{state_->signer};
+    exec::TickerPoll tickers_;
     bool started_{false};
 };
 

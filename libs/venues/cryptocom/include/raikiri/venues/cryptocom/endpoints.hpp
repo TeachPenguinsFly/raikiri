@@ -21,6 +21,7 @@ inline constexpr std::string_view k_stream_uat = "uat-stream.3ona.co";
 
 inline constexpr std::string_view k_ws_market = "/exchange/v1/market";
 inline constexpr std::string_view k_instruments = "/exchange/v1/public/get-instruments";
+inline constexpr std::string_view k_tickers = "/exchange/v1/public/get-tickers";
 
 // per method, per ip
 inline constexpr std::uint32_t k_public_rest_per_method_per_s = 100;

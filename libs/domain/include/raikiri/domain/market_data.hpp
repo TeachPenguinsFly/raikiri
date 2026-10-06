@@ -70,6 +70,8 @@ struct FundingUpdate {
     FixedE9 rate{};           // current interval rate
     FixedE9 predicted_rate{}; // venue-published next-interval estimate
     PriceTicks mark_price{};
+    // undefined where the venue publishes no index beside its funding
+    PriceTicks index_price{};
     UnixNanos next_funding_time{};
     std::uint32_t interval_s{0};
     FundingAccrual accrual{FundingAccrual::Unknown};
@@ -78,7 +80,7 @@ struct FundingUpdate {
     UnixNanos ts_init{};
 };
 
-static_assert(sizeof(FundingUpdate) == 64);
+static_assert(sizeof(FundingUpdate) == 72);
 static_assert(std::is_trivially_copyable_v<FundingUpdate>);
 
 // zero means the market did not trade; a missing cell means the venue said nothing
@@ -86,6 +88,8 @@ struct TickerStats {
     InstrumentId instrument{};
     FixedE9 volume_24h_base{};
     FixedE6 volume_24h_quote{};
+    // in the base asset; undefined where the venue does not publish it
+    FixedE9 open_interest{};
     UnixNanos ts_event{};
     UnixNanos ts_init{};
 };

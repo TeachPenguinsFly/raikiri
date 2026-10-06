@@ -31,3 +31,9 @@ and `publicTrade.BTC`, read for 16 s.
 | `option_orderbook_snapshot.json` | the `orderbook.25` snapshot |
 | `option_public_trade.json` | a `publicTrade.BTC` push, which carries every BTC option's prints |
 | `option_subscribe_ack.json` | the option socket's `COMMAND_RESP` acknowledgement with `successTopics` and `failTopics` |
+
+## Spot tickers, captured live on 2026-10-06
+
+| file | source |
+|---|---|
+| `rest_tickers_spot.json` | `GET https://api.bybit.com/v5/market/tickers?category=spot`, `list` cut from 530 rows to BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT and one other, written back without whitespace |

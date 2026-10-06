@@ -32,7 +32,7 @@ namespace {
 
 // the catalogue call covers every contract at once
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
-// on the uta feed this poll is the funding source
+// on the uta feed this poll is the funding source, and on spot the only 24h window
 constexpr std::uint64_t k_uta_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
 // the rest client asks the rate gate before the pool, so a request the pool drops still spends budget
@@ -415,7 +415,8 @@ public:
             return;
         }
         // only a sent call advances the interval
-        next_ticker_poll_ns_ = now.ns + (state_->uta ? k_uta_funding_poll_interval_ns : k_ticker_poll_interval_ns);
+        next_ticker_poll_ns_ = now.ns +
+                               (state_->uta || spot ? k_uta_funding_poll_interval_ns : k_ticker_poll_interval_ns);
     }
 
     // one refused funding seed per tick

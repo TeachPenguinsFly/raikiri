@@ -57,4 +57,14 @@ struct AssetCtxBuffer {
 [[nodiscard]] std::expected<std::span<const WireAssetCtx>, WireError> parse_asset_ctxs(std::string_view body,
                                                                                        AssetCtxBuffer& storage);
 
+inline constexpr std::size_t k_max_spot_ctxs = 4096;
+
+struct SpotCtxBuffer {
+    std::array<WireAssetCtx, k_max_spot_ctxs> ctxs{};
+};
+
+// spotMetaAndAssetCtxs; unlike the perp read each context names its own coin and the rows outnumber the universe
+[[nodiscard]] std::expected<std::span<const WireAssetCtx>, WireError> parse_spot_asset_ctxs(std::string_view body,
+                                                                                            SpotCtxBuffer& storage);
+
 } // namespace raikiri::venues::hyperliquid

@@ -3,6 +3,7 @@
 #include <raikiri/venues/gate/envelope.hpp>
 #include <raikiri/venues/gate/errors.hpp>
 #include <raikiri/venues/gate/map.hpp>
+#include <raikiri/venues/gate/market_data.hpp>
 #include <raikiri/venues/gate/orders.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 #include <raikiri/venues/gate/trade.hpp>
@@ -11,6 +12,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -387,6 +389,38 @@ TEST_F(GateTradeRoute, ADropMidFlightEndsUnknownAndTheNextSocketCarriesNoResend)
     rpc.on_open();
     ASSERT_EQ(socket.size(), 1U);
     EXPECT_NE(socket[0].find(R"("channel":"futures.login")"), std::string::npos);
+}
+
+TEST(GateSpotTickers, EveryPairInOneCallAndNoVenueStamp) {
+    exec::InstrumentTable table;
+    CurrencyPairBuffer pair_storage;
+    const auto catalogue = fixture("rest_currency_pairs.json");
+    const auto pairs = parse_currency_pairs(catalogue, pair_storage);
+    ASSERT_TRUE(pairs.has_value());
+    for (const auto& pair : *pairs) {
+        if (const auto spot = map_currency_pair(pair); spot.has_value() && pair.id == "BTC_USDT") {
+            ASSERT_TRUE(table.add(*spot).has_value());
+        }
+    }
+    ASSERT_EQ(table.size(), 1U);
+
+    const auto body = fixture("rest_spot_tickers.json");
+    const auto storage = std::make_unique<SpotTickerBuffer>();
+    const auto rows = parse_spot_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    std::size_t mapped = 0;
+    for (const auto& row : *rows) {
+        const auto stats = map_ticker_stats(row, table, k_now);
+        if (!stats.has_value()) {
+            continue;
+        }
+        ++mapped;
+        EXPECT_EQ(stats->volume_24h_base.raw, 5'954'783'550'000LL);
+        EXPECT_EQ(stats->volume_24h_quote.raw, 511'140'793'095'910LL);
+        EXPECT_EQ(stats->ts_event.ns, 0U) << "the venue does not stamp the row";
+    }
+    EXPECT_EQ(mapped, 1U);
 }
 
 } // namespace

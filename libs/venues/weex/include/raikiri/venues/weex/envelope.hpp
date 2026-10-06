@@ -20,6 +20,7 @@ enum class EventKind : std::uint8_t {
     Trade,         // <sym>@trade: prints as they happen
     TradeSnapshot, // the same channel's opening backfill; see market_data.hpp
     Ticker,        // <sym>@ticker: the 24-hour window, mark and index
+    BookTicker,    // <sym>@bookTicker: spot's top of book
     Ping,          // {"event":"ping","time":"..."}
     Connected,     // {"cid":"...","event":"connected","time":"..."}
     SubscribeAck,  // {"result":true,"id":1}

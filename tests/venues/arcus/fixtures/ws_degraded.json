@@ -1,0 +1,1 @@
+{"type":"degraded","channel":"l2OrderbookUpdates","id":"SOL-USD","reason":"snapshot_stale","retryAfterMs":5000}

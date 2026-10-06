@@ -33,6 +33,10 @@ map_estimated_rate(const WireValue& wire, const InstrumentBase& base, FundingMem
 [[nodiscard]] std::optional<FundingUpdate>
 map_mark(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init);
 
+// an index is off the perpetual's grid, so it is truncated to it
+[[nodiscard]] std::optional<FundingUpdate>
+map_index(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market);
 
 } // namespace raikiri::venues::cryptocom

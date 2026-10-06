@@ -22,6 +22,7 @@ struct WireTicker {
     // `amount24` is quote turnover; `volume24` counts contracts
     std::string_view volume_24h_quote;     // `amount24`
     std::string_view volume_24h_contracts; // `volume24`
+    std::string_view open_interest;        // `holdVol`, in contracts
     std::uint64_t ts_ms{0};
 };
 

@@ -337,6 +337,61 @@ TEST(OkxMap, SpotTurnoverReadsTheSameTwoNamesTheOtherWayRound) {
     EXPECT_EQ(stats->volume_24h_quote.raw, 843'192'320'028'134LL);
 }
 
+TEST(OkxMap, RestSpotTickersCarryEveryPairInTheWebsocketRowShape) {
+    exec::InstrumentTable table;
+    WireInstrument row{};
+    row.inst_id = "BTC-USDT";
+    row.inst_type = "SPOT";
+    row.state = "live";
+    row.base_ccy = "BTC";
+    row.quote_ccy = "USDT";
+    row.tick_size = "0.1";
+    row.lot_size = "0.00000001";
+    row.min_size = "0.00001";
+    const auto spot = map_instrument(row, MarketType::Spot);
+    ASSERT_TRUE(spot.has_value());
+    ASSERT_TRUE(table.add(*spot).has_value());
+
+    const auto body = fixture("rest_tickers_spot.json");
+    const auto storage = std::make_unique<TickerBuffer>();
+    const auto rows = parse_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    std::size_t mapped = 0;
+    for (const auto& one : *rows) {
+        const auto stats = map_ticker_stats(one, table, k_ingest);
+        if (!stats.has_value()) {
+            continue; // not loaded
+        }
+        ++mapped;
+        EXPECT_EQ(stats->volume_24h_base.raw, 4'439'585'894'730LL);
+        EXPECT_EQ(stats->volume_24h_quote.raw, 380'997'196'864'657LL);
+        EXPECT_EQ(stats->ts_event.ns, 1'791'299'266'673'000'000ULL);
+    }
+    EXPECT_EQ(mapped, 1U);
+}
+
+TEST(OkxMap, OpenInterestReadsTheCoinColumnTruncated) {
+    const auto table = table_with_btc();
+    const auto body = fixture("rest_open_interest.json");
+    const auto storage = std::make_unique<OpenInterestBuffer>();
+    const auto rows = parse_open_interest(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    std::size_t mapped = 0;
+    for (const auto& row : *rows) {
+        const auto oi = map_open_interest(row, table);
+        if (!oi.has_value()) {
+            continue;
+        }
+        ++mapped;
+        EXPECT_EQ(row.inst_id, "BTC-USDT-SWAP");
+        EXPECT_EQ(row.ts_ms, 1'791'299'857'312ULL);
+        EXPECT_EQ(oi->second.raw, 30'149'510'200'000LL);
+    }
+    EXPECT_EQ(mapped, 1U);
+}
+
 TEST(OkxMap, ATickerStatingNoVolumeIsNotAMarketAtZero) {
     const auto table = table_with_btc();
     WireTicker wire{};

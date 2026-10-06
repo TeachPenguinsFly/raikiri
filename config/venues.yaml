@@ -51,7 +51,8 @@ venues:
   aster:
     order_answer_timeout_ms: 15000
     limits:
-      - { name: weight, window_ms: 60000, max: 2160, reserve: 216 }
+      - { name: weight, window_ms: 60000, max: 2160, reserve: 216, match: ["/fapi/"] }
+      - { name: spot_weight, window_ms: 60000, max: 5400, match: ["/api/v1/"] }
       - { name: ws_streams, kind: ws_streams, max: 180 }
       - { name: ws_sockets, kind: ws_sockets, max: 12 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
@@ -152,7 +153,9 @@ venues:
   weex:
     order_answer_timeout_ms: 15000
     limits:
-      - { name: weight, window_ms: 10000, max: 450, reserve: 45 }
+      - { name: weight, window_ms: 10000, max: 450, reserve: 45, match: ["/capi/"] }
+      - { name: spot_weight, window_ms: 10000, max: 450, reserve: 45, match: ["/api/v3/"] }
+      - { name: spot_orders, window_ms: 10000, max: 72, reserve: 8, match: ["/api/v3/order"] }
       - { name: ws_streams, kind: ws_streams, max: 200 }
       - { name: ws_sockets, kind: ws_sockets, max: 16 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
@@ -162,8 +165,14 @@ venues:
       - { match: "/capi/v3/userTrades", cost: 5 }
       - { match: "/capi/v3/account/position/allPosition", cost: 10 }
       - { match: "/capi/v3/account/balance", cost: 5 }
+      - { match: "/api/v3/market/ticker/24hr", cost: 2 }
       - { match: "/capi/v3/account/income", cost: 2 }
       - { match: "/capi/v3/batchOrders", cost: 5 }
+      - { match: "/api/v3/openOrders", cost: 3 }
+      - { match: "/api/v3/myTrades", cost: 5 }
+      - { match: "/api/v3/account", cost: 5 }
+      - { match: "/api/v3/apiTradingSymbols", cost: 5 }
+      - { match: "/api/v3/exchangeInfo", cost: 20 }
 
   backpack:
     order_answer_timeout_ms: 15000
@@ -334,6 +343,59 @@ venues:
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1200, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 64 }
 
+  arcus:
+    limits:
+      - { name: requests, window_ms: 60000, max: 60, reserve: 6 }
+      - { name: ws_streams, kind: ws_streams, max: 100 }
+      - { name: ws_sockets, kind: ws_sockets, max: 8 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
+
+  ostium:
+    limits:
+      - { name: requests, window_ms: 10000, max: 40, reserve: 4 }
+      - { name: ws_streams, kind: ws_streams, max: 512 }
+      - { name: ws_sockets, kind: ws_sockets, max: 2 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1000, max: 1 }
+      - { name: ws_frame, kind: ws_frame, max: 512 }
+
+  paradex:
+    limits:
+      - { name: requests, window_ms: 60000, max: 1500, reserve: 150 }
+      - { name: ws_streams, kind: ws_streams, max: 190 }
+      - { name: ws_sockets, kind: ws_sockets, max: 4 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
+
+  vest:
+    limits:
+      - { name: requests, window_ms: 10000, max: 30, reserve: 3 }
+      - { name: ws_streams, kind: ws_streams, max: 200 }
+      - { name: ws_sockets, kind: ws_sockets, max: 4 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 500, max: 1 }
+      - { name: ws_frame, kind: ws_frame, max: 50 }
+
+  bullish:
+    limits:
+      - { name: requests, window_ms: 1000, max: 50, reserve: 5 }
+      - { name: ws_streams, kind: ws_streams, max: 100 }
+      - { name: ws_sockets, kind: ws_sockets, max: 12 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
+
+  ondoperps:
+    limits:
+      - { name: requests, window_ms: 1000, max: 10, reserve: 1 }
+      - { name: ws_streams, kind: ws_streams, max: 400 }
+      - { name: ws_sockets, kind: ws_sockets, max: 2 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
+      - { name: ws_frame, kind: ws_frame, max: 100 }
+
+  polymarketperps:
+    limits:
+      - { name: requests, window_ms: 60000, max: 600, reserve: 60 }
+      - { name: ws_streams, kind: ws_streams, max: 100 }
+      - { name: ws_sockets, kind: ws_sockets, max: 4 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 200, max: 1 }
+      - { name: ws_frame, kind: ws_frame, max: 100 }
+
   derive:
     limits:
       - { name: requests, window_ms: 5000, max: 25, reserve: 3 }
@@ -341,6 +403,32 @@ venues:
       - { name: ws_sockets, kind: ws_sockets, max: 2 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 200, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 500 }
+
+  upbit:
+    limits:
+      - { name: requests, window_ms: 1000, max: 8, reserve: 1 }
+      - { name: ws_streams, kind: ws_streams, max: 300 }
+      - { name: ws_sockets, kind: ws_sockets, max: 8 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1000, max: 1 }
+      - { name: ws_messages, kind: ws_messages, scope: ip, window_ms: 60000, max: 90 }
+      - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 2 }
+
+  bithumb:
+    limits:
+      - { name: requests, window_ms: 1000, max: 20, reserve: 2 }
+      - { name: ws_streams, kind: ws_streams, max: 300 }
+      - { name: ws_sockets, kind: ws_sockets, max: 8 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1000, max: 1 }
+      - { name: ws_messages, kind: ws_messages, scope: ip, window_ms: 60000, max: 90 }
+      - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 2 }
+
+  bitstamp:
+    limits:
+      - { name: requests, window_ms: 600000, max: 8000, reserve: 800 }
+      - { name: ws_streams, kind: ws_streams, max: 150 }
+      - { name: ws_sockets, kind: ws_sockets, max: 8 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
+      - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 2 }
 
   toobit:
     order_answer_timeout_ms: 15000

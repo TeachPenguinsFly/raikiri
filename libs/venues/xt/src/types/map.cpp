@@ -311,6 +311,7 @@ merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, 
     out.instrument = base.id;
     out.rate = memo.rate;
     out.mark_price = memo.mark;
+    out.index_price = memo.index;
     out.next_funding_time = memo.next_funding;
     out.interval_s = memo.interval_s;
     out.ts_event = ts_event;
@@ -349,6 +350,20 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
         return std::nullopt; // a mark this contract's tick cannot express is no mark
     }
     memo.mark = *mark;
+    return merged(*base, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
+}
+
+std::optional<FundingUpdate>
+map_index_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init) {
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto index = parse_decimal_e9(wire.mark_price);
+    if (!index.has_value() || base->tick_size.raw <= 0) {
+        return std::nullopt;
+    }
+    memo.index = PriceTicks::from_raw(index->raw / base->tick_size.raw);
     return merged(*base, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
 }
 

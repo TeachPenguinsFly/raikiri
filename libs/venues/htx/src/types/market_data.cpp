@@ -101,6 +101,51 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
     });
 }
 
+namespace {
+
+std::expected<std::span<const WireOpenInterest>, WireError>
+read_coin_rows(std::string_view body, std::string_view column, OpenInterestBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOpenInterest>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto code = wire::req_str(obj, "contract_code");
+            const auto amount = wire::opt_raw(obj, column);
+            if (!code.has_value() || !amount.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            storage.rows[count++] = WireOpenInterest{.contract_code = *code, .amount = *amount};
+        }
+        return std::span<const WireOpenInterest>{storage.rows.data(), count};
+    });
+}
+
+} // namespace
+
+std::expected<std::span<const WireOpenInterest>, WireError> parse_open_interest(std::string_view body,
+                                                                                OpenInterestBuffer& storage) {
+    return read_coin_rows(body, "amount", storage);
+}
+
+std::expected<std::span<const WireOpenInterest>, WireError> parse_swap_index(std::string_view body,
+                                                                             OpenInterestBuffer& storage) {
+    return read_coin_rows(body, "index_price", storage);
+}
+
 std::expected<WireDetail, WireError> parse_detail(std::string_view frame) {
     return guarded([&]() -> std::expected<WireDetail, WireError> {
         auto root = session().open_object(frame);

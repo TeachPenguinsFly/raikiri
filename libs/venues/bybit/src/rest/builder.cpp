@@ -316,6 +316,16 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::wallet_balance(UnixN
     return signed_get(ep::k_wallet_balance, query.view(), now);
 }
 
+net::RestRequest RequestBuilder::tickers(MarketType market) {
+    Appender target{target_};
+    target << ep::k_tickers << "?category=" << category_of(market);
+
+    net::RestRequest request{};
+    request.method = net::HttpMethod::Get;
+    request.target = target.view();
+    return request;
+}
+
 net::RestRequest RequestBuilder::instruments(MarketType market, std::string_view cursor, std::string_view base_coin) {
     Appender target{target_};
     target << ep::k_instruments << "?category=" << category_of(market) << "&limit=1000";

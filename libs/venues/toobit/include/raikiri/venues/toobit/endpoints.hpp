@@ -12,6 +12,7 @@ inline constexpr std::string_view k_user_ws_prefix = "/api/v1/ws/";
 
 inline constexpr std::string_view k_exchange_info = "/api/v1/exchangeInfo";
 inline constexpr std::string_view k_funding_rate = "/api/v1/futures/fundingRate";
+inline constexpr std::string_view k_index = "/quote/v1/index";
 inline constexpr std::string_view k_contract_ticker = "/quote/v1/contract/ticker/24hr";
 inline constexpr std::string_view k_spot_ticker = "/quote/v1/ticker/24hr";
 

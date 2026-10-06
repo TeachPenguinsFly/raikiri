@@ -414,8 +414,10 @@ TEST(KrakenMap, OneTickerFrameYieldsBothTouchAndFunding) {
     // relative_funding_rate, since the absolute field changes units by family
     EXPECT_EQ(funding->rate.raw, 14778); // 0.00001477885 truncated at 1e-9
     EXPECT_EQ(funding->next_funding_time.ns, 1786395600000ULL * 1'000'000ULL);
-    // the mark does not divide the tick of 1, so it stays undef
-    EXPECT_TRUE(funding->mark_price.is_undef());
+    // mark and index sit off the tick of 1 and are truncated onto it
+    EXPECT_EQ(funding->mark_price.raw, 64113);     // 64113.93588534861
+    EXPECT_EQ(funding->index_price.raw, 64108);    // 64108.28
+    EXPECT_EQ(funding->predicted_rate.raw, 10006); // 0.000010006804166667
     // the period is not on the wire; funding is hourly
     EXPECT_EQ(funding->interval_s, 3600U);
     EXPECT_EQ(funding->next_funding_time.ns % (3600ULL * 1'000'000'000ULL), 0U);
@@ -432,7 +434,10 @@ TEST(KrakenMap, InverseTickerMapsAgainstItsOwnSteps) {
     EXPECT_EQ(bbo->bid_qty.raw, 55146); // USD contracts, step 1
     const auto funding = map_funding(*wire, table, UnixNanos{1});
     ASSERT_TRUE(funding.has_value());
-    EXPECT_EQ(funding->rate.raw, 8907); // 8.907125e-6, exponent spelling
+    EXPECT_EQ(funding->rate.raw, 8907);          // 8.907125e-6, exponent spelling
+    EXPECT_EQ(funding->mark_price.raw, 128493);  // 64246.55472227413 on the 0.5 grid
+    EXPECT_EQ(funding->index_price.raw, 128216); // 64108.28
+    EXPECT_EQ(funding->predicted_rate.raw, 296408);
 }
 
 TEST(KrakenMap, TurnoverKeepsTheBaseColumnEmptyOnAnInverseContract) {
@@ -457,6 +462,10 @@ TEST(KrakenMap, TurnoverKeepsTheBaseColumnEmptyOnAnInverseContract) {
     ASSERT_TRUE(inverse_stats.has_value());
     EXPECT_EQ(inverse_stats->volume_24h_base.raw, 0);
     EXPECT_EQ(inverse_stats->volume_24h_quote.raw, 36'162'000'000LL);
+
+    EXPECT_EQ(linear_stats->open_interest.raw, 2'277'932'600'000LL); // 2277.9326 XBT
+    // 3492678 one-dollar contracts at the 64246.554722274 mark
+    EXPECT_EQ(inverse_stats->open_interest.raw, 54'363'662'224LL);
 
     // neither a ticker_lite push nor an unknown product is a market that traded nothing
     auto lite = *linear;

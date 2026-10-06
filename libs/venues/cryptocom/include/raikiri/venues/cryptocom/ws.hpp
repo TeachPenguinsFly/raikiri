@@ -20,6 +20,7 @@ inline constexpr std::string_view k_ticker_prefix = "ticker.";
 inline constexpr std::string_view k_funding_prefix = "funding.";
 inline constexpr std::string_view k_estimated_prefix = "estimatedfunding.";
 inline constexpr std::string_view k_mark_prefix = "mark.";
+inline constexpr std::string_view k_index_prefix = "index.";
 
 inline constexpr std::size_t k_max_channel_len = 64;
 

@@ -1,6 +1,7 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -199,6 +200,10 @@ public:
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
+        if (kind == exec::SubKind::Bbo && instrument.market() == MarketType::Spot) {
+            // volume for every quoted pair from one read, without an activeAssetCtx channel each
+            spot_ctxs_.want(instrument);
+        }
         const auto channel = stream_channel(kind, state_->market);
         if (channel.empty() && !channel_for(kind).empty()) {
             watch_context(symbol);
@@ -230,6 +235,10 @@ public:
         state_->io.poll();
         pool_.poll(now);
         poll_contexts(now);
+        spot_ctxs_.poll(now, [this] {
+            return rest_.send(RequestBuilder::spot_meta_and_asset_ctxs(),
+                              [this](const net::RestResponse& response) { on_spot_contexts(response); });
+        });
         if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
             // ping every socket; the idle timer is per connection
             pool_.broadcast(Protocol::ping_frame());
@@ -261,6 +270,25 @@ private:
             }
         } catch (...) {
             context_in_flight_ = false;
+        }
+    }
+
+    void on_spot_contexts(const net::RestResponse& response) noexcept {
+        spot_ctxs_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotCtxBuffer>();
+        const auto rows = parse_spot_asset_ctxs(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() && spot_ctxs_.wanted(stats->instrument)) {
+                state_->sink->on_ticker_stats(*stats);
+            }
         }
     }
 
@@ -309,6 +337,7 @@ private:
     PublicHandler handler_;
     net::WsPool pool_;
     net::RestClient rest_;
+    exec::TickerPoll spot_ctxs_;
     std::string context_body_;
     std::unique_ptr<AssetCtxBuffer> contexts_{std::make_unique<AssetCtxBuffer>()};
     std::set<std::string, std::less<>> context_coins_;

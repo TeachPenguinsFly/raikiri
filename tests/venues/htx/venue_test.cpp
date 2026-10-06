@@ -10,10 +10,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -910,6 +912,38 @@ TEST(HtxMap, TradfiLabelsClassifyTheUnderlying) {
     EXPECT_EQ(htx_class("XAU-USDT", R"(["Metals"])"), AssetClass::Commodity);
     EXPECT_EQ(htx_class("BTC-USDT", "[]"), AssetClass::Crypto);
     EXPECT_EQ(htx_class("TBT-USDT", R"(["Bonds"])"), AssetClass::Unknown);
+}
+
+TEST(HtxOpenInterest, OneCallCarriesEveryPerpInCoins) {
+    const auto table = catalogue();
+    const auto body = load("rest_swap_open_interest.json");
+    const auto storage = std::make_unique<OpenInterestBuffer>();
+    const auto rows = parse_open_interest(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    const auto btc = std::ranges::find_if(*rows,
+                                          [](const WireOpenInterest& row) { return row.contract_code == "BTC-USDT"; });
+    ASSERT_NE(btc, rows->end());
+    const auto oi = map_coin_figure(*btc, table);
+    ASSERT_TRUE(oi.has_value());
+    // amount is the coin; volume would be contracts of 0.001
+    EXPECT_EQ(oi->second.raw, 23'290'729'000'000LL);
+}
+
+TEST(HtxIndex, OneCallCarriesEveryPerpsIndex) {
+    const auto table = catalogue();
+    const auto body = load("rest_swap_index.json");
+    const auto storage = std::make_unique<OpenInterestBuffer>();
+    const auto rows = parse_swap_index(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    const auto btc = std::ranges::find_if(*rows,
+                                          [](const WireOpenInterest& row) { return row.contract_code == "BTC-USDT"; });
+    ASSERT_NE(btc, rows->end());
+    const auto index = map_coin_figure(*btc, table);
+    ASSERT_TRUE(index.has_value());
+    // truncated past nine decimals
+    EXPECT_EQ(index->second.raw, 86'338'181'428'571LL);
 }
 
 } // namespace

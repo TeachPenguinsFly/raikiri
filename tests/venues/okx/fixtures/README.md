@@ -27,6 +27,8 @@ One session subscribing `bbo-tbt`, `trades`, `funding-rate` and `books` on
 | file | source |
 |---|---|
 | `rest_instruments.json` | `GET /api/v5/public/instruments?instType=SWAP` plus one row from `?instType=FUTURES`; four verbatim rows (BTC-USDT-SWAP, ETH-USDT-SWAP, JP225-USDT-SWAP in `preopen`, BTC-USD-260814) inside the envelope the venue sent |
+| `rest_open_interest.json` | `GET /api/v5/public/open-interest?instType=SWAP` on 2026-10-06, trimmed from 500 rows to BTC-USDT-SWAP, ETH-USDT-SWAP, BTC-USD-SWAP and one other |
+| `rest_tickers_spot.json` | `GET /api/v5/market/tickers?instType=SPOT` on 2026-10-06, trimmed from 1143 rows to BTC-USDT, ETH-USDT, SOL-USDT, DOGE-USDT and one other, inside the envelope the venue sent |
 | `rest_mark_price.json` | `GET /api/v5/public/mark-price?instType=SWAP&instId=BTC-USDT-SWAP` |
 | `rest_funding_rate.json` | `GET /api/v5/public/funding-rate?instId=BTC-USDT-SWAP` |
 | `rest_server_time.json` | `GET /api/v5/public/time` |

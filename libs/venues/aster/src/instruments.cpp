@@ -32,12 +32,16 @@ class AsterInstruments final : public exec::InstrumentSource {
 public:
     explicit AsterInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host(state_->testnet, state_->market)}, .port = "443"}} {
         // a refusal here stops gateway start; there is no retry tick
         meter_market_data(*state_, rest_);
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
+        if (market != state_->market) {
+            return std::unexpected{exec::not_implemented("aster: the gateway was built for another market")};
+        }
         rest_.start();
 
         const auto response = await_response(*state_, rest_, state_->builder.instruments(), 20'000);
@@ -68,8 +72,12 @@ public:
         };
 
         std::unordered_map<std::string_view, Schedule> schedule;
-        const auto funding = await_response(*state_, rest_, state_->builder.funding_info(), 20'000);
-        if (!funding.has_value() || funding->transport_failed()) {
+        const auto funding = market == MarketType::Spot
+                                 ? std::nullopt
+                                 : await_response(*state_, rest_, state_->builder.funding_info(), 20'000);
+        if (market == MarketType::Spot) {
+            // spot pays no funding
+        } else if (!funding.has_value() || funding->transport_failed()) {
             RLOG_WARN("aster: no funding schedule — every interval reads unstated");
         } else {
             static thread_local const auto intervals_owner = std::make_unique<FundingInfoBuffer>();

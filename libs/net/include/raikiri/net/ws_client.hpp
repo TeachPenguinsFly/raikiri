@@ -11,6 +11,8 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace raikiri::net {
 
@@ -33,6 +35,8 @@ struct WsConfig {
     std::function<std::uint64_t()> connect_gate{};
     // asked before every handshake when set, for a target signed per connection
     std::function<std::string()> target_for_connect{};
+    // asked before every handshake when set, for headers signed per connection
+    std::function<std::vector<std::pair<std::string, std::string>>()> headers_for_connect{};
 };
 
 enum class WsCloseReason : std::uint8_t {

@@ -64,17 +64,21 @@ std::string_view to_string(BuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view rest_host(bool testnet) noexcept {
-    return ep::rest_host(testnet);
+std::string_view rest_host(bool testnet, MarketType market) noexcept {
+    return market == MarketType::Spot ? ep::k_spot_rest_live : ep::rest_host(testnet);
 }
 
 net::RestRequest RequestBuilder::instruments() noexcept {
-    return {.method = net::HttpMethod::Get, .target = ep::k_exchange_info, .body = {}};
+    return {.method = net::HttpMethod::Get,
+            .target = market_ == MarketType::Spot ? ep::k_spot_exchange_info : ep::k_exchange_info,
+            .body = {}};
 }
 
 // one call returns every symbol
 net::RestRequest RequestBuilder::ticker_24h() noexcept {
-    return {.method = net::HttpMethod::Get, .target = ep::k_ticker_24h, .body = {}};
+    return {.method = net::HttpMethod::Get,
+            .target = market_ == MarketType::Spot ? ep::k_spot_ticker_24h : ep::k_ticker_24h,
+            .body = {}};
 }
 
 net::RestRequest RequestBuilder::premium_index() noexcept {
@@ -86,12 +90,15 @@ net::RestRequest RequestBuilder::funding_info() noexcept {
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
+    return {.method = net::HttpMethod::Get,
+            .target = market_ == MarketType::Spot ? ep::k_spot_server_time : ep::k_server_time,
+            .body = {}};
 }
 
 net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol, std::uint32_t limit) noexcept {
     Appender target{target_};
-    target << ep::k_depth << "?symbol=" << symbol << "&limit=" << std::uint64_t{limit};
+    target << (market_ == MarketType::Spot ? ep::k_spot_depth : ep::k_depth) << "?symbol=" << symbol
+           << "&limit=" << std::uint64_t{limit};
     return {.method = net::HttpMethod::Get, .target = target.ok() ? target.view() : std::string_view{}, .body = {}};
 }
 

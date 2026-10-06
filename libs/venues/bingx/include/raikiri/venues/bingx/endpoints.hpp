@@ -36,5 +36,7 @@ inline constexpr std::string_view k_server_time = "/openApi/swap/v2/server/time"
 inline constexpr std::string_view k_premium_index = "/openApi/swap/v2/quote/premiumIndex";
 inline constexpr std::string_view k_depth = "/openApi/swap/v2/quote/depth";
 inline constexpr std::string_view k_ticker = "/openApi/swap/v2/quote/ticker";
+// every spot pair in one call
+inline constexpr std::string_view k_spot_tickers = "/openApi/spot/v1/ticker/24hr";
 
 } // namespace raikiri::venues::bingx::ep

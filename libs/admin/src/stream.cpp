@@ -405,6 +405,9 @@ Funding funding_of(const FundingUpdate& funding, const InstrumentBase& base) {
     out.rate = decimal(funding.rate);
     out.predicted_rate = decimal(funding.predicted_rate);
     out.mark_price = price(funding.mark_price, base);
+    if (!funding.index_price.is_undef()) {
+        out.index_price = price(funding.index_price, base);
+    }
     out.next_funding_time = digits(funding.next_funding_time);
     // null when the venue did not say; zero would be read as an interval
     if (funding.interval_s != 0) {
@@ -465,6 +468,9 @@ Ticker ticker_of(const TickerStats& stats) {
     // not scaled by tick or lot
     out.volume_24h_base = decimal(stats.volume_24h_base);
     out.volume_24h_quote = decimal(stats.volume_24h_quote);
+    if (!stats.open_interest.is_undef()) {
+        out.open_interest = decimal(stats.open_interest);
+    }
     out.ts_event = digits(stats.ts_event);
     return out;
 }

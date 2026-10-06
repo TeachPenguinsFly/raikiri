@@ -123,6 +123,7 @@ struct TradeBuffer {
 struct WireOverview {
     std::string_view instrument;
     std::string_view mark;
+    std::string_view index; // UnderlyingPrice
     std::string_view fee_rate;
     std::string_view volume_24h;
     std::string_view turnover_24h;
@@ -205,6 +206,14 @@ struct WireSpotTick {
 };
 
 [[nodiscard]] std::expected<WireSpotTick, WireError> parse_spot_tick(std::string_view frame);
+
+struct SpotTickBuffer {
+    std::array<WireSpotTick, k_max_instruments> rows{};
+};
+
+// the 24h table for every pair, stamped in epoch milliseconds rather than beijing time
+[[nodiscard]] std::expected<std::span<const WireSpotTick>, WireError> parse_spot_tickers(std::string_view body,
+                                                                                         SpotTickBuffer& storage);
 
 // beijing wall time with no zone, as epoch milliseconds; zero when malformed
 [[nodiscard]] std::uint64_t beijing_to_ms(std::string_view text) noexcept;

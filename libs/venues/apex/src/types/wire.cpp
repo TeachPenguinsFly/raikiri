@@ -347,10 +347,12 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.symbol = *symbol;
         const auto field = [&](std::string_view key) { return wire::opt_str(row, key).value_or(std::string_view{}); };
         out.mark_price = field("markPrice");
+        out.index_price = field("indexPrice");
         out.funding_rate = field("fundingRate");
         out.next_funding_time = field("nextFundingTime");
         out.volume_24h = field("volume24h");
         out.turnover_24h = field("turnover24h");
+        out.open_interest = field("openInterest");
         return out;
     });
 }

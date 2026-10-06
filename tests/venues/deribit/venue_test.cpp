@@ -1,4 +1,5 @@
 #include <raikiri/common/int128.hpp>
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/deribit/account.hpp>
 #include <raikiri/venues/deribit/book.hpp>
@@ -100,14 +101,11 @@ TEST(DeribitVenue, EveryMarketItServesCanActuallyBeBuilt) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option}) {
+    for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option, MarketType::Spot}) {
         const auto adapter = exec::make_venue({.venue = VenueId::Deribit, .market = market}, sink, clock);
         ASSERT_TRUE(adapter.has_value()) << to_string(market);
         EXPECT_NE(adapter->instruments, nullptr) << to_string(market);
     }
-    const auto spot = exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Spot}, sink, clock);
-    ASSERT_FALSE(spot.has_value());
-    EXPECT_EQ(spot.error(), exec::MakeError::UnsupportedMarket);
 }
 
 TEST(DeribitVenue, ServesEveryMarketItListsExceptSpot) {
@@ -192,7 +190,7 @@ TEST(DeribitNumber, RefusesWhatItCannotRepresentExactly) {
 TEST(DeribitCatalogue, PerpetualArrivesUnderTheFutureKind) {
     const auto body = fixture("rest_get_instruments.json");
     exec::InstrumentTable table;
-    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 1U);
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 2U);
 
     const auto* instrument = table.find("BTC-PERPETUAL");
     ASSERT_NE(instrument, nullptr);
@@ -212,7 +210,7 @@ TEST(DeribitCatalogue, DatedFutureIsADifferentMarketFromThePerpetual) {
     const auto body = fixture("rest_get_instruments.json");
     exec::InstrumentTable perps;
     exec::InstrumentTable futures;
-    EXPECT_EQ(load_catalogue(perps, MarketType::Perp, body), 1U);
+    EXPECT_EQ(load_catalogue(perps, MarketType::Perp, body), 2U);
     EXPECT_EQ(load_catalogue(futures, MarketType::Future, body), 1U);
 
     EXPECT_EQ(perps.find("BTC-25SEP26"), nullptr);
@@ -224,16 +222,69 @@ TEST(DeribitCatalogue, DatedFutureIsADifferentMarketFromThePerpetual) {
     EXPECT_EQ(base_of(*dated).tick_size.raw, 2'500'000'000); // 2.5, coarser than the perp
 }
 
-TEST(DeribitCatalogue, RefusesInactiveAndLinearRows) {
+TEST(DeribitCatalogue, RefusesInactiveRows) {
     const auto body = fixture("rest_get_instruments.json");
     exec::InstrumentTable table;
-    // BTC-10AUG26 is delivered, ADA_USDC-PERPETUAL is linear, the rest are other markets
-    EXPECT_EQ(load_catalogue(table, MarketType::Perp, body), 1U);
-    EXPECT_EQ(table.find("ADA_USDC-PERPETUAL"), nullptr);
+    EXPECT_EQ(load_catalogue(table, MarketType::Perp, body), 2U);
+    EXPECT_NE(table.find("ADA_USDC-PERPETUAL"), nullptr);
 
+    // BTC-10AUG26 is delivered
     exec::InstrumentTable futures;
     EXPECT_EQ(load_catalogue(futures, MarketType::Future, body), 1U);
     EXPECT_EQ(futures.find("BTC-10AUG26"), nullptr);
+}
+
+TEST(DeribitCatalogue, EveryCurrencyListsInverseAndLinearPerpetuals) {
+    const auto body = fixture("rest_get_instruments_any.json");
+    exec::InstrumentTable perps;
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, body), 7U);
+
+    const auto* inverse = perps.find("BTC-PERPETUAL");
+    ASSERT_NE(inverse, nullptr);
+    const auto& coin = base_of(*inverse);
+    EXPECT_EQ(coin.local_symbol.view(), "BTC/USD");
+    EXPECT_EQ(coin.kind, ContractKind::Inverse);
+    EXPECT_EQ(coin.lot_size.raw, 10 * k_e9); // usd
+    EXPECT_EQ(coin.contract_value.raw, k_e9);
+
+    const auto* linear = perps.find("BTC_USDC-PERPETUAL");
+    ASSERT_NE(linear, nullptr);
+    const auto& usdc = base_of(*linear);
+    EXPECT_EQ(usdc.local_symbol.view(), "BTC/USDC");
+    EXPECT_EQ(usdc.kind, ContractKind::Linear);
+    EXPECT_EQ(usdc.tick_size.raw, 100'000'000); // 0.1 usdc
+    EXPECT_EQ(usdc.lot_size.raw, 100'000);      // 0.0001 btc
+    EXPECT_EQ(usdc.contract_value.raw, k_e9);   // one btc per unit of amount
+    EXPECT_TRUE(usdc.min_notional.is_undef());
+
+    const auto* xrp = perps.find("XRP_USDC-PERPETUAL");
+    ASSERT_NE(xrp, nullptr);
+    EXPECT_EQ(base_of(*xrp).local_symbol.view(), "XRP/USDC");
+    EXPECT_EQ(base_of(*xrp).tick_size.raw, 10'000); // 1.0e-5
+    EXPECT_EQ(base_of(*xrp).lot_size.raw, k_e9);
+
+    // AVAX_USDC-7OCT26 is a linear dated future and stays out of both markets
+    EXPECT_EQ(perps.find("AVAX_USDC-7OCT26"), nullptr);
+    EXPECT_EQ(perps.find("BTC-7OCT26"), nullptr);
+    exec::InstrumentTable futures;
+    ASSERT_EQ(load_catalogue(futures, MarketType::Future, body), 1U);
+    EXPECT_NE(futures.find("BTC-7OCT26"), nullptr);
+}
+
+TEST(DeribitCatalogue, LinearPerpetualsPairByTheirStatedUnderlying) {
+    const auto body = fixture("rest_get_instruments_any.json");
+    exec::InstrumentTable perps;
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, body), 7U);
+    const auto key = [&](std::string_view name) {
+        auto base = base_of(*perps.find(name));
+        classify(VenueId::Deribit, base);
+        return market_key(base);
+    };
+    EXPECT_EQ(key("BTC-PERPETUAL"), "crypto:BTC/USD");
+    EXPECT_EQ(key("BTC_USDC-PERPETUAL"), "crypto:BTC/USD*");
+    EXPECT_EQ(key("SOL_USDC-PERPETUAL"), "crypto:SOL/USD*");
+    EXPECT_EQ(key("AAPL_USDC-PERPETUAL"), "equity:AAPL/USD*");
+    EXPECT_EQ(key("GOLD_USDC-PERPETUAL"), "commodity:XAU/USD*");
 }
 
 TEST(DeribitCatalogue, OptionsFillTheDeclaredSeam) {
@@ -267,10 +318,61 @@ TEST(DeribitCatalogue, OptionsFillTheDeclaredSeam) {
     EXPECT_EQ(option.greeks, OptionUnit::Quote);
 }
 
-TEST(DeribitCatalogue, SpotIsNotModelled) {
-    const auto body = fixture("rest_get_instruments.json");
+TEST(DeribitCatalogue, SpotTakesOnlySpotRows) {
+    exec::InstrumentTable derivatives;
+    EXPECT_EQ(load_catalogue(derivatives, MarketType::Spot, fixture("rest_get_instruments.json")), 0U);
+
+    const auto body = fixture("rest_get_instruments_spot.json");
+    for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option}) {
+        exec::InstrumentTable none;
+        EXPECT_EQ(load_catalogue(none, market, body), 0U) << to_string(market);
+    }
     exec::InstrumentTable table;
-    EXPECT_EQ(load_catalogue(table, MarketType::Spot, body), 0U);
+    ASSERT_EQ(load_catalogue(table, MarketType::Spot, body), 3U);
+    const auto* btc = table.find("BTC_USDC");
+    ASSERT_NE(btc, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SpotInstrument>(*btc));
+    const auto& base = base_of(*btc);
+    EXPECT_EQ(base.id.market(), MarketType::Spot);
+    EXPECT_EQ(base.local_symbol.view(), "BTC/USDC");
+    EXPECT_EQ(base.tick_size.raw, 10'000'000); // 0.01
+    EXPECT_EQ(base.lot_size.raw, 10);          // 1e-8
+    EXPECT_EQ(base.kind, ContractKind::Linear);
+    EXPECT_EQ(base.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(base_of(*table.find("ETH_BTC")).local_symbol.view(), "ETH/BTC");
+}
+
+TEST(DeribitSpot, TheTopOfBookComesOffTheSameChannel) {
+    exec::InstrumentTable table;
+    ASSERT_EQ(load_catalogue(table, MarketType::Spot, fixture("rest_get_instruments_spot.json")), 3U);
+    const auto frame = fixture("ws_book_bbo_spot.json");
+    const auto wire = parse_bbo(frame);
+    ASSERT_TRUE(wire.has_value());
+    const auto bbo = map_bbo(*wire, table, UnixNanos{7});
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid.raw, 8'651'495); // 86514.95 / 0.01
+    EXPECT_EQ(bbo->ask.raw, 8'651'496);
+    EXPECT_EQ(bbo->bid_qty.raw, 4'654'996); // 0.04654996 / 1e-8
+    EXPECT_EQ(bbo->ask_qty.raw, 9'223'835);
+    EXPECT_EQ(bbo->ts_event.ns, 1791300025397ULL * 1'000'000ULL);
+}
+
+TEST(DeribitSpot, SpotVolumeIsPricedAtTheMarkSinceNoQuoteColumnIsStated) {
+    exec::InstrumentTable table;
+    ASSERT_EQ(load_catalogue(table, MarketType::Spot, fixture("rest_get_instruments_spot.json")), 3U);
+    const auto frame = fixture("ws_ticker_spot.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_TRUE(wire->stats_volume_usd.empty());
+    EXPECT_FALSE(map_funding(*wire, table, UnixNanos{1}).has_value());
+    const auto stats = map_ticker_stats(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->instrument, base_of(*table.find("BTC_USDC")).id);
+    EXPECT_EQ(stats->volume_24h_base.raw, 4'414'414'227'800); // 4414.4142278
+    // 4414.4142278 at 86495.08 is about 381.8 million
+    EXPECT_GT(stats->volume_24h_quote.raw, 381'800'000'000'000);
+    EXPECT_LT(stats->volume_24h_quote.raw, 381'900'000'000'000);
+    EXPECT_EQ(stats->ts_event.ns, 1791300025397ULL * 1'000'000ULL);
 }
 
 TEST(DeribitCatalogue, ServerTimeReadsABareNumberResult) {
@@ -369,7 +471,7 @@ TEST(DeribitWire, IncrementalBookStatesTheActionPerLevel) {
 TEST(DeribitMap, BboComesFromTheDepthOneGroupedBook) {
     const auto catalogue = fixture("rest_get_instruments.json");
     exec::InstrumentTable table;
-    ASSERT_EQ(load_catalogue(table, MarketType::Perp, catalogue), 1U);
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, catalogue), 2U);
 
     const auto frame = fixture("ws_book_bbo.json");
     const auto wire = parse_bbo(frame);
@@ -406,7 +508,7 @@ TEST(DeribitMap, OptionBboUsesTheFinerCoinStep) {
 TEST(DeribitMap, TradeDirectionIsAlreadyTheAggressor) {
     const auto catalogue = fixture("rest_get_instruments.json");
     exec::InstrumentTable table;
-    ASSERT_EQ(load_catalogue(table, MarketType::Perp, catalogue), 1U);
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, catalogue), 2U);
 
     const auto frame = fixture("ws_trades.json");
     auto storage = std::make_unique<TradeBuffer>();
@@ -427,7 +529,7 @@ TEST(DeribitMap, TradeDirectionIsAlreadyTheAggressor) {
 TEST(DeribitMap, PerpetualFundingSurvivesAnHonestZero) {
     const auto catalogue = fixture("rest_get_instruments.json");
     exec::InstrumentTable table;
-    ASSERT_EQ(load_catalogue(table, MarketType::Perp, catalogue), 1U);
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, catalogue), 2U);
 
     const auto frame = fixture("ws_ticker_perpetual.json");
     const auto wire = parse_ticker(frame);
@@ -446,18 +548,45 @@ TEST(DeribitMap, PerpetualFundingSurvivesAnHonestZero) {
     EXPECT_TRUE(funding->predicted_rate.is_undef());
 }
 
+TEST(DeribitMap, LinearPerpetualFundingComesOffTheSameTickerFields) {
+    exec::InstrumentTable table;
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, fixture("rest_get_instruments_any.json")), 7U);
+
+    const auto frame = fixture("ws_ticker_linear_perpetual.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->instrument, "BTC_USDC-PERPETUAL");
+
+    const auto funding = map_funding(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(funding.has_value());
+    EXPECT_EQ(funding->instrument, base_of(*table.find("BTC_USDC-PERPETUAL")).id);
+    EXPECT_EQ(funding->rate.raw, 16'400); // 1.64e-5
+    EXPECT_EQ(funding->interval_s, 8U * 60U * 60U);
+    EXPECT_EQ(funding->accrual, FundingAccrual::Continuous);
+    EXPECT_EQ(funding->ts_event.ns, 1791295683441ULL * 1'000'000ULL);
+    // deribit publishes no forecast and accrues continuously, so there is no next instant
+    EXPECT_TRUE(funding->predicted_rate.is_undef());
+    const auto tick = base_of(*table.find("BTC_USDC-PERPETUAL")).tick_size.raw;
+    EXPECT_EQ(funding->index_price.raw, 86'112'210'000'000 / tick); // 86112.21 truncated onto the tick
+
+    // a linear contract states its open interest in the coin, not in usd
+    const auto stats = map_ticker_stats(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->open_interest.raw, 1'539'395'000'000);
+}
+
 TEST(DeribitMap, MarkPriceIsDroppedWhenItIsNotOnTheTick) {
-    // the perpetual mark is off the 0.5 tick, so it stays undefined; option marks sit on the tick
+    // the perpetual mark is off the 0.5 tick, so it is truncated onto it; option marks sit on the tick
     const auto catalogue = fixture("rest_get_instruments.json");
     exec::InstrumentTable perps;
-    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 1U);
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 2U);
     const auto perp_frame = fixture("ws_ticker_perpetual.json");
     const auto perp_wire = parse_ticker(perp_frame);
     ASSERT_TRUE(perp_wire.has_value());
     EXPECT_EQ(perp_wire->mark_price, "64111.95");
     const auto funding = map_funding(*perp_wire, perps, UnixNanos{1});
     ASSERT_TRUE(funding.has_value());
-    EXPECT_TRUE(funding->mark_price.is_undef());
+    EXPECT_EQ(funding->mark_price.raw, 128'223); // 64111.5
 }
 
 TEST(DeribitMap, NonPerpetualTickersQuoteNoFundingAtAll) {
@@ -487,7 +616,7 @@ TEST(DeribitMap, TheStatsBlockCarriesBothColumnsOnEveryKindOnThisChannel) {
     const auto catalogue = fixture("rest_get_instruments.json");
 
     exec::InstrumentTable perps;
-    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 1U);
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 2U);
     // named: the parsed views point into the frame
     const auto perp_frame = fixture("ws_ticker_perpetual.json");
     const auto perp = parse_ticker(perp_frame);
@@ -502,6 +631,8 @@ TEST(DeribitMap, TheStatsBlockCarriesBothColumnsOnEveryKindOnThisChannel) {
     EXPECT_EQ(stats->volume_24h_quote.raw * (k_e9 / k_e6) / stats->volume_24h_base.raw, 64'698);
     EXPECT_EQ(stats->ts_event.ns, 1'786'395'070'130'000'000ULL);
     EXPECT_EQ(stats->ts_init.ns, 11U);
+    // 705111340 usd of inverse contracts at the 64111.95 mark
+    EXPECT_EQ(stats->open_interest.raw, 10'998'126'558'309);
 
     exec::InstrumentTable futures;
     ASSERT_EQ(load_catalogue(futures, MarketType::Future, catalogue), 1U);
@@ -525,12 +656,14 @@ TEST(DeribitMap, TheStatsBlockCarriesBothColumnsOnEveryKindOnThisChannel) {
     EXPECT_EQ(option_stats->volume_24h_base.raw, 15'600'000'000);
     EXPECT_EQ(option_stats->volume_24h_quote.raw, 4'521'240'000);
     EXPECT_EQ(option_stats->volume_24h_quote.raw * (k_e9 / k_e6) / option_stats->volume_24h_base.raw, 289);
+    // an option's open interest is already in the coin
+    EXPECT_EQ(option_stats->open_interest.raw, 13'200'000'000);
 }
 
 TEST(DeribitMap, ATickerWithoutStatsStillYieldsItsFunding) {
     const auto catalogue = fixture("rest_get_instruments.json");
     exec::InstrumentTable perps;
-    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 1U);
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 2U);
     const auto frame = fixture("ws_ticker_perpetual.json");
     auto wire = parse_ticker(frame);
     ASSERT_TRUE(wire.has_value());
@@ -619,7 +752,7 @@ Book book_for(const exec::InstrumentTable& table) {
 
 exec::InstrumentTable perp_catalogue() {
     exec::InstrumentTable table;
-    EXPECT_EQ(load_catalogue(table, MarketType::Perp, fixture("rest_get_instruments.json")), 1U);
+    EXPECT_EQ(load_catalogue(table, MarketType::Perp, fixture("rest_get_instruments.json")), 2U);
     return table;
 }
 
@@ -1129,6 +1262,7 @@ TEST(DeribitVenue, LabelCarriesAWholeUlid) {
     EXPECT_GE(exec::caps_of(VenueId::Deribit).max_client_order_id_len, exec::k_min_client_order_id_len);
     EXPECT_EQ(currency_of("BTC-11AUG26-64000-C"), "BTC");
     EXPECT_EQ(currency_of("ETH-PERPETUAL"), "ETH");
+    EXPECT_EQ(currency_of("BTC_USDC-PERPETUAL"), "USDC");
     EXPECT_TRUE(currency_of("NODASH").empty());
 }
 
@@ -1446,7 +1580,7 @@ TEST(DeribitSignedRest, FundingReadsSettlementRowsOfOneCurrency) {
 TEST(DeribitMapRest, ASettlementBooksTheSessionFundingNotTheTailSinceTheLastTrade) {
     const auto body = fixture("rest_get_instruments.json");
     exec::InstrumentTable table;
-    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 1U);
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 2U);
 
     static LogBuffer storage;
     const auto log_body = fixture("rest_transaction_log_settlements.json");
@@ -1471,7 +1605,7 @@ TEST(DeribitMapRest, ASettlementBooksTheSessionFundingNotTheTailSinceTheLastTrad
 TEST(DeribitMapRest, OverlappingLogPagesBookEachSettlementOnce) {
     const auto body = fixture("rest_get_instruments.json");
     exec::InstrumentTable perps;
-    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, body), 1U);
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, body), 2U);
     std::unordered_set<std::uint64_t> seen;
     std::vector<LedgerEntry> charges;
 
@@ -1503,9 +1637,9 @@ TEST(DeribitMapRest, OverlappingLogPagesBookEachSettlementOnce) {
 }
 
 TEST(DeribitMapRest, FundingStaysInTheCurrencyTheContractSettlesIn) {
-    const auto body = fixture("rest_get_instruments.json");
+    const auto body = fixture("rest_get_instruments_any.json");
     exec::InstrumentTable table;
-    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 1U);
+    ASSERT_EQ(load_catalogue(table, MarketType::Perp, body), 7U);
     static LogBuffer storage;
     const auto log_body = fixture("rest_transaction_log_usdc.json");
     const auto page = parse_transaction_log(log_body, storage);
@@ -1513,16 +1647,9 @@ TEST(DeribitMapRest, FundingStaysInTheCurrencyTheContractSettlesIn) {
     ASSERT_EQ(page->entries.size(), 1U);
     const auto usdc = page->entries[0];
 
-    // the catalogue refuses linear series, so their funding has nowhere to land
-    EXPECT_FALSE(map_funding_settlement(usdc, table, UnixNanos{1}).has_value());
-
-    InstrumentBase linear = base_of(*table.find("BTC-PERPETUAL"));
-    linear.exchange_symbol = *SymbolText::from("BTC_USDC-PERPETUAL");
-    linear.local_symbol = linear.exchange_symbol;
-    linear.kind = ContractKind::Linear;
-    ASSERT_TRUE(table.add(PerpInstrument{linear, 0}).has_value());
     const auto charge = map_funding_settlement(usdc, table, UnixNanos{1});
     ASSERT_TRUE(charge.has_value());
+    EXPECT_EQ(charge->instrument, base_of(*table.find("BTC_USDC-PERPETUAL")).id);
     EXPECT_EQ(charge->amount.raw, -421'700'000); // usdc, as the log wrote it
 
     // a coin log row on a usdc contract, or the reverse, is refused rather than mixed

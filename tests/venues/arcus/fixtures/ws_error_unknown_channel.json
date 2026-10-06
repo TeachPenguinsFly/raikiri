@@ -1,0 +1,1 @@
+{"type":"error","message":"Unknown channel 'bogus'. Valid channels: [l2Orderbook l2OrderbookUpdates trades account positions spotPositions markets oraclePrices bbo userFills spotFills orders candles predictedFunding funding accountTransferUpdates accountAttributeUpdates exchangeAttributeUpdates alpCapacity marketAttributes lendingRates settleLoanResults]"}

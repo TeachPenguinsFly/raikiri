@@ -108,6 +108,13 @@ TEST(ExtendedCatalogue, ParsesEveryRowAndReadsTheSettlementTimeAsATimestamp) {
     EXPECT_TRUE(row("DASH-USD").rfq);
 }
 
+TEST(ExtendedTicker, OpenInterestIsTheBaseFigureNotTheDollarOne) {
+    const auto stats = map_ticker_stats(row("BTC-USD"), base_for("BTC-USD"), k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base, e9("1140.34740"));
+    EXPECT_EQ(stats->open_interest, e9("498.81120"));
+}
+
 TEST(ExtendedCatalogue, LoadsActivePerpsOnlyAndKeepsTheScaledNamesApart) {
     const auto btc = map_instrument(row("BTC-USD"), MarketType::Perp);
     ASSERT_TRUE(btc.has_value());
@@ -236,6 +243,8 @@ TEST(ExtendedFunding, RateAndMarkArriveApartAndPublishTogether) {
     update = merged(btc, memo, k_ingest, k_ingest);
     EXPECT_EQ(update.next_funding_time.ns, 1'790'316'000'000'000'000ULL);
     EXPECT_FALSE(update.mark_price.is_undef());
+    EXPECT_EQ(update.index_price.raw, 84'234); // 84234.315000000002 on the 1 grid
+    EXPECT_TRUE(update.predicted_rate.is_undef());
     // A settlement already past is not published.
     EXPECT_TRUE(merged(btc, memo, UnixNanos{1'790'316'000'000'000'001ULL}, k_ingest).next_funding_time.ns == 0);
 }

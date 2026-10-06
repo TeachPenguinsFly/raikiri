@@ -1,4 +1,5 @@
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -117,6 +118,10 @@ public:
         if (kind == exec::SubKind::Depth) {
             state_->depth_wanted.insert(instrument.packed);
         }
+        if (kind == exec::SubKind::Bbo && instrument.market() == MarketType::Spot) {
+            // spot_market24h rides the funding subscription, which a spot account does not open
+            spot_tickers_.want(instrument);
+        }
         if (!state_->channels.emplace(key).second) {
             return {};
         }
@@ -144,9 +149,36 @@ public:
             next_ping_ns_ = now.ns + k_ping_interval_ns;
         }
         reread(now);
+        spot_tickers_.poll(now, [this] {
+            catalogue_rest_.start();
+            const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_spot_tickers, .body = {}};
+            return catalogue_rest_.send(request, [this](net::RestResponse&& response) { on_spot_tickers(response); });
+        });
     }
 
 private:
+    void on_spot_tickers(const net::RestResponse& response) noexcept {
+        spot_tickers_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickerBuffer>();
+        const auto rows = parse_spot_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto found = state_->find(row.symbol);
+            if (!found.has_value() || !spot_tickers_.wanted(found->base->id)) {
+                continue;
+            }
+            if (const auto stats = map_ticker_stats(row, *found->base, *found->listing, received); stats.has_value()) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
     class Handler final : public net::WsHandler {
     public:
         explicit Handler(PhemexData& owner) : owner_{&owner} {}
@@ -510,6 +542,7 @@ private:
     Handler handler_;
     net::WsPool pool_;
     net::RestClient catalogue_rest_;
+    exec::TickerPoll spot_tickers_;
     std::unique_ptr<CatalogueBuffer> catalogue_storage_;
     bool started_{false};
     bool reread_in_flight_{false};

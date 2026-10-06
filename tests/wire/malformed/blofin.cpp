@@ -70,6 +70,12 @@ TEST(Malformed, Blofin) {
                     (void)parse_rest_envelope(f);
                     (void)parse_funding(f, funding);
                 }},
+               {"rest_open_interest.json",
+                [](std::string_view f) {
+                    static OpenInterestBuffer rows;
+                    (void)parse_rest_envelope(f);
+                    (void)parse_open_interest(f, rows);
+                }},
                {"rest_mark_price.json",
                 [](std::string_view f) {
                     static MarkBuffer marks;

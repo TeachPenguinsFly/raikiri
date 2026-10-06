@@ -1,4 +1,5 @@
 #include <raikiri/venues/bybit/map.hpp>
+#include <raikiri/venues/bybit/market_data.hpp>
 #include <raikiri/venues/bybit/rest.hpp>
 #include <raikiri/venues/bybit/trade.hpp>
 
@@ -6,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -181,6 +183,40 @@ TEST(BybitTrade, NothingReachesTheSocketBeforeTheAuthReplyAndRestTakesItInstead)
     ASSERT_TRUE(rpc.ready());
     EXPECT_TRUE(rpc.request(rpc.next_id(), "order", [](const net::WsRpcReply&) {}));
     EXPECT_EQ(socket.size(), 2U);
+}
+
+TEST(BybitTickers, RestSpotTickersStampEveryRowWithTheEnvelopeTime) {
+    exec::InstrumentTable table;
+    WireInstrument btc{};
+    btc.base_coin = "BTC";
+    btc.quote_coin = "USDT";
+    btc.symbol = "BTCUSDT";
+    btc.status = "Trading";
+    btc.tick_size = "0.01";
+    btc.qty_step = "0.000001";
+    btc.min_notional = "5";
+    const auto spot = map_instrument(btc, MarketType::Spot);
+    ASSERT_TRUE(spot.has_value());
+    ASSERT_TRUE(table.add(*spot).has_value());
+
+    const auto body = fixture("rest_tickers_spot.json");
+    const auto storage = std::make_unique<TickerBuffer>();
+    const auto rows = parse_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    std::size_t mapped = 0;
+    for (const auto& row : *rows) {
+        EXPECT_EQ(row.ts_ms, 1'791'299'350'363ULL);
+        const auto stats = map_ticker_stats(row, table, k_now);
+        if (!stats.has_value()) {
+            continue;
+        }
+        ++mapped;
+        EXPECT_EQ(stats->volume_24h_base.raw, 5'184'551'794'000LL);
+        EXPECT_EQ(stats->volume_24h_quote.raw, 445'000'078'465'471LL);
+        EXPECT_EQ(stats->ts_event.ns, 1'791'299'350'363'000'000ULL);
+    }
+    EXPECT_EQ(mapped, 1U);
 }
 
 } // namespace

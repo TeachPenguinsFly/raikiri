@@ -1,6 +1,7 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -58,6 +59,11 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Hyperliquid);
+    adapter.clock.emplace(exec::ServerTimeQuery{
+        .host = "api.hyperliquid.xyz",
+        .target = "/info",
+        .body = R"({"type":"exchangeStatus"})",
+        .parse = [](std::string_view body) { return exec::json_number(body, "time", 1'000'000); }});
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);
     adapter.instruments = make_instrument_source(state);

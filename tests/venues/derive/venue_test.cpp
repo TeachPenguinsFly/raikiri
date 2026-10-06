@@ -296,6 +296,7 @@ TEST(DeriveMap, TheOptionTickerCarriesTheVenuesGreeksInTheSharedConvention) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("1"));
     EXPECT_EQ(stats->volume_24h_quote.raw, 51'000'000); // premium, not notional
+    EXPECT_EQ(stats->open_interest, e9("32"));
 }
 
 TEST(DeriveMap, ThePerpetualTickerCarriesAnHourlyContinuousRateAndNoGreeks) {
@@ -313,12 +314,16 @@ TEST(DeriveMap, ThePerpetualTickerCarriesAnHourlyContinuousRateAndNoGreeks) {
     EXPECT_EQ(funding->interval_s, 3600U);
     EXPECT_EQ(funding->accrual, FundingAccrual::Continuous);
     EXPECT_EQ(base.ticks_to_price(funding->mark_price), e9("2679.53"));
+    EXPECT_EQ(base.ticks_to_price(funding->index_price), e9("2680.46"));
+    // continuous accrual pays at no instant
+    EXPECT_EQ(funding->next_funding_time.ns, 0U);
     EXPECT_EQ(funding->ts_event.ns, 1'791'040'796'613'000'000ULL);
 
     const auto stats = map_ticker_stats(*wire, base, MarketType::Perp, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("3596.888"));
     EXPECT_EQ(stats->volume_24h_quote.raw, 9'621'026'611'000);
+    EXPECT_EQ(stats->open_interest, e9("15109.765"));
 }
 
 TEST(DeriveMap, TradeDirectionIsTheAggressor) {

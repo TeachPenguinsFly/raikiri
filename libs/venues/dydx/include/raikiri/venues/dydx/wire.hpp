@@ -25,6 +25,7 @@ struct WireMarket {
     std::string_view oracle_price;
     std::string_view next_funding_rate; // per hour
     std::string_view volume_24h;        // in USD, not base
+    std::string_view open_interest;     // base
 };
 
 inline constexpr std::size_t k_max_markets = 1024;

@@ -52,6 +52,7 @@ seed and a stream taken minutes apart replay into a crossed book.
 | file | source |
 | --- | --- |
 | `rest_currency_pairs.json` | `GET /api/v4/spot/currency_pairs`, trimmed to BTC_USDT, ETH_USDT, ALEPH_USDT and XAR_USDT, unedited |
+| `rest_spot_tickers.json` | `GET /api/v4/spot/tickers` on 2026-10-06, trimmed from 2203 rows to BTC_USDT, ETH_USDT, SOL_USDT, DOGE_USDT and one other |
 | `rest_error_invalid_key.json` | `POST /api/v4/futures/usdt/orders` with a fabricated `KEY`/`SIGN` |
 | `rest_error_request_expired.json` | the same call with a `Timestamp` an hour stale (the header is in seconds) |
 

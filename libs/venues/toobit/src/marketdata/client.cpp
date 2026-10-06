@@ -12,6 +12,8 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -347,6 +349,7 @@ public:
         }
         if (now.ns >= state_->next_funding_ns) {
             state_->next_funding_ns = now.ns + ep::k_funding_poll_ns;
+            poll_index();
             poll_funding();
         }
         if (now.ns >= state_->next_ticker_ns) {
@@ -406,10 +409,49 @@ private:
                 if (market == nullptr || !market->wants_funding) {
                     continue;
                 }
-                if (const auto update = map_funding(row, base, market->mark, now); update.has_value()) {
+                if (const auto update = map_funding(row, base, market->mark, market->index, now); update.has_value()) {
                     market->funding = *update;
                     market->funded = true;
                     state->sink->on_funding(*update);
+                }
+            }
+        });
+    }
+
+    // one call names every underlying's index; the funding poll after it carries the value
+    void poll_index() {
+        if (!any(&Market::wants_funding)) {
+            return;
+        }
+        net::RestRequest request{};
+        request.method = net::HttpMethod::Get;
+        request.target = ep::k_index;
+        (void)rest_.send(request, [state = state_](net::RestResponse&& response) {
+            if (response.transport_failed() || response.status != 200) {
+                return;
+            }
+            static thread_local const auto storage = std::make_unique<IndexBuffer>();
+            const auto rows = parse_index_prices(response.body, *storage);
+            if (!rows.has_value()) {
+                return;
+            }
+            std::unordered_map<std::string_view, std::string_view> by_underlying;
+            by_underlying.reserve(rows->size());
+            for (const auto& row : *rows) {
+                by_underlying.emplace(row.underlying, row.price);
+            }
+            for (const auto& instrument : state->instruments.all()) {
+                const auto& base = base_of(instrument);
+                auto* market = state->market_of(base.id);
+                if (market == nullptr || !market->wants_funding) {
+                    continue;
+                }
+                const auto found = by_underlying.find(index_key(base.exchange_symbol.view()));
+                if (found == by_underlying.end()) {
+                    continue;
+                }
+                if (const auto index = map_index_price(found->second, base); index.has_value()) {
+                    market->index = *index;
                 }
             }
         });

@@ -121,6 +121,16 @@ void handle_frame(VenueState& state, const EventInfo& event, std::string_view fr
     case EventKind::TradeSnapshot:
         handle_trade_snapshot(state, frame, event.symbol);
         break;
+    case EventKind::BookTicker: {
+        const auto wire = parse_book_ticker(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto bbo = map_book_ticker(*wire, state.instruments, received); bbo.has_value()) {
+            state.sink->on_bbo(*bbo);
+        }
+        break;
+    }
     case EventKind::Ticker: {
         const auto wire = parse_ticker(frame);
         if (!wire.has_value()) {
@@ -190,7 +200,7 @@ public:
     explicit WeexData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           pool_{state_->io,
-                net::WsConfig{.host = std::string{stream_host()},
+                net::WsConfig{.host = std::string{stream_host(state_->market)},
                               .port = std::string{stream_port()},
                               .target = std::string{stream_path()}},
                 handler_,
@@ -199,11 +209,11 @@ public:
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {
         handler_.attach(pool_);
-        meter_market_data(*state_, state_->rest);
+        meter_market_data(*state_, state_->market_rest());
     }
 
     std::expected<void, exec::VenueError> start() override {
-        state_->rest.start();
+        state_->market_rest().start();
         pool_.start();
         started_ = true;
         return {};
@@ -211,7 +221,7 @@ public:
 
     void stop() override {
         pool_.stop();
-        state_->rest.stop();
+        state_->market_rest().stop();
         started_ = false;
     }
 
@@ -223,6 +233,15 @@ public:
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+        }
+        if (state_->market == MarketType::Spot) {
+            if (kind == exec::SubKind::Bbo || kind == exec::SubKind::Funding) {
+                state_->spot_tickers.want(instrument);
+            }
+            if (kind == exec::SubKind::Funding) {
+                return {}; // spot pays no funding; the poll above is its 24h window
+            }
+            return place(kind, symbol, instrument);
         }
         if (kind == exec::SubKind::Funding) {
             // funding is polled; the same request places the ticker channel for 24h turnover
@@ -245,6 +264,10 @@ public:
         state_->io.poll();
         pool_.poll(now);
         poll_funding(now);
+        state_->spot_tickers.poll(now, [this] {
+            return state_->spot_rest.send(state_->builder.spot_tickers(),
+                                          [this](const net::RestResponse& response) { on_spot_tickers(response); });
+        });
         reseed_books(now);
     }
 
@@ -252,7 +275,7 @@ private:
     // Bbo and Depth share @depth200, so the channel is placed once
     std::expected<void, exec::VenueError> place(exec::SubKind kind, std::string_view symbol, InstrumentId instrument) {
         std::array<char, 64> buf{};
-        const auto channel = channel_name(kind, symbol, buf);
+        const auto channel = channel_name(kind, symbol, buf, state_->market);
         if (channel.empty()) {
             return exec::DataClient::subscribe(kind, instrument);
         }
@@ -338,8 +361,9 @@ private:
             channels.emplace_back(key);
         }
         // quote first: on a paced full socket the last frames may never go
-        std::ranges::stable_partition(channels,
-                                      [](std::string_view channel) { return channel.ends_with(k_depth_channel); });
+        std::ranges::stable_partition(channels, [](std::string_view channel) {
+            return channel.ends_with(k_depth_channel) || channel.ends_with(k_book_ticker_channel);
+        });
 
         std::vector<std::string> frames;
         std::size_t built = 0;
@@ -373,6 +397,25 @@ private:
         }
         // only a sent call advances the interval
         state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
+    }
+
+    void on_spot_tickers(const net::RestResponse& response) noexcept {
+        state_->spot_tickers.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickerBuffer>();
+        const auto rows = parse_spot_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() && state_->spot_tickers.wanted(stats->instrument)) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
     }
 
     void on_funding(const net::RestResponse& response) noexcept {

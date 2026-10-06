@@ -1,0 +1,14 @@
+{
+  "id" : -1,
+  "method" : "public/get-book",
+  "code" : 0,
+  "result" : {
+    "depth" : 1,
+    "data" : [ {
+      "bids" : [ [ "86600.2", "0.0025", "2" ] ],
+      "asks" : [ [ "86600.3", "0.0224", "5" ] ],
+      "t" : 1791299516343
+    } ],
+    "instrument_name" : "BTCUSD-PERP"
+  }
+}

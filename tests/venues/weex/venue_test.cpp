@@ -94,6 +94,19 @@ exec::InstrumentTable load_table() {
     return table;
 }
 
+exec::InstrumentTable load_spot_table() {
+    static thread_local SpotInstrumentBuffer storage;
+    const auto rows = parse_spot_exchange_info(fixture("spot_rest_exchange_info.json"), storage);
+    EXPECT_TRUE(rows.has_value());
+    exec::InstrumentTable table;
+    for (const auto& row : *rows) {
+        if (auto instrument = map_spot_instrument(row); instrument.has_value()) {
+            EXPECT_TRUE(table.add(*instrument).has_value()) << row.symbol;
+        }
+    }
+    return table;
+}
+
 [[nodiscard]] const InstrumentBase& listed(const exec::InstrumentTable& table, std::string_view symbol) {
     const auto* instrument = table.find(symbol);
     EXPECT_NE(instrument, nullptr) << symbol;
@@ -115,7 +128,7 @@ TEST(WeexVenue, RegistersAndBuilds) {
 TEST(WeexVenue, TheCapsRowClaimsOnlyWhatALiveCredentialHasProven) {
     const auto& caps = exec::caps_of(VenueId::Weex);
     EXPECT_TRUE(caps.markets.perp);
-    EXPECT_FALSE(caps.markets.spot);
+    EXPECT_TRUE(caps.markets.spot);
     EXPECT_FALSE(caps.markets.future);
     EXPECT_FALSE(caps.markets.option);
     EXPECT_FALSE(caps.ws_order_entry);
@@ -131,9 +144,12 @@ TEST(WeexVenue, TheCapsRowClaimsOnlyWhatALiveCredentialHasProven) {
     EXPECT_TRUE(caps.balance_pull.has(MarketType::Perp));
     EXPECT_TRUE(caps.funding_charge.has(MarketType::Perp));
     EXPECT_FALSE(caps.position_pull.has(MarketType::Spot));
-    EXPECT_FALSE(caps.order_pull.has(MarketType::Spot));
-    EXPECT_FALSE(caps.balance_pull.has(MarketType::Spot));
-    EXPECT_EQ(caps.user_stream, exec::UserStreamModel::None);
+    EXPECT_TRUE(caps.order_pull.has(MarketType::Spot));
+    EXPECT_TRUE(caps.fill_pull.has(MarketType::Spot));
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Spot));
+    EXPECT_FALSE(caps.funding_charge.has(MarketType::Spot));
+    // spot signs its private socket's handshake; contracts open none
+    EXPECT_EQ(caps.user_stream, exec::UserStreamModel::AuthSubscribe);
     EXPECT_TRUE(caps.ticker_stats);
 
     EXPECT_TRUE(caps.needs_passphrase);
@@ -199,7 +215,7 @@ TEST(WeexVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
     const LiveClock clock;
     auto adapter = exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
-    for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
+    for (const auto market : {MarketType::Future, MarketType::Option}) {
         const auto loaded = adapter->instruments->fetch_all(market);
         ASSERT_FALSE(loaded.has_value()) << to_string(market);
         EXPECT_EQ(loaded.error().cls, exec::ErrorClass::Terminal);
@@ -664,7 +680,7 @@ TEST(WeexMap, ARateFinerThanFixedPointIsTruncatedRatherThanRefused) {
     EXPECT_EQ(funding->predicted_rate.raw, 0);
 }
 
-TEST(WeexMap, TheMarkIsCarriedExactlyAndTheIndexNotAtAll) {
+TEST(WeexMap, TheMarkIsCarriedExactlyAndTheIndexTruncatedOntoTheTick) {
     const auto table = load_table();
     static thread_local PremiumBuffer storage;
     const auto rows = parse_premium_index(fixture("rest_premium_index.json"), storage);
@@ -675,14 +691,17 @@ TEST(WeexMap, TheMarkIsCarriedExactlyAndTheIndexNotAtAll) {
     EXPECT_EQ(btc->rate.raw, 31'160);           // "0.00003116"
     EXPECT_EQ(btc->predicted_rate.raw, 28'960); // "0.00002896"
     EXPECT_EQ(btc->mark_price.raw, 794'214);    // "79421.4" at a 0.1 tick
+    EXPECT_EQ(btc->index_price.raw, 794'614);   // "79461.48875" truncated
     EXPECT_EQ(btc->next_funding_time.ns, 1'788'796'800'000'000'000ULL);
+    EXPECT_EQ(btc->ts_event.ns, 1'788'773'637'635'000'000ULL);
 
     // THEUSDT's index is off its 1e-5 tick; its mark divides
     const auto& the = listed(table, "THEUSDT");
     EXPECT_EQ(the.tick_size.raw, 10'000);
     const auto the_funding = map_funding((*rows)[3], table, k_ingest);
     ASSERT_TRUE(the_funding.has_value());
-    EXPECT_EQ(the_funding->mark_price.raw, 7'323); // "0.07323" divides
+    EXPECT_EQ(the_funding->mark_price.raw, 7'323);  // "0.07323" divides
+    EXPECT_EQ(the_funding->index_price.raw, 7'308); // "0.07308125" is truncated, not refused
     EXPECT_EQ((*rows)[3].symbol, "THEUSDT");
 
     // edited: every live row states a mark
@@ -1420,6 +1439,106 @@ TEST(WeexBook, ReadsFieldsInAnyOrder) {
     EXPECT_EQ((*trades)[0].trade_id, "");
     EXPECT_EQ((*trades)[0].trade_ms, 3U);
     EXPECT_TRUE((*trades)[0].buyer_is_maker);
+}
+
+TEST(WeexSpot, TheCatalogueAdmitsTradingSymbolsAtTheirStatedSteps) {
+    static thread_local SpotInstrumentBuffer storage;
+    const auto rows = parse_spot_exchange_info(fixture("spot_rest_exchange_info.json"), storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    const auto table = load_spot_table();
+    EXPECT_EQ(table.size(), 3U); // MEMEFIUSDT is halted
+    EXPECT_EQ(table.find("MEMEFIUSDT"), nullptr);
+    const auto& btc = listed(table, "BTCUSDT");
+    EXPECT_EQ(btc.id.market(), MarketType::Spot);
+    EXPECT_EQ(btc.local_symbol.view(), "BTC/USDT");
+    EXPECT_EQ(btc.tick_size.raw, 10'000'000); // 0.01
+    EXPECT_EQ(btc.lot_size.raw, 1'000);       // 0.000001
+    EXPECT_EQ(btc.asset_class, AssetClass::Crypto);
+    EXPECT_TRUE(btc.min_notional.is_undef());
+    EXPECT_TRUE(validate(btc));
+    EXPECT_EQ(listed(table, "ETHBTC").local_symbol.view(), "ETH/BTC");
+}
+
+TEST(WeexSpot, TheBookTickerIsTheQuoteAndCarriesItsEventTime) {
+    const auto table = load_spot_table();
+    const auto event = parse_event(fixture("spot_ws_book_ticker.json"));
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::BookTicker);
+    EXPECT_EQ(event->symbol, "BTCUSDT");
+    const auto wire = parse_book_ticker(fixture("spot_ws_book_ticker.json"));
+    ASSERT_TRUE(wire.has_value());
+    const auto bbo = map_book_ticker(*wire, table, k_ingest);
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid.raw, 8'655'689); // 86556.89 / 0.01
+    EXPECT_EQ(bbo->ask.raw, 8'655'690);
+    EXPECT_EQ(bbo->bid_qty.raw, 834'196); // 0.834196 / 0.000001
+    EXPECT_EQ(bbo->ask_qty.raw, 552'825);
+    EXPECT_EQ(bbo->ts_event.ns, 1'791'299'286'239'000'000ULL);
+    EXPECT_EQ(bbo->ts_init, k_ingest);
+}
+
+TEST(WeexSpot, ABookTickerOffTheTickIsDroppedNeverRounded) {
+    const auto table = load_spot_table();
+    const auto edited = replacing(fixture("spot_ws_book_ticker.json"), R"("b":"86556.89")", R"("b":"86556.895")");
+    const auto wire = parse_book_ticker(edited);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_FALSE(map_book_ticker(*wire, table, k_ingest).has_value());
+}
+
+TEST(WeexSpot, TheDailyTickerTableNamesEverySymbolOnce) {
+    const auto table = load_spot_table();
+    static thread_local SpotTickerBuffer storage;
+    const auto rows = parse_spot_tickers(fixture("spot_rest_ticker_24h.json"), storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    const auto btc = std::ranges::find_if(*rows, [](const WireTicker& row) { return row.symbol == "BTCUSDT"; });
+    ASSERT_NE(btc, rows->end());
+    const auto stats = map_ticker_stats(*btc, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->instrument, listed(table, "BTCUSDT").id);
+    EXPECT_EQ(stats->volume_24h_base.raw, 7'464'974'162'000);    // 7464.974162
+    EXPECT_EQ(stats->volume_24h_quote.raw, 641'303'218'104'136); // truncated past e6
+    EXPECT_EQ(stats->ts_event.ns, 1'791'298'800'000'000'000ULL); // closeTime
+}
+
+TEST(WeexSpot, SpotPrintsShareTheContractSocketsShape) {
+    const auto table = load_spot_table();
+    static thread_local PrintBuffer prints;
+    const auto wire = parse_trades(fixture("spot_ws_trade.json"), prints);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_FALSE(wire->empty());
+    const auto trade = map_trade((*wire)[0], "BTCUSDT", table, k_ingest);
+    ASSERT_TRUE(trade.has_value());
+    EXPECT_EQ(trade->price.raw, 8'655'691); // 86556.91
+    EXPECT_EQ(trade->qty.raw, 2);           // 0.000002
+    EXPECT_EQ(trade->aggressor, Side::Buy);
+    EXPECT_EQ(trade->ts_event.ns, 1'791'299'286'220'000'000ULL);
+}
+
+TEST(WeexSpot, SpotQuotesOnItsOwnChannelAndHost) {
+    std::array<char, 64> quote{};
+    std::array<char, 64> ladder{};
+    EXPECT_EQ(channel_name(exec::SubKind::Bbo, "BTCUSDT", quote, MarketType::Spot), "BTCUSDT@bookTicker");
+    EXPECT_EQ(channel_name(exec::SubKind::Depth, "BTCUSDT", ladder, MarketType::Spot), "BTCUSDT@depth200");
+    EXPECT_EQ(stream_host(MarketType::Spot), ep::k_spot_stream_host);
+    RequestBuilder builder;
+    EXPECT_EQ(builder.spot_instruments().target, ep::k_spot_exchange_info);
+    EXPECT_EQ(builder.spot_tickers().target, ep::k_spot_ticker_24h);
+    const auto now = parse_server_time(fixture("spot_rest_time.json"));
+    ASSERT_TRUE(now.has_value());
+    EXPECT_GT(*now, 1'791'000'000'000ULL);
+}
+
+TEST(WeexSpot, TheSpotClockReadsTheSpotHost) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    const auto adapter = exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Spot}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+    ASSERT_TRUE(adapter->clock.has_value());
+    EXPECT_EQ(adapter->clock->query().host, ep::k_spot_rest_host);
+    EXPECT_EQ(adapter->clock->query().target, ep::k_spot_server_time);
 }
 
 } // namespace

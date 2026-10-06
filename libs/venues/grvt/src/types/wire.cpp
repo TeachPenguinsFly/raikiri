@@ -102,13 +102,15 @@ std::expected<void, WireError> parse_print(ondemand::object& feed, WirePrint& ou
 }
 
 std::expected<void, WireError> parse_ticker(ondemand::object& feed, WireTicker& out) {
-    const std::array<std::pair<std::string_view, std::string_view*>, 6> fields{{
+    const std::array<std::pair<std::string_view, std::string_view*>, 8> fields{{
         {"mark_price", &out.mark_price},
+        {"index_price", &out.index_price},
         {"funding_rate", &out.funding_rate},
         {"buy_volume_24h_b", &out.buy_volume_base},
         {"sell_volume_24h_b", &out.sell_volume_base},
         {"buy_volume_24h_q", &out.buy_volume_quote},
         {"sell_volume_24h_q", &out.sell_volume_quote},
+        {"open_interest", &out.open_interest},
     }};
     for (const auto& [key, into] : fields) {
         const auto value = json::opt_str(feed, key);

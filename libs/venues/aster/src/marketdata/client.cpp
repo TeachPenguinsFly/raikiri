@@ -219,7 +219,7 @@ public:
     explicit AsterData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           pool_{state_->io,
-                net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                net::WsConfig{.host = std::string{stream_host(state_->testnet, state_->market)},
                               .port = "443",
                               .target = std::string{stream_path()}},
                 handler_,
@@ -251,6 +251,12 @@ public:
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+        }
+        if (state_->market == MarketType::Spot && (kind == exec::SubKind::Bbo || kind == exec::SubKind::Funding)) {
+            state_->spot_tickers.want(instrument);
+            if (kind == exec::SubKind::Funding) {
+                return {}; // spot pays no funding; the poll is its 24h window
+            }
         }
         if (kind == exec::SubKind::Funding) {
             for (const auto existing : state_->funding_instruments) {
@@ -294,6 +300,10 @@ public:
         report_books(now);
         poll_funding(now);
         poll_ticker(now);
+        state_->spot_tickers.poll(now, [this] {
+            return state_->depth_rest.send(state_->builder.ticker_24h(),
+                                           [this](const net::RestResponse& response) { on_spot_ticker(response); });
+        });
         if (state_->tick_hook) {
             state_->tick_hook(now);
         }
@@ -444,6 +454,26 @@ private:
                 continue;
             }
             if (const auto stats = map_ticker_stats(row, state_->instruments, received); stats.has_value()) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
+    void on_spot_ticker(const net::RestResponse& response) noexcept {
+        state_->spot_tickers.answered();
+        if (response.transport_failed() || response.status != 200) {
+            heed_rate_refusal(*state_, response);
+            return;
+        }
+        static thread_local Ticker24hBuffer storage;
+        const auto rows = parse_ticker_24h(response.body, storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() && state_->spot_tickers.wanted(stats->instrument)) {
                 state_->sink->on_ticker_stats(*stats);
             }
         }

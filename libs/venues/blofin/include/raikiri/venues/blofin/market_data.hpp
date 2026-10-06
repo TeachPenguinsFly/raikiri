@@ -69,6 +69,7 @@ struct FundingBuffer {
 struct WireMark {
     std::string_view inst_id;
     std::string_view mark_price;
+    std::string_view index_price;
     std::uint64_t ts_ms{0};
 };
 
@@ -79,10 +80,24 @@ struct MarkBuffer {
 [[nodiscard]] std::expected<std::span<const WireMark>, WireError> parse_mark_table(std::string_view body,
                                                                                    MarkBuffer& storage);
 
+// every perpetual in one answer; openInterest counts contracts, openInterestCurrency the base
+struct WireOpenInterest {
+    std::string_view inst_id{};
+    std::string_view base{};
+};
+
+struct OpenInterestBuffer {
+    std::array<WireOpenInterest, k_max_instruments> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOpenInterest>, WireError>
+parse_open_interest(std::string_view body, OpenInterestBuffer& storage);
+
 // fields arrive from three sources; each updates its own
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};
+    PriceTicks index{};
     UnixNanos next_funding{};
     std::uint32_t interval_s{0};
 };

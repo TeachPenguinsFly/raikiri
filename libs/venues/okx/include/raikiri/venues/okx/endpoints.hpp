@@ -43,6 +43,8 @@ inline constexpr std::string_view k_underlyings = "/api/v5/public/underlying";
 inline constexpr std::string_view k_mark_price = "/api/v5/public/mark-price";
 inline constexpr std::string_view k_funding_rate = "/api/v5/public/funding-rate";
 inline constexpr std::string_view k_books = "/api/v5/market/books";
+inline constexpr std::string_view k_tickers = "/api/v5/market/tickers";
+inline constexpr std::string_view k_open_interest = "/api/v5/public/open-interest";
 inline constexpr std::string_view k_server_time = "/api/v5/public/time";
 
 } // namespace raikiri::venues::okx::ep

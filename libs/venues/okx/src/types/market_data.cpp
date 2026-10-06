@@ -9,6 +9,34 @@ namespace {
 using wire::guarded;
 using wire::session;
 
+std::expected<WireTicker, WireError> read_ticker(wire::ondemand::object& obj) {
+    WireTicker out{};
+    const auto inst_id = wire::req_str(obj, "instId");
+    const auto inst_type = wire::req_str(obj, "instType");
+    if (!inst_id.has_value() || !inst_type.has_value()) {
+        // without instType the two volume columns cannot be told apart
+        return std::unexpected(WireError::MissingField);
+    }
+    out.inst_id = *inst_id;
+    out.inst_type = *inst_type;
+    // optional: an untraded instrument states no volume
+    const auto vol = wire::opt_str(obj, "vol24h");
+    const auto vol_ccy = wire::opt_str(obj, "volCcy24h");
+    const auto last = wire::opt_str(obj, "last");
+    if (!vol.has_value() || !vol_ccy.has_value() || !last.has_value()) {
+        return std::unexpected(WireError::WrongType);
+    }
+    out.vol_24h = *vol;
+    out.vol_ccy_24h = *vol_ccy;
+    out.last = *last;
+    const auto ts = wire::opt_ms(obj, "ts");
+    if (!ts.has_value()) {
+        return std::unexpected(ts.error());
+    }
+    out.ts_ms = *ts;
+    return out;
+}
+
 } // namespace
 
 std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
@@ -99,33 +127,77 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_first_data(*root, [](wire::ondemand::object& obj) -> std::expected<WireTicker, WireError> {
-            WireTicker out{};
+        return with_first_data(*root, read_ticker);
+    });
+}
+
+std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body, TickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto row = read_ticker(obj);
+            if (!row.has_value()) {
+                return std::unexpected(row.error());
+            }
+            storage.rows[count] = *row;
+            ++count;
+        }
+        return std::span<const WireTicker>{storage.rows.data(), count};
+    });
+}
+
+std::expected<std::span<const WireOpenInterest>, WireError> parse_open_interest(std::string_view body,
+                                                                                OpenInterestBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOpenInterest>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireOpenInterest out{};
             const auto inst_id = wire::req_str(obj, "instId");
-            const auto inst_type = wire::req_str(obj, "instType");
-            if (!inst_id.has_value() || !inst_type.has_value()) {
-                // without instType the two volume columns cannot be told apart
+            const auto oi_ccy = wire::req_str(obj, "oiCcy");
+            if (!inst_id.has_value() || !oi_ccy.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             out.inst_id = *inst_id;
-            out.inst_type = *inst_type;
-            // optional: an untraded instrument states no volume
-            const auto vol = wire::opt_str(obj, "vol24h");
-            const auto vol_ccy = wire::opt_str(obj, "volCcy24h");
-            const auto last = wire::opt_str(obj, "last");
-            if (!vol.has_value() || !vol_ccy.has_value() || !last.has_value()) {
-                return std::unexpected(WireError::WrongType);
-            }
-            out.vol_24h = *vol;
-            out.vol_ccy_24h = *vol_ccy;
-            out.last = *last;
+            out.oi_ccy = *oi_ccy;
             const auto ts = wire::opt_ms(obj, "ts");
             if (!ts.has_value()) {
                 return std::unexpected(ts.error());
             }
             out.ts_ms = *ts;
-            return out;
-        });
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireOpenInterest>{storage.rows.data(), count};
     });
 }
 

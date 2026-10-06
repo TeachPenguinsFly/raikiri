@@ -165,6 +165,10 @@ bool note_mark(FundingMemo& memo, const WireMark& wire, const InstrumentBase& ba
         return false;
     }
     memo.mark = PriceTicks::from_raw(*mark);
+    // an index need not sit on the grid, so it is truncated to it
+    if (const auto index = parse_decimal_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        memo.index = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     return true;
 }
 
@@ -174,6 +178,7 @@ merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, 
     out.instrument = base.id;
     out.rate = memo.rate;
     out.mark_price = memo.mark;
+    out.index_price = memo.index;
     out.next_funding_time = memo.next_funding;
     out.interval_s = memo.interval_s;
     out.ts_event = ts_event;

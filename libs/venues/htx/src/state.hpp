@@ -44,6 +44,10 @@ struct VenueState {
 
     std::vector<OwnedSubscription> desired;
     std::vector<std::string> funding_codes;
+    // from the open-interest poll, stamped into the detail record
+    std::unordered_map<InstrumentId, FixedE9> open_interest;
+    // from the swap_index poll, stamped into funding
+    std::unordered_map<InstrumentId, FixedE9> index_prices;
 
     std::int64_t clock_offset_ns{0};
 

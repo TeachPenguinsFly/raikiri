@@ -37,6 +37,11 @@ TEST(Malformed, Bybit) {
                     (void)parse_topic(f);
                     (void)parse_ticker(f);
                 }},
+               {"rest_tickers_spot.json",
+                [](std::string_view f) {
+                    static TickerBuffer storage;
+                    (void)parse_tickers(f, storage);
+                }},
                {"tickers_delta.json",
                 [](std::string_view f) {
                     (void)parse_topic(f);

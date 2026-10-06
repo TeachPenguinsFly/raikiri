@@ -1,3 +1,4 @@
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
@@ -12,6 +13,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -26,8 +28,6 @@ constexpr std::uint64_t k_seed_spacing_ns = 50ULL * 1'000'000ULL;
 
 // five is the smallest limit the venue takes
 constexpr std::uint32_t k_touch_depth = 5;
-
-constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
 constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
@@ -255,6 +255,10 @@ public:
             if (!wants_funding(*state_, instrument)) {
                 state_->funding_instruments.push_back(instrument);
             }
+            ticker_.want(instrument);
+            if (perp) {
+                oi_.want(instrument);
+            }
             if (!perp) {
                 return {};
             }
@@ -278,6 +282,9 @@ public:
         }
         if (kind == exec::SubKind::Bbo) {
             state_->pending_touches.push_back(instrument);
+            if (!perp) {
+                ticker_.want(instrument); // spot opens no funding subscription to carry the 24h figures
+            }
         }
         // a pair whose book does not move sends no delta to trigger a seed
         if (kind == exec::SubKind::Depth) {
@@ -390,25 +397,38 @@ private:
     }
 
     void poll_tickers(UnixNanos now) noexcept {
-        if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
+        oi_.poll(now, [this] {
+            return state_->rest.send(state_->builder.open_interest(),
+                                     [this](const net::RestResponse& response) { on_open_interest(response); });
+        });
+        ticker_.poll(now, [this] {
+            return state_->rest.send(state_->builder.tickers(),
+                                     [this](const net::RestResponse& response) { on_tickers(response); });
+        });
+    }
+
+    // kept until the next ticker row carries it out
+    void on_open_interest(const net::RestResponse& response) noexcept {
+        oi_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            heed_rate_refusal(*state_, response);
             return;
         }
-        ticker_in_flight_ = true;
-        try {
-            if (!state_->rest.send(state_->builder.tickers(),
-                                   [this](const net::RestResponse& response) { on_tickers(response); })) {
-                ticker_in_flight_ = false;
-                return;
+        static thread_local const auto storage = std::make_unique<OpenInterestBuffer>();
+        const auto rows = parse_open_interest(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            if (const auto oi = map_open_interest(row, state_->instruments);
+                oi.has_value() && oi_.wanted(oi->instrument)) {
+                open_interest_[oi->instrument] = oi->base;
             }
-        } catch (...) {
-            ticker_in_flight_ = false;
-            return;
         }
-        next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
     }
 
     void on_tickers(const net::RestResponse& response) noexcept {
-        ticker_in_flight_ = false;
+        ticker_.answered();
         if (response.transport_failed() || response.status != 200) {
             heed_rate_refusal(*state_, response);
             return;
@@ -419,8 +439,11 @@ private:
             return;
         }
         for (const auto& row : *rows) {
-            const auto stats = map_ticker_stats(row, state_->instruments, response.received);
-            if (stats.has_value() && wants_funding(*state_, stats->instrument)) {
+            auto stats = map_ticker_stats(row, state_->instruments, response.received);
+            if (stats.has_value() && ticker_.wanted(stats->instrument)) {
+                if (const auto oi = open_interest_.find(stats->instrument); oi != open_interest_.end()) {
+                    stats->open_interest = oi->second;
+                }
                 state_->sink->on_ticker_stats(*stats);
             }
         }
@@ -497,9 +520,10 @@ private:
     net::WsPool pool_;
     std::unordered_set<std::string> desired_;
     bool started_{false};
-    bool ticker_in_flight_{false};
     bool warned_{false};
-    std::uint64_t next_ticker_poll_ns_{0};
+    exec::TickerPoll ticker_;
+    exec::TickerPoll oi_;
+    std::unordered_map<InstrumentId, FixedE9> open_interest_;
     std::uint64_t report_due_ns_{0};
     std::size_t cold_before_{0};
 };

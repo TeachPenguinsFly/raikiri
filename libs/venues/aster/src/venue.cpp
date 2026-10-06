@@ -37,7 +37,7 @@ using internal::VenueState;
 namespace {
 
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
-    auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    auto state = std::make_shared<VenueState>(sink, clock, config.testnet, config.market);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
@@ -50,8 +50,8 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Aster);
     adapter.clock.emplace(
-        exec::ServerTimeQuery{.host = "fapi.asterdex.com",
-                              .target = "/fapi/v1/time",
+        exec::ServerTimeQuery{.host = std::string{rest_host(config.testnet, config.market)},
+                              .target = std::string{state->builder.server_time().target},
                               .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
         std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state);

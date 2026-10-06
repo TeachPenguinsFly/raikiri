@@ -46,6 +46,16 @@ TEST(Malformed, Okx) {
                     (void)parse_event(f);
                     (void)parse_ticker(f);
                 }},
+               {"rest_open_interest.json",
+                [](std::string_view f) {
+                    static OpenInterestBuffer storage;
+                    (void)parse_open_interest(f, storage);
+                }},
+               {"rest_tickers_spot.json",
+                [](std::string_view f) {
+                    static TickerBuffer storage;
+                    (void)parse_tickers(f, storage);
+                }},
                {"ws_index_tickers.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

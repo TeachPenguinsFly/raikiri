@@ -164,6 +164,48 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
     });
 }
 
+std::expected<std::span<const WireTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                         SpotTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireTicker out{};
+            const auto symbol = wire::req_str(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            out.symbol = *symbol;
+            const auto volume = opt_scalar(obj, "volume");
+            const auto quote_volume = opt_scalar(obj, "quoteVolume");
+            const auto close = opt_ms_any(obj, "closeTime");
+            if (!volume.has_value() || !quote_volume.has_value() || !close.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.volume = *volume;
+            out.quote_volume = *quote_volume;
+            out.event_ms = *close;
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireTicker>{storage.rows.data(), count};
+    });
+}
+
 std::expected<WirePremiumIndex, WireError> parse_premium_index(std::string_view body) {
     return guarded([&]() -> std::expected<WirePremiumIndex, WireError> {
         auto root = session().open_object(body);

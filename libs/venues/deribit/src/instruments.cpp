@@ -11,8 +11,10 @@
 #include <raikiri/venues/deribit/rest.hpp>
 #include <raikiri/venues/deribit/ws.hpp>
 
+#include <array>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -24,6 +26,11 @@ namespace raikiri::venues::deribit::internal {
 
 namespace {
 
+// one sweep lists every future, linear ones included; usdc options outnumber the parse buffer and are
+// refused by the mapper anyway
+constexpr std::array<std::string_view, 1> k_every_currency{"any"};
+constexpr std::array<std::string_view, 2> k_option_currencies{"BTC", "ETH"};
+
 class DeribitInstruments final : public exec::InstrumentSource {
 public:
     explicit DeribitInstruments(std::shared_ptr<VenueState> state)
@@ -34,23 +41,27 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         std::string_view kind;
+        std::span<const std::string_view> currencies;
         switch (market) {
         case MarketType::Perp:
         case MarketType::Future:
             kind = "future";
+            currencies = k_every_currency;
             break;
         case MarketType::Option:
             kind = "option";
+            currencies = k_option_currencies;
             break;
         case MarketType::Spot:
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "deribit spot is not modelled")};
+            kind = "spot";
+            currencies = k_every_currency;
+            break;
         }
 
         rest_.start();
 
         std::vector<Instrument> mapped;
-        for (const auto currency : k_currencies) {
+        for (const auto currency : currencies) {
             const auto response = await_response(*state_, rest_, state_->builder.instruments(currency, kind), 20'000);
             if (!response.has_value()) {
                 return std::unexpected{exec::VenueError::make(

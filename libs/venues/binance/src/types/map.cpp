@@ -128,6 +128,10 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     if (const auto mark = parse_decimal_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
+    // an index is off the tick grid, so it is floored onto it
+    if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     out.interval_s = std::visit(
         [](const auto& concrete) -> std::uint32_t {
@@ -392,7 +396,7 @@ map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, 
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_e9(wire.volume);
     out.volume_24h_quote = parse_turnover_e6(wire.quote_volume).value_or(FixedE6::undef());
-    out.ts_event = ms_to_unix(wire.close_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.close_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

@@ -53,6 +53,7 @@ struct PairBuffer {
 struct WireFunding {
     std::string_view symbol;
     std::string_view mark;
+    std::string_view index;
     std::string_view rate;
     std::uint64_t interval_h{0};
     std::uint64_t next_ms{0};

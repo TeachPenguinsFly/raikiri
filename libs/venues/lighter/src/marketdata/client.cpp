@@ -89,16 +89,13 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (!state_->channels.insert(channel).second) {
-            return {}; // Bbo and Depth share a book; every perp shares one stats key
+        if (kind == exec::SubKind::Bbo && instrument.market() == MarketType::Spot) {
+            state_->ticker_wanted.insert(instrument.packed);
+            if (auto opened = open(std::string{k_spot_stats_all}); !opened.has_value()) {
+                return opened;
+            }
         }
-        const std::array<std::string, 1> one{channel};
-        if (!pool_.subscribe(one)) {
-            state_->channels.erase(channel);
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "lighter: the one socket this IP's message budget allows is full")};
-        }
-        return {};
+        return open(std::move(channel));
     }
 
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
@@ -269,6 +266,19 @@ private:
         }
     }
 
+    std::expected<void, exec::VenueError> open(std::string channel) {
+        if (!state_->channels.insert(channel).second) {
+            return {}; // Bbo and Depth share a book; every perp shares one stats key
+        }
+        const std::array<std::string, 1> one{channel};
+        if (!pool_.subscribe(one)) {
+            state_->channels.erase(channel);
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "lighter: the one socket this IP's message budget allows is full")};
+        }
+        return {};
+    }
+
     void on_stats(std::string_view frame, UnixNanos received) noexcept {
         static thread_local const auto storage = std::make_unique<StatsBuffer>();
         const auto stats = parse_market_stats(frame, *storage);
@@ -281,10 +291,12 @@ private:
                 continue;
             }
             const auto& base = base_of(*instrument);
-            if (!state_->funding_wanted.contains(base.id.packed)) {
+            const bool funding_wanted = state_->funding_wanted.contains(base.id.packed);
+            if (!funding_wanted && !state_->ticker_wanted.contains(base.id.packed)) {
                 continue;
             }
-            if (const auto funding = map_funding(row, base, stats->ts_ms, received); funding.has_value()) {
+            if (const auto funding = funding_wanted ? map_funding(row, base, stats->ts_ms, received) : std::nullopt;
+                funding.has_value()) {
                 state_->sink->on_funding(*funding);
                 state_->funded.insert(row.market_id);
             }

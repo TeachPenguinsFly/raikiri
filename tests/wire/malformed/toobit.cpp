@@ -52,6 +52,11 @@ TEST(Malformed, Toobit) {
                     static FundingBuffer rows;
                     (void)parse_funding_rates(f, rows);
                 }},
+               {"rest_index.json",
+                [](std::string_view f) {
+                    static IndexBuffer rows;
+                    (void)parse_index_prices(f, rows);
+                }},
                {"rest_contract_ticker.json",
                 [](std::string_view f) {
                     static TickerBuffer rows;

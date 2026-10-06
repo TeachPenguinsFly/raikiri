@@ -103,4 +103,34 @@ std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_
     });
 }
 
+std::expected<std::span<const WireOpenInterest>, WireError> parse_open_interest(std::string_view body,
+                                                                                OpenInterestBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOpenInterest>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto open_interest = wire::opt_str(obj, "openInterest");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            if (!open_interest.has_value()) {
+                return std::unexpected(open_interest.error());
+            }
+            storage.rows[count++] = WireOpenInterest{.symbol = *symbol, .open_interest = *open_interest};
+        }
+        return std::span<const WireOpenInterest>{storage.rows.data(), count};
+    });
+}
+
 } // namespace raikiri::venues::backpack

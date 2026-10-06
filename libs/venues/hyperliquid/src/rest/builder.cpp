@@ -100,6 +100,10 @@ net::RestRequest RequestBuilder::meta_and_asset_ctxs(std::string_view dex, std::
     return info(body);
 }
 
+net::RestRequest RequestBuilder::spot_meta_and_asset_ctxs() noexcept {
+    return info(R"({"type":"spotMetaAndAssetCtxs"})");
+}
+
 net::RestRequest RequestBuilder::spot_meta() noexcept {
     return info(R"({"type":"spotMeta"})");
 }

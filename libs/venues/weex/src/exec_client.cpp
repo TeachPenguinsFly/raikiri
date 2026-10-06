@@ -3,6 +3,7 @@
 #include <raikiri/venues/weex/errors.hpp>
 #include <raikiri/venues/weex/orders.hpp>
 #include <raikiri/venues/weex/rest.hpp>
+#include <raikiri/venues/weex/spot.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -13,23 +14,31 @@
 
 #include "clients.hpp"
 #include "rest/api.hpp"
+#include "userstream/spot_stream.hpp"
 
 namespace raikiri::venues::weex::internal {
 
 namespace {
 
-// no private socket: an order's only answer is its rest response, and fills arrive by reconciliation
+// contracts open no private socket, so fills arrive by reconciliation; spot opens one for orders and fills
 class WeexExecution final : public exec::ExecutionClient {
 public:
     explicit WeexExecution(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();
+        if (spot() && api_.signed_path_available() && !stream_) {
+            stream_ = std::make_unique<SpotPrivateStream>(*state_);
+            stream_->start();
+        }
         started_ = true;
         return {};
     }
 
     void stop() override {
+        if (stream_) {
+            stream_->stop();
+        }
         api_.stop();
         started_ = false;
     }
@@ -57,8 +66,14 @@ public:
                     exec::VenueError::make(exec::ErrorClass::Terminal, 0, "weex has no amend; cancel and replace"));
     }
 
-    // chunked to weex's batch limit of ten
+    // chunked to weex's batch limit of ten; the spot batch answer names no client id, so spot cancels one by one
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
+        if (spot()) {
+            for (const auto& cmd : cmds) {
+                fire(cmd, Kind::Cancel);
+            }
+            return;
+        }
         for (std::size_t at = 0; at < cmds.size(); at += k_max_cancel_batch) {
             const auto count = std::min(k_max_cancel_batch, cmds.size() - at);
             fire_batch(cmds.subspan(at, count));
@@ -96,6 +111,8 @@ public:
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
+    [[nodiscard]] bool spot() const noexcept { return state_->market == MarketType::Spot; }
+
     // an unanswered order is reported as a gap; reconciliation closes it
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
@@ -121,6 +138,10 @@ private:
     }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
+        if (spot()) {
+            fire_spot(cmd, kind);
+            return;
+        }
         const auto now = state_->venue_now();
         const auto request = kind == Kind::Create ? api_.builder().create_order(cmd, state_->instruments, now)
                                                   : api_.builder().cancel_order(cmd, now);
@@ -167,6 +188,93 @@ private:
                               .qty = cmd.qty,
                               .kind = cmd.kind,
                               .sent = state_->clock->mono()});
+    }
+
+    void fire_spot(const OrderCmd& cmd, Kind kind) noexcept {
+        const auto now = state_->venue_now();
+        const auto request = kind == Kind::Create ? api_.builder().spot_create_order(cmd, state_->instruments, now)
+                                                  : api_.builder().spot_cancel_order(cmd, state_->instruments, now);
+        if (!request.has_value()) {
+            reject(cmd, kind, request.error());
+            return;
+        }
+        const auto symbol = state_->instruments.exchange_symbol(cmd.instrument);
+        if (kind == Kind::Create && !state_->orderable(symbol)) {
+            emit_reject(cmd.client_order_id,
+                        cmd.instrument,
+                        cmd.side,
+                        cmd.qty,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Terminal,
+                                               k_symbol_not_api_tradable,
+                                               "weex accepts no API order for this pair"));
+            return;
+        }
+        // places meter per account, cancels per ip; both fall under the spot order pool
+        const auto spent = api_.spend(kind == Kind::Create ? ep::k_spot_order : request->target,
+                                      exec::RateClass::Order);
+        if (!spent.has_value()) {
+            emit_reject(cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, kind, spent.error());
+            return;
+        }
+        if (kind == Kind::Create) {
+            state_->spot_feed.note_symbol(symbol);
+        }
+        const auto copy = cmd;
+        if (!api_.send(*request, [this, copy, kind](net::RestResponse&& response) {
+                on_spot_response(std::move(response), copy, kind);
+            })) {
+            emit_reject(cmd.client_order_id,
+                        cmd.instrument,
+                        cmd.side,
+                        cmd.qty,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, "rest queue full"));
+            return;
+        }
+        (void)in_flight_.add(exec::in_flight_of(cmd, state_->clock->mono()));
+    }
+
+    void on_spot_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) noexcept {
+        if (response.transport_failed()) {
+            // the request may have reached the matcher; the sweep reports it as a gap
+            state_->sink->on_order_error(cmd.client_order_id,
+                                         exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                0,
+                                                                response.error.empty()
+                                                                    ? std::string_view{"no response from venue"}
+                                                                    : std::string_view{response.error}));
+            return;
+        }
+        (void)in_flight_.resolve(cmd.client_order_id);
+        const auto verdict = spot_verdict(kind == Kind::Cancel, response.status, response.body);
+        if (verdict.error.cls == exec::ErrorClass::RateLimited) {
+            api_.penalize(ep::k_spot_order);
+        }
+        switch (verdict.kind) {
+        case SpotVerdictKind::Accepted:
+            state_->spot_feed.remember(verdict.order_id,
+                                       {.client_order_id = cmd.exchange_client_order_id,
+                                        .instrument = cmd.instrument,
+                                        .side = cmd.side,
+                                        .qty = cmd.qty,
+                                        .filled = QtyLots::from_raw(0)});
+            emit(cmd, OrderEventType::Accepted, verdict.order_id, cmd.qty);
+            return;
+        case SpotVerdictKind::Canceled:
+            emit(cmd, OrderEventType::Canceled, verdict.order_id, QtyLots::from_raw(0));
+            return;
+        case SpotVerdictKind::Refused:
+            emit_reject(cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, kind, verdict.error);
+            return;
+        case SpotVerdictKind::Unknown:
+            state_->sink->on_order_error(cmd.client_order_id, verdict.error);
+            exec::report_unknown_outcome(*state_->sink,
+                                         exec::in_flight_of(cmd, state_->clock->mono()),
+                                         state_->clock->wall(),
+                                         verdict.error.message.view());
+            return;
+        }
     }
 
     void fire_batch(std::span<const OrderCmd> cmds) noexcept {
@@ -402,6 +510,7 @@ private:
 
     std::shared_ptr<VenueState> state_;
     RestApi api_;
+    std::unique_ptr<SpotPrivateStream> stream_;
     exec::InFlightTable in_flight_{k_max_unanswered};
     bool started_{false};
 };

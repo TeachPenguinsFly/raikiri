@@ -118,10 +118,12 @@ struct WireTrades {
 struct WireTicker {
     std::string_view symbol;
     std::string_view mark_price;
+    std::string_view index_price;
     std::string_view funding_rate;
     std::string_view next_funding_time; // ISO-8601, "2026-09-25T06:00:00Z"
     std::string_view volume_24h;        // base
     std::string_view turnover_24h;      // quote
+    std::string_view open_interest;     // base
     std::uint64_t ts_us{0};
 };
 

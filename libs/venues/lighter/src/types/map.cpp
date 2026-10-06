@@ -1,19 +1,44 @@
 #include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/common/int128.hpp>
 #include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/lighter/map.hpp>
 
+#include <limits>
 #include <optional>
 
 namespace raikiri::venues::lighter {
 
 namespace {
 
+// a usd amount at the mark; undefined without a positive mark or past i64
+FixedE9 base_units(std::string_view usd_text, std::string_view mark_text) {
+    const auto usd = parse_amount_e9(usd_text);
+    const auto mark = parse_amount_e9(mark_text);
+    if (!usd.has_value() || !mark.has_value() || mark->raw <= 0) {
+        return FixedE9::undef();
+    }
+    const int128_t base = static_cast<int128_t>(usd->raw) * k_e9 / mark->raw;
+    if (base > std::numeric_limits<std::int64_t>::max() || base < 0) {
+        return FixedE9::undef();
+    }
+    return FixedE9::from_raw(static_cast<std::int64_t>(base));
+}
+
 constexpr std::uint64_t k_interval_ms = std::uint64_t{k_funding_interval_s} * 1000;
 
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+}
+
+// an index is not a traded price and need not sit on the grid, so it is truncated to it
+std::optional<PriceTicks> index_ticks(std::string_view text, FixedE9 tick) {
+    const auto value = parse_decimal_e9(text);
+    if (!value.has_value() || tick.raw <= 0) {
+        return std::nullopt;
+    }
+    return PriceTicks::from_raw(value->raw / tick.raw);
 }
 
 // Percent in, ratio out; exact or refused.
@@ -154,6 +179,9 @@ map_funding(const WireMarketStats& wire, const InstrumentBase& base, std::uint64
     if (const auto mark = steps_of(wire.mark_price, base.tick_size); mark.has_value()) {
         out.mark_price = PriceTicks::from_raw(*mark);
     }
+    if (const auto index = index_ticks(wire.index_price, base.tick_size); index.has_value()) {
+        out.index_price = *index;
+    }
     // A market idle past the hour gets no next time rather than one in the past.
     if (wire.funding_ms != 0) {
         const auto next = (wire.funding_ms / k_interval_ms + 1) * k_interval_ms;
@@ -183,6 +211,7 @@ map_ticker_stats(const WireMarketStats& wire, const InstrumentBase& base, std::u
     if (turnover.has_value()) {
         out.volume_24h_quote = *turnover;
     }
+    out.open_interest = base_units(wire.open_interest, wire.mark_price);
     out.ts_event = ms_to_unix(frame_ms, ts_init);
     out.ts_init = ts_init;
     return out;

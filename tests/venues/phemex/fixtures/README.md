@@ -6,6 +6,7 @@ keeps every string and integer as the venue sent it.
 
 | file | source |
 |---|---|
+| `rest_spot_ticker_24h_all.json` | `GET /md/spot/ticker/24hr/all`, 2026-10-06, trimmed from 176 rows to sETHUSDT, sBTCUSDT and the first three |
 | `rest_products.json` | `GET /public/products`, trimmed to currencies BTC, USDT, USDC, ETH, SHIB; `products` sBTCUSDT, sSHIBUSDT (base valueScale 4), BTCUSD and cETHUSD (inverse), one delisted spot and one delisted perp; `perpProductsV2` BTCUSDT (8 h), CAKEUSDT (4 h, description still says 8 h), XAUUSDT (TradFi, 4 h), u1000SHIBUSDT (base "1000 SHIB") and one delisted row |
 | `ws_real_book_snapshot.json`, `ws_real_book_update.json`, `ws_real_book_resnapshot.json` | `orderbook_p` BTCUSDT: the subscribe snapshot, the first incremental after it, and the snapshot the venue resent ~60 s later in the same session |
 | `ws_spot_book_snapshot.json`, `ws_spot_book_update.json` | `orderbook` sBTCUSDT, snapshot and first incremental |

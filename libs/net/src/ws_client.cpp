@@ -441,8 +441,15 @@ private:
 
         conn->stream.read_message_max(cfg_.max_message_bytes);
         conn->stream.text(true);
-        conn->stream.set_option(websock::stream_base::decorator(
-            [](websock::request_type& req) { req.set(beast::http::field::user_agent, k_user_agent); }));
+        auto headers = cfg_.headers_for_connect ? cfg_.headers_for_connect()
+                                                : std::vector<std::pair<std::string, std::string>>{};
+        conn->stream.set_option(
+            websock::stream_base::decorator([headers = std::move(headers)](websock::request_type& req) {
+                req.set(beast::http::field::user_agent, k_user_agent);
+                for (const auto& [name, value] : headers) {
+                    req.set(name, value);
+                }
+            }));
         conn->stream.control_callback([this](websock::frame_type kind, beast::string_view) {
             if (kind == websock::frame_type::pong) {
                 awaiting_pong_ = false;

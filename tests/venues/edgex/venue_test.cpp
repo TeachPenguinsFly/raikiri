@@ -376,6 +376,7 @@ TEST(EdgexFunding, TheMarkIsTruncatedOntoTheGrid) {
     ASSERT_TRUE(btc.has_value());
     EXPECT_EQ(btc->rate, e9("0.00005"));
     EXPECT_EQ(btc->mark_price, PriceTicks::from_raw(842'064));
+    EXPECT_EQ(btc->index_price, PriceTicks::from_raw(842'536));
     const auto hajimi = map_funding(ticker_of(*rows, 30000169), perp(30000169), k_ingest);
     ASSERT_TRUE(hajimi.has_value());
     EXPECT_EQ(hajimi->mark_price, PriceTicks::from_raw(3'409));
@@ -392,6 +393,7 @@ TEST(EdgexFunding, TheTwentyFourHourWindowRidesTheSameRow) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("4729.559"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("397100885.7883"));
+    EXPECT_EQ(stats->open_interest, e9("3309.677"));
 }
 
 TEST(EdgexFunding, ASpotRowHasTurnoverAndNoRate) {

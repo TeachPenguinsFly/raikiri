@@ -126,6 +126,9 @@ map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_e
     if (const auto mark = parse_decimal_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
+    if (const auto index = parse_decimal_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     out.next_funding_time = UnixNanos{wire.next_funding_ns};
     out.interval_s = wire.funding_interval_hours != 0 ? wire.funding_interval_hours * 3600U : perp->funding_interval_s;
     out.ts_event = ts_event;
@@ -143,6 +146,9 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
     out.volume_24h_quote = buys.has_value() && sells.has_value() ? *buys + *sells : FixedE6::undef();
     if (out.volume_24h_base.is_undef() && out.volume_24h_quote.is_undef()) {
         return std::nullopt;
+    }
+    if (const auto open = parse_decimal_e9(wire.open_interest); open.has_value()) {
+        out.open_interest = *open;
     }
     out.ts_event = ts_event;
     out.ts_init = ts_init;

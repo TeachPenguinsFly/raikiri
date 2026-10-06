@@ -17,6 +17,7 @@ inline constexpr std::string_view k_ws_public = "/ws/public";
 inline constexpr std::string_view k_instruments = "/api/v1/market/instruments";
 inline constexpr std::string_view k_funding_rate = "/api/v1/market/funding-rate";
 inline constexpr std::string_view k_mark_price = "/api/v1/market/mark-price";
+inline constexpr std::string_view k_open_interest = "/api/v1/market/open-interest";
 
 // per ip and unweighted; no header reports what is left
 inline constexpr std::uint32_t k_rest_requests_per_minute = 500;

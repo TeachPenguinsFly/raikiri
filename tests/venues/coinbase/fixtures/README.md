@@ -20,6 +20,7 @@ with
 | `rest_time.json` | `GET /time` |
 | `rest_book_level1.json` | `GET /products/BTC-USD/book?level=1` |
 | `rest_error_not_found.json` | `GET /products/NOPE-XYZ`, HTTP 404 |
+| `rest_market_products.json` | `GET https://api.coinbase.com/api/v3/brokerage/market/products?product_type=SPOT`, 2026-10-06, the public advanced-trade list, trimmed from 919 rows to 5: `BTC-USD`, `BTC-USDC`, `ETH-USD`, `DAI-USD` (delisted, empty volumes) and `ETH-USDC`, with `num_products` set to match |
 
 ## WebSocket
 

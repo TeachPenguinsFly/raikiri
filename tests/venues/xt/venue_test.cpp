@@ -769,6 +769,24 @@ TEST(XtMap, FundingCarriesTheIntervalInSeconds) {
     EXPECT_TRUE(funding->predicted_rate.is_undef());
 }
 
+TEST(XtMap, TheIndexJoinsTheFundingRecordOffTheGrid) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    const auto body = fixture("ws_index_price.json");
+    EXPECT_EQ(parse_event(body)->kind, EventKind::IndexPrice);
+    const auto wire = parse_mark_price(body);
+    ASSERT_TRUE(wire.has_value());
+    FundingMemo memo{};
+    const auto funding = map_index_price(*wire, table, memo, UnixNanos{1});
+    ASSERT_TRUE(funding.has_value());
+    const auto* btc = table.find("btc_usdt");
+    ASSERT_NE(btc, nullptr);
+    // 86464.0012776 truncated to the tick
+    EXPECT_EQ(funding->index_price.raw, parse_decimal_e9("86464.0012776")->raw / base_of(*btc).tick_size.raw);
+    EXPECT_EQ(funding->ts_event.ns, 1'791'300'193'859'000'000ULL);
+    EXPECT_TRUE(funding->rate.is_undef());
+}
+
 // built from the live ledger capture's symbol
 exec::InstrumentTable table_with_flock() {
     exec::InstrumentTable table;
@@ -1721,6 +1739,20 @@ TEST(XtMap, AFuturesTickerStatesItsBaseVolumeInContracts) {
     const auto unstated = map_ticker_stats(silent, table, UnixNanos{1});
     ASSERT_TRUE(unstated.has_value());
     EXPECT_TRUE(unstated->volume_24h_base.is_undef());
+}
+
+TEST(XtSpotMap, ASpotTickerStatesBaseAndQuoteVolume) {
+    exec::InstrumentTable table;
+    load_spot_table(table);
+    const auto body = fixture("ws_spot_ticker.json");
+    const auto wire = parse_ticker(body, MarketType::Spot);
+    ASSERT_TRUE(wire.has_value());
+    const auto stats = map_ticker_stats(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->instrument.market(), MarketType::Spot);
+    EXPECT_EQ(stats->volume_24h_base, *parse_decimal_e9("3793.32644"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("325479148.0257067"));
+    EXPECT_EQ(stats->ts_event.ns, 1'791'299'456'348'000'000ULL);
 }
 
 InstrumentBase classified_xt(std::string_view symbol, std::string_view tags) {

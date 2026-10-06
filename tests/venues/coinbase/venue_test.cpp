@@ -452,29 +452,28 @@ TEST(CoinbaseMap, TickerBecomesTopOfBook) {
     EXPECT_EQ(bbo->instrument.market(), MarketType::Spot);
 }
 
-TEST(CoinbaseMap, TheDaysVolumeIsBaseOnlyOnThisChannel) {
+TEST(CoinbaseMap, TheProductListGivesBothVolumeColumnsUnstamped) {
     const auto table = table_with_btc();
-    const auto frame = fixture("ws_ticker.json");
-    const auto wire = parse_ticker(frame);
-    ASSERT_TRUE(wire.has_value());
-    EXPECT_EQ(wire->volume_24h, "6221.27614325");
+    const auto body = fixture("rest_market_products.json");
+    static ProductVolumeBuffer storage;
+    const auto rows = parse_product_volumes(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    EXPECT_EQ((*rows)[0].product_id, "BTC-USD");
 
-    const auto stats = map_ticker_stats(*wire, table, k_ingest);
+    const auto stats = map_ticker_stats((*rows)[0], table, k_ingest);
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_base.raw, 6'221'276'143'250); // 6221.27614325 BTC
-    // zero because the ticker has no turnover column
-    EXPECT_EQ(stats->volume_24h_quote.raw, 0);
-    // the triggering match's time
-    EXPECT_EQ(stats->ts_event.ns, 1'786'395'150'757'921'000ULL);
+    EXPECT_EQ(stats->volume_24h_base.raw, 4'679'622'703'090); // 4679.62270309 BTC
+    EXPECT_EQ(stats->volume_24h_quote.raw, 405'136'276'490'000);
+    EXPECT_EQ(stats->ts_event.ns, 0U);
     EXPECT_EQ(stats->ts_init.ns, k_ingest.ns);
+    EXPECT_TRUE(stats->open_interest.is_undef());
 }
 
-TEST(CoinbaseMap, ATickerWithoutAVolumeColumnPublishesNoStats) {
-    // an absent volume publishes nothing
+TEST(CoinbaseMap, ADelistedProductStatesNoVolumeAndPublishesNoStats) {
     const auto table = table_with_btc();
-    WireTicker wire{};
+    WireProductVolume wire{};
     wire.product_id = "BTC-USD";
-    wire.time = "2026-08-10T20:52:30.757921Z";
     EXPECT_FALSE(map_ticker_stats(wire, table, k_ingest).has_value());
 }
 

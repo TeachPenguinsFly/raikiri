@@ -13,6 +13,8 @@
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
 #include <raikiri/venues/bitget/bitget_venue.hpp>
+#include <raikiri/venues/bithumb/bithumb_venue.hpp>
+#include <raikiri/venues/bitstamp/bitstamp_venue.hpp>
 #include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
@@ -36,6 +38,7 @@
 #include <raikiri/venues/pacifica/pacifica_venue.hpp>
 #include <raikiri/venues/phemex/phemex_venue.hpp>
 #include <raikiri/venues/toobit/toobit_venue.hpp>
+#include <raikiri/venues/upbit/upbit_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
 
@@ -102,6 +105,9 @@ void register_all() {
     venues::bitunix::register_adapter();
     venues::toobit::register_adapter();
     venues::derive::register_adapter();
+    venues::upbit::register_adapter();
+    venues::bithumb::register_adapter();
+    venues::bitstamp::register_adapter();
 }
 
 bool dump(std::string_view name, const std::string& feed, const Clock& clock) {

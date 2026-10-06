@@ -18,6 +18,9 @@ struct WireInstrument {
     std::string_view instrument_type;   // reversed, linear
     std::string_view settlement_period; // perpetual, day, week, month
     std::string_view option_type;       // call, put; empty off options
+    std::string_view base_currency;
+    std::string_view counter_currency; // USD on inverse rows, USDC on linear
+    std::string_view underlying_type;  // crypto, equity, equity_etf, preipo, commodity, crypto_index
     std::string_view tick_size;
     std::string_view contract_size;
     std::string_view min_trade_amount;

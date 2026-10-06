@@ -71,6 +71,7 @@ inline constexpr std::string_view k_futures_contracts = "/contracts";
 inline constexpr std::string_view k_futures_tickers = "/tickers";
 inline constexpr std::string_view k_futures_order_book = "/order_book";
 inline constexpr std::string_view k_spot_currency_pairs = "/api/v4/spot/currency_pairs";
+inline constexpr std::string_view k_spot_tickers = "/api/v4/spot/tickers";
 inline constexpr std::string_view k_server_time = "/api/v4/spot/time";
 
 inline constexpr std::string_view k_option_underlyings = "/api/v4/options/underlyings";

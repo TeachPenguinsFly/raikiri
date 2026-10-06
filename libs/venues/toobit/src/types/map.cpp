@@ -260,7 +260,20 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const InstrumentBase& 
 }
 
 std::optional<PriceTicks> map_mark(const WireMark& wire, const InstrumentBase& base) noexcept {
-    const auto mark = parse_amount_e9(wire.price);
+    return map_index_price(wire.price, base);
+}
+
+std::string index_key(std::string_view contract) {
+    constexpr std::string_view k_swap = "-SWAP-";
+    std::string out{contract};
+    if (const auto at = out.find(k_swap); at != std::string::npos) {
+        out.erase(at, k_swap.size());
+    }
+    return out;
+}
+
+std::optional<PriceTicks> map_index_price(std::string_view price, const InstrumentBase& base) noexcept {
+    const auto mark = parse_amount_e9(price);
     if (!mark.has_value() || base.tick_size.raw <= 0) {
         return std::nullopt;
     }
@@ -268,7 +281,7 @@ std::optional<PriceTicks> map_mark(const WireMark& wire, const InstrumentBase& b
 }
 
 std::optional<FundingUpdate>
-map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, UnixNanos ts_init) {
+map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, PriceTicks index, UnixNanos ts_init) {
     const auto rate = parse_rate_e9(wire.rate);
     const auto interval = interval_of(wire.period);
     if (!rate.has_value() || interval == 0) {
@@ -279,6 +292,7 @@ map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark
     out.rate = *rate;
     out.predicted_rate = FixedE9::undef();
     out.mark_price = mark;
+    out.index_price = index;
     out.next_funding_time = ms_to_unix(wire.next_ms, UnixNanos{});
     out.interval_s = interval;
     out.accrual = FundingAccrual::Discrete;
@@ -300,7 +314,7 @@ std::optional<TickerStats> map_ticker(const WireTicker& wire, const InstrumentBa
             out.volume_24h_base = *volume;
         }
     }
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

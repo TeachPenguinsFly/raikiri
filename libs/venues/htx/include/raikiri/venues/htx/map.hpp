@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace raikiri::venues::htx {
 
@@ -34,6 +35,10 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 // nullopt when the frame quotes no rate
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// open interest in coins, or an index price, by contract; truncated past nine decimals
+[[nodiscard]] std::optional<std::pair<InstrumentId, FixedE9>> map_coin_figure(const WireOpenInterest& wire,
+                                                                              const exec::InstrumentTable& table);
 
 // vol on the detail tick is in contracts and is not read
 [[nodiscard]] std::optional<TickerStats>

@@ -24,6 +24,15 @@ std::optional<PriceTicks> to_ticks(std::string_view text, const InstrumentBase& 
     return steps.has_value() ? std::optional{PriceTicks::from_raw(*steps)} : std::nullopt;
 }
 
+// an index is not a traded price and need not sit on the grid, so it is truncated to it
+std::optional<PriceTicks> index_ticks(std::string_view text, FixedE9 tick) {
+    const auto value = parse_decimal_e9(text);
+    if (!value.has_value() || tick.raw <= 0) {
+        return std::nullopt;
+    }
+    return PriceTicks::from_raw(value->raw / tick.raw);
+}
+
 std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base) {
     const auto steps = exact_steps(text, base.lot_size);
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
@@ -152,6 +161,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
+    out.index_price = index_ticks(wire.index_price, base.tick_size).value_or(PriceTicks{});
     out.next_funding_time = wire.next_funding_ms == 0 ? UnixNanos{0} : UnixNanos{wire.next_funding_ms * 1'000'000ULL};
     out.interval_s = interval_of(*instrument);
     out.ts_event = us_to_unix(wire.event_us, UnixNanos{});
@@ -172,9 +182,22 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = amount_or_undef(wire.volume);
     out.volume_24h_quote = parse_turnover_e6(wire.quote_volume).value_or(FixedE6::undef());
-    out.ts_event = received;
+    // the rows carry no time
     out.ts_init = received;
     return out;
+}
+
+std::optional<OpenInterest> map_open_interest(const WireOpenInterest& wire, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto amount = turnover_e9(amount_or_undef(wire.open_interest), base.contract_value);
+    if (amount.is_undef()) {
+        return std::nullopt;
+    }
+    return OpenInterest{.instrument = base.id, .base = amount};
 }
 
 namespace {

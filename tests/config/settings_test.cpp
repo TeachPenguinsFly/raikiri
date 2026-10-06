@@ -112,10 +112,13 @@ TEST(Settings, LighterHoldsOneSocketUnderTheIpsTwoHundredAMinute) {
 TEST(Settings, EveryPooledVenueSizesItsSocketsFromTheTable) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
-    for (const auto& name : {"binance", "aster",  "bybit",    "gate",      "kucoin", "xt",     "htx",         "weex",
-                             "bingx",   "bitget", "backpack", "cryptocom", "apex",   "blofin", "grvt",        "edgex",
-                             "dydx",    "phemex", "coinbase", "pacifica",  "okx",    "mexc",   "hyperliquid", "deribit",
-                             "lighter", "lbank",  "bitunix",  "toobit",    "derive"}) {
+    for (const auto& name : {"binance",  "aster",    "bybit",   "gate",    "kucoin",      "xt",
+                             "htx",      "weex",     "bingx",   "bitget",  "backpack",    "cryptocom",
+                             "apex",     "blofin",   "grvt",    "edgex",   "dydx",        "phemex",
+                             "coinbase", "pacifica", "okx",     "mexc",    "hyperliquid", "deribit",
+                             "lighter",  "lbank",    "bitunix", "toobit",  "derive",      "arcus",
+                             "ostium",   "paradex",  "vest",    "bullish", "ondoperps",   "polymarketperps",
+                             "upbit",    "bithumb",  "bitstamp"}) {
         ASSERT_TRUE(file->venues.contains(name)) << name;
         const auto& venue = file->venues.at(name);
         EXPECT_NE(find_limit(venue, "ws_streams"), nullptr) << name;

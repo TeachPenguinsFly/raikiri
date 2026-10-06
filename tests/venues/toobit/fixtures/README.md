@@ -8,6 +8,7 @@ Market data captured live without keys on 2026-10-02 around 18:44 UTC from
 | `rest_exchange_info.json` | `GET /api/v1/exchangeInfo`: spot BTCUSDT, ETHUSDT, PEPEUSDT, ELGUSDT (`API_TRADE_FORBIDDEN`), GAIAUSDT (`ONLINE`); contracts BTC-SWAP-USDT, ETH-SWAP-USDT, BTC-SWAP-USDC, XAUT-SWAP-USDT; `riskLimits` cut to two rows, `coins` emptied |
 | `rest_funding_rate.json` | `GET /api/v1/futures/fundingRate`: BTC, ETH (8H), AXS (4H) and one `TBV_` row the catalogue does not list |
 | `rest_contract_ticker.json` | `GET /quote/v1/contract/ticker/24hr`: BTC and ETH rows |
+| `rest_index.json` | `GET /quote/v1/index` on 2026-10-06: the BTCUSDT, ETHUSDT, TSLAUSDT and SPELLUSDT entries of both maps |
 | `rest_error.json` | `GET /api/v1/futures/positions` with a bad key: HTTP 400 |
 | `ws_bbo.json`, `ws_bbo_spot.json`, `ws_bbo_ack.json` | `bookTicker` on BTC-SWAP-USDT and ETHUSDT, and the empty reply to the subscribe |
 | `ws_depth_snapshot.json`, `ws_depth_snapshot_spot.json` | `diffDepth` reply to the subscribe (`f:true`, the whole book) |

@@ -41,6 +41,23 @@ struct WireDetail {
 
 [[nodiscard]] std::expected<WireDetail, WireError> parse_detail(std::string_view frame);
 
+// swap_open_interest: volume counts contracts, amount is the coin
+struct WireOpenInterest {
+    std::string_view contract_code;
+    std::string_view amount;
+};
+
+struct OpenInterestBuffer {
+    std::array<WireOpenInterest, 1024> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOpenInterest>, WireError>
+parse_open_interest(std::string_view body, OpenInterestBuffer& storage);
+
+// swap_index: the same row shape, `amount` holding index_price
+[[nodiscard]] std::expected<std::span<const WireOpenInterest>, WireError> parse_swap_index(std::string_view body,
+                                                                                           OpenInterestBuffer& storage);
+
 // settlement_time is the next settlement; funding_time is message build time here and means something else on rest
 struct WireFunding {
     std::string_view contract_code;

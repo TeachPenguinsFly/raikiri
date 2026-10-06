@@ -140,6 +140,10 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
+    // the oracle is the venue's index; it carries more figures than the book, so it is truncated onto the tick
+    if (const auto oracle = to_e9(wire.oracle_price); oracle.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(oracle->raw / base.tick_size.raw);
+    }
     out.interval_s = k_funding_interval_s;
     out.accrual = FundingAccrual::Discrete;
     constexpr std::uint64_t interval_ns = std::uint64_t{k_funding_interval_s} * 1'000'000'000ULL;
@@ -163,7 +167,11 @@ map_ticker_stats(const WireAssetCtx& wire, const exec::InstrumentTable& table, U
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_amount_e9(wire.day_base_volume).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = parse_turnover_e6(wire.day_notional_volume).value_or(FixedE6::from_raw(0));
-    out.ts_event = ts_init;
+    // perps only, in coins; spot contexts state none
+    if (const auto open = to_e9(wire.open_interest); open.has_value()) {
+        out.open_interest = *open;
+    }
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

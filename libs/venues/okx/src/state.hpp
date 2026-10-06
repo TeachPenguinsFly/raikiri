@@ -42,6 +42,8 @@ struct VenueState {
 
     // okx splits rate and mark across two channels; the record is written whole
     std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
+    // from the open-interest poll, stamped into the tickers record
+    std::unordered_map<InstrumentId, FixedE9> open_interest;
 
     net::IoContext io;
     net::Signer signer;

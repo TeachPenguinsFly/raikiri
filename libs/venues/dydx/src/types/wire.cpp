@@ -44,12 +44,14 @@ std::expected<WireMarket, WireError> read_market(wire::ondemand::object& obj) {
     const auto oracle = wire::opt_str(obj, "oraclePrice");
     const auto funding = wire::opt_str(obj, "nextFundingRate");
     const auto volume = wire::opt_str(obj, "volume24H");
-    if (!oracle.has_value() || !funding.has_value() || !volume.has_value()) {
+    const auto open = wire::opt_str(obj, "openInterest");
+    if (!oracle.has_value() || !funding.has_value() || !volume.has_value() || !open.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
     out.oracle_price = *oracle;
     out.next_funding_rate = *funding;
     out.volume_24h = *volume;
+    out.open_interest = *open;
     return out;
 }
 

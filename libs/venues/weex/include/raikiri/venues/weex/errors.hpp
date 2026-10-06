@@ -32,7 +32,8 @@ inline constexpr std::int64_t k_illegal_ip = -1056;
 inline constexpr std::int64_t k_user_locked = -1057;
 inline constexpr std::int64_t k_access_forbidden = -1190;
 
-// the only code that earns a retry
+// a create answered with either may still have reached the book
+inline constexpr std::int64_t k_unknown_error = -1000;
 inline constexpr std::int64_t k_system_error = -1054;
 inline constexpr std::int64_t k_order_rate_limited = -1059;
 
@@ -42,6 +43,9 @@ inline constexpr std::int64_t k_invalid_json = -1135;
 
 // cancel for an order the venue no longer has; benign
 inline constexpr std::int64_t k_order_not_found = -3200;
+inline constexpr std::int64_t k_spot_order_not_found = -2200;
+// a cancel of a filled spot order; the fill reaches us on its own
+inline constexpr std::int64_t k_spot_order_filled = -2202;
 // see /capi/v3/market/apiTradingSymbols for the tradable list
 inline constexpr std::int64_t k_symbol_not_api_tradable = -1058;
 inline constexpr std::int64_t k_key_not_bound_to_symbol = -1060;

@@ -81,6 +81,7 @@ struct WirePrint {
 // funding figures are percent: "0.01" is one basis point
 struct WireTicker {
     std::string_view mark_price;
+    std::string_view index_price;
     std::string_view funding_rate;
     std::uint64_t next_funding_ns{0};
     std::uint32_t funding_interval_hours{0};
@@ -88,6 +89,7 @@ struct WireTicker {
     std::string_view sell_volume_base;
     std::string_view buy_volume_quote;
     std::string_view sell_volume_quote;
+    std::string_view open_interest; // base units
 };
 
 enum class FeedKind : std::uint8_t { Quote, Trade, Book, Ticker, Unknown };

@@ -21,6 +21,9 @@ EventKind kind_from_topic(std::string_view topic) noexcept {
     if (topic == "mark_price") {
         return EventKind::MarkPrice;
     }
+    if (topic == "index_price") {
+        return EventKind::IndexPrice;
+    }
     if (topic == "ticker") {
         return EventKind::Ticker;
     }

@@ -40,8 +40,8 @@ constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
 // how often still-cold books are reported
 constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
-// the 24h table costs weight 40, so it is polled slowly
-constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
+// the 24h table costs weight 40, 80 on spot; once a minute stays well inside either budget
+constexpr std::uint64_t k_ticker_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
 void add_once(std::vector<InstrumentId>& ids, InstrumentId id) {
     if (std::ranges::find(ids, id) == ids.end()) {

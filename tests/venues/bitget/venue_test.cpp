@@ -601,6 +601,7 @@ TEST(BitgetMap, FundingRidesTheTickerFrame) {
     wire.ask_price = "63923.9";
     wire.ask_qty = "15.7309";
     wire.mark_price = "63923.8";
+    wire.index_price = "63930.17";
     wire.funding_rate = "0.0001";
     wire.next_funding_ms = 1'786'435'200'000ULL;
     wire.ts_ms = 1'786'430'817'946ULL;
@@ -609,6 +610,7 @@ TEST(BitgetMap, FundingRidesTheTickerFrame) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000); // 0.0001 * 1e9
     EXPECT_EQ(funding->mark_price.raw, 639'238);
+    EXPECT_EQ(funding->index_price.raw, 639'301) << "floored onto the tick";
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'435'200'000ULL * 1'000'000ULL);
     // from the catalogue
     EXPECT_EQ(funding->interval_s, 28'800U);
@@ -631,6 +633,8 @@ TEST(BitgetMap, TurnoverRidesTheSameTickerFrame) {
     EXPECT_EQ(stats->volume_24h_base.raw, 30'602'455'600'000LL);
     EXPECT_EQ(stats->volume_24h_quote.raw, 1'969'900'863'295'740LL);
     EXPECT_EQ(stats->ts_event.ns, 1'786'430'817'946ULL * 1'000'000ULL);
+    // holdingAmount is in the coin; its padding past nine decimals truncates
+    EXPECT_EQ(stats->open_interest.raw, 38'904'907'000'000LL);
 
     // an unknown instrument has no cell to write
     auto unknown = *wire;

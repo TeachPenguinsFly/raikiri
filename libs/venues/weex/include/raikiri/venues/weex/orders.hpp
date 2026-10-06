@@ -1,6 +1,6 @@
 #pragma once
 
-// no PARTIALLY_FILLED: a half-filled order is NEW
+// a half-filled contract order is NEW; spot says PARTIALLY_FILLED, and either way leaves decides
 // order ids arrive as a string or an 18-digit number, so they are read as raw text
 
 #include <raikiri/venues/weex/errors.hpp>
@@ -50,6 +50,9 @@ struct OrderBuffer {
 // bare array, no envelope
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
                                                                                 OrderBuffer& storage);
+
+// one row alone, as GET /api/v3/order answers
+[[nodiscard]] std::expected<WireOrder, WireError> parse_order(std::string_view body);
 
 // a refused order still returns 200 with success false and a string errorCode
 struct WireOrderAck {

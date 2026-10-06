@@ -49,6 +49,46 @@ The depth, trade and ticker files come from one 75 s session subscribed to
 | `ws_trade_snapshot.json` | the `e:"tradeSnapshot"` backfill sent on subscribe |
 | `ws_ticker.json` | `BTCUSDT@ticker` |
 
+## Spot
+
+Captured live on 2026-10-06 from the spot hosts, no credentials. Spot is a
+separate exchange: REST on `api-spot.weex.com`, the socket on
+`wss://ws-spot.weex.com/v3/ws/public` with the contract socket's protocol.
+
+| file | source |
+| --- | --- |
+| `spot_rest_exchange_info.json` | `GET /api/v3/exchangeInfo`, trimmed to BTCUSDT, ETHBTC, MORPHOUSDT and the halted MEMEFIUSDT |
+| `spot_rest_ticker_24h.json` | `GET /api/v3/market/ticker/24hr` (every symbol, weight 2), trimmed to three rows |
+| `spot_rest_time.json` | `GET /api/v3/time` |
+| `spot_ws_book_ticker.json` | first `BTCUSDT@bookTicker` push |
+| `spot_ws_trade.json` | first live `BTCUSDT@trade` push after the backfill |
+| `spot_ws_ticker.json` | first `BTCUSDT@ticker` push |
+
+### Spot private
+
+No WEEX spot credential has been used here. The refusals and the tradable list
+are live captures from 2026-10-06, taken without credentials; the rest are the
+spot API pages' documented examples, written as one line.
+
+| file | source | edits |
+| --- | --- | --- |
+| `spot_rest_api_trading_symbols.json` | `GET /api/v3/apiTradingSymbols`, live | trimmed to BTCUSDT, ETHUSDT and SOLUSDT |
+| `spot_rest_error_unauthorized.json` | `GET /api/v3/account` with no headers, HTTP 401, live | none |
+| `spot_rest_error_bad_body.json` | `POST /api/v3/order` with an empty body, HTTP 400, live | none |
+| `spot_rest_error_unknown.json` | `POST /api/v3/order` with `Content-Type: text/plain`, HTTP 500, live | none |
+| `spot_rest_order_ack.json` | Place Order (`POST /api/v3/order`) | `clientOrderId` replaced with a ULID |
+| `spot_rest_cancel_ack.json` | Cancel Order (`DELETE /api/v3/order`) | none |
+| `spot_rest_order.json` | Get Order Details (`GET /api/v3/order`) | `clientOrderId` replaced with a ULID |
+| `spot_rest_open_orders.json` | Get Current Open Orders (`GET /api/v3/openOrders`) | row 1 given a ULID; row 2 added: an ETHBTC sell, `PARTIALLY_FILLED`, 0.008 of 0.02 |
+| `spot_rest_my_trades.json` | Get Trade History (`GET /api/v3/myTrades`) | row 2 added: a sell of 0.002 at 69000.00 |
+| `spot_rest_account.json` | Get Account Information (`GET /api/v3/account`) | none |
+| `spot_ws_private_ack.json` | Order Channel acknowledgement | none |
+| `spot_ws_private_ping.json` | the private ping from the WebSocket overview | none |
+| `spot_ws_private_orders.json` | Order Channel push | none |
+| `spot_ws_private_orders_new.json` | the same push | a resting limit: `type` LIMIT, `timeInForce` GTC, `status` NEW, `price` 105008.00, `size` 0.000952, a ULID `clientOrderId`, fill fields zeroed |
+| `spot_ws_private_fill.json` | Fill Channel push | none |
+| `spot_ws_private_account.json` | Account Channel push | none |
+
 ## Private
 
 Captured on 2026-09-13 with no auth headers:

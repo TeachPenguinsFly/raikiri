@@ -35,6 +35,7 @@ FundingUpdate merged(const InstrumentBase& base, const FundingMemo& memo, UnixNa
     out.rate = memo.rate;
     out.predicted_rate = memo.predicted;
     out.mark_price = memo.mark;
+    out.index_price = memo.index;
     out.next_funding_time = ms_to_unix(next_settlement_ms(memo.rate_ms), UnixNanos{0});
     out.interval_s = k_funding_interval_s;
     out.ts_event = ts_event;
@@ -93,6 +94,9 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const Instru
     if (out.volume_24h_base.is_undef() && out.volume_24h_quote.is_undef()) {
         return std::nullopt;
     }
+    if (base.id.market() != MarketType::Spot && !wire.open_interest.empty()) {
+        out.open_interest = turnover_e9(amount_or_undef(wire.open_interest), base.contract_value);
+    }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -126,6 +130,16 @@ map_mark(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, U
         return std::nullopt;
     }
     memo.mark = PriceTicks::from_raw(*mark);
+    return publish_if_rated(base, memo, wire.ts_ms, ts_init);
+}
+
+std::optional<FundingUpdate>
+map_index(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, UnixNanos ts_init) {
+    const auto index = parse_decimal_e9(wire.value);
+    if (!index.has_value() || base.tick_size.raw <= 0) {
+        return std::nullopt;
+    }
+    memo.index = PriceTicks::from_raw(index->raw / base.tick_size.raw);
     return publish_if_rated(base, memo, wire.ts_ms, ts_init);
 }
 

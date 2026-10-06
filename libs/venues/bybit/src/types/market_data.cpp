@@ -98,7 +98,61 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.ask1_size = field("ask1Size");
         out.volume_24h = field("volume24h");
         out.turnover_24h = field("turnover24h");
+        out.open_interest = field("openInterest");
         return out;
+    });
+}
+
+std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body, TickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
+        auto root = wire::session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected{root.error()};
+        }
+        auto obj = *root;
+        auto result = wire::req_object(obj, "result");
+        if (!result.has_value()) {
+            return std::unexpected{result.error()};
+        }
+        auto list = wire::req_array(*result, "list");
+        if (!list.has_value()) {
+            return std::unexpected{list.error()};
+        }
+        std::size_t count = 0;
+        for (auto entry : *list) {
+            if (count == storage.rows.size()) {
+                return std::unexpected{WireError::TooManyEntries};
+            }
+            wire::ondemand::object row;
+            if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
+                return std::unexpected{wire::map_error(ec)};
+            }
+            WireTicker out{};
+            const auto symbol = wire::req_str(row, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected{symbol.error()};
+            }
+            out.symbol = *symbol;
+            out.is_snapshot = true;
+            const auto field = [&](std::string_view key) {
+                row.reset();
+                return wire::opt_str(row, key).value_or(std::string_view{});
+            };
+            out.bid1_price = field("bid1Price");
+            out.bid1_size = field("bid1Size");
+            out.ask1_price = field("ask1Price");
+            out.ask1_size = field("ask1Size");
+            out.volume_24h = field("volume24h");
+            out.turnover_24h = field("turnover24h");
+            storage.rows[count] = out;
+            ++count;
+        }
+        obj.reset();
+        const auto ts_ms = wire::opt_u64(obj, "time").value_or(0);
+        for (std::size_t i = 0; i < count; ++i) {
+            storage.rows[i].ts_ms = ts_ms;
+        }
+        return std::span<const WireTicker>{storage.rows.data(), count};
     });
 }
 

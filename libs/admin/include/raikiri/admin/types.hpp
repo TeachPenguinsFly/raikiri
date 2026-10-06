@@ -177,6 +177,7 @@ struct Funding {
     std::string rate; // per interval, not an APR
     std::string predicted_rate;
     std::string mark_price;
+    std::optional<std::string> index_price; // absent where the venue publishes none
     std::string next_funding_time;
     std::optional<std::int64_t> interval_seconds;
     std::optional<std::string> accrual; // discrete | continuous; absent when unknown
@@ -188,6 +189,7 @@ struct Ticker {
     std::string instrument_id;
     std::string volume_24h_base;
     std::string volume_24h_quote;
+    std::optional<std::string> open_interest; // base units; absent where the venue does not publish it
     std::string ts_event;
 };
 

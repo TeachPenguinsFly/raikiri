@@ -151,6 +151,9 @@ TEST(BitunixFunding, TheBatchRateIsPercentAndCarriesItsOwnInterval) {
     EXPECT_EQ(update->interval_s, 8U * 3600U);
     EXPECT_EQ(update->next_funding_time.ns, 1'790'985'600'000'000'000ULL);
     EXPECT_EQ(update->mark_price.raw, 848275);
+    EXPECT_EQ(update->index_price.raw, 848584); // 84858.4
+    EXPECT_TRUE(update->predicted_rate.is_undef());
+    EXPECT_EQ(update->ts_event.ns, 0U);
     EXPECT_EQ(update->accrual, FundingAccrual::Discrete);
 }
 

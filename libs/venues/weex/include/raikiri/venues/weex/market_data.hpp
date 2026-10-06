@@ -45,10 +45,33 @@ struct WireTicker {
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
+// spot's GET /api/v3/market/ticker/24hr: every symbol, the same columns under binance's names
+inline constexpr std::size_t k_max_spot_symbols = 4096;
+
+struct SpotTickerBuffer {
+    std::array<WireTicker, k_max_spot_symbols> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                                       SpotTickerBuffer& storage);
+
+// spot's <sym>@bookTicker
+struct WireBookTicker {
+    std::string_view symbol;   // s
+    std::string_view bid;      // b
+    std::string_view bid_qty;  // B
+    std::string_view ask;      // a
+    std::string_view ask_qty;  // A
+    std::uint64_t event_ms{0}; // E
+};
+
+[[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view frame);
+
 // one call answers for every contract; collectCycle is ignored since the catalogue carries the interval
 struct WirePremium {
     std::string_view symbol;
     std::string_view mark_price;      // markPrice
+    std::string_view index_price;     // indexPrice
     std::string_view funding_rate;    // lastFundingRate
     std::string_view forecast_rate;   // forecastFundingRate
     std::uint64_t next_funding_ms{0}; // nextFundingTime

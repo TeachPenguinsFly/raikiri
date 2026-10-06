@@ -169,6 +169,13 @@ TEST(KrakenSpot, TickerYieldsTouchAndTurnoverOnExchangeTime) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 767'531'169'840LL);
     EXPECT_EQ(stats->volume_24h_quote.raw, 65'191'411'207'115LL); // volume times vwap
+    EXPECT_EQ(stats->ts_event.ns, 1'791'123'308'875'428'000ULL);
+
+    auto unstamped = *wire;
+    unstamped.ts_ns = 0;
+    const auto bare = map_spot_ticker_stats(unstamped, table, received);
+    ASSERT_TRUE(bare.has_value());
+    EXPECT_EQ(bare->ts_event.ns, 0U);
 }
 
 TEST(KrakenSpot, AMemeCoinsTurnoverSurvivesABaseVolumePastFixedPoint) {

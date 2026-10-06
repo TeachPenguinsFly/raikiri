@@ -20,7 +20,7 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-[[nodiscard]] std::string_view stream_host() noexcept;
+[[nodiscard]] std::string_view stream_host(MarketType market = MarketType::Perp) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path() noexcept;
 
@@ -28,13 +28,17 @@ enum class WsBuildError : std::uint8_t {
 inline constexpr std::string_view k_depth_channel = "@depth200";
 inline constexpr std::string_view k_trade_channel = "@trade";
 inline constexpr std::string_view k_ticker_channel = "@ticker";
+// spot only; spot quotes come from it rather than from the ladder
+inline constexpr std::string_view k_book_ticker_channel = "@bookTicker";
 
 // weex does not echo the ping's timestamp
 inline constexpr std::string_view k_pong_frame = R"({"method":"PONG","id":1})";
 
 // empty for a kind weex does not stream; Bbo and Depth share one channel, so place one key
-[[nodiscard]] std::string_view
-channel_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept;
+[[nodiscard]] std::string_view channel_name(exec::SubKind kind,
+                                            std::string_view exchange_symbol,
+                                            std::span<char> out,
+                                            MarketType market = MarketType::Perp) noexcept;
 
 class Protocol {
 public:

@@ -35,6 +35,7 @@ straight to a file. Frames are uncompressed UTF-8 JSON.
 | `ws_trade_buy.json` | `trade@btc_usdt` with `m: "BID"` |
 | `ws_trade_sell.json` | `trade@btc_usdt` with `m: "ASK"` |
 | `ws_mark_price.json` | `mark_price@btc_usdt` |
+| `ws_index_price.json` | `index_price@btc_usdt` on `fstream.xt.com/ws/market`, the first push after the ack, 2026-10-06 |
 | `ws_agg_ticker.json` | `agg_ticker@btc_usdt` |
 | `ws_ticker.json` | `ticker@btc_usdt` |
 | `ws_subscribe_ack.json` | the answer to an accepted subscribe |
@@ -49,6 +50,7 @@ straight to a file. Frames are uncompressed UTF-8 JSON.
 | `rest_spot_error_auth.json` | `GET /v4/open-order` with no headers (`{"rc":1,"mc":"AUTH_001"}` at HTTP 200) |
 | `rest_spot_error_not_found.json` | `GET /v4/nope` |
 | `ws_spot_depth.json` | `depth@btc_usdt,50` on `stream.xt.com/public`; capture date not recorded |
+| `ws_spot_ticker.json` | `ticker@btc_usdt` on `stream.xt.com/public`, the first push after the ack, 2026-10-06 |
 | `ws_spot_public_trade.json` | `trade@btc_usdt` on `stream.xt.com/public`; capture date not recorded |
 
 ## Private

@@ -242,6 +242,16 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
     return merged(*instrument, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
 }
 
+std::optional<std::pair<InstrumentId, FixedE9>> map_open_interest(const WireOpenInterest& wire,
+                                                                  const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.inst_id);
+    const auto coins = to_amount(wire.oi_ccy);
+    if (instrument == nullptr || !coins.has_value()) {
+        return std::nullopt;
+    }
+    return std::pair{base_of(*instrument).id, *coins};
+}
+
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     // both columns empty means no turnover on this frame
@@ -279,7 +289,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
             out.volume_24h_quote = turnover_e6(*contracts, turnover_e9(base.contract_value, *last));
         }
     }
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

@@ -226,8 +226,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Deribit)] = {
         .venue = VenueId::Deribit,
-        // spot is unserved; dated futures and perps share kind "future" and map_instrument separates them
-        .markets = {.spot = false, .perp = true, .future = true, .option = true},
+        // spot is market data only and routed to another venue, so it prints no public trades
+        // dated futures and perps share kind "future" and map_instrument separates them
+        .markets = {.spot = true, .perp = true, .future = true, .option = true},
         .ws_order_entry = false,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,
@@ -368,39 +369,38 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Weex)] = {
         .venue = VenueId::Weex,
-        // contract tree only; weex spot is another host (api-spot.weex.com)
-        .markets = {.spot = false, .perp = true},
+        .markets = {.spot = true, .perp = true},
         // bits stay false until a successful private response is captured in tests/venues/weex/fixtures
         // the private socket pushes only, so ws order entry stays false
         .ws_order_entry = false,
         // the venue states no fix api at any tier
         .fix_order_entry = false,
-        // DELETE /capi/v3/order?origClientOrderId=<ULID>
+        // DELETE /capi/v3/order and /api/v3/order by origClientOrderId=<ULID>
         .cancel_by_client_order_id = true,
-        // implemented, unexercised: DELETE /capi/v3/batchOrders, ten at a time
+        // implemented, unexercised: DELETE /capi/v3/batchOrders, ten at a time; spot cancels one by one
         .batch_cancel = false,
         // weex has no modify for a resting order
         .amend_order = false,
-        // implemented, unexercised: timeInForce POST_ONLY
+        // implemented, unexercised, contracts only: timeInForce POST_ONLY; spot states GTC, IOC and FOK alone
         .native_post_only = false,
         .book_checksum = false, // the depth channel carries no checksum
         // GET /capi/v3/account/position/allPosition, netted per instrument across separated rows
         .position_pull = {.perp = true},
-        // GET /capi/v3/openOrders; leaves is origQty minus executedQty
-        .order_pull = {.perp = true},
-        // GET /capi/v3/userTrades, seven-day window
-        .fill_pull = {.perp = true},
-        // GET /capi/v3/account/balance
-        .balance_pull = {.perp = true},
+        // GET /capi/v3/openOrders and /api/v3/openOrders; leaves is origQty minus executedQty
+        .order_pull = {.spot = true, .perp = true},
+        // GET /capi/v3/userTrades, seven-day window; spot /api/v3/myTrades per symbol this process has traded or seen
+        .fill_pull = {.spot = true, .perp = true},
+        // GET /capi/v3/account/balance and /api/v3/account
+        .balance_pull = {.spot = true, .perp = true},
         // POST /capi/v3/account/income, incomeType position_funding, already signed
         .funding_charge = {.perp = true},
         // <sym>@ticker `v` base, `q` quote
         .ticker_stats = true,
         // weex signs with a passphrase and answers -1049 without it
         .needs_passphrase = true,
-        // the private socket /v3/ws/private is not opened; fills arrive only via reconciliation
-        .user_stream = UserStreamModel::None,
-        // newClientOrderId is 1-36 chars of ^[\.A-Z\:/a-z0-9_-]{1,36}$; a ulid fits unchanged
+        // spot signs its private socket's handshake for orders and fills; contracts open none and reconcile
+        .user_stream = UserStreamModel::AuthSubscribe,
+        // contracts take 1-36 chars of ^[\.A-Z\:/a-z0-9_-]{1,36}$, spot up to 40 plain chars; a ulid fits both
         .max_client_order_id_len = 36,
         // the venue states 300 orders per minute per account and no per-second figure
         .headline_order_rate_per_s = 0,
@@ -408,8 +408,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Aster)] = {
         .venue = VenueId::Aster,
-        // usd-margined perpetuals only; quotes include USDT, USD1 and U
-        .markets = {.spot = false, .perp = true},
+        // perp quotes include USDT, USD1 and U
+        .markets = {.spot = true, .perp = true},
         // market data and funding only; orders need an evm wallet signer, not a key
         .ws_order_entry = false,
         .fix_order_entry = false,
@@ -754,6 +754,220 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .balance_pull = {},
         .funding_charge = {},
         // ticker_slim stats: `c` contracts, `pr` premium on options, `v` notional on perpetuals
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Arcus)] = {
+        .venue = VenueId::Arcus,
+        .markets = {.perp = true},
+        // market data only; orders need a per-order ed25519 signer
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Ostium)] = {
+        .venue = VenueId::Ostium,
+        .markets = {.spot = false, .perp = true, .option = false},
+        // market data only; an order is an on-chain request filled at the next oracle price
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // a day of subgraph fills summed per pair, and both sides' open interest
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 0,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Paradex)] = {
+        .venue = VenueId::Paradex,
+        .markets = {.perp = true},
+        // market data only; orders need a stark-key signer and a jwt refresher
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Vest)] = {
+        .venue = VenueId::Vest,
+        .markets = {.spot = false, .perp = true, .option = false},
+        // market data only; orders need a delegate key and the v3 session signer
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // v3 24 h volume of live and funded accounts, and both sides' open interest
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 0,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Bullish)] = {
+        .venue = VenueId::Bullish,
+        .markets = {.spot = true, .perp = true},
+        // market data only; orders need a jwt session signed with an hmac or ecdsa key
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::OndoPerps)] = {
+        .venue = VenueId::OndoPerps,
+        .markets = {.spot = false, .perp = true, .option = false},
+        // market data only; the venue's terms bar the owner's residence
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // 24 h volume and open interest from rest, the oracle as index
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 0,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::PolymarketPerps)] = {
+        .venue = VenueId::PolymarketPerps,
+        .markets = {.spot = false, .perp = true, .option = false},
+        // market data only; orders need the eip-712 proxy signer
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // statistics::all volume, tickers::all open interest and index
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 0,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Upbit)] = {
+        .venue = VenueId::Upbit,
+        .markets = {.spot = true},
+        // market data only; orders would need a korean account and a jwt signer
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Bithumb)] = {
+        .venue = VenueId::Bithumb,
+        .markets = {.spot = true},
+        // market data only; orders would need a korean account and a jwt signer
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
+    };
+    table[static_cast<std::size_t>(VenueId::Bitstamp)] = {
+        .venue = VenueId::Bitstamp,
+        .markets = {.spot = true, .perp = true},
+        // market data only; spot and perpetuals sit with eu-licensed entities
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
         .ticker_stats = true,
         .user_stream = UserStreamModel::None,
         .max_client_order_id_len = 36,

@@ -16,7 +16,9 @@ std::expected<void, WireError> read_stats(json::ondemand::object& row, WireMarke
     }
     for (const auto& [key, into] : {std::pair{"dailyVolume", &out.volume_quote},
                                     std::pair{"dailyVolumeBase", &out.volume_base},
+                                    std::pair{"openInterestBase", &out.open_interest_base},
                                     std::pair{"markPrice", &out.mark_price},
+                                    std::pair{"indexPrice", &out.index_price},
                                     std::pair{"fundingRate", &out.funding_rate}}) {
         const auto value = json::opt_str(*stats, key);
         if (!value.has_value()) {

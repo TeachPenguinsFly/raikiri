@@ -13,6 +13,7 @@ number, key or ordering was retyped.
 | `rest_get_time.json` | `get_time` |
 | `rest_get_instruments.json` | trimmed: six whole rows taken from `get_instruments` with `currency=BTC&kind=future`, `&kind=option`, `&kind=future&expired=true` and `currency=any&kind=future`, under the envelope of the `kind=future` call. The rows are `BTC-PERPETUAL`, `BTC-25SEP26`, `BTC-11AUG26-64000-C`, `BTC-11AUG26-64000-P`, `BTC-10AUG26` (delivered) and `ADA_USDC-PERPETUAL` (linear) |
 | `rest_error_invalid_kind.json` | `get_instruments?currency=BTC&kind=perpetual` |
+| `rest_get_instruments_any.json` | captured 2026-10-06: `get_instruments?currency=any&kind=future`, trimmed to nine whole rows under the call's envelope: `BTC-PERPETUAL`, `ETH-PERPETUAL` (inverse), `BTC_USDC-PERPETUAL`, `SOL_USDC-PERPETUAL`, `XRP_USDC-PERPETUAL`, `AAPL_USDC-PERPETUAL`, `GOLD_USDC-PERPETUAL` (linear), `AVAX_USDC-7OCT26` (a linear dated future) and `BTC-7OCT26` |
 
 ## WebSocket, `public/subscribe`
 
@@ -26,6 +27,7 @@ number, key or ordering was retyped.
 | `ws_book_change_full.json` | the next frame of that capture |
 | `ws_trades.json` | `trades.BTC-PERPETUAL.100ms` |
 | `ws_ticker_perpetual.json` | `ticker.BTC-PERPETUAL.100ms` |
+| `ws_ticker_linear_perpetual.json` | `ticker.BTC_USDC-PERPETUAL.100ms`, captured 2026-10-06 |
 | `ws_ticker_future.json` | `ticker.BTC-25SEP26.100ms` |
 | `ws_ticker_option.json` | `ticker.BTC-11AUG26-64000-C.100ms` |
 | `ws_subscribe_ack.json` | the reply to a 5-channel subscribe |
@@ -67,3 +69,16 @@ No live capture either: there are no keys. The source is the
 | `rest_transaction_log_settlements.json` | the example's `settlement` entry on `BTC-PERPETUAL` (id 61311) and its `continuation`, verbatim, with the other entries left out as `query=settlement` would |
 | `rest_transaction_log_last.json` | assembled last page (`continuation` null): the same entry again, as overlapping pages return it, a paid `BTC-PERPETUAL` settlement and a `BTC-25SEP26` settlement with no funding, both written by hand |
 | `rest_transaction_log_usdc.json` | constructed: a `currency=USDC` log with one `BTC_USDC-PERPETUAL` settlement, in the example's shape |
+
+## Spot
+
+Captured live on 2026-10-06 with no credentials. Deribit's spot pairs are routed
+to Coinbase: book and ticker channels answer, but `trades.<pair>.100ms` is left
+out of the subscribe result and `public/get_last_trades_by_instrument` answers
+11060 `not_supported_for_coinbase_routed_spot`.
+
+| file | source |
+|---|---|
+| `rest_get_instruments_spot.json` | `GET /api/v2/public/get_instruments?currency=any&kind=spot` (57 rows), trimmed to BTC_USDC, ETH_USDC and ETH_BTC |
+| `ws_book_bbo_spot.json` | first `book.BTC_USDC.none.1.100ms` push |
+| `ws_ticker_spot.json` | first `ticker.BTC_USDC.100ms` push; its stats carry no `volume_usd` |

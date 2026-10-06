@@ -71,6 +71,11 @@ TEST(Malformed, Hyperliquid) {
                     (void)parse_meta(f, assets);
                     (void)parse_asset_ctxs(f, storage);
                 }},
+               {"rest_spot_meta_and_asset_ctxs.json",
+                [](std::string_view f) {
+                    static SpotCtxBuffer storage;
+                    (void)parse_spot_asset_ctxs(f, storage);
+                }},
                {"rest_spot_meta.json",
                 [](std::string_view f) {
                     static SpotAssetBuffer storage;

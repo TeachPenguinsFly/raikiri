@@ -110,6 +110,7 @@ struct WireTicker {
     std::string_view contracts_24h;
     std::string_view notional_24h;
     std::string_view premium_24h;
+    std::string_view open_interest; // contracts of one base unit
     bool priced{false};
     std::string_view delta;
     std::string_view gamma;

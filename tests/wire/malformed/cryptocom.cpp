@@ -52,6 +52,11 @@ TEST(Malformed, CryptoCom) {
                     (void)parse_event(f);
                     (void)parse_trades(f, trades);
                 }},
+               {"rest_tickers.json",
+                [](std::string_view f) {
+                    static TickerBuffer storage;
+                    (void)parse_tickers(f, storage);
+                }},
                {"ws_ticker_*",
                 [](std::string_view f) {
                     (void)parse_event(f);
@@ -63,6 +68,11 @@ TEST(Malformed, CryptoCom) {
                     (void)parse_value(f);
                 }},
                {"ws_estimatedfunding_perp_initial.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    (void)parse_value(f);
+                }},
+               {"ws_index_*",
                 [](std::string_view f) {
                     (void)parse_event(f);
                     (void)parse_value(f);

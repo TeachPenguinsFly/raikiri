@@ -27,6 +27,7 @@ inline constexpr std::uint32_t k_funding_interval_s = 3600;
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};
+    PriceTicks index{};
     UnixNanos next_funding{};
 };
 

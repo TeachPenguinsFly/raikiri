@@ -606,6 +606,7 @@ TEST(KucoinMapFunding, TheMarkArrivesUnderItsOwnSubjectAndJoinsTheSameRecord) {
     ASSERT_TRUE(both.has_value());
     // 64175.21 truncated to the 0.1 tick
     EXPECT_EQ(both->mark_price.raw, 641'752);
+    EXPECT_EQ(both->index_price.raw, 641'964);
     EXPECT_EQ(both->rate.raw, 100'000) << "the rate the other subject stated is carried forward";
     EXPECT_EQ(both->interval_s, 28800U);
 }
@@ -1867,6 +1868,20 @@ TEST(KucoinUtaWs, ARequestForAnotherChannelIsRefused) {
     EXPECT_FALSE(protocol.uta_subscribe_frame({}).has_value());
     const std::array<Subscription, 1> nameless{Subscription{.topic = k_uta_book_channel, .symbol = ""}};
     EXPECT_FALSE(protocol.uta_subscribe_frame(nameless).has_value());
+}
+
+TEST(KucoinContractTickers, OpenInterestIsContractsTimesTheMultiplier) {
+    const auto table = loaded_table();
+    static ContractBuffer storage;
+    const auto body = fixture("rest_contracts_active.json");
+    const auto rows = parse_contracts(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto xbt = std::ranges::find_if(*rows, [](const WireContract& row) { return row.symbol == "XBTUSDTM"; });
+    ASSERT_NE(xbt, rows->end());
+    EXPECT_EQ(xbt->open_interest, "22101746");
+    const auto stats = map_ticker_stats(*xbt, table, UnixNanos{1});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->open_interest, *parse_decimal_e9("22101.746"));
 }
 
 TEST(KucoinSpotTickers, AllTickersStatesBothColumnsTruncatedAtNineDecimals) {

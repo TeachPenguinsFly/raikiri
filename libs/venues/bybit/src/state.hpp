@@ -59,6 +59,8 @@ struct VenueState {
 
     // what each instrument's ticker frames have said so far
     std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
+    // a ticker delta restates open interest only when it moved
+    std::unordered_map<InstrumentId, FixedE9> open_interest;
 
     net::IoContext io;
     net::Signer signer;

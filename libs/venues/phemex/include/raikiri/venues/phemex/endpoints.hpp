@@ -24,6 +24,7 @@ inline constexpr std::string_view k_stream_live = "ws.phemex.com";
 
 // served from a cdn cache up to ~25 minutes old
 inline constexpr std::string_view k_products = "/public/products";
+inline constexpr std::string_view k_spot_tickers = "/md/spot/ticker/24hr/all";
 
 // /public/* allows 300 requests a minute per ip and answers 429 past it; /md/* is separate
 inline constexpr std::uint32_t k_public_requests_per_window = 300;

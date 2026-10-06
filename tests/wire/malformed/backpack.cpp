@@ -69,6 +69,11 @@ TEST(Malformed, Backpack) {
                     static LevelBuffer storage;
                     (void)parse_depth_snapshot(f, storage);
                 }},
+               {"rest_open_interest.json",
+                [](std::string_view f) {
+                    static OpenInterestBuffer storage;
+                    (void)parse_open_interest(f, storage);
+                }},
                {"rest_tickers.json",
                 [](std::string_view f) {
                     static TickerBuffer storage;

@@ -19,6 +19,7 @@ enum class EventKind : std::uint8_t {
     Funding,
     EstimatedFunding,
     Mark,
+    Index, // keyed by the index name, e.g. BTCUSD-INDEX
     Unknown,
 };
 

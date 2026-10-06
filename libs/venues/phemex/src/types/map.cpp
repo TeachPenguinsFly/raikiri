@@ -312,6 +312,9 @@ std::optional<FundingUpdate> map_funding(const WirePackRow& wire,
     if (const auto mark = mark_ticks(parse_number_e9(wire.mark), base.tick_size); mark.has_value()) {
         out.mark_price = *mark;
     }
+    if (const auto index = mark_ticks(parse_number_e9(wire.index), base.tick_size); index.has_value()) {
+        out.index_price = *index;
+    }
     out.ts_event = ns_to_unix(ts_ns, UnixNanos{});
     out.interval_s = listing.funding_interval_s;
     out.next_funding_time = next_funding_time(out.ts_event, listing.funding_interval_s);
@@ -339,6 +342,9 @@ map_funding(const WireInverseTicker& wire, const InstrumentBase& base, const Lis
     if (wire.mark_ep.has_value() && listing.price_step > 0) {
         out.mark_price = PriceTicks::from_raw(*wire.mark_ep / listing.price_step);
     }
+    if (wire.index_ep.has_value() && listing.price_step > 0) {
+        out.index_price = PriceTicks::from_raw(*wire.index_ep / listing.price_step);
+    }
     out.ts_event = ns_to_unix(wire.ts_ns, UnixNanos{});
     out.interval_s = listing.funding_interval_s;
     out.next_funding_time = next_funding_time(out.ts_event, listing.funding_interval_s);
@@ -361,7 +367,10 @@ map_ticker_stats(const WirePackRow& wire, const InstrumentBase& base, std::uint6
     if (turnover.has_value()) {
         out.volume_24h_quote = *turnover;
     }
-    out.ts_event = ns_to_unix(ts_ns, ts_init);
+    if (const auto open = parse_amount_e9(wire.open_interest); open.has_value()) {
+        out.open_interest = *open;
+    }
+    out.ts_event = ns_to_unix(ts_ns, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -391,7 +400,16 @@ map_ticker_stats(const WireInverseTicker& wire, const InstrumentBase& base, cons
     if (quote.has_value()) {
         out.volume_24h_quote = *quote;
     }
-    out.ts_event = ns_to_unix(wire.ts_ns, ts_init);
+    // inverse contracts are a fixed sum of the quote, so the count over the row's mark is coins
+    if (wire.open_interest.has_value() && wire.mark_ep.has_value() && listing.price_step > 0 &&
+        base.contract_value.raw > 0 && *wire.open_interest >= 0 &&
+        *wire.open_interest <= std::numeric_limits<std::int64_t>::max() / base.contract_value.raw) {
+        const auto mark = (*wire.mark_ep / listing.price_step) * base.tick_size.raw;
+        if (mark > 0) {
+            out.open_interest = FixedE9::from_raw(mul_div(*wire.open_interest * base.contract_value.raw, k_e9, mark));
+        }
+    }
+    out.ts_event = ns_to_unix(wire.ts_ns, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -421,7 +439,7 @@ map_ticker_stats(const WireSpotTicker& wire, const InstrumentBase& base, const L
     if (turnover.has_value()) {
         out.volume_24h_quote = *turnover;
     }
-    out.ts_event = ns_to_unix(wire.ts_ns, ts_init);
+    out.ts_event = ns_to_unix(wire.ts_ns, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

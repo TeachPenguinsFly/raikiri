@@ -48,6 +48,16 @@ TEST(Malformed, Htx) {
                     (void)parse_event(f);
                     (void)parse_detail(f);
                 }},
+               {"rest_swap_index.json",
+                [](std::string_view f) {
+                    static OpenInterestBuffer storage;
+                    (void)parse_swap_index(f, storage);
+                }},
+               {"rest_swap_open_interest.json",
+                [](std::string_view f) {
+                    static OpenInterestBuffer storage;
+                    (void)parse_open_interest(f, storage);
+                }},
                {"ws_notify_funding.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

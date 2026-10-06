@@ -12,6 +12,7 @@
 #include <raikiri/venues/weex/orders.hpp>
 #include <raikiri/venues/weex/positions.hpp>
 #include <raikiri/venues/weex/rest.hpp>
+#include <raikiri/venues/weex/spot.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -26,7 +27,10 @@ class RestApi {
 public:
     explicit RestApi(VenueState& state)
         : state_{&state},
-          rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .pool_size = net::k_order_pool_size}},
+          rest_{state.io,
+                net::RestConfig{
+                    .host = std::string{state.market == MarketType::Spot ? ep::k_spot_rest_host : rest_host()},
+                    .pool_size = net::k_order_pool_size}},
           builder_{state.signer, state.passphrase} {}
 
     void start() { rest_.start(); }
@@ -97,6 +101,10 @@ public:
             }
             return std::unexpected{exec::VenueError::make(cls, error->code, error->msg)};
         }
+        if (response->status == 429) {
+            penalize(request->target);
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::RateLimited, 429, "rate limited")};
+        }
         if (response->status < 200 || response->status >= 300) {
             // an unrouted path has no code; only the status line catches it
             return std::unexpected{
@@ -107,7 +115,9 @@ public:
 
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         std::string body;
-        if (const auto ok = fetch(builder_.open_orders(market, state_->venue_now()), body); !ok.has_value()) {
+        const auto request = market == MarketType::Spot ? builder_.spot_open_orders(state_->venue_now())
+                                                        : builder_.open_orders(market, state_->venue_now());
+        if (const auto ok = fetch(request, body); !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
         static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
@@ -120,6 +130,9 @@ public:
         std::vector<exec::OrderStatusReport> reports;
         reports.reserve(orders->size());
         for (const auto& wire : *orders) {
+            if (market == MarketType::Spot) {
+                state_->spot_feed.note_symbol(wire.symbol);
+            }
             if (auto report = map_open_order(wire, state_->instruments); report.has_value()) {
                 reports.push_back(*report);
             }
@@ -129,6 +142,22 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
                                                                          MarketType market) {
+        if (market == MarketType::Spot) {
+            std::string body;
+            if (const auto ok = fetch(builder_.spot_query_order(id.view(), state_->venue_now()), body);
+                !ok.has_value()) {
+                return std::unexpected{ok.error()};
+            }
+            const auto wire = parse_order(body);
+            if (!wire.has_value()) {
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable order")};
+            }
+            auto report = map_open_order(*wire, state_->instruments);
+            if (!report.has_value()) {
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
+            }
+            return *report;
+        }
         // weex has no lookup by client id, so go through the open list
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
@@ -143,6 +172,9 @@ public:
     }
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market, UnixNanos since) {
+        if (market == MarketType::Spot) {
+            return spot_fill_reports(since);
+        }
         std::string body;
         if (const auto ok = fetch(builder_.fills(market, since, state_->venue_now()), body); !ok.has_value()) {
             return std::unexpected{ok.error()};
@@ -164,6 +196,9 @@ public:
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
+        if (market == MarketType::Spot) {
+            return std::unexpected{exec::not_implemented("weex spot holds balances, not positions")};
+        }
         std::string body;
         if (const auto ok = fetch(builder_.positions(market, state_->venue_now()), body); !ok.has_value()) {
             return std::unexpected{ok.error()};
@@ -180,6 +215,9 @@ public:
     }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
+        if (market == MarketType::Spot) {
+            return spot_balance_reports();
+        }
         // one collateral pool backs every contract; other markets are a misconfiguration
         if (market != MarketType::Perp) {
             return std::unexpected{exec::not_implemented("weex serves the contract tree only")};
@@ -208,6 +246,9 @@ public:
     }
 
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
+        if (market == MarketType::Spot) {
+            return std::unexpected{exec::not_implemented("weex spot pays no funding")};
+        }
         std::string body;
         if (const auto ok = fetch(builder_.funding_charges(market, since, state_->venue_now()), body);
             !ok.has_value()) {
@@ -232,6 +273,51 @@ public:
     }
 
 private:
+    // myTrades names one symbol per call; a partial sweep fails whole
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> spot_fill_reports(UnixNanos since) {
+        std::vector<exec::FillReport> reports;
+        const std::vector<std::string> symbols{state_->spot_feed.symbols().begin(), state_->spot_feed.symbols().end()};
+        for (const auto& symbol : symbols) {
+            std::string body;
+            if (const auto ok = fetch(builder_.spot_fills(symbol, since, state_->venue_now()), body); !ok.has_value()) {
+                return std::unexpected{ok.error()};
+            }
+            static thread_local const auto storage_owner = std::make_unique<SpotTradeBuffer>();
+            const auto trades = parse_spot_trades(body, *storage_owner);
+            if (!trades.has_value()) {
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable fill list")};
+            }
+            for (const auto& wire : *trades) {
+                if (auto report = map_spot_trade(wire, state_->instruments); report.has_value()) {
+                    reports.push_back(*report);
+                }
+            }
+        }
+        return reports;
+    }
+
+    std::expected<std::vector<BalanceReport>, exec::VenueError> spot_balance_reports() {
+        std::string body;
+        if (const auto ok = fetch(builder_.spot_account(state_->venue_now()), body); !ok.has_value()) {
+            return std::unexpected{ok.error()};
+        }
+        static thread_local const auto storage_owner = std::make_unique<SpotBalanceBuffer>();
+        const auto rows = parse_spot_account(body, *storage_owner);
+        if (!rows.has_value()) {
+            // an unreadable wallet must not read as empty
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable balance list")};
+        }
+        const auto ts = state_->clock->wall();
+        std::vector<BalanceReport> reports;
+        reports.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            if (auto report = map_spot_balance(wire, ts); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
     VenueState* state_;
     net::RestClient rest_;
     RequestBuilder builder_;

@@ -209,6 +209,7 @@ TEST(GateWire, TickerCarriesFundingAndMarkOnOneChannel) {
     // volume_24h is in contracts; the base and quote columns are read by name
     EXPECT_EQ(ticker->volume_24h_base, "49861.8666");
     EXPECT_EQ(ticker->volume_24h_quote, "3198952872");
+    EXPECT_EQ(ticker->open_interest, "685633500");
 }
 
 TEST(GateWire, BookUpdateChainsOnUpdateIds) {
@@ -691,6 +692,11 @@ TEST(GateMap, LiveCaptureFlowsFromFrameToDomain) {
     ASSERT_TRUE(ticker.has_value());
     const auto funding = map_funding(*ticker, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
+    EXPECT_EQ(funding->index_price.raw, 641'959);
+    const auto stats = map_ticker_stats(*ticker, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    // total_size is contracts, each the quanto multiplier of a coin
+    EXPECT_EQ(stats->open_interest.raw, 68'563'350'000'000LL);
     // seconds in, nanoseconds out
     EXPECT_GT(funding->next_funding_time.ns, 1'700'000'000'000'000'000ULL);
     EXPECT_LT(funding->next_funding_time.ns, 4'000'000'000'000'000'000ULL);

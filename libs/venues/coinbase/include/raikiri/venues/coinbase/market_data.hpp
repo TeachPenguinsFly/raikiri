@@ -3,8 +3,10 @@
 #include <raikiri/venues/coinbase/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
+#include <array>
 #include <cstdint>
 #include <expected>
+#include <span>
 #include <string_view>
 
 namespace raikiri::venues::coinbase {
@@ -37,5 +39,21 @@ struct WireMatch {
 };
 
 [[nodiscard]] std::expected<WireMatch, WireError> parse_match(std::string_view frame);
+
+// one row of advanced trade's public product list; the ids match the exchange api's
+struct WireProductVolume {
+    std::string_view product_id;
+    std::string_view volume_24h;       // base
+    std::string_view quote_volume_24h; // approximate_quote_24h_volume
+};
+
+inline constexpr std::size_t k_max_product_volumes = 4096;
+
+struct ProductVolumeBuffer {
+    std::array<WireProductVolume, k_max_product_volumes> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireProductVolume>, WireError>
+parse_product_volumes(std::string_view body, ProductVolumeBuffer& storage);
 
 } // namespace raikiri::venues::coinbase

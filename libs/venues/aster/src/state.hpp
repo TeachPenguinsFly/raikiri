@@ -5,6 +5,7 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -29,12 +30,17 @@
 namespace raikiri::venues::aster::internal {
 
 struct VenueState {
-    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
-        : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
+    VenueState(exec::GatewaySink& sink_ref,
+               const Clock& clock_ref,
+               bool testnet_flag,
+               MarketType market_kind = MarketType::Perp)
+        : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag}, market{market_kind} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
+    // fixed at construction since the rest hosts follow it
+    MarketType market;
     // shared with the account poller: aster meters one weight pool per ip
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
@@ -43,10 +49,10 @@ struct VenueState {
     net::Signer signer;
     exec::InstrumentTable instruments;
     Protocol protocol;
-    RequestBuilder builder{signer};
+    RequestBuilder builder{signer, market};
 
     // own pool so seeds and orders never queue behind each other; six connections for a full-catalogue seed
-    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}, .pool_size = 6}};
+    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet, market)}, .pool_size = 6}};
     std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::vector<std::string> desired_streams;
@@ -58,6 +64,9 @@ struct VenueState {
     // book seeds are rest calls paced by drain_seeds and charged by meter_market_data
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};
+
+    // spot pays no funding, so its 24h window has a poll of its own
+    exec::TickerPoll spot_tickers;
 
     // venue clock offset, measured against /fapi/v1/time
     std::int64_t clock_offset_ns{0};

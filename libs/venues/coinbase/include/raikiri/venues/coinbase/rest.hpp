@@ -19,6 +19,10 @@ namespace raikiri::venues::coinbase {
 
 [[nodiscard]] std::string_view rest_host() noexcept;
 
+// the exchange api has 24h stats per product only; advanced trade's public list has every product's in one call
+[[nodiscard]] std::string_view volume_host() noexcept;
+[[nodiscard]] net::RestRequest product_volumes() noexcept;
+
 // client_oid must be a lowercase uuidv4 or coinbase ignores the order;
 // derived from the ulid deterministically but not reversibly
 inline constexpr std::size_t k_uuid_len = 36;

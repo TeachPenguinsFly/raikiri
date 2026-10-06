@@ -197,11 +197,14 @@ std::optional<FundingUpdate> map_funding(const WireMarket& wire, const Instrumen
     out.instrument = base.id;
     // nextFundingRate is the hour now accruing; nothing forecasts the next, so predicted_rate stays undef
     out.rate = *rate;
-    if (const auto mark = oracle_ticks(wire.oracle_price, base.tick_size); mark.has_value()) {
-        out.mark_price = *mark;
+    // v4 margins on the oracle and publishes no other mark, so the oracle is both mark and index
+    if (const auto oracle = oracle_ticks(wire.oracle_price, base.tick_size); oracle.has_value()) {
+        out.mark_price = *oracle;
+        out.index_price = *oracle;
     }
     out.next_funding_time = next_hour(ts_init);
     out.interval_s = k_funding_interval_s;
+    out.accrual = FundingAccrual::Discrete;
     out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
@@ -215,7 +218,10 @@ std::optional<TickerStats> map_ticker_stats(const WireMarket& wire, const Instru
     TickerStats out{};
     out.instrument = base.id;
     out.volume_24h_quote = *turnover;
-    out.ts_event = ts_init;
+    if (const auto open = parse_decimal_e9(wire.open_interest); open.has_value()) {
+        out.open_interest = *open;
+    }
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

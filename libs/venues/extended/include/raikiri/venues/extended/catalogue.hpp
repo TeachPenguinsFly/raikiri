@@ -24,12 +24,14 @@ struct WireMarket {
     std::string_view min_size; // tradingConfig.minOrderSize, in base units
     std::string_view funding_rate;
     std::string_view mark_price;
+    std::string_view index_price; // marketStats.indexPrice
     // nextFundingRate on the wire, though it is a millisecond timestamp
     std::uint64_t next_funding_ms{0};
-    std::string_view volume_quote; // dailyVolume
-    std::string_view volume_base;  // dailyVolumeBase
-    std::string_view category;     // "Crypto", "RWA"
-    std::string_view sub_category; // "Equity", "Commodity", "ETF/Index", "FX", "L1", ...
+    std::string_view volume_quote;       // dailyVolume
+    std::string_view volume_base;        // dailyVolumeBase
+    std::string_view open_interest_base; // openInterestBase
+    std::string_view category;           // "Crypto", "RWA"
+    std::string_view sub_category;       // "Equity", "Commodity", "ETF/Index", "FX", "L1", ...
 };
 
 inline constexpr std::size_t k_max_markets = 1024;

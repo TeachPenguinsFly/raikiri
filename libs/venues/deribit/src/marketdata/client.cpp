@@ -93,6 +93,17 @@ public:
         if (symbol.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
+        const bool spot = instrument.market() == MarketType::Spot;
+        if (spot && kind == exec::SubKind::Trades) {
+            // coinbase-routed spot publishes no prints to an unauthenticated session
+            return DataClient::subscribe(kind, instrument);
+        }
+        if (spot && kind == exec::SubKind::Bbo) {
+            // the ticker carries spot's 24h volume, and spot has no funding subscription to open it
+            if (const auto opened = subscribe(exec::SubKind::Funding, instrument); !opened.has_value()) {
+                return opened;
+            }
+        }
         std::array<char, k_max_channel_len> buffer{};
         const auto channel = channel_for(kind, symbol, buffer);
         if (channel.empty()) {

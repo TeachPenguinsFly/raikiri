@@ -17,3 +17,19 @@ REST on `https://fapi.asterdex.com` and the socket on
 | `rest_depth_snapshot.json` | `GET /fapi/v1/depth?symbol=BTCUSDT&limit=5` |
 | `rest_ticker_24h.json` | `GET /fapi/v1/ticker/24hr?symbol=BTCUSDT` |
 | `rest_server_time.json` | `GET /fapi/v1/time` |
+
+## Spot
+
+Captured live on 2026-10-06 with no credentials. Spot is its own API on
+`sapi.asterdex.com` and `wss://sstream.asterdex.com/stream`, with the futures
+API's shapes.
+
+| file | source |
+|---|---|
+| `spot_rest_exchange_info.json` | `GET /api/v1/exchangeInfo`, trimmed to BTCUSDT, ASTERUSDT, WLFIUSD1 and FORMUSDT and three assets |
+| `spot_rest_ticker_24h.json` | `GET /api/v1/ticker/24hr` (every symbol, weight 40), trimmed to three rows |
+| `spot_rest_time.json` | `GET /api/v1/time` |
+| `spot_rest_depth_snapshot.json` | `GET /api/v1/depth?symbol=BTCUSDT&limit=5` |
+| `spot_ws_book_ticker.json` | first `btcusdt@bookTicker` push |
+| `spot_ws_depth_update.json`, `spot_ws_depth_update_next.json` | two consecutive `btcusdt@depth@500ms` pushes |
+| `spot_ws_trade.json` | first `formusdt@trade` push |

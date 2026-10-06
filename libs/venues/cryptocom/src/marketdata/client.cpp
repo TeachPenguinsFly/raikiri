@@ -1,4 +1,7 @@
+#include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/cryptocom/book.hpp>
@@ -49,9 +52,13 @@ public:
                 handler_,
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }},
+          rest_{state_->io, net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)}, .port = "443"}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
+        rest_.start();
         pool_.start();
         started_ = true;
         return {};
@@ -60,6 +67,7 @@ public:
     void stop() override {
         report_final();
         pool_.stop();
+        rest_.stop();
         started_ = false;
     }
 
@@ -76,6 +84,9 @@ public:
         switch (kind) {
         case exec::SubKind::Bbo:
             state_->wants_bbo.insert(instrument.packed);
+            if (!perp) {
+                ticker_.want(instrument); // spot opens no ticker channel without funding
+            }
             return open_book(symbol);
         case exec::SubKind::Depth:
             state_->wants_depth.insert(instrument.packed);
@@ -94,6 +105,13 @@ public:
                 if (const auto opened = open(prefix, symbol); !opened.has_value()) {
                     return opened;
                 }
+            }
+            if (const auto index = state_->index_of.find(instrument.packed); index != state_->index_of.end()) {
+                auto& perps = state_->index_perps[index->second];
+                if (std::ranges::find(perps, instrument) == perps.end()) {
+                    perps.push_back(instrument);
+                }
+                return open(k_index_prefix, index->second);
             }
             return {};
         case exec::SubKind::MarkPrice:
@@ -117,6 +135,31 @@ public:
         }
         state_->io.poll();
         pool_.poll(now);
+        ticker_.poll(now, [this] {
+            const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_tickers, .body = {}};
+            return rest_.send(request, [this](const net::RestResponse& response) { on_tickers(response); });
+        });
+    }
+
+    void on_tickers(const net::RestResponse& response) noexcept {
+        ticker_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<TickerBuffer>();
+        const auto rows = parse_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto* listed = state_->instruments.find(row.instrument);
+            if (listed == nullptr || !ticker_.wanted(base_of(*listed).id)) {
+                continue;
+            }
+            if (const auto stats = map_ticker_stats(row, base_of(*listed), response.received); stats.has_value()) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
     }
 
     void handle_frame(std::string_view frame, UnixNanos received) noexcept {
@@ -145,6 +188,9 @@ public:
         case EventKind::EstimatedFunding:
         case EventKind::Mark:
             handle_funding(*event, received);
+            break;
+        case EventKind::Index:
+            handle_index(*event, received);
             break;
         case EventKind::Error:
             ++state_->subscribe_refusals;
@@ -287,6 +333,27 @@ private:
     }
 
     // a funding channel's subscribe answer is the current value
+    void handle_index(const Event& event, UnixNanos received) {
+        const auto perps = state_->index_perps.find(std::string{event.instrument});
+        if (perps == state_->index_perps.end()) {
+            return;
+        }
+        const auto wire = parse_value(event.data);
+        if (!wire.has_value()) {
+            return;
+        }
+        for (const auto id : perps->second) {
+            const auto* listed = state_->instruments.find(id);
+            if (listed == nullptr) {
+                continue;
+            }
+            const auto& base = base_of(*listed);
+            if (const auto update = map_index(*wire, base, state_->funding[id.packed], received); update.has_value()) {
+                state_->sink->on_funding(*update);
+            }
+        }
+    }
+
     void handle_funding(const Event& event, UnixNanos received) {
         const auto* listed = state_->instruments.find(event.instrument);
         if (listed == nullptr) {
@@ -384,6 +451,8 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::WsPool pool_;
+    net::RestClient rest_;
+    exec::TickerPoll ticker_;
     std::string first_refusal_;
     std::uint64_t bad_levels_{0};
     std::uint64_t heartbeats_unanswered_{0};

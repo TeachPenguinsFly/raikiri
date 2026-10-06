@@ -24,6 +24,9 @@ using wire::session;
     if (event == "ticker") {
         return EventKind::Ticker;
     }
+    if (event == "bookTicker") {
+        return EventKind::BookTicker;
+    }
     return EventKind::Unknown;
 }
 

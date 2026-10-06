@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -315,6 +316,10 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
+        // spot opens no tickers channel without funding, so the 24h window comes over rest
+        if (kind == exec::SubKind::Bbo && state_->market == MarketType::Spot) {
+            tickers_.want(instrument);
+        }
         const bool option = state_->market == MarketType::Option;
         if (option && kind == exec::SubKind::Bbo) {
             state_->option_quote_due.insert(instrument.packed);
@@ -349,10 +354,32 @@ public:
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
         seed_from_rest(now);
+        tickers_.poll(now, [this] {
+            return state_->depth_rest.send(state_->builder.spot_tickers(),
+                                           [this](net::RestResponse&& response) { on_spot_tickers(response); });
+        });
         report_coverage(now);
     }
 
 private:
+    void on_spot_tickers(const net::RestResponse& response) noexcept {
+        tickers_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickerBuffer>();
+        const auto rows = parse_spot_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, response.received);
+            if (stats.has_value() && tickers_.wanted(stats->instrument)) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
     void report_coverage(UnixNanos now) {
         if (state_->market != MarketType::Option || now.ns < state_->next_coverage_ns) {
             return;
@@ -506,6 +533,7 @@ private:
     std::uint64_t next_seed_ns_{0};
     bool quote_seed_in_flight_{false};
     bool funding_seed_in_flight_{false};
+    exec::TickerPoll tickers_;
     bool started_{false};
 };
 

@@ -78,6 +78,16 @@
       <validValue name="Bitunix">32</validValue>
       <validValue name="Toobit">33</validValue>
       <validValue name="Derive">34</validValue>
+      <validValue name="Arcus">35</validValue>
+      <validValue name="Ostium">36</validValue>
+      <validValue name="Paradex">37</validValue>
+      <validValue name="Vest">38</validValue>
+      <validValue name="Bullish">39</validValue>
+      <validValue name="OndoPerps">40</validValue>
+      <validValue name="PolymarketPerps">41</validValue>
+      <validValue name="Upbit">42</validValue>
+      <validValue name="Bithumb">43</validValue>
+      <validValue name="Bitstamp">44</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

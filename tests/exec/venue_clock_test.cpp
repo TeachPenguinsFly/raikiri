@@ -8,6 +8,8 @@
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
 #include <raikiri/venues/bitget/bitget_venue.hpp>
+#include <raikiri/venues/bithumb/bithumb_venue.hpp>
+#include <raikiri/venues/bitstamp/bitstamp_venue.hpp>
 #include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
@@ -31,6 +33,7 @@
 #include <raikiri/venues/pacifica/pacifica_venue.hpp>
 #include <raikiri/venues/phemex/phemex_venue.hpp>
 #include <raikiri/venues/toobit/toobit_venue.hpp>
+#include <raikiri/venues/upbit/upbit_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
 
@@ -114,6 +117,9 @@ protected:
         venues::toobit::register_adapter();
         venues::weex::register_adapter();
         venues::xt::register_adapter();
+        venues::bitstamp::register_adapter();
+        venues::bithumb::register_adapter();
+        venues::upbit::register_adapter();
     }
 
     NullSink sink;
@@ -250,6 +256,55 @@ TEST_F(VenueClock, EachVenueReadsItsOwnLiveAnswer) {
          1791126507 * k_s,
          k_s,
          false},
+        {VenueId::Grvt, MarketType::Perp, "grvt", "market-data.grvt.io", "/time", 1791299515346 * k_ms, k_ms, false},
+        {VenueId::Hyperliquid,
+         MarketType::Perp,
+         "hyperliquid",
+         "api.hyperliquid.xyz",
+         "/info",
+         1791299515557 * k_ms,
+         k_ms,
+         false},
+        {VenueId::Blofin,
+         MarketType::Perp,
+         "blofin",
+         "openapi.blofin.com",
+         "/api/v1/market/books?instId=BTC-USDT&size=1",
+         1791299516004 * k_ms,
+         k_ms,
+         false},
+        {VenueId::CryptoCom,
+         MarketType::Perp,
+         "cryptocom",
+         "api.crypto.com",
+         "/exchange/v1/public/get-book?instrument_name=BTCUSD-PERP&depth=1",
+         1791299516343 * k_ms,
+         k_ms,
+         false},
+        {VenueId::Upbit,
+         MarketType::Spot,
+         "upbit",
+         "api.upbit.com",
+         "/v1/orderbook?markets=KRW-BTC&count=1",
+         1791306147866 * k_ms,
+         k_ms,
+         false},
+        {VenueId::Bithumb,
+         MarketType::Spot,
+         "bithumb",
+         "api.bithumb.com",
+         "/v1/orderbook?markets=KRW-BTC&count=1",
+         1791306148868 * k_ms,
+         k_ms,
+         false},
+        {VenueId::Bitstamp,
+         MarketType::Perp,
+         "bitstamp",
+         "www.bitstamp.net",
+         "/api/v2/ticker/btcusd/",
+         1791306146 * k_s,
+         k_s,
+         false},
     };
     for (const auto& c : cases) {
         const auto label = std::string{c.fixture};
@@ -273,15 +328,14 @@ TEST_F(VenueClock, DeriveAsksByPost) {
     EXPECT_EQ(adapter->clock->query().body, "{}");
 }
 
+TEST_F(VenueClock, HyperliquidAsksForTheExchangeStatusByPost) {
+    auto adapter = make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    ASSERT_TRUE(adapter.has_value() && adapter->clock.has_value());
+    EXPECT_EQ(adapter->clock->query().body, R"({"type":"exchangeStatus"})");
+}
+
 TEST_F(VenueClock, VenuesWithoutAServerTimeMethodSayNothing) {
-    for (const auto id : {VenueId::Hyperliquid,
-                          VenueId::Grvt,
-                          VenueId::Extended,
-                          VenueId::Pacifica,
-                          VenueId::Blofin,
-                          VenueId::Bitunix,
-                          VenueId::Bitfinex,
-                          VenueId::CryptoCom}) {
+    for (const auto id : {VenueId::Extended, VenueId::Pacifica, VenueId::Bitunix, VenueId::Bitfinex}) {
         const auto market = caps_of(id).markets.perp ? MarketType::Perp : MarketType::Spot;
         auto adapter = make_venue({.venue = id, .market = market}, sink, clock);
         ASSERT_TRUE(adapter.has_value()) << to_string(id);

@@ -280,8 +280,12 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
     if (const auto quote = parse_turnover_e6(wire.turnover_24h); quote.has_value()) {
         out.volume_24h_quote = *quote;
     }
-    // the catalogue has no clock, so the read stamps it
-    out.ts_event = ts_init;
+    // an inverse contract is dollars, which needs a price this row is not read for
+    if (const auto contracts = to_e9(wire.open_interest); contracts.has_value() && !wire.is_inverse) {
+        out.open_interest = turnover_e9(*contracts, base_of(*instrument).contract_value);
+    }
+    // the catalogue has no clock, so the record is unstamped
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }
@@ -306,7 +310,7 @@ map_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& table,
     if (quote.has_value()) {
         out.volume_24h_quote = *quote;
     }
-    out.ts_event = wire.ts_ms == 0 ? ts_init : UnixNanos{wire.ts_ms * 1'000'000ULL};
+    out.ts_event = UnixNanos{wire.ts_ms * 1'000'000ULL};
     out.ts_init = ts_init;
     return out;
 }
@@ -319,6 +323,7 @@ merged(const Instrument& instrument, const FundingMemo& memo, UnixNanos ts_event
     out.rate = memo.rate;
     out.predicted_rate = memo.predicted;
     out.mark_price = memo.mark;
+    out.index_price = memo.index;
     out.next_funding_time = memo.next_funding;
     out.interval_s = memo.interval_s;
     out.ts_event = ts_event;
@@ -369,6 +374,9 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
         return std::nullopt;
     }
     memo.mark = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
+    if (const auto index = parse_number_e9(wire.index_price); index.has_value()) {
+        memo.index = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     return merged(*instrument, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
 }
 

@@ -58,6 +58,15 @@ std::string_view rest_host() noexcept {
     return k_host;
 }
 
+std::string_view volume_host() noexcept {
+    return "api.coinbase.com";
+}
+
+net::RestRequest product_volumes() noexcept {
+    return {
+        .method = net::HttpMethod::Get, .target = "/api/v3/brokerage/market/products?product_type=SPOT", .body = {}};
+}
+
 net::RestRequest RequestBuilder::products() noexcept {
     return {.method = net::HttpMethod::Get, .target = "/products", .body = {}};
 }

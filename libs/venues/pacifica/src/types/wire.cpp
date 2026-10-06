@@ -273,6 +273,8 @@ std::expected<std::span<const WirePrice>, WireError> parse_prices(std::string_vi
                              const auto next = json::opt_str(row, "next_funding");
                              const auto mark = json::opt_str(row, "mark");
                              const auto volume = json::opt_str(row, "volume_24h");
+                             const auto open = json::opt_str(row, "open_interest");
+                             const auto oracle = json::opt_str(row, "oracle");
                              const auto ts = json::opt_u64(row, "timestamp");
                              if (!symbol.has_value() || !funding.has_value() || !next.has_value() ||
                                  !mark.has_value() || !volume.has_value()) {
@@ -282,7 +284,9 @@ std::expected<std::span<const WirePrice>, WireError> parse_prices(std::string_vi
                                               .funding = *funding,
                                               .next_funding = *next,
                                               .mark = *mark,
+                                              .oracle = oracle.value_or(std::string_view{}),
                                               .volume_24h = *volume,
+                                              .open_interest = open.value_or(std::string_view{}),
                                               .ts_ms = ts.value_or(0)};
                          });
     });

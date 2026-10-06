@@ -1455,6 +1455,9 @@ components:
           description: A ratio per interval, not a percent and not an APR.
         predicted_rate: { $ref: "#/components/schemas/Decimal" }
         mark_price: { $ref: "#/components/schemas/Decimal" }
+        index_price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The venue's index for the contract. Absent where the venue publishes none.
         next_funding_time: { $ref: "#/components/schemas/Nanos" }
         interval_seconds:
           type: [integer, "null"]
@@ -1484,6 +1487,10 @@ components:
           description: |
             The same window in the quote currency, which for a coin-margined contract
             is not dollars. Rank cross-venue boards on this column.
+        open_interest:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            Open contracts in the base asset. Absent where the venue does not publish it.
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
     ParentId:

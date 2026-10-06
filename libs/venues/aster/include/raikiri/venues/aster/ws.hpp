@@ -20,7 +20,7 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-[[nodiscard]] std::string_view stream_host(bool testnet) noexcept;
+[[nodiscard]] std::string_view stream_host(bool testnet, MarketType market = MarketType::Perp) noexcept;
 
 // the multiplexed endpoint; frames arrive wrapped
 [[nodiscard]] std::string_view stream_path() noexcept;

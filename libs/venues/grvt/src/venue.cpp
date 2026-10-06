@@ -1,7 +1,9 @@
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/venues/grvt/grvt_venue.hpp>
 
 #include <memory>
+#include <string_view>
 
 #include "clients.hpp"
 
@@ -20,6 +22,10 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Grvt);
+    adapter.clock.emplace(
+        exec::ServerTimeQuery{.host = "market-data.grvt.io", .target = "/time", .parse = [](std::string_view body) {
+                                  return exec::json_number(body, "server_time", 1'000'000);
+                              }});
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);
     adapter.instruments = make_instrument_source(state);

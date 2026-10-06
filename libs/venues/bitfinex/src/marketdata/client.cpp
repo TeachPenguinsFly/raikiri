@@ -104,8 +104,12 @@ void handle_data(VenueState& state,
             bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
-        if (const auto stats = map_ticker_stats(*wire, binding->symbol.view(), state.instruments, ts_event, received);
+        if (auto stats = map_ticker_stats(*wire, binding->symbol.view(), state.instruments, ts_event, received);
             stats.has_value()) {
+            if (const auto oi = state.open_interest.find(std::string{binding->symbol.view()});
+                oi != state.open_interest.end()) {
+                stats->open_interest = oi->second;
+            }
             state.sink->on_ticker_stats(*stats);
         }
         break;
@@ -135,6 +139,9 @@ void handle_data(VenueState& state,
         if (const auto funding = map_funding(*wire, binding->symbol.view(), state.instruments, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
+        }
+        if (const auto oi = map_open_interest(*wire, binding->symbol.view(), state.instruments); oi.has_value()) {
+            state.open_interest[std::string{binding->symbol.view()}] = *oi;
         }
         break;
     }

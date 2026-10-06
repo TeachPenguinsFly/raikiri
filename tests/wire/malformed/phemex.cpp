@@ -63,6 +63,11 @@ TEST(Malformed, Phemex) {
                     (void)parse_event(f);
                     (void)parse_inverse_ticker(f);
                 }},
+               {"rest_spot_ticker_24h_all.json",
+                [](std::string_view f) {
+                    static SpotTickerBuffer storage;
+                    (void)parse_spot_tickers(f, storage);
+                }},
                {"ws_spot_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

@@ -18,6 +18,7 @@ struct WireInstrument {
     std::string_view price_tick_size;
     std::string_view qty_tick_size;
     std::string_view contract_size; // absent on a pair
+    std::string_view underlying;    // underlying_symbol, the index a perpetual marks against
     std::string_view product_type;  // DIGITAL_CURRENCIES, EQUITY, EQUITY_IND, COMMODITIES, ...
     bool tradable{false};
 };

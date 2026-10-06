@@ -28,6 +28,7 @@ inline constexpr std::string_view k_perp_quote = "USDC";
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};
+    PriceTicks index{};
     UnixNanos next_funding{};
 };
 

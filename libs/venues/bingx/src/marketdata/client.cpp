@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -208,6 +209,10 @@ public:
             state_->funding_symbols.emplace_back(symbol);
             return {};
         }
+        if (kind == exec::SubKind::Bbo && state_->market == MarketType::Spot) {
+            // the spot socket states no 24h volume, so the table is polled for every quoted pair
+            ticker_.want(instrument);
+        }
         const auto suffix = data_type_suffix(kind, state_->market);
         if (suffix.empty()) {
             return DataClient::subscribe(kind, instrument);
@@ -226,6 +231,10 @@ public:
         state_->io.poll();
         pool_.poll(now);
         poll_funding(now);
+        ticker_.poll(now, [this] {
+            return rest_.send(builder_.spot_tickers(),
+                              [this](const net::RestResponse& response) { on_spot_tickers(response); });
+        });
         // this is the exec client's only tick
         if (state_->private_poll) {
             state_->private_poll(now);
@@ -300,6 +309,25 @@ private:
         }
     }
 
+    void on_spot_tickers(const net::RestResponse& response) noexcept {
+        ticker_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickerBuffer>();
+        const auto rows = parse_spot_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, MarketType::Spot, received);
+            if (stats.has_value() && ticker_.wanted(stats->instrument)) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
     void on_funding(const net::RestResponse& response) noexcept {
         funding_in_flight_ = false;
         if (response.transport_failed() || response.status != 200) {
@@ -324,6 +352,7 @@ private:
     net::WsPool pool_;
     net::RestClient rest_;
     RequestBuilder builder_;
+    exec::TickerPoll ticker_;
     bool funding_in_flight_{false};
     bool started_{false};
 };

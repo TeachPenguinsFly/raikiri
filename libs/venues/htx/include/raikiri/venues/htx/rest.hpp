@@ -73,6 +73,10 @@ public:
     [[nodiscard]] static net::RestRequest spot_symbols() noexcept;
 
     [[nodiscard]] static net::RestRequest server_time() noexcept;
+
+    [[nodiscard]] static net::RestRequest open_interest() noexcept;
+
+    [[nodiscard]] static net::RestRequest index_prices() noexcept;
 };
 
 class SignedRequestBuilder {

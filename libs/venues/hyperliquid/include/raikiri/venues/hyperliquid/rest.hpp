@@ -39,6 +39,9 @@ public:
 
     // a different index space from meta.universe
     [[nodiscard]] static net::RestRequest spot_meta() noexcept;
+
+    // every spot pair's context in one read
+    [[nodiscard]] static net::RestRequest spot_meta_and_asset_ctxs() noexcept;
 };
 
 // one body buffer; a request is invalid once the next is built

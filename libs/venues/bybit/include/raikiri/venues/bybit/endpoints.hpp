@@ -36,6 +36,7 @@ inline constexpr std::string_view k_wallet_balance = "/v5/account/wallet-balance
 inline constexpr std::string_view k_transaction_log = "/v5/account/transaction-log";
 
 inline constexpr std::string_view k_instruments = "/v5/market/instruments-info";
+inline constexpr std::string_view k_tickers = "/v5/market/tickers";
 // instruments-info answers one coin's options, BTC when none is named, and no call lists the coins
 inline constexpr std::string_view k_option_coins = "BTC,ETH,SOL,XRP,DOGE,MNT,XAUT";
 inline constexpr std::string_view k_server_time = "/v5/market/time";

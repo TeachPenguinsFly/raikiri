@@ -41,8 +41,9 @@ struct WireTicker {
     std::string_view funding_rate;
     std::string_view next_funding_ms;
     // empty on a delta that did not change it; empty is not zero
-    std::string_view volume_24h;   // base units
-    std::string_view turnover_24h; // quote units
+    std::string_view volume_24h;    // base units
+    std::string_view turnover_24h;  // quote units
+    std::string_view open_interest; // base units on linear, usd contracts on inverse
     std::string_view bid1_price;
     std::string_view bid1_size;
     std::string_view ask1_price;
@@ -51,6 +52,16 @@ struct WireTicker {
 };
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
+
+// GET /v5/market/tickers: the websocket row's names, every symbol at once, stamped by the envelope's time
+inline constexpr std::size_t k_max_tickers = 4096;
+
+struct TickerBuffer {
+    std::array<WireTicker, k_max_tickers> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body,
+                                                                                  TickerBuffer& storage);
 
 // an option ticker is a full snapshot every push; vols are fractions, vega per vol point, theta per day
 struct WireOptionTicker {
@@ -74,6 +85,7 @@ struct WireOptionTicker {
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};
+    PriceTicks index{};
     UnixNanos next_funding{};
     std::uint32_t interval_s{0};
 };

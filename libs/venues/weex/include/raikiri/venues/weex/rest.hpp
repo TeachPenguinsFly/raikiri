@@ -25,6 +25,7 @@ enum class BuildError : std::uint8_t {
     NoOrderTarget,     // cancel with neither a venue id nor a client id
     BufferTooSmall,    // the request outgrew its scratch buffer (a config bug)
     NotSigned,         // key, secret or passphrase was never loaded
+    UnsupportedOrder,  // spot takes limit orders only, without post-only or reduce-only
 };
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;
@@ -52,6 +53,10 @@ public:
     [[nodiscard]] net::RestRequest api_trading_symbols() noexcept;
     [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest server_time() noexcept;
+    // spot requests go to the spot host's client
+    [[nodiscard]] net::RestRequest spot_instruments() noexcept;
+    [[nodiscard]] net::RestRequest spot_tickers() noexcept;
+    [[nodiscard]] net::RestRequest spot_api_trading_symbols() noexcept;
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
@@ -73,6 +78,24 @@ public:
     // a POST with a body
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     funding_charges(MarketType market, UnixNanos since, UnixNanos now);
+
+    // limit only: weex spot states GTC, IOC and FOK and no post-only, and a market buy's quantity is unstated
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    spot_create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
+
+    // by our client id, falling back to the venue's id
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    spot_cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
+
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> spot_query_order(std::string_view client_order_id,
+                                                                               UnixNanos now);
+
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> spot_open_orders(UnixNanos now);
+
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    spot_fills(std::string_view symbol, UnixNanos since, UnixNanos now);
+
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> spot_account(UnixNanos now);
 
     // exposed for tests: the exact bytes that went into the hmac
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

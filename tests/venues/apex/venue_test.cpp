@@ -259,6 +259,8 @@ TEST(ApexFunding, TheSnapshotStatesRateMarkAndNextHour) {
     EXPECT_EQ(funding->rate, e9("0.00000448"));
     EXPECT_TRUE(funding->predicted_rate.is_undef());
     EXPECT_EQ(funding->mark_price, PriceTicks::from_raw(842749)); // 84274.95 onto a 0.1 grid
+    EXPECT_EQ(funding->index_price, PriceTicks::from_raw(843161));
+    EXPECT_EQ(funding->accrual, FundingAccrual::Discrete);
     EXPECT_EQ(funding->next_funding_time, UnixNanos{1'790'316'000ULL * 1'000'000'000ULL});
     EXPECT_EQ(funding->interval_s, 3600U);
     EXPECT_EQ(funding->ts_event, UnixNanos{1'790'314'829'372'790'000ULL});
@@ -267,6 +269,7 @@ TEST(ApexFunding, TheSnapshotStatesRateMarkAndNextHour) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("3764.689"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("316688835.9246"));
+    EXPECT_EQ(stats->open_interest, e9("1564.866"));
 }
 
 TEST(ApexFunding, APartialDeltaKeepsWhatWasSaidBefore) {

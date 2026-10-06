@@ -221,6 +221,7 @@ TEST(BybitTicker, SnapshotPopulatesEverything) {
     EXPECT_EQ(ticker->ask1_size, "83.020");
     EXPECT_EQ(ticker->volume_24h, "91705.276");
     EXPECT_EQ(ticker->turnover_24h, "1570383121.943499");
+    EXPECT_EQ(ticker->open_interest, "68744.761");
 }
 
 TEST(BybitTicker, DeltaLeavesAbsentFieldsEmptyRatherThanZero) {

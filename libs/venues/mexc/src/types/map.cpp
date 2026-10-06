@@ -284,6 +284,10 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (const auto mark = to_ticks(wire.fair_price, *base); mark.has_value()) {
         out.mark_price = *mark;
     }
+    // an index is off the tick grid, so it is floored onto it
+    if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base->tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base->tick_size.raw);
+    }
     out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
@@ -323,6 +327,27 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
+namespace {
+
+// contracts into coins; an inverse contract is dollars, so the frame's last price converts it
+FixedE9 open_interest_of(const WireTicker& wire, const InstrumentBase& base) {
+    const auto contracts = to_amount(wire.open_interest);
+    if (wire.open_interest.empty() || !contracts.has_value() || base.contract_value.is_undef()) {
+        return FixedE9::undef();
+    }
+    const auto units = turnover_e9(*contracts, base.contract_value);
+    if (base.kind != ContractKind::Inverse || units.is_undef()) {
+        return units;
+    }
+    const auto last = to_amount(wire.last_price);
+    if (!last.has_value() || last->raw <= 0) {
+        return FixedE9::undef();
+    }
+    return FixedE9::from_raw(mul_div(units.raw, k_e9, last->raw));
+}
+
+} // namespace
+
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     // absent turnover leaves the previous figure in place
@@ -348,7 +373,8 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
             return std::nullopt;
         }
         out.volume_24h_quote = turnover_e6(*contracts, base->contract_value);
-        out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+        out.open_interest = open_interest_of(wire, *base);
+        out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
         out.ts_init = ts_init;
         return out;
     }
@@ -360,7 +386,8 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
         }
     }
     out.volume_24h_quote = *quote;
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.open_interest = open_interest_of(wire, *base);
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

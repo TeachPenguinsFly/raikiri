@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -34,8 +35,14 @@ map_instrument(const WireMarket& wire, MarketType market, const WireFunding* fun
 
 [[nodiscard]] std::optional<PriceTicks> map_mark(const WireMark& wire, const InstrumentBase& base) noexcept;
 
+// off-grid venue prices are truncated onto the tick
+[[nodiscard]] std::optional<PriceTicks> map_index_price(std::string_view price, const InstrumentBase& base) noexcept;
+
+// BTC-SWAP-USDT is indexed as BTCUSDT
+[[nodiscard]] std::string index_key(std::string_view contract);
+
 [[nodiscard]] std::optional<FundingUpdate>
-map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, UnixNanos ts_init);
+map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, PriceTicks index, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TickerStats>
 map_ticker(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init);

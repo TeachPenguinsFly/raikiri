@@ -131,6 +131,10 @@ void note_market(const WireMarket& wire, const InstrumentBase& base, FundingMemo
             memo.mark = *mark;
         }
     }
+    // only this poll states the index, so it always replaces
+    if (const auto index = mark_ticks(wire.index_price, base); index.has_value()) {
+        memo.index = *index;
+    }
     if (wire.next_funding_ms != 0) {
         memo.next_funding = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     }
@@ -141,6 +145,7 @@ FundingUpdate merged(const InstrumentBase& base, const FundingMemo& memo, UnixNa
     out.instrument = base.id;
     out.rate = memo.rate;
     out.mark_price = memo.mark;
+    out.index_price = memo.index;
     if (memo.next_funding > ts_event) {
         out.next_funding_time = memo.next_funding;
     }
@@ -164,7 +169,10 @@ std::optional<TickerStats> map_ticker_stats(const WireMarket& wire, const Instru
     if (quote_volume.has_value()) {
         out.volume_24h_quote = *quote_volume;
     }
-    out.ts_event = ts_init;
+    if (const auto open = parse_amount_e9(wire.open_interest_base); open.has_value()) {
+        out.open_interest = *open;
+    }
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

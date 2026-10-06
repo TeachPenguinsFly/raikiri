@@ -1,3 +1,4 @@
+#include <raikiri/venues/weex/envelope.hpp>
 #include <raikiri/venues/weex/market_data.hpp>
 #include <raikiri/wire/json.hpp>
 
@@ -175,6 +176,7 @@ std::expected<std::span<const WirePremium>, WireError> parse_premium_index(std::
             }
             row.symbol = *symbol;
             for (const auto& [key, field] : {std::pair{"markPrice", &row.mark_price},
+                                             std::pair{"indexPrice", &row.index_price},
                                              std::pair{"lastFundingRate", &row.funding_rate},
                                              std::pair{"forecastFundingRate", &row.forecast_rate}}) {
                 item.reset();
@@ -200,6 +202,65 @@ std::expected<std::span<const WirePremium>, WireError> parse_premium_index(std::
             ++count;
         }
         return std::span<const WirePremium>{storage.rows.data(), count};
+    });
+}
+
+std::expected<std::span<const WireTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                         SpotTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
+        return read_array<WireTicker>(
+            body, storage.rows, [](wire::ondemand::object& item, WireTicker& row) -> std::expected<void, WireError> {
+                for (const auto& [key, field] : {std::pair{"symbol", &row.symbol},
+                                                 std::pair{"volume", &row.volume},
+                                                 std::pair{"quoteVolume", &row.quote_volume}}) {
+                    item.reset();
+                    const auto value = wire::opt_str(item, key);
+                    if (!value.has_value()) {
+                        return std::unexpected(value.error());
+                    }
+                    *field = *value;
+                }
+                if (row.symbol.empty()) {
+                    return std::unexpected(WireError::MissingField);
+                }
+                item.reset();
+                const auto close_ms = wire::opt_u64(item, "closeTime");
+                if (!close_ms.has_value()) {
+                    return std::unexpected(close_ms.error());
+                }
+                row.close_ms = *close_ms;
+                return {};
+            });
+    });
+}
+
+std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireBookTicker, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto obj = *root;
+        WireBookTicker out{};
+        for (const auto& [key, field] : {std::pair{"s", &out.symbol},
+                                         std::pair{"b", &out.bid},
+                                         std::pair{"B", &out.bid_qty},
+                                         std::pair{"a", &out.ask},
+                                         std::pair{"A", &out.ask_qty}}) {
+            obj.reset();
+            const auto value = wire::req_str(obj, key);
+            if (!value.has_value()) {
+                return std::unexpected(value.error());
+            }
+            *field = *value;
+        }
+        obj.reset();
+        const auto event_ms = wire::opt_u64(obj, "E");
+        if (!event_ms.has_value()) {
+            return std::unexpected(event_ms.error());
+        }
+        out.event_ms = *event_ms;
+        return out;
     });
 }
 

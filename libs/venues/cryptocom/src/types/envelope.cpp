@@ -23,6 +23,9 @@ EventKind kind_of(std::string_view channel) noexcept {
     if (channel == "mark") {
         return EventKind::Mark;
     }
+    if (channel == "index") {
+        return EventKind::Index;
+    }
     if (channel == "funding") {
         return EventKind::Funding;
     }

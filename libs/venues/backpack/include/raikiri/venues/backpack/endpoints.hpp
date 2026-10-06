@@ -25,6 +25,7 @@ inline constexpr std::string_view k_ws_path = "/";
 inline constexpr std::string_view k_markets = "/api/v1/markets";
 inline constexpr std::string_view k_depth = "/api/v1/depth";
 inline constexpr std::string_view k_tickers = "/api/v1/tickers";
+inline constexpr std::string_view k_open_interest = "/api/v1/openInterest";
 
 inline constexpr std::uint32_t k_requests_per_minute = 2000;
 

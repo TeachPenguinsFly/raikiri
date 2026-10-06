@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace raikiri::venues::cryptocom::internal {
 
@@ -37,6 +38,9 @@ struct VenueState {
     std::unordered_set<std::uint64_t> wants_depth;
 
     std::unordered_map<std::uint64_t, FundingMemo> funding;
+    // a perpetual's index name from the catalogue, and the perpetuals each subscribed index feeds
+    std::unordered_map<std::uint64_t, std::string> index_of;
+    std::unordered_map<std::string, std::vector<InstrumentId>> index_perps;
 
     std::unordered_set<std::string> desired;
 

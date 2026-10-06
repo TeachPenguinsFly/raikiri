@@ -64,6 +64,11 @@ TEST(Malformed, Bingx) {
                 }},
 
                {"ws_listen_key_expired.json", [](std::string_view f) { (void)parse_private_event(f); }},
+               {"rest_spot_ticker_24h.json",
+                [](std::string_view f) {
+                    static SpotTickerBuffer storage;
+                    (void)parse_spot_tickers(f, storage);
+                }},
                {"ws_spot_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

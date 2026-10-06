@@ -66,6 +66,13 @@ public:
         if (contract == state_->contract_of.end()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
+        if (kind == exec::SubKind::Bbo && instrument.market() == MarketType::Spot) {
+            // spot volume rides ticker.all, which a spot account opens with no funding subscription
+            ticker_wanted_.insert(instrument.packed);
+            if (const auto placed = place(std::string{k_ticker_all}); !placed.has_value()) {
+                return placed;
+            }
+        }
         std::string channel;
         switch (kind) {
         case exec::SubKind::Funding:
@@ -88,16 +95,7 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (!state_->channels.insert(channel).second) {
-            return {};
-        }
-        const std::array<std::string, 1> one{channel};
-        if (!pool_.subscribe(one)) {
-            state_->channels.erase(channel);
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "edgex: every socket the pool may open is full")};
-        }
-        return {};
+        return place(channel);
     }
 
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
@@ -260,6 +258,19 @@ private:
         }
     }
 
+    std::expected<void, exec::VenueError> place(const std::string& channel) {
+        if (!state_->channels.insert(channel).second) {
+            return {};
+        }
+        const std::array<std::string, 1> one{channel};
+        if (!pool_.subscribe(one)) {
+            state_->channels.erase(channel);
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "edgex: every socket the pool may open is full")};
+        }
+        return {};
+    }
+
     void on_tickers(std::string_view frame, UnixNanos received) noexcept {
         static thread_local const auto storage = std::make_unique<TickerBuffer>();
         const auto rows = parse_tickers(frame, *storage);
@@ -272,10 +283,12 @@ private:
                 continue;
             }
             const auto& base = base_of(*instrument);
-            if (!state_->funding_wanted.contains(base.id.packed)) {
+            const bool funding_wanted = state_->funding_wanted.contains(base.id.packed);
+            if (!funding_wanted && !ticker_wanted_.contains(base.id.packed)) {
                 continue;
             }
-            if (const auto funding = map_funding(row, *instrument, received); funding.has_value()) {
+            if (const auto funding = funding_wanted ? map_funding(row, *instrument, received) : std::nullopt;
+                funding.has_value()) {
                 state_->sink->on_funding(*funding);
                 state_->funded.insert(row.contract_id);
             }
@@ -331,6 +344,7 @@ private:
     std::shared_ptr<VenueState> state_;
     Handler handler_;
     net::WsPool pool_;
+    std::unordered_set<std::uint64_t> ticker_wanted_;
     bool started_{false};
 };
 

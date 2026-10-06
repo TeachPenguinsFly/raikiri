@@ -81,6 +81,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         out.instrument = *instrument;
         out.mark_price = *mark;
+        out.open_interest = opt_num(*data, "open_interest").value_or(std::string_view{});
         // 0.0 on a perpetual is a real rate
         const auto current = opt_num(*data, "current_funding");
         const auto eight_hour = opt_num(*data, "funding_8h");

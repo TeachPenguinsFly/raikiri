@@ -39,6 +39,8 @@ struct VenueState {
     std::unordered_set<std::string> channels;
 
     std::unordered_set<std::uint64_t> funding_wanted;
+    // spot pairs quoted at all get the 24h figures of the one spot stats channel
+    std::unordered_set<std::uint64_t> ticker_wanted;
     // A BBO-only subscriber holds a book too, and must not have its ladder published.
     std::unordered_set<std::uint64_t> depth_wanted;
 

@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace raikiri::venues::okx {
 
@@ -36,6 +37,10 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
 // on derivatives volCcy24h is base and no quote is stated; vol24h counts contracts and is not read
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// the coin figure, truncated past nine decimals
+[[nodiscard]] std::optional<std::pair<InstrumentId, FixedE9>> map_open_interest(const WireOpenInterest& wire,
+                                                                                const exec::InstrumentTable& table);
 
 // the BS greeks, which are usd figures on both families; a zero bid or ask vol means no quote
 [[nodiscard]] std::optional<OptionGreeks> map_option_greeks(const WireOptSummary& wire,

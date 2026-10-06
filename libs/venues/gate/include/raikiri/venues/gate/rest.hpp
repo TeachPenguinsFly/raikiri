@@ -26,6 +26,8 @@ class RequestBuilder {
 public:
     [[nodiscard]] net::RestRequest contracts(std::string_view settle) noexcept;
     [[nodiscard]] net::RestRequest tickers(std::string_view settle) noexcept;
+    // GET /spot/tickers, every pair at once
+    [[nodiscard]] net::RestRequest spot_tickers() noexcept;
 
     // GET /spot/currency_pairs
     [[nodiscard]] net::RestRequest currency_pairs() noexcept;

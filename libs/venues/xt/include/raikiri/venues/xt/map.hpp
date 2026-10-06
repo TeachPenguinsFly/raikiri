@@ -43,6 +43,10 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Fun
 [[nodiscard]] std::optional<FundingUpdate>
 map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
 
+// index_price frames parse as mark_price; the index is off the grid, so it is truncated to it
+[[nodiscard]] std::optional<FundingUpdate>
+map_index_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
+
 // futures fills only the quote column; its quantity is a contract count
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);

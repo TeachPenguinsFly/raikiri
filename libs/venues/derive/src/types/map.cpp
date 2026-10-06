@@ -183,6 +183,9 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire, const Instrumen
     if (const auto mark = steps_of(wire.mark, base.tick_size); mark.has_value()) {
         out.mark_price = PriceTicks::from_raw(*mark);
     }
+    if (const auto index = steps_of(wire.index, base.tick_size); index.has_value()) {
+        out.index_price = PriceTicks::from_raw(*index);
+    }
     out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
@@ -203,7 +206,7 @@ std::optional<OptionGreeks> map_greeks(const WireTicker& wire, const InstrumentB
                                      .underlying_price = figure(wire.forward),
                                      .mark_price = figure(wire.mark),
                                      .index_price = figure(wire.index)};
-    return options::normalise(base.id, venue, k_convention, ms_to_unix(wire.ts_ms, ts_init), ts_init);
+    return options::normalise(base.id, venue, k_convention, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
 }
 
 std::optional<TickerStats>
@@ -216,7 +219,10 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, MarketType 
     out.instrument = base.id;
     out.volume_24h_base = parse_amount_e9(wire.contracts_24h).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = parse_turnover_e6(quote).value_or(FixedE6::from_raw(0));
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    if (const auto open = parse_amount_e9(wire.open_interest); open.has_value()) {
+        out.open_interest = *open;
+    }
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

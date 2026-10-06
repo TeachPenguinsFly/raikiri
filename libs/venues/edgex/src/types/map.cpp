@@ -104,6 +104,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire, const Instrumen
     // the forecast rate is what accrues now; predictedFundingRate is a constant interest leg
     out.rate = *rate;
     out.mark_price = mark_ticks(wire.mark_price, perp->base.tick_size);
+    out.index_price = mark_ticks(wire.index_price, perp->base.tick_size);
     out.next_funding_time = from_ms(wire.next_funding_ms, UnixNanos{0});
     out.interval_s = perp->funding_interval_s;
     out.ts_event = UnixNanos{};
@@ -125,7 +126,11 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire, const Instru
     if (turnover.has_value()) {
         out.volume_24h_quote = *turnover;
     }
-    out.ts_event = ts_init;
+    if (const auto open = wire.open_interest.empty() ? std::nullopt : parse_amount_e9(wire.open_interest);
+        open.has_value()) {
+        out.open_interest = *open;
+    }
+    out.ts_event = UnixNanos{};
     out.ts_init = ts_init;
     return out;
 }

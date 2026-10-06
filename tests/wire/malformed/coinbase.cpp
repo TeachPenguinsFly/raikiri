@@ -16,6 +16,11 @@ using wire::malformed::hammer;
 TEST(Malformed, Coinbase) {
     hammer("coinbase",
            {
+               {"rest_market_products.json",
+                [](std::string_view f) {
+                    static ProductVolumeBuffer storage;
+                    (void)parse_product_volumes(f, storage);
+                }},
                {"ws_ticker.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

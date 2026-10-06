@@ -26,6 +26,7 @@ struct Market {
     bool wants_ticker{false};
     std::uint64_t last_trade_id{0};
     PriceTicks mark{};
+    PriceTicks index{};
     std::optional<FundingUpdate> funding;
     DepthBook book;
 };

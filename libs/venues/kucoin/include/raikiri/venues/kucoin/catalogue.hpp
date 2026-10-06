@@ -26,8 +26,9 @@ struct WireContract {
     std::string_view index_tick_size;
     std::string_view max_order_qty;
     // kucoin states 24h turnover only on the catalogue row
-    std::string_view volume_24h;   // volumeOf24h, base asset
-    std::string_view turnover_24h; // turnoverOf24h, quote currency
+    std::string_view volume_24h;    // volumeOf24h, base asset
+    std::string_view turnover_24h;  // turnoverOf24h, quote currency
+    std::string_view open_interest; // openInterest, in contracts
     std::uint64_t funding_granularity_ms{0};
     // the only funding source on the uta feed; empty when the contract states none
     std::string_view funding_fee_rate;           // fundingFeeRate

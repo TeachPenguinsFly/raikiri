@@ -74,6 +74,9 @@ WireOrderStatus order_status_from(std::string_view text) noexcept {
     if (text == "NEW") {
         return WireOrderStatus::New;
     }
+    if (text == "PARTIALLY_FILLED") {
+        return WireOrderStatus::New;
+    }
     if (text == "PENDING") {
         return WireOrderStatus::Pending;
     }
@@ -93,6 +96,21 @@ WireOrderStatus order_status_from(std::string_view text) noexcept {
         return WireOrderStatus::Canceling;
     }
     return WireOrderStatus::Unknown;
+}
+
+std::expected<WireOrder, WireError> parse_order(std::string_view body) {
+    return guarded([&]() -> std::expected<WireOrder, WireError> {
+        auto root = wire::session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected{root.error()};
+        }
+        auto obj = *root;
+        WireOrder out{};
+        if (auto ok = read_order(obj, out); !ok.has_value()) {
+            return std::unexpected{ok.error()};
+        }
+        return out;
+    });
 }
 
 std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {

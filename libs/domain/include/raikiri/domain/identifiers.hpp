@@ -46,9 +46,19 @@ enum class VenueId : std::uint8_t {
     Bitunix,
     Toobit,
     Derive,
+    Arcus = 35,
+    Ostium = 36,
+    Paradex = 37,
+    Vest = 38,
+    Bullish = 39,
+    OndoPerps = 40,
+    PolymarketPerps = 41,
+    Upbit = 42,
+    Bithumb = 43,
+    Bitstamp = 44,
 };
 
-inline constexpr std::size_t k_venue_count = 35; // including Invalid and the retired
+inline constexpr std::size_t k_venue_count = 45; // including Invalid and the retired
 
 [[nodiscard]] constexpr bool is_retired(VenueId venue) noexcept {
     return venue == VenueId::RetiredBitmex;

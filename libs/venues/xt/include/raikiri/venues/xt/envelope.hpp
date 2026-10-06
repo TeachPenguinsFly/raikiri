@@ -16,9 +16,10 @@ enum class EventKind : std::uint8_t {
     DepthUpdate, // incremental deltas
     Trade,
     MarkPrice,
-    Ticker, // rolling 24-hour window
-    Ack,    // {"code":0,...}, accepted subscription
-    Error,  // {"code":1,...}, refused subscription
+    IndexPrice, // shaped as mark_price
+    Ticker,     // rolling 24-hour window
+    Ack,        // {"code":0,...}, accepted subscription
+    Error,      // {"code":1,...}, refused subscription
     Unknown,
 };
 

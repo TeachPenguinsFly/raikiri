@@ -145,6 +145,7 @@ TEST(BinanceMap, MarkPriceBecomesFunding) {
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'377'600'000ULL * 1'000'000ULL);
     EXPECT_EQ(funding->interval_s, 28'800U);
     EXPECT_GT(funding->mark_price.raw, 0);
+    EXPECT_EQ(funding->index_price.raw, 644'842) << "floored onto the tick";
 }
 
 TEST(BinanceMap, MarkPriceOffTheTickStillMaps) {

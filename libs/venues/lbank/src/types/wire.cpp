@@ -290,6 +290,8 @@ std::expected<std::span<const WireOverview>, WireError> parse_overview(std::stri
                                             into = &out.instrument;
                                         } else if (key == "MarkedPrice") {
                                             into = &out.mark;
+                                        } else if (key == "UnderlyingPrice") {
+                                            into = &out.index;
                                         } else if (key == "PositionFeeRate") {
                                             into = &out.fee_rate;
                                         } else if (key == "Volume24") {
@@ -348,6 +350,38 @@ std::expected<std::span<const std::string_view>, WireError> parse_spot_ticker_sy
                            "data",
                            [](wire::ondemand::object& row) -> std::expected<std::string_view, WireError> {
                                return req_text(row, "symbol");
+                           });
+}
+
+std::expected<std::span<const WireSpotTick>, WireError> parse_spot_tickers(std::string_view body,
+                                                                           SpotTickBuffer& storage) {
+    return parse_data_rows(body,
+                           std::span<WireSpotTick>{storage.rows},
+                           "data",
+                           [](wire::ondemand::object& row) -> std::expected<WireSpotTick, WireError> {
+                               WireSpotTick out{};
+                               const auto pair = req_text(row, "symbol");
+                               if (!pair.has_value()) {
+                                   return std::unexpected(pair.error());
+                               }
+                               out.pair = *pair;
+                               auto tick = wire::req_object(row, "ticker");
+                               if (!tick.has_value()) {
+                                   return std::unexpected(tick.error());
+                               }
+                               const auto volume = req_text(*tick, "vol");
+                               const auto turnover = req_text(*tick, "turnover");
+                               if (!volume || !turnover) {
+                                   return std::unexpected(WireError::MissingField);
+                               }
+                               out.volume = *volume;
+                               out.turnover = *turnover;
+                               const auto ts = wire::opt_u64(row, "timestamp");
+                               if (!ts.has_value()) {
+                                   return std::unexpected(ts.error());
+                               }
+                               out.ts_ms = *ts;
+                               return out;
                            });
 }
 

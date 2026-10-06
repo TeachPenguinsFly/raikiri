@@ -163,4 +163,8 @@ enum class ParseError : std::uint8_t {
 
 [[nodiscard]] std::optional<FixedE6> parse_turnover_e6(std::string_view text) noexcept;
 
+// how many `step`s the decimal holds, exponent notation and values past the e9 range included;
+// `exact` refuses a remainder, otherwise the remainder is dropped
+[[nodiscard]] std::optional<std::int64_t> parse_steps(std::string_view text, FixedE9 step, bool exact = true) noexcept;
+
 } // namespace raikiri

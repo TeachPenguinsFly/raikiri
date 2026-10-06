@@ -40,9 +40,11 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Weex);
+    // both hosts answer {"serverTime":<ms>}
+    const bool spot = config.market == MarketType::Spot;
     adapter.clock.emplace(
-        exec::ServerTimeQuery{.host = "api-contract.weex.com",
-                              .target = "/capi/v3/market/time",
+        exec::ServerTimeQuery{.host = std::string{spot ? ep::k_spot_rest_host : ep::k_rest_host},
+                              .target = std::string{spot ? ep::k_spot_server_time : ep::k_server_time},
                               .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
         std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state);

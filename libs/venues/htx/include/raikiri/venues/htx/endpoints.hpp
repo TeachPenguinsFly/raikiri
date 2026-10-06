@@ -38,6 +38,9 @@ inline constexpr std::string_view k_spot_order_by_client_id = "/v1/order/orders/
 inline constexpr std::string_view k_spot_accounts = "/v1/account/accounts";
 
 inline constexpr std::string_view k_swap_contract_info = "/linear-swap-api/v1/swap_contract_info";
+// every perpetual in one call when no contract_code is named
+inline constexpr std::string_view k_swap_index = "/linear-swap-api/v1/swap_index";
+inline constexpr std::string_view k_swap_open_interest = "/linear-swap-api/v1/swap_open_interest?business_type=swap";
 inline constexpr std::string_view k_spot_symbols = "/v1/common/symbols";
 inline constexpr std::string_view k_server_time = "/api/v1/timestamp";
 

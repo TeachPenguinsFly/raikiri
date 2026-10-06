@@ -49,4 +49,17 @@ struct TickerBuffer {
 [[nodiscard]] std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body,
                                                                                   TickerBuffer& storage);
 
+// every perpetual in one answer, in the base asset
+struct WireOpenInterest {
+    std::string_view symbol{};
+    std::string_view open_interest{};
+};
+
+struct OpenInterestBuffer {
+    std::array<WireOpenInterest, k_max_tickers> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOpenInterest>, WireError>
+parse_open_interest(std::string_view body, OpenInterestBuffer& storage);
+
 } // namespace raikiri::venues::backpack

@@ -35,6 +35,8 @@ struct TradeBuffer {
 struct WireTicker {
     std::string_view instrument;
     std::string_view mark_price;
+    // usd on inverse perpetuals and futures, the base coin on linear contracts and options
+    std::string_view open_interest;
     std::string_view current_funding; // empty on anything but a perpetual
     std::string_view funding_8h;      // empty on anything but a perpetual
     // options only; implied vols arrive as percents

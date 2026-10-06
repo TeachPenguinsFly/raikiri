@@ -235,6 +235,10 @@ net::RestRequest RequestBuilder::spot_symbols() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
+net::RestRequest RequestBuilder::spot_tickers() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_tickers, .body = {}};
+}
+
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }

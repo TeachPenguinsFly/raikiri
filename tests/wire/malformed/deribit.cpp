@@ -69,7 +69,7 @@ TEST(Malformed, Deribit) {
                     (void)parse_event(f);
                     (void)parse_user_changes(f, orders, trades);
                 }},
-               {"rest_get_instruments.json",
+               {"rest_get_instruments*",
                 [](std::string_view f) {
                     static InstrumentBuffer instruments;
                     (void)parse_instruments(f, instruments);

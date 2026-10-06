@@ -165,6 +165,15 @@ std::optional<FixedE9> to_amount_e9(std::string_view text) noexcept {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
+// an index is not a traded price and need not sit on the grid, so it is truncated to it
+std::optional<PriceTicks> index_ticks(std::string_view text, const InstrumentBase& base) noexcept {
+    const auto value = to_amount_e9(text);
+    if (!value.has_value() || base.tick_size.raw <= 0) {
+        return std::nullopt;
+    }
+    return PriceTicks::from_raw(value->raw / base.tick_size.raw);
+}
+
 // both amounts are signed; the sign never reaches QtyLots
 struct SignedToken {
     std::string_view magnitude;
@@ -283,11 +292,22 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = *volume;
-    // the channel states no quote volume
-    out.volume_24h_quote = FixedE6::from_raw(0);
-    out.ts_event = ts_event.ns == 0 ? ts_init : ts_event;
+    // the channel states no quote column, so the base volume is priced at the last print
+    out.volume_24h_quote = turnover_e6(*volume, to_amount_e9(wire.last_price).value_or(FixedE9::undef()));
+    out.ts_event = ts_event;
     out.ts_init = ts_init;
     return out;
+}
+
+std::optional<FixedE9>
+map_open_interest(const WireDerivStatus& wire, std::string_view symbol, const exec::InstrumentTable& table) {
+    const auto contracts = to_amount_e9(wire.open_interest);
+    const auto* instrument = table.find(symbol);
+    if (!contracts.has_value() || instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto base = turnover_e9(*contracts, base_of(*instrument).contract_value);
+    return base.is_undef() ? std::nullopt : std::optional<FixedE9>{base};
 }
 
 std::optional<TradeTick>
@@ -336,6 +356,10 @@ std::optional<FundingUpdate> map_funding(const WireDerivStatus& wire,
     }
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
+    }
+    // the underlying's spot price is what bitfinex marks against
+    if (const auto index = index_ticks(wire.spot_price, base); index.has_value()) {
+        out.index_price = *index;
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     out.interval_s = k_funding_interval_s;

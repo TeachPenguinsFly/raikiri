@@ -284,6 +284,7 @@ TEST(LbankPerpOverview, CarriesFundingMarkAndTurnover) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate, e9("0.00003735"));
     EXPECT_EQ(funding->mark_price.raw, 848'426);
+    EXPECT_EQ(funding->index_price.raw, 848'732);
     EXPECT_EQ(funding->interval_s, 28'800U);
     EXPECT_EQ(funding->accrual, FundingAccrual::Discrete);
     EXPECT_EQ(funding->ts_event.ns, 1'790'964'432'000'000'000ULL);
@@ -374,6 +375,21 @@ TEST(LbankSpotTicker, ReadsAnExponentTurnover) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote, parse_turnover_e6("579529929.41").value());
     EXPECT_EQ(stats->volume_24h_base, e9("6757.9074"));
+}
+
+TEST(LbankSpotTicker, TheTableGivesEveryPairsVolumeInOneCall) {
+    const auto btc = spot_base("btc_usdt");
+    static SpotTickBuffer storage;
+    const auto rows = parse_spot_tickers(fixture("rest_ticker_24hr.json"), storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    EXPECT_EQ((*rows)[1].pair, "btc_usdt");
+    const auto stats = map_spot_stats((*rows)[1], btc, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_quote, parse_turnover_e6("579545523.52").value());
+    EXPECT_EQ(stats->volume_24h_base, e9("6758.1115"));
+    EXPECT_EQ(stats->ts_event.ns, 1'790'964'172'175'000'000ULL);
+    EXPECT_TRUE(stats->open_interest.is_undef());
 }
 
 TEST(LbankEndpoints, NamesTheDocumentedHosts) {

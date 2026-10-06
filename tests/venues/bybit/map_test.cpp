@@ -228,6 +228,7 @@ TEST(BybitMapFunding, SnapshotPublishesAndEmptyDeltaDoesNot) {
     wire.funding_rate = "-0.000212";
     wire.next_funding_ms = "1673280000000";
     wire.mark_price = "17217.30";
+    wire.index_price = "17227.36";
     wire.ts_ms = 1'673'272'861'686ULL;
 
     FundingMemo memo{};
@@ -235,6 +236,8 @@ TEST(BybitMapFunding, SnapshotPublishesAndEmptyDeltaDoesNot) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, -212'000); // -0.000212 * 1e9
     EXPECT_EQ(funding->mark_price.raw, 172'173);
+    EXPECT_EQ(funding->index_price.raw, 172'273) << "floored onto the 0.10 tick";
+    EXPECT_TRUE(funding->predicted_rate.is_undef()) << "bybit publishes no forecast";
     EXPECT_EQ(funding->next_funding_time.ns, 1'673'280'000'000'000'000ULL);
     EXPECT_EQ(funding->interval_s, 28'800U);
 
@@ -313,6 +316,12 @@ TEST(BybitMapTickerStats, TurnoverPublishesAndAnAbsentColumnDoesNot) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 91'705'276'000'000LL);
     EXPECT_EQ(stats->volume_24h_quote.raw, 1'570'383'121'943'499LL);
+    EXPECT_TRUE(stats->open_interest.is_undef()) << "a frame that does not state it leaves it unknown";
+
+    wire.open_interest = "68744.761";
+    const auto with_oi = map_ticker_stats(wire, table, k_ingest);
+    ASSERT_TRUE(with_oi.has_value());
+    EXPECT_EQ(with_oi->open_interest.raw, 68'744'761'000'000LL) << "linear open interest is already base";
 
     // a delta restating neither column publishes nothing
     WireTicker delta{};

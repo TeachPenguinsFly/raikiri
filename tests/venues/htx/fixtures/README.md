@@ -53,6 +53,8 @@ Subscribe with `{"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"c1"}`.
 | file | request |
 | --- | --- |
 | `rest_contracts.json` | `GET /linear-swap-api/v1/swap_contract_info`, trimmed to whole rows for `BTC-USDT`, `ETH-USDT`, `SHIB-USDT`, `PEPE-USDT` and `CYBER-USDT` |
+| `rest_swap_index.json` | `GET /linear-swap-api/v1/swap_index` on 2026-10-06, trimmed from 391 rows to `BTC-USDT`, `ETH-USDT`, `BOME-USDT` and one other |
+| `rest_swap_open_interest.json` | `GET /linear-swap-api/v1/swap_open_interest?business_type=swap` on 2026-10-06, trimmed from 391 rows to `BTC-USDT`, `ETH-USDT`, `SOL-USDT` and one other |
 | `rest_server_time.json` | `GET /api/v1/timestamp` |
 | `rest_error_bad_contract.json` | `GET /linear-swap-api/v1/swap_contract_info?contract_code=NOSUCH-USDT` |
 | `rest_error_invalid_parameter.json` | `GET /linear-swap-ex/market/depth?contract_code=BTC-USDT&type=stepXX` |

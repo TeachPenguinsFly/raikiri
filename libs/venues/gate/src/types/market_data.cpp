@@ -184,10 +184,46 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             // optional: an untraded contract omits volume, and its funding must survive
             out.volume_24h_base = opt_num(obj, "volume_24h_base").value_or(std::string_view{});
             out.volume_24h_quote = opt_num(obj, "volume_24h_quote").value_or(std::string_view{});
+            out.open_interest = opt_num(obj, "total_size").value_or(std::string_view{});
             out.ts_ms = *ts;
             return out;
         }
         return std::unexpected(WireError::MissingField);
+    });
+}
+
+std::expected<std::span<const WireTicker>, WireError> parse_spot_tickers(std::string_view body,
+                                                                         SpotTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
+        auto root = session().open_array(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *root) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto pair = wire::req_str(obj, "currency_pair");
+            if (!pair.has_value()) {
+                return std::unexpected(pair.error());
+            }
+            WireTicker out{};
+            out.contract = *pair;
+            const auto base = wire::opt_str(obj, "base_volume");
+            const auto quote = wire::opt_str(obj, "quote_volume");
+            if (!base.has_value() || !quote.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.volume_24h_base = *base;
+            out.volume_24h_quote = *quote;
+            storage.rows[count++] = out;
+        }
+        return std::span<const WireTicker>{storage.rows.data(), count};
     });
 }
 

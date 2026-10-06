@@ -645,6 +645,7 @@ TEST(MexcMap, FundingFromTheTickerHasNoSchedule) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 85'000);        // 0.000085
     EXPECT_EQ(funding->mark_price.raw, 641'504); // fairPrice is MEXC's mark
+    EXPECT_EQ(funding->index_price.raw, 641'859);
     // zero reads as unknown
     EXPECT_EQ(funding->next_funding_time.ns, 0U);
     EXPECT_EQ(funding->interval_s, 0U);
@@ -686,6 +687,8 @@ TEST(MexcMap, TickerStatsScaleContractsIntoBaseUnits) {
     EXPECT_EQ(stats->volume_24h_quote.raw, 4'912'147'390'018'210LL);
     // 758957590 contracts of 0.0001 BTC.
     EXPECT_EQ(stats->volume_24h_base.raw, 75'895'759'000'000LL);
+    // holdVol 546342489 contracts of 0.0001 BTC
+    EXPECT_EQ(stats->open_interest.raw, 54'634'248'900'000LL);
     EXPECT_EQ(stats->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
 
     // a frame with no turnover publishes nothing
@@ -730,6 +733,8 @@ TEST(MexcMap, CoinMarginedContractIsInverseAndTurnsOverInDollars) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote.raw, 7'599'700'000'000LL); // 75997 contracts of $100
     EXPECT_EQ(stats->volume_24h_base.raw, 90'676'765'443LL);     // amount24 is btc here
+    // 1587999 contracts of $100 at the frame's last of 83957.3
+    EXPECT_EQ(stats->open_interest.raw, 1'891'436'480'210LL);
 
     const auto linear = catalogue();
     EXPECT_EQ(base_of(*linear.find("BTC_USDT")).kind, ContractKind::Linear);

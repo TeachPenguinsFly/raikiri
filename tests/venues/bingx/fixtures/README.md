@@ -51,6 +51,7 @@ Capture dates come from the frames' own timestamps.
 | `rest_error_not_found.json` | `GET /openApi/swap/v2/quote/nope`, code 100400 |
 | `rest_error_bad_key.json` | `POST /openApi/swap/v2/trade/order` with no key, 2026-08-26: HTTP 200 carrying 100413 |
 | `rest_spot_symbols.json` | `GET /openApi/spot/v1/common/symbols`, 2026-08-26, trimmed to 5 rows: BTC-USDT, ETH-USDT, APEPE-USDT, ANSEM-USDT and M3M3-USDT |
+| `rest_spot_ticker_24h.json` | `GET /openApi/spot/v1/ticker/24hr`, 2026-10-06, no parameters, trimmed to its first 5 rows of 656: BTC-USDT, ETH-USDT, USDC-USDT, XRP-USDT and BNB-USDT; numbers are bare |
 
 ## Private (BingX's published examples)
 

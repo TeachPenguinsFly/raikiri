@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -407,6 +408,24 @@ TEST(CryptoComTicker, BothTurnoverColumnsAreRead) {
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 4'187'826'600'000);    // 4187.8266 BTC
     EXPECT_EQ(stats->volume_24h_quote.raw, 352'032'445'730'000); // 352032445.73 USD
+    EXPECT_EQ(stats->open_interest.raw, 6'072'199'000'000);      // 6072.199 contracts of 1 BTC
+}
+
+TEST(CryptoComTicker, TheTickersListCarriesSpotVolumes) {
+    const auto spot = table_for(MarketType::Spot);
+    static TickerBuffer storage;
+    const auto body = fixture("rest_tickers.json");
+    const auto rows = parse_tickers(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    const auto row = std::ranges::find(*rows, std::string_view{"BTC_USDT"}, &WireTicker::instrument);
+    ASSERT_NE(row, rows->end());
+    const auto stats = map_ticker_stats(*row, listed(spot, "BTC_USDT"), k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 1'311'271'500'000);    // 1311.2715 BTC
+    EXPECT_EQ(stats->volume_24h_quote.raw, 112'524'223'850'000); // 112524223.85 USDT
+    EXPECT_EQ(stats->ts_event.ns, 1'791'299'350'650'000'000ULL);
+    EXPECT_TRUE(stats->open_interest.is_undef());
 }
 
 TEST(CryptoComTicker, AnAbsentColumnIsUndefNotZero) {
@@ -455,6 +474,24 @@ TEST(CryptoComFunding, ThreeChannelsFoldIntoOneRecord) {
     EXPECT_EQ(second->predicted_rate.raw, -2'445);
     EXPECT_EQ(second->rate.raw, -5'641);
     EXPECT_EQ(second->instrument, base.id);
+
+    const auto index_frame = framed("ws_index_btc.json");
+    EXPECT_EQ(index_frame.event.kind, EventKind::Index);
+    EXPECT_EQ(index_frame.event.instrument, "BTCUSD-INDEX");
+    const auto index = parse_value(index_frame.event.data);
+    ASSERT_TRUE(index.has_value());
+    const auto third = map_index(*index, base, memo, k_ingest);
+    ASSERT_TRUE(third.has_value());
+    EXPECT_EQ(third->index_price.raw, 863'169); // 86316.90
+    EXPECT_EQ(third->predicted_rate.raw, -2'445);
+    EXPECT_EQ(third->ts_event.ns, 1'791'300'319'000'000'000ULL);
+}
+
+TEST(CryptoComCatalogue, APerpetualNamesItsIndex) {
+    Catalogue catalogue;
+    const auto* btc = row_named(catalogue.rows, "BTCUSD-PERP");
+    ASSERT_NE(btc, nullptr);
+    EXPECT_EQ(btc->underlying, "BTCUSD-INDEX");
 }
 
 TEST(CryptoComFunding, AnOffTickMarkIsRefused) {

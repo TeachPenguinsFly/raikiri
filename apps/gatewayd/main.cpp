@@ -22,14 +22,18 @@
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/venues/apex/apex_venue.hpp>
+#include <raikiri/venues/arcus/arcus_venue.hpp>
 #include <raikiri/venues/aster/aster_venue.hpp>
 #include <raikiri/venues/backpack/backpack_venue.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
 #include <raikiri/venues/bitget/bitget_venue.hpp>
+#include <raikiri/venues/bithumb/bithumb_venue.hpp>
+#include <raikiri/venues/bitstamp/bitstamp_venue.hpp>
 #include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
+#include <raikiri/venues/bullish/bullish_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
 #include <raikiri/venues/cryptocom/cryptocom_venue.hpp>
@@ -48,10 +52,16 @@
 #include <raikiri/venues/lighter/lighter_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
+#include <raikiri/venues/ondoperps/ondoperps_venue.hpp>
+#include <raikiri/venues/ostium/ostium_venue.hpp>
 #include <raikiri/venues/pacifica/pacifica_venue.hpp>
+#include <raikiri/venues/paradex/paradex_venue.hpp>
 #include <raikiri/venues/phemex/phemex_venue.hpp>
+#include <raikiri/venues/polymarketperps/polymarketperps_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
 #include <raikiri/venues/toobit/toobit_venue.hpp>
+#include <raikiri/venues/upbit/upbit_venue.hpp>
+#include <raikiri/venues/vest/vest_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
 #include <raikiri/wire/error.hpp>
@@ -425,7 +435,7 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
                          raikiri::MarketType market,
                          raikiri::shm::OpenOrderTable& table,
                          raikiri::UnixNanos now) {
-    char buf[16];
+    char buf[32];
     const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     if (!adapter.caps.order_pull.has(market)) {
@@ -478,7 +488,7 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
                              raikiri::UnixNanos& cursor,
                              raikiri::UnixNanos& replay_due,
                              raikiri::UnixNanos now) {
-    char buf[16];
+    char buf[32];
     const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     if (!adapter.caps.funding_charge.has(market)) {
@@ -527,7 +537,7 @@ void publish_fills(const raikiri::exec::VenueAdapter& adapter,
                    raikiri::MarketType market,
                    raikiri::shm::FillRing& ring,
                    raikiri::UnixNanos& cursor) {
-    char buf[16];
+    char buf[32];
     const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     if (!adapter.caps.fill_pull.has(market)) {
@@ -566,7 +576,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
                        const raikiri::shm::CatalogueTable& catalogue,
                        raikiri::shm::PositionTable& table,
                        raikiri::UnixNanos now) {
-    char buf[16];
+    char buf[32];
     const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     static std::size_t answered = std::numeric_limits<std::size_t>::max();
@@ -620,7 +630,7 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
                       raikiri::MarketType market,
                       raikiri::shm::BalanceTable& table,
                       raikiri::UnixNanos now) {
-    std::array<char, 16> buf{};
+    std::array<char, 32> buf{};
     const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf.data(), buf.size());
     static bool announced = false;
     static std::uint32_t answered = std::numeric_limits<std::uint32_t>::max();
@@ -998,6 +1008,16 @@ int main(int argc, char** argv) {
     venues::bitunix::register_adapter();
     venues::toobit::register_adapter();
     venues::derive::register_adapter();
+    venues::arcus::register_adapter();
+    venues::ostium::register_adapter();
+    venues::paradex::register_adapter();
+    venues::vest::register_adapter();
+    venues::bullish::register_adapter();
+    venues::ondoperps::register_adapter();
+    venues::polymarketperps::register_adapter();
+    venues::upbit::register_adapter();
+    venues::bithumb::register_adapter();
+    venues::bitstamp::register_adapter();
     // one budget shared with the account poller; a venue missing from the file is unlimited
     std::optional<exec::RateBudget> budget;
     // an absent venue still gets the default answer timeout; zero would never report an unanswered order

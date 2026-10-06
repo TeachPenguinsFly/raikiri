@@ -100,6 +100,51 @@ std::expected<WireAssetCtx, WireError> parse_asset_ctx(std::string_view frame) {
     });
 }
 
+std::expected<std::span<const WireAssetCtx>, WireError> parse_spot_asset_ctxs(std::string_view body,
+                                                                              SpotCtxBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireAssetCtx>, WireError> {
+        auto root = session().open_array(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        std::size_t element = 0;
+        std::size_t count = 0;
+        for (auto entry : *root) {
+            if (element++ == 0) {
+                continue;
+            }
+            wire::ondemand::array contexts;
+            if (const auto ec = entry.get_array().get(contexts); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            for (auto row : contexts) {
+                if (count == storage.ctxs.size()) {
+                    return std::unexpected(WireError::TooManyEntries);
+                }
+                wire::ondemand::object obj;
+                if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
+                    return std::unexpected(wire::map_error(ec));
+                }
+                WireAssetCtx out{};
+                if (const auto ok = read_ctx_fields(obj, out); !ok.has_value()) {
+                    return std::unexpected(ok.error());
+                }
+                const auto coin = wire::req_str(obj, "coin");
+                if (!coin.has_value()) {
+                    return std::unexpected(coin.error());
+                }
+                out.coin = *coin;
+                storage.ctxs[count++] = out;
+            }
+            break;
+        }
+        if (element < 2) {
+            return std::unexpected(WireError::ShortArray);
+        }
+        return std::span<const WireAssetCtx>{storage.ctxs.data(), count};
+    });
+}
+
 std::expected<std::span<const WireAssetCtx>, WireError> parse_asset_ctxs(std::string_view body,
                                                                          AssetCtxBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireAssetCtx>, WireError> {

@@ -46,4 +46,23 @@ struct TradableBuffer {
 [[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
 parse_api_trading_symbols(std::string_view body, TradableBuffer& storage);
 
+// spot's GET /api/v3/exchangeInfo; it states no asset class and no minimum notional
+struct WireSpotInstrument {
+    std::string_view symbol;
+    std::string_view status; // TRADING or HALT
+    std::string_view base_asset;
+    std::string_view quote_asset;
+    std::string_view tick_size;
+    std::string_view step_size;
+};
+
+inline constexpr std::size_t k_max_spot_instruments = 4096;
+
+struct SpotInstrumentBuffer {
+    std::array<WireSpotInstrument, k_max_spot_instruments> instruments{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireSpotInstrument>, WireError>
+parse_spot_exchange_info(std::string_view body, SpotInstrumentBuffer& storage);
+
 } // namespace raikiri::venues::weex

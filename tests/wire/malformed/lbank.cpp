@@ -45,7 +45,12 @@ TEST(Malformed, Lbank) {
                {"rest_market_data.json", [](std::string_view f) { (void)parse_perp_markets(f, *markets); }},
                {"rest_market_order.json", [](std::string_view f) { (void)parse_market_order(f, *depth); }},
                {"rest_accuracy.json", [](std::string_view f) { (void)parse_spot_pairs(f, *pairs); }},
-               {"rest_ticker_24hr.json", [](std::string_view f) { (void)parse_spot_ticker_symbols(f, *symbols); }},
+               {"rest_ticker_24hr.json",
+                [](std::string_view f) {
+                    (void)parse_spot_ticker_symbols(f, *symbols);
+                    static SpotTickBuffer ticks;
+                    (void)parse_spot_tickers(f, ticks);
+                }},
                {"spot_ws_*", [](std::string_view f) { (void)parse_spot_channel(f); }},
                {"spot_ws_depth.json", [](std::string_view f) { (void)parse_spot_depth(f, *spot_levels); }},
                {"spot_ws_trade.json", [](std::string_view f) { (void)parse_spot_trade(f); }},

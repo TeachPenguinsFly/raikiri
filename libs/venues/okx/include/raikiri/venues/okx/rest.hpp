@@ -61,6 +61,8 @@ public:
     [[nodiscard]] net::RestRequest option_instruments(std::string_view uly) noexcept;
 
     [[nodiscard]] net::RestRequest server_time() noexcept;
+    [[nodiscard]] net::RestRequest tickers(std::string_view inst_type) noexcept;
+    [[nodiscard]] net::RestRequest open_interest(std::string_view inst_type) noexcept;
 
     [[nodiscard]] net::RestRequest mark_price(std::string_view inst_id) noexcept;
 

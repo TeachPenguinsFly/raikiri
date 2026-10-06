@@ -40,6 +40,7 @@ Taken from one real account. Each is an unsigned POST naming a public address
 | `rest_order_status.json` | `{"type":"orderStatus","user":"0x…","oid":527278286739}` |
 | `rest_order_status_unknown.json` | the same request with an oid the venue never minted |
 | `rest_user_fills.json` | `{"type":"userFills","user":"0x…"}`, trimmed to five rows |
+| `rest_spot_meta_and_asset_ctxs.json` | `{"type":"spotMetaAndAssetCtxs"}`, 2026-10-06; the universe trimmed to PURR/USDC and @107 with their tokens, the 1005 contexts to those two and the next three (@1, @2, @3) |
 | `rest_spot_meta.json` | `{"type":"spotMeta"}`, trimmed to seven pairs and the eight tokens behind them |
 | `rest_user_funding.json` | `{"type":"userFunding","user":"0x…","startTime":…}`. The `BTC` and `ETH` rows are live (2026-09-13); the `SOL` row was written by hand |
 

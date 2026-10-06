@@ -15,7 +15,7 @@ from the full answers and are otherwise verbatim.
 | `ws_ack.json`, `ws_refusal.json` | `RecvTopicAction` for an accepted subscription and for `Exchange_NOPEUSDT_0.1` |
 | `ws_resume_note.json` | the `PublishFlow` line that follows a subscription with `ResumeNo` -1 |
 | `rest_accuracy.json` | `GET https://api.lbkex.com/v2/accuracy.do`: btc_usdt, eth_usdt and btc3l_usdt, which has no ticker |
-| `rest_ticker_24hr.json` | `GET https://api.lbkex.com/v2/ticker/24hr.do?symbol=all`: btc_usdt and eth_usdt |
+| `rest_ticker_24hr.json` | `GET https://api.lbkex.com/v2/ticker/24hr.do?symbol=all`: btc_usdt and eth_usdt; the catalogue reads its symbols and, since 2026-10-06, the spot gateway polls it once a minute for the 24h volume of every pair (1049 rows on that date) |
 | `spot_ws_depth.json`, `spot_ws_trade.json`, `spot_ws_tick.json` | `wss://api.lbank.info/ws/V2/`, `depth` (10), `trade` and `tick` for btc_usdt |
 | `spot_ws_error.json` | the answer to a `depth` subscription for `nope_usdt` |
 | `spot_ws_pong.json` | the answer to `{"action":"ping","ping":"x1"}` |

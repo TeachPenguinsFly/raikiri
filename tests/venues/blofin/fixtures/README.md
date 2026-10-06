@@ -10,6 +10,7 @@ so every number keeps the venue's spelling.
 |---|---|
 | `rest_instruments.json` | `GET /api/v1/market/instruments`, trimmed to BTC-USDT, BTC-USDC, BTC-USD (inverse), 1000BONK-USDT, NVDA-USDT (stock), WTIOIL-USDT and ONE-USDT |
 | `rest_funding_rate.json` | `GET /api/v1/market/funding-rate`, trimmed to six rows: 8 h, 4 h and the two 1 h contracts |
+| `rest_open_interest.json` | `GET /api/v1/market/open-interest` on 2026-10-06, five of 505 rows kept verbatim, BTC-USDT first |
 | `rest_mark_price.json` | `GET /api/v1/market/mark-price`, trimmed to BTC-USDT and BTC-USD |
 | `ws_books_snapshot.json` | `books` WTIOIL-USDT, the snapshot (400 levels a side, `prevSeqId` "0") |
 | `ws_books_update.json`, `ws_books_update_next.json` | the two deltas that followed it |

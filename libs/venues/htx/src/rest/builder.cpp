@@ -230,6 +230,14 @@ net::RestRequest RequestBuilder::spot_symbols() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
+net::RestRequest RequestBuilder::open_interest() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_swap_open_interest, .body = {}};
+}
+
+net::RestRequest RequestBuilder::index_prices() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_swap_index, .body = {}};
+}
+
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }

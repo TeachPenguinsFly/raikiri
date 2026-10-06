@@ -112,6 +112,9 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     if (const auto mark = parse_decimal_e9(wire.mark_price); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }
+    if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
+    }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     out.interval_s = std::visit(
         [](const auto& concrete) -> std::uint32_t {
@@ -146,11 +149,10 @@ namespace {
 } // namespace
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // usd-m futures only; aster spot is another api
     switch (market) {
     case MarketType::Perp:
-        break;
     case MarketType::Spot:
+        break;
     case MarketType::Future:
     case MarketType::Option:
         return std::nullopt;
@@ -158,7 +160,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (wire.status != "TRADING") {
         return std::nullopt; // SETTLING, PENDING_TRADING, CLOSE: not tradable now
     }
-    if (wire.contract_type != "PERPETUAL") {
+    // spot rows name no contract type, futures rows always do
+    if (wire.contract_type != (market == MarketType::Spot ? "" : "PERPETUAL")) {
         return std::nullopt;
     }
 
@@ -188,6 +191,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
     base.asset_class = asset_class_of(wire);
+    if (market == MarketType::Spot) {
+        return SpotInstrument{base};
+    }
     // interval stamped from fundingInfo by the catalogue loader; 0 means unstated
     return PerpInstrument{base, wire.funding_interval_s};
 }
@@ -205,7 +211,7 @@ map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, 
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_e9(wire.volume);
     out.volume_24h_quote = parse_turnover_e6(wire.quote_volume).value_or(FixedE6::undef());
-    out.ts_event = ms_to_unix(wire.close_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.close_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }

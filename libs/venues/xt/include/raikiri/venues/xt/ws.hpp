@@ -35,6 +35,7 @@ struct Topic {
 
 // rides with the bbo subscription since xt streams no funding; spot needs it too
 [[nodiscard]] Topic ticker_topic() noexcept;
+[[nodiscard]] Topic index_topic() noexcept;
 
 struct Subscription {
     std::string_view channel;

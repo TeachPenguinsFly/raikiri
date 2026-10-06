@@ -58,6 +58,10 @@ Topic ticker_topic() noexcept {
     return {.channel = "ticker", .params = {}};
 }
 
+Topic index_topic() noexcept {
+    return {.channel = "index_price", .params = {}};
+}
+
 std::string_view Protocol::ping_frame() noexcept {
     return "ping";
 }

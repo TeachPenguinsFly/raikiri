@@ -364,6 +364,36 @@ std::expected<std::span<const WireFunding>, WireError> parse_funding_rates(std::
         });
 }
 
+std::expected<std::span<const WireIndex>, WireError> parse_index_prices(std::string_view body, IndexBuffer& storage) {
+    return wire::guarded([&]() -> std::expected<std::span<const WireIndex>, WireError> {
+        auto root = wire::session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto index = wire::req_object(*root, "index");
+        if (!index.has_value()) {
+            return std::unexpected(index.error());
+        }
+        std::size_t count = 0;
+        for (auto field : *index) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            std::string_view key;
+            if (const auto ec = field.unescaped_key().get(key); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto price = wire::str_of(field.value());
+            if (!price.has_value()) {
+                return std::unexpected(price.error());
+            }
+            storage.rows[count] = WireIndex{.underlying = key, .price = *price};
+            ++count;
+        }
+        return std::span<const WireIndex>{storage.rows.data(), count};
+    });
+}
+
 std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body, TickerBuffer& storage) {
     return parse_array(
         body, std::span<WireTicker>{storage.rows}, [](Object& row) -> std::expected<WireTicker, WireError> {

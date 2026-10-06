@@ -145,7 +145,12 @@ std::string_view kind_of(MarketType market) noexcept {
 
 std::string_view currency_of(std::string_view instrument_name) noexcept {
     const auto dash = instrument_name.find('-');
-    return dash == std::string_view::npos ? std::string_view{} : instrument_name.substr(0, dash);
+    if (dash == std::string_view::npos) {
+        return {};
+    }
+    const auto prefix = instrument_name.substr(0, dash);
+    const auto underscore = prefix.find('_');
+    return underscore == std::string_view::npos ? prefix : prefix.substr(underscore + 1);
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -179,7 +184,7 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     case MarketType::Option:
         return std::nullopt;
     case MarketType::Spot:
-        // map_instrument refuses spot rows, so none are in the table
+        // spot is loaded for market data only; no order is built for it
         return BuildError::SpotNotModelled;
     }
     return BuildError::SpotNotModelled;

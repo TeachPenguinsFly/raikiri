@@ -205,6 +205,22 @@ net::RestRequest RequestBuilder::instruments(std::string_view inst_type) noexcep
     return writer.get();
 }
 
+net::RestRequest RequestBuilder::tickers(std::string_view inst_type) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_tickers);
+    writer.put("?instType=");
+    writer.put(inst_type);
+    return writer.get();
+}
+
+net::RestRequest RequestBuilder::open_interest(std::string_view inst_type) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_open_interest);
+    writer.put("?instType=");
+    writer.put(inst_type);
+    return writer.get();
+}
+
 net::RestRequest RequestBuilder::option_underlyings() noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_underlyings);

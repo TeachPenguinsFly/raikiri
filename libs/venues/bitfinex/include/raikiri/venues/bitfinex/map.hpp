@@ -38,7 +38,7 @@ inline constexpr std::uint32_t k_funding_interval_s = 28800;
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, std::string_view symbol, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// volume is in the base asset; the quote column stays zero as the venue states none
+// volume is in the base asset; quote is that volume at the last print, as the venue states none
 [[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
                                                           std::string_view symbol,
                                                           const exec::InstrumentTable& table,
@@ -50,6 +50,10 @@ map_trade(const WireTrade& wire, std::string_view symbol, const exec::Instrument
                                                        std::string_view symbol,
                                                        const exec::InstrumentTable& table,
                                                        UnixNanos ts_init);
+
+// contracts in the base asset; the status channel is the only place bitfinex states it
+[[nodiscard]] std::optional<FixedE9>
+map_open_interest(const WireDerivStatus& wire, std::string_view symbol, const exec::InstrumentTable& table);
 
 // nullopt for another market, paper pairs, or an unparseable row; adds the t prefix
 [[nodiscard]] std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType market);

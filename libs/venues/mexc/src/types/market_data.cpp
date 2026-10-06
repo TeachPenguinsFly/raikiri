@@ -53,6 +53,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         // optional so a frame without turnover still yields its funding rate
         out.volume_24h_quote = opt_scalar(*data, "amount24").value_or(std::string_view{});
         out.volume_24h_contracts = opt_scalar(*data, "volume24").value_or(std::string_view{});
+        out.open_interest = opt_scalar(*data, "holdVol").value_or(std::string_view{});
         return out;
     });
 }

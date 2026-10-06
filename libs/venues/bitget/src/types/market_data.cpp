@@ -57,6 +57,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             }
             out.volume_24h_base = *base_volume;
             out.volume_24h_quote = *quote_volume;
+            out.open_interest = wire::opt_str(obj, "holdingAmount").value_or(std::string_view{});
             const auto next = wire::opt_ms(obj, "nextFundingTime");
             const auto ts = wire::opt_ms(obj, "ts");
             if (!next.has_value() || !ts.has_value()) {

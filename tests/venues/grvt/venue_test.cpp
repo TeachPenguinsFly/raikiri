@@ -300,11 +300,13 @@ TEST(GrvtFeed, TheTickerCarriesFundingAsAPercentOfOneInterval) {
     EXPECT_EQ(funding->next_funding_time.ns, 1'790'294'400'000'000'000ULL);
     // 2683.383994134 on BTC's 0.1 grid.
     EXPECT_EQ(funding->mark_price.raw, 26'833);
+    EXPECT_EQ(funding->index_price.raw, 26'850); // 2685.004420211
 
     const auto stats = map_ticker_stats(ticker.ticker, base_of(btc), k_ingest, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, *parse_decimal_e9("28842.081"));
     EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("77162625.81605"));
+    EXPECT_EQ(stats->open_interest, *parse_decimal_e9("58164.666782391"));
 }
 
 TEST(GrvtFeed, AFrameStatingNoRateIsNotFundingAtZero) {

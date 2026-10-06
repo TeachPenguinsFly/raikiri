@@ -35,6 +35,8 @@ struct PrintBuffer {
 struct WireMarketStats {
     std::uint32_t market_id{0};
     std::string_view mark_price;
+    std::string_view index_price;
+    std::string_view open_interest; // in usd on the socket, though rest states it in base
     std::string_view current_funding_rate;
     std::string_view last_funding_rate; // wire name `funding_rate`
     std::uint64_t funding_ms{0};        // when the last one was paid

@@ -97,6 +97,11 @@ TEST(Malformed, Gate) {
                     static ContractBuffer storage;
                     (void)parse_contracts(f, storage);
                 }},
+               {"rest_spot_tickers.json",
+                [](std::string_view f) {
+                    static SpotTickerBuffer storage;
+                    (void)parse_spot_tickers(f, storage);
+                }},
                {"rest_currency_pairs.json",
                 [](std::string_view f) {
                     static CurrencyPairBuffer storage;

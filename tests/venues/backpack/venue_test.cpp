@@ -204,6 +204,8 @@ TEST(BackpackMap, PerpetualMarkPriceCarriesRateNextSettlementAndInterval) {
     EXPECT_EQ(funding->rate.raw, 12'500); // 0.0000125
     EXPECT_TRUE(funding->predicted_rate.is_undef());
     EXPECT_EQ(funding->mark_price.raw, 11'682);
+    EXPECT_EQ(funding->index_price.raw, 11'686); // 116.8668901 truncated to the cent
+    EXPECT_EQ(funding->ts_event.ns, 1'790'280'896'846'962'000ULL);
     // n is milliseconds while E is microseconds
     EXPECT_EQ(funding->next_funding_time.ns, 1'790'283'600'000'000'000ULL);
     EXPECT_EQ(funding->interval_s, 3600U);
@@ -242,9 +244,25 @@ TEST(BackpackMap, TickerRowsCarryBothVolumes) {
             saw = true;
             EXPECT_FALSE(stats->volume_24h_base.is_undef());
             EXPECT_FALSE(stats->volume_24h_quote.is_undef());
+            EXPECT_EQ(stats->ts_event.ns, 0U);
         }
     }
     EXPECT_TRUE(saw);
+}
+
+TEST(BackpackMap, OpenInterestIsStatedInTheBase) {
+    const auto table = table_for(MarketType::Perp);
+    OpenInterestBuffer storage;
+    const auto body = fixture("rest_open_interest.json");
+    const auto rows = parse_open_interest(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+    const auto* sol = table.find("SOL_USDC_PERP");
+    ASSERT_NE(sol, nullptr);
+    const auto oi = map_open_interest((*rows)[0], table);
+    ASSERT_TRUE(oi.has_value());
+    EXPECT_EQ(oi->instrument, base_of(*sol).id);
+    EXPECT_EQ(oi->base.raw, 201'981'860'000'000); // 201981.86 SOL
 }
 
 TEST(BackpackBook, ConsecutiveDepthFramesChainAsSuccessors) {

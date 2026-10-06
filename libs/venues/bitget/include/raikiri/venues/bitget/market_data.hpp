@@ -24,6 +24,7 @@ struct WireTicker {
     // empty stays empty: a missing column must not publish a zero
     std::string_view volume_24h_base;  // baseVolume
     std::string_view volume_24h_quote; // quoteVolume
+    std::string_view open_interest;    // holdingAmount, in the base coin
     std::uint64_t next_funding_ms{0};
     std::uint64_t ts_ms{0};
 };

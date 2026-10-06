@@ -148,7 +148,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     if (const auto quote_volume = parse_turnover_e6(wire.quote_volume); quote_volume.has_value()) {
         out.volume_24h_quote = *quote_volume;
     }
-    out.ts_event = ms_to_unix(wire.close_ms, ts_init);
+    out.ts_event = ms_to_unix(wire.close_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;
 }
@@ -178,6 +178,10 @@ map_funding(const WirePremium& wire, const exec::InstrumentTable& table, UnixNan
     // exact or undef; rounding would invent a price
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
+    }
+    // an index is a reference, not a price to trade, so it is truncated onto the tick
+    if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
+        out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     out.interval_s = std::visit(
@@ -406,6 +410,58 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.kind = ContractKind::Linear;
     // min_notional and fees stay undef; weex states no minimum and only public-tier fees
     return PerpInstrument{base, *interval};
+}
+
+std::optional<Instrument> map_spot_instrument(const WireSpotInstrument& wire) {
+    if (wire.status != "TRADING") {
+        return std::nullopt;
+    }
+    const auto tick = parse_decimal_e9(wire.tick_size);
+    const auto lot = parse_decimal_e9(wire.step_size);
+    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
+        return std::nullopt;
+    }
+    const auto symbol = SymbolText::from(wire.symbol);
+    const auto canonical = canonical_symbol(wire.base_asset, wire.quote_asset);
+    if (!symbol.has_value() || !canonical.has_value()) {
+        return std::nullopt;
+    }
+
+    InstrumentBase base{};
+    // provisional; InstrumentTable::add assigns the SymbolId
+    base.id = InstrumentId::make(VenueId::Weex, MarketType::Spot, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *canonical;
+    base.asset_class = AssetClass::Crypto;
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    base.contract_value = FixedE9::from_raw(1'000'000'000);
+    base.kind = ContractKind::Linear;
+    return SpotInstrument{base};
+}
+
+std::optional<Bbo> map_book_ticker(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto bid = to_ticks(wire.bid, base);
+    const auto ask = to_ticks(wire.ask, base);
+    const auto bid_qty = to_lots(wire.bid_qty, base);
+    const auto ask_qty = to_lots(wire.ask_qty, base);
+    if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
+        return std::nullopt;
+    }
+    Bbo out{};
+    out.instrument = base.id;
+    out.bid = *bid;
+    out.ask = *ask;
+    out.bid_qty = *bid_qty;
+    out.ask_qty = *ask_qty;
+    out.ts_event = ms_to_unix(wire.event_ms, UnixNanos{});
+    out.ts_init = ts_init;
+    return out;
 }
 
 } // namespace raikiri::venues::weex

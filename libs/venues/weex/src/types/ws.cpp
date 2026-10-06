@@ -9,9 +9,13 @@ namespace raikiri::venues::weex {
 
 namespace {
 
-[[nodiscard]] std::string_view suffix_for(exec::SubKind kind) noexcept {
+[[nodiscard]] std::string_view suffix_for(exec::SubKind kind, MarketType market) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
+        if (market == MarketType::Spot) {
+            return k_book_ticker_channel;
+        }
+        [[fallthrough]];
     case exec::SubKind::Depth:
         // Bbo and Depth share one channel
         return k_depth_channel;
@@ -44,8 +48,8 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view stream_host() noexcept {
-    return ep::k_stream_host;
+std::string_view stream_host(MarketType market) noexcept {
+    return market == MarketType::Spot ? ep::k_spot_stream_host : ep::k_stream_host;
 }
 
 std::string_view stream_port() noexcept {
@@ -56,8 +60,9 @@ std::string_view stream_path() noexcept {
     return ep::k_ws_public;
 }
 
-std::string_view channel_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
-    const auto suffix = suffix_for(kind);
+std::string_view
+channel_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out, MarketType market) noexcept {
+    const auto suffix = suffix_for(kind, market);
     if (suffix.empty() || exchange_symbol.empty()) {
         return {};
     }

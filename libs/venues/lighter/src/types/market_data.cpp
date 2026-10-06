@@ -65,8 +65,10 @@ std::expected<WireMarketStats, WireError> read_stats(wire::ondemand::object& obj
         return std::unexpected(market.error());
     }
     out.market_id = static_cast<std::uint32_t>(*market);
-    const std::array<std::pair<std::string_view, std::string_view*>, 3> strings{{
+    const std::array<std::pair<std::string_view, std::string_view*>, 5> strings{{
+        {"index_price", &out.index_price},
         {"mark_price", &out.mark_price},
+        {"open_interest", &out.open_interest},
         {"current_funding_rate", &out.current_funding_rate},
         {"funding_rate", &out.last_funding_rate},
     }};

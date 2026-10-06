@@ -93,6 +93,8 @@ struct VenueState {
     std::vector<OwnedSubscription> desired;
 
     std::unordered_map<std::uint64_t, Book> books;
+    // from the status channel, stamped on the next ticker of the same pair
+    std::unordered_map<std::string, FixedE9> open_interest;
 
     std::uint64_t next_app_ping_ns{0};
 

@@ -453,8 +453,10 @@ std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_
                 return std::unexpected(contract.error());
             }
             row.contract_id = *contract;
-            const std::array<std::pair<std::string_view, std::string_view*>, 4> fields{{
+            const std::array<std::pair<std::string_view, std::string_view*>, 6> fields{{
+                {"openInterest", &row.open_interest},
                 {"markPrice", &row.mark_price},
+                {"indexPrice", &row.index_price},
                 {"fundingRate", &row.funding_rate},
                 {"size", &row.volume_base},
                 {"value", &row.volume_quote},

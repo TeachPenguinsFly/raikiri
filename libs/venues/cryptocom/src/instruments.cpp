@@ -72,6 +72,9 @@ public:
             if (!id.has_value()) {
                 continue;
             }
+            if (market == MarketType::Perp && !row.underlying.empty()) {
+                state_->index_of[id->packed] = std::string{row.underlying};
+            }
             loaded.push_back(*state_->instruments.find(*id));
         }
         if (loaded.size() != listed && ::raikiri::log::logger() != nullptr) {

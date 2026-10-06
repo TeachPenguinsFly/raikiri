@@ -5,12 +5,15 @@
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/weex/book.hpp>
+#include <raikiri/venues/weex/endpoints.hpp>
 #include <raikiri/venues/weex/rest.hpp>
+#include <raikiri/venues/weex/spot.hpp>
 #include <raikiri/venues/weex/ws.hpp>
 
 #include <cstdint>
@@ -31,12 +34,15 @@ struct VenueState {
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
-    // the contract tree lists only perps; kept because instrument ids carry it
+    // spot is a separate exchange on its own hosts
     MarketType market{MarketType::Perp};
 
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
+
+    // spot's private socket routes through it, and the rest acks teach it order ids
+    SpotPrivateFeed spot_feed{*sink, instruments, *clock};
 
     // market-data builder; the signed half holds its own since builders share scratch
     RequestBuilder builder;
@@ -55,6 +61,12 @@ struct VenueState {
 
     // catalogue and funding poll share one client and the per-ip allowance
     net::RestClient rest{io, net::RestConfig{.host = std::string{rest_host()}}};
+    net::RestClient spot_rest{io, net::RestConfig{.host = std::string{ep::k_spot_rest_host}}};
+
+    // spot has no funding subscription to carry the ticker channel, so its 24h window is polled
+    exec::TickerPoll spot_tickers;
+
+    [[nodiscard]] net::RestClient& market_rest() noexcept { return market == MarketType::Spot ? spot_rest : rest; }
 
     std::unordered_map<std::uint64_t, DepthBook> books;
     std::unordered_map<std::uint64_t, BookWatch> book_watch;

@@ -52,6 +52,44 @@ TEST(Malformed, Aster) {
                         (void)parse_depth_update(*inner, storage);
                     }
                 }},
+               {"spot_ws_book_ticker.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_book_ticker(*inner);
+                    }
+                }},
+               {"spot_ws_trade.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_trade(*inner);
+                    }
+                }},
+               {"spot_ws_depth_update*",
+                [](std::string_view f) {
+                    static LevelBuffer storage;
+                    (void)parse_event(f);
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_depth_update(*inner, storage);
+                    }
+                }},
+               {"spot_rest_depth_snapshot.json",
+                [](std::string_view f) {
+                    static LevelBuffer storage;
+                    (void)parse_depth_snapshot(f, storage);
+                }},
+               {"spot_rest_exchange_info.json",
+                [](std::string_view f) {
+                    static InstrumentBuffer storage;
+                    (void)parse_exchange_info(f, storage);
+                }},
+               {"spot_rest_ticker_24h.json",
+                [](std::string_view f) {
+                    static Ticker24hBuffer storage;
+                    (void)parse_ticker_24h(f, storage);
+                }},
+               {"spot_rest_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
                {"rest_depth_snapshot.json",
                 [](std::string_view f) {
                     static LevelBuffer storage;
