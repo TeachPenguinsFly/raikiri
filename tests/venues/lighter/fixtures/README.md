@@ -9,6 +9,7 @@ spelling.
 | file | source |
 |---|---|
 | `rest_order_book_details.json` | `GET /api/v1/orderBookDetails`, trimmed |
+| `rest_order_book_details_tradfi.json` | the same, 2026-10-05: a stock, an index, a korean share in dollars, a metal, a currency, the QNT coin filed with the stocks, a pre-ipo share and an unnamed group |
 | `ws_order_book_snapshot.json`, `ws_order_book_update.json`, `ws_order_book_update_next.json` | `order_book:2054`, the snapshot and the two updates after it in one session; the nonce chain holds across all three |
 | `ws_market_stats.json` | `market_stats:1` |
 | `ws_market_stats_all.json` | `market_stats:all` |

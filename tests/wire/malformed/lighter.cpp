@@ -78,6 +78,11 @@ TEST(Malformed, Lighter) {
                     static MarketBuffer storage;
                     (void)parse_order_book_details(f, storage);
                 }},
+               {"rest_order_book_details_tradfi.json",
+                [](std::string_view f) {
+                    static MarketBuffer storage;
+                    (void)parse_order_book_details(f, storage);
+                }},
            });
 }
 

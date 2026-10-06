@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/lighter/book.hpp>
 #include <raikiri/venues/lighter/catalogue.hpp>
 #include <raikiri/venues/lighter/endpoints.hpp>
@@ -121,6 +122,37 @@ TEST(LighterCatalogue, ASpotPairKeepsItsOwnHalves) {
     ASSERT_TRUE(spy.has_value());
     EXPECT_EQ(base_of(*spy).local_symbol.view(), "RHSPY/USDC");
     EXPECT_EQ(base_of(*spy).contract_value, e9("1"));
+}
+
+TEST(LighterCatalogue, TheMarketGroupNamesTheClassAndACoinAmongTheStocksStaysACoin) {
+    MarketBuffer storage;
+    const auto body = fixture("rest_order_book_details_tradfi.json");
+    const auto rows = parse_order_book_details(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 8U);
+    const auto key_of = [&](std::string_view symbol) {
+        for (const auto& row : *rows) {
+            if (row.symbol == symbol) {
+                auto instrument = map_instrument(row, MarketType::Perp);
+                EXPECT_TRUE(instrument.has_value()) << symbol;
+                auto base = base_of(instrument.value_or(Instrument{}));
+                classify(VenueId::Lighter, base);
+                return asset_key(base);
+            }
+        }
+        ADD_FAILURE() << "no row " << symbol;
+        return std::string{};
+    };
+    EXPECT_EQ(key_of("AAPL"), "equity:AAPL");
+    EXPECT_EQ(key_of("SAMSUNGUSD"), "equity:SAMSUNG");
+    EXPECT_EQ(key_of("XAU"), "commodity:XAU");
+    EXPECT_EQ(key_of("EURUSD"), "fx:EURUSD");
+    EXPECT_EQ(key_of("US500"), "index:SPX");
+    EXPECT_EQ(key_of("QNT"), "crypto:QNT") << "the coin, filed with the stocks";
+    EXPECT_EQ(key_of("OPENAI"), "equity:OPENAI");
+    EXPECT_EQ(key_of("STABLECOINX"), "") << "an unnamed group is not guessed";
+    EXPECT_EQ(base_of(*map_instrument(market_row(1), MarketType::Perp)).asset_class, AssetClass::Crypto);
+    EXPECT_EQ(base_of(*map_instrument(market_row(2048), MarketType::Spot)).asset_class, AssetClass::Crypto);
 }
 
 TEST(LighterCatalogue, DecimalsBecomeExactSteps) {

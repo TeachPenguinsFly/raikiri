@@ -42,6 +42,10 @@ std::expected<WireMarket, WireError> read_market(wire::ondemand::object& obj) {
     out.min_base_amount = *min_base;
     out.min_quote_amount = *min_quote;
     out.funding_clamp_big = *clamp;
+    // a hint for the asset class only; a bad one costs the row its class, not the catalogue
+    out.strategy_index = static_cast<std::uint32_t>(wire::opt_u64(obj, "strategy_index").value_or(0));
+    out.funding_premium_multiplier = static_cast<std::uint32_t>(
+        wire::opt_u64(obj, "funding_premium_multiplier").value_or(0));
     return out;
 }
 

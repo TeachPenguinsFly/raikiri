@@ -22,6 +22,8 @@ struct WireMarket {
     std::string_view min_quote_amount;
     // Percent per eight hours; empty on spot.
     std::string_view funding_clamp_big;
+    std::uint32_t strategy_index{0};
+    std::uint32_t funding_premium_multiplier{0};
 };
 
 inline constexpr std::size_t k_max_markets = 1024;

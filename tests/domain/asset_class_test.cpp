@@ -27,7 +27,7 @@ InstrumentBase classified(VenueId venue,
 }
 
 TEST(AssetClass, CuratedVenuesResolveTheSameUnderlyingUnderTheirOwnNames) {
-    const auto lighter = classified(VenueId::Lighter, "TSLA", "TSLA/USDC");
+    const auto lighter = classified(VenueId::Lighter, "TSLA", "TSLA/USDC", AssetClass::Equity);
     const auto aster = classified(VenueId::Aster, "TSLAUSDT", "TSLA/USDT");
     const auto mexc = classified(VenueId::Mexc, "TESLA_USDT", "TESLA/USDT", AssetClass::Equity);
     for (const auto& b : {lighter, aster, mexc}) {
@@ -43,7 +43,7 @@ TEST(AssetClass, CuratedVenuesResolveTheSameUnderlyingUnderTheirOwnNames) {
 }
 
 TEST(AssetClass, SpxTheCoinStaysCryptoWhereTheIndexIsCalledSomethingElse) {
-    const auto coin = classified(VenueId::Lighter, "SPX", "SPX/USDC");
+    const auto coin = classified(VenueId::Lighter, "SPX", "SPX/USDC", AssetClass::Crypto);
     EXPECT_EQ(coin.asset_class, AssetClass::Crypto);
     EXPECT_EQ(coin.underlying.view(), "SPX");
     const auto index = classified(VenueId::Lighter, "US500", "US500/USDC");
@@ -142,10 +142,33 @@ TEST(AssetKey, AStockPairsAcrossMexcWeexAndHip3) {
 TEST(AssetKey, ABareCurrencyIsItsDollarPrice) {
     const auto mexc = classified(VenueId::Mexc, "JPY_USDT", "JPY/USDT", AssetClass::FX);
     const auto xyz = classified(VenueId::Hyperliquid, "xyz:JPY", "xyz:JPY/USDC", AssetClass::FX);
-    const auto lighter = classified(VenueId::Lighter, "USDJPY", "USDJPY/USDC");
+    const auto lighter = classified(VenueId::Lighter, "USDJPY", "USDJPY/USDC", AssetClass::FX);
     EXPECT_EQ(asset_key(mexc), "fx:JPYUSD");
     EXPECT_EQ(asset_key(xyz), "fx:USDJPY") << "this deployer quotes yen per dollar";
     EXPECT_EQ(asset_key(lighter), "fx:USDJPY");
+}
+
+TEST(AssetKey, ACoinWithAStockTickerStaysACoin) {
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "CVXUSDT", "CVX/USDT")), "crypto:CVX");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "CVXSTOCKUSDT", "CVXSTOCK/USDT")), "equity:CVX");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "SPXUSDT", "SPX/USDT")), "crypto:SPX");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "SPX500USDT", "SPX500/USDT")), "index:SPX");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "BBUSDT", "BB/USDT")), "crypto:BB");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "BBXUSDT", "BBX/USDT")), "equity:BB");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "KIMIUSDT", "KIMI/USDT")), "equity:MOONSHOT");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "JPYUSDT", "JPY/USDT")), "fx:JPYUSD");
+}
+
+TEST(AssetKey, OneTickerTwoAssetsSplitByWhatTheyTrack) {
+    EXPECT_EQ(asset_key(classified(VenueId::Gate, "EDGE_USDT", "EDGE/USDT", AssetClass::Crypto)), "crypto:DEFINITIVE");
+    EXPECT_EQ(asset_key(classified(VenueId::Gate, "EDGEX_USDT", "EDGEX/USDT", AssetClass::Crypto)), "crypto:EDGE");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "EDGEXUSDT", "EDGEX/USDT")), "crypto:EDGE");
+    EXPECT_EQ(asset_key(classified(VenueId::Hyperliquid, "xyz:GIGADEV", "xyz:GIGADEV/USDC", AssetClass::Equity)),
+              "equity:GIGADEVA")
+        << "the shanghai share; the other venues track hong kong";
+    EXPECT_EQ(asset_key(classified(VenueId::Lighter, "BYD", "BYD/USDC", AssetClass::Equity)), "equity:BYDELECTRONIC");
+    EXPECT_EQ(asset_key(classified(VenueId::Lbank, "BYDUSDT", "BYD/USDT")), "equity:BYD");
+    EXPECT_EQ(asset_key(classified(VenueId::Lighter, "H100", "H100/USDC", AssetClass::Commodity)), "");
 }
 
 TEST(AssetClass, AnUnderlyingTooLongToKeyIsNotPaired) {

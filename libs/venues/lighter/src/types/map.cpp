@@ -36,6 +36,25 @@ std::optional<SymbolText> local_symbol(const WireMarket& wire, MarketType market
     return canonical_symbol(halves->first.view(), halves->second.view());
 }
 
+// lighter names no class, but it groups perps: 3 commodities, 4 currencies, 5 and 6 stocks and funds. a coin
+// pays the full funding premium, even the one filed among the stocks
+AssetClass asset_class_of(const WireMarket& wire, MarketType market) noexcept {
+    if (market == MarketType::Spot || wire.funding_premium_multiplier >= 100) {
+        return AssetClass::Crypto;
+    }
+    switch (wire.strategy_index) {
+    case 3:
+        return AssetClass::Commodity;
+    case 4:
+        return AssetClass::FX;
+    case 5:
+    case 6:
+        return AssetClass::Equity;
+    default:
+        return AssetClass::Unknown;
+    }
+}
+
 } // namespace
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -89,6 +108,7 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     // A spot row's `multiplier` is its token's, not what one unit of size buys.
     base.contract_value = FixedE9::from_raw(k_e9);
     base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire, market);
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }
