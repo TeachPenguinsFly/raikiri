@@ -17,7 +17,7 @@ from the full answers and are otherwise verbatim.
 | `rest_accuracy.json` | `GET https://api.lbkex.com/v2/accuracy.do`: btc_usdt, eth_usdt and btc3l_usdt, which has no ticker |
 | `rest_ticker_24hr.json` | `GET https://api.lbkex.com/v2/ticker/24hr.do?symbol=all`: btc_usdt and eth_usdt; the catalogue reads its symbols and, since 2026-10-06, the spot gateway polls it once a minute for the 24h volume of every pair (1049 rows on that date) |
 | `spot_ws_depth.json`, `spot_ws_trade.json`, `spot_ws_tick.json` | `wss://api.lbank.info/ws/V2/`, `depth` (10), `trade` and `tick` for btc_usdt |
-| `spot_ws_error.json` | the answer to a `depth` subscription for `nope_usdt` |
+| `spot_ws_error.json` | the answer to a `depth` subscription for `nope_usdt`, with the echoed `remoteIp` replaced by `203.0.113.7` |
 | `spot_ws_pong.json` | the answer to `{"action":"ping","ping":"x1"}` |
 
 Added on 2026-10-03 between 15:13 and 15:20 UTC with the same user agent:

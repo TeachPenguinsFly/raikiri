@@ -1,16 +1,19 @@
 // reads two running option gateways and prints, per expiry, how the same contracts compare;
 // a report, so the medians are doubles and nothing here decides anything; core is the left
-// venue's 0.2 to 0.8 absolute delta
+// venue's 0.2 to 0.8 absolute delta; mid iv is implied here from each venue's mid on its own forward,
+// so the venues' iv conventions drop out
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/options/chain.hpp>
+#include <raikiri/options/pricing.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/shm/segment.hpp>
 
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -33,6 +36,7 @@ struct Side {
 
 struct Quote {
     std::optional<double> iv;
+    std::optional<double> mid_iv;
     std::optional<double> delta;
     std::optional<double> mid_usd;
     std::optional<double> spread_usd;
@@ -70,8 +74,14 @@ std::optional<double> defined(FixedE9 value) {
     return value.is_undef() ? std::nullopt : std::optional{as_double(value)};
 }
 
-// a coin premium is turned into usd at the venue's own index
-Quote quote_of(const Side& side, InstrumentId id) {
+UnixNanos wall_now() {
+    return UnixNanos{static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count())};
+}
+
+// a coin premium is the usd price over the forward, so it turns into usd at the venue's forward
+Quote quote_of(const Side& side, InstrumentId id, const options::OptionKey& key, UnixNanos now) {
     Quote out{};
     const auto* instrument = side.channels.catalogue->find(id);
     const auto index = id.symbol().raw;
@@ -81,9 +91,12 @@ Quote quote_of(const Side& side, InstrumentId id) {
     const auto& option = std::get<OptionInstrument>(*instrument);
     OptionGreeks greeks{};
     const bool priced = side.channels.greeks->read(index, greeks) != 0 && greeks.instrument == id;
+    const auto forward = !priced                               ? FixedE9::undef()
+                         : !greeks.underlying_price.is_undef() ? greeks.underlying_price
+                                                               : greeks.index_price;
     double scale = 1.0;
     if (option.premium == OptionUnit::Base) {
-        const auto usd = priced ? defined(greeks.index_price) : std::nullopt;
+        const auto usd = defined(forward);
         if (!usd.has_value()) {
             return out;
         }
@@ -99,10 +112,19 @@ Quote quote_of(const Side& side, InstrumentId id) {
     Bbo bbo{};
     if (side.channels.bbo->read(index, bbo) != 0 && bbo.instrument == id && !bbo.bid.is_undef() &&
         !bbo.ask.is_undef()) {
-        const auto bid = as_double(option.base.ticks_to_price(bbo.bid)) * scale;
-        const auto ask = as_double(option.base.ticks_to_price(bbo.ask)) * scale;
-        out.mid_usd = (bid + ask) / 2.0;
-        out.spread_usd = ask - bid;
+        const auto bid = option.base.ticks_to_price(bbo.bid);
+        const auto ask = option.base.ticks_to_price(bbo.ask);
+        if (bid.is_undef() || ask.is_undef()) {
+            return out;
+        }
+        out.mid_usd = (as_double(bid) + as_double(ask)) / 2.0 * scale;
+        out.spread_usd = (as_double(ask) - as_double(bid)) * scale;
+        out.mid_iv = defined(options::implied_vol({.price = FixedE9::from_raw(bid.raw + (ask.raw - bid.raw) / 2),
+                                                   .forward = forward,
+                                                   .strike = key.strike,
+                                                   .years = options::years_between(now, key.expiry),
+                                                   .put_call = key.put_call,
+                                                   .unit = option.premium}));
     }
     return out;
 }
@@ -120,6 +142,7 @@ struct Bucket {
     std::size_t matched{0};
     std::vector<double> iv_diff;
     std::vector<double> iv_diff_core;
+    std::vector<double> mid_iv_diff;
     std::vector<double> mid_diff;
     std::vector<double> mark_diff;
     std::vector<double> spread_left;
@@ -151,9 +174,10 @@ int main(int argc, char** argv) {
                matched.size());
 
     std::map<std::tuple<std::string, std::uint64_t>, Bucket> buckets;
+    const auto now = wall_now();
     for (const auto& pair : matched) {
-        const auto a = quote_of(*left, pair.left);
-        const auto b = quote_of(*right, pair.right);
+        const auto a = quote_of(*left, pair.left, pair.key, now);
+        const auto b = quote_of(*right, pair.right, pair.key, now);
         auto& bucket = buckets[{std::string{pair.key.underlying.view()}, pair.key.expiry.ns}];
         ++bucket.matched;
         if (a.iv.has_value() && b.iv.has_value()) {
@@ -161,6 +185,9 @@ int main(int argc, char** argv) {
             if (a.delta.has_value() && std::abs(*a.delta) >= 0.2 && std::abs(*a.delta) <= 0.8) {
                 bucket.iv_diff_core.push_back((*b.iv - *a.iv) * 100.0);
             }
+        }
+        if (a.mid_iv.has_value() && b.mid_iv.has_value()) {
+            bucket.mid_iv_diff.push_back((*b.mid_iv - *a.mid_iv) * 100.0);
         }
         if (a.mark_usd.has_value() && b.mark_usd.has_value()) {
             bucket.mark_diff.push_back(*b.mark_usd - *a.mark_usd);
@@ -171,22 +198,23 @@ int main(int argc, char** argv) {
             bucket.spread_right.push_back(*b.spread_usd);
         }
         if (rows) {
-            fmt::print(
-                "{:<26} iv {:>7.2f} {:>7.2f}  mark {:>10.2f} {:>10.2f}  mid {:>10.2f} {:>10.2f}  spread {:>8.2f} "
-                "{:>8.2f}\n",
-                options::canonical_name(pair.key),
-                a.iv.value_or(0.0) * 100.0,
-                b.iv.value_or(0.0) * 100.0,
-                a.mark_usd.value_or(0.0),
-                b.mark_usd.value_or(0.0),
-                a.mid_usd.value_or(0.0),
-                b.mid_usd.value_or(0.0),
-                a.spread_usd.value_or(0.0),
-                b.spread_usd.value_or(0.0));
+            fmt::print("{:<26} iv {:>7.2f} {:>7.2f}  mid iv {:>7.2f} {:>7.2f}  mark {:>10.2f} {:>10.2f}  mid {:>10.2f} "
+                       "{:>10.2f}  spread {:>8.2f} {:>8.2f}\n",
+                       options::canonical_name(pair.key),
+                       a.iv.value_or(0.0) * 100.0,
+                       b.iv.value_or(0.0) * 100.0,
+                       a.mid_iv.value_or(0.0) * 100.0,
+                       b.mid_iv.value_or(0.0) * 100.0,
+                       a.mark_usd.value_or(0.0),
+                       b.mark_usd.value_or(0.0),
+                       a.mid_usd.value_or(0.0),
+                       b.mid_usd.value_or(0.0),
+                       a.spread_usd.value_or(0.0),
+                       b.spread_usd.value_or(0.0));
         }
     }
 
-    fmt::print("\n{:<6} {:<10} {:>7} {:>6} {:>10} {:>6} {:>10} {:>6} {:>11} {:>11} {:>10} {:>10}\n",
+    fmt::print("\n{:<6} {:<10} {:>7} {:>6} {:>10} {:>6} {:>10} {:>6} {:>10} {:>6} {:>11} {:>11} {:>10} {:>10}\n",
                "und",
                "expiry",
                "matched",
@@ -194,6 +222,8 @@ int main(int argc, char** argv) {
                "d iv vp",
                "core n",
                "d iv core",
+               "miv n",
+               "d mid iv",
                "mid n",
                "d mark usd",
                "d mid usd",
@@ -203,19 +233,23 @@ int main(int argc, char** argv) {
         const auto& [underlying, expiry] = key;
         const options::OptionKey day{.expiry = UnixNanos{expiry}};
         const auto name = options::canonical_name(day);
-        fmt::print("{:<6} {:<10} {:>7} {:>6} {:>10.2f} {:>6} {:>10.2f} {:>6} {:>11.2f} {:>11.2f} {:>10.2f} {:>10.2f}\n",
-                   underlying,
-                   name.substr(1, 8),
-                   bucket.matched,
-                   bucket.iv_diff.size(),
-                   median(bucket.iv_diff),
-                   bucket.iv_diff_core.size(),
-                   median(bucket.iv_diff_core),
-                   bucket.mid_diff.size(),
-                   median(bucket.mark_diff),
-                   median(bucket.mid_diff),
-                   median(bucket.spread_left),
-                   median(bucket.spread_right));
+        fmt::print(
+            "{:<6} {:<10} {:>7} {:>6} {:>10.2f} {:>6} {:>10.2f} {:>6} {:>10.2f} {:>6} {:>11.2f} {:>11.2f} {:>10.2f} "
+            "{:>10.2f}\n",
+            underlying,
+            name.substr(1, 8),
+            bucket.matched,
+            bucket.iv_diff.size(),
+            median(bucket.iv_diff),
+            bucket.iv_diff_core.size(),
+            median(bucket.iv_diff_core),
+            bucket.mid_iv_diff.size(),
+            median(bucket.mid_iv_diff),
+            bucket.mid_diff.size(),
+            median(bucket.mark_diff),
+            median(bucket.mid_diff),
+            median(bucket.spread_left),
+            median(bucket.spread_right));
     }
     return 0;
 }

@@ -11,7 +11,7 @@ const k_nav = [
   { to: '/settings', label: 'Settings' },
 ]
 
-export function SidebarNav() {
+export function SidebarNav({ hidden }: { hidden: ReadonlySet<string> }) {
   return (
     <aside className="flex w-40 shrink-0 flex-col">
       <div className="flex h-10 items-center px-4">
@@ -19,7 +19,7 @@ export function SidebarNav() {
       </div>
 
       <nav className="flex flex-1 flex-col overflow-y-auto py-1">
-        {k_nav.map(({ to, label, end }) => (
+        {k_nav.filter(({ to }) => !hidden.has(to)).map(({ to, label, end }) => (
           <NavLink
             key={to}
             to={to}

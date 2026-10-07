@@ -628,8 +628,8 @@ template <typename Record> struct Changed {
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    Session(tcp::socket socket, const Registry& registry, const Clock& clock)
-        : ws_{std::move(socket)}, registry_{&registry}, clock_{&clock}, epoch_{registry.epoch()} {}
+    Session(tcp::socket socket, const Registry& registry, const Clock& clock, const StreamTokens& tokens)
+        : ws_{std::move(socket)}, registry_{&registry}, clock_{&clock}, tokens_{&tokens}, epoch_{registry.epoch()} {}
 
     void run() {
         // read the upgrade request first; the path is part of the contract
@@ -695,8 +695,16 @@ private:
         }
         const auto& request = request_->get();
         const auto target = std::string_view{request.target()};
-        if (!websock::is_upgrade(request) || target.substr(0, target.find('?')) != k_path) {
+        const auto query = target.find('?');
+        if (!websock::is_upgrade(request) || target.substr(0, query) != k_path) {
             close();
+            return;
+        }
+        const auto token = query == std::string_view::npos
+                               ? std::string_view{}
+                               : raikiri::http::query_param(target.substr(query + 1), "token");
+        if (tokens_->check(token, clock_->wall()) != TokenCheck::Valid) {
+            refuse(request.version());
             return;
         }
         ws_.read_message_max(k_max_message_bytes);
@@ -710,6 +718,16 @@ private:
             self->open_ = true;
             self->read();
         });
+    }
+
+    void refuse(unsigned version) {
+        refusal_ = std::make_unique<http::response<http::string_body>>(http::status::unauthorized, version);
+        refusal_->set(http::field::content_type, "text/plain");
+        refusal_->keep_alive(false);
+        refusal_->body() = "a stream token from /v1/stream/token is required\n";
+        refusal_->prepare_payload();
+        auto self = shared_from_this();
+        http::async_write(ws_.next_layer(), *refusal_, [self](beast::error_code, std::size_t) { self->close(); });
     }
 
     void read() {
@@ -1194,8 +1212,10 @@ private:
     websock::stream<beast::tcp_stream> ws_;
     beast::flat_buffer buffer_;
     std::unique_ptr<http::request_parser<http::empty_body>> request_;
+    std::unique_ptr<http::response<http::string_body>> refusal_;
     const Registry* registry_;
     const Clock* clock_;
+    const StreamTokens* tokens_;
     // the registry epoch the targets were resolved against
     std::uint64_t epoch_{0};
     std::vector<FeedState> feeds_;
@@ -1209,15 +1229,16 @@ private:
 } // namespace
 
 struct Stream::Impl {
-    Impl(void* shared, const Registry& reg, const Clock& clk, std::string addr, std::uint16_t p)
+    Impl(
+        void* shared, const Registry& reg, const Clock& clk, const StreamTokens& tok, std::string addr, std::uint16_t p)
         : owned{shared == nullptr ? std::make_unique<asio::io_context>(1) : nullptr},
           ioc{shared == nullptr ? *owned : *static_cast<asio::io_context*>(shared)}, registry{reg}, clock{clk},
-          address{std::move(addr)}, port{p}, acceptor{ioc} {}
+          tokens{tok}, address{std::move(addr)}, port{p}, acceptor{ioc} {}
 
     void accept() {
         acceptor.async_accept([this](beast::error_code ec, tcp::socket socket) {
             if (!ec) {
-                auto session = std::make_shared<Session>(std::move(socket), registry, clock);
+                auto session = std::make_shared<Session>(std::move(socket), registry, clock, tokens);
                 sessions.push_back(session);
                 session->run();
             }
@@ -1231,6 +1252,7 @@ struct Stream::Impl {
     asio::io_context& ioc;
     const Registry& registry;
     const Clock& clock;
+    const StreamTokens& tokens;
     std::string address;
     std::uint16_t port;
     tcp::acceptor acceptor;
@@ -1238,12 +1260,17 @@ struct Stream::Impl {
     bool running{false};
 };
 
-Stream::Stream(const Registry& registry, const Clock& clock, std::string address, std::uint16_t port)
-    : impl_{std::make_unique<Impl>(nullptr, registry, clock, std::move(address), port)} {}
-
 Stream::Stream(
-    net::IoContext& io, const Registry& registry, const Clock& clock, std::string address, std::uint16_t port)
-    : impl_{std::make_unique<Impl>(io.native(), registry, clock, std::move(address), port)} {}
+    const Registry& registry, const Clock& clock, const StreamTokens& tokens, std::string address, std::uint16_t port)
+    : impl_{std::make_unique<Impl>(nullptr, registry, clock, tokens, std::move(address), port)} {}
+
+Stream::Stream(net::IoContext& io,
+               const Registry& registry,
+               const Clock& clock,
+               const StreamTokens& tokens,
+               std::string address,
+               std::uint16_t port)
+    : impl_{std::make_unique<Impl>(io.native(), registry, clock, tokens, std::move(address), port)} {}
 
 Stream::~Stream() = default;
 

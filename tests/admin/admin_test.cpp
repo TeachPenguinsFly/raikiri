@@ -1,3 +1,4 @@
+#include <raikiri/admin/desk.hpp>
 #include <raikiri/admin/format.hpp>
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/routes.hpp>
@@ -233,6 +234,7 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
 
     ASSERT_EQ(registry.discover(segment_dir(), 1), 1U) << "one account, not two";
     EXPECT_EQ(registry.find("sim"), attached) << "the Gateway keeps its address (registry.hpp)";
+    EXPECT_TRUE(attached->lease.has_value()) << "the restart keeps the desk's lease";
     EXPECT_EQ(attached->client.generation(), k_second_run);
     EXPECT_GT(registry.epoch(), epoch) << "every pointer into the old mapping is stale";
 
@@ -244,6 +246,32 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     const auto instruments = registry.instruments("sim", std::nullopt);
     ASSERT_EQ(instruments.size(), 1U);
     EXPECT_EQ(instruments.front().exchange_symbol, "BBB");
+}
+
+TEST(AdminDeskLease, ASecondAdmindIsRefusedTheIntentRingRatherThanSharingIt) {
+    const SegmentDir dir;
+    const auto run = start_gateway(1'000, {"AAA"});
+    ASSERT_TRUE(run.has_value());
+
+    std::optional<Registry> first{std::in_place};
+    ASSERT_EQ(first->discover(segment_dir(), 1), 1U);
+    EXPECT_TRUE(first->find("sim")->lease.has_value());
+
+    Registry second;
+    ASSERT_EQ(second.discover(segment_dir(), 1), 1U) << "still reads the gateway";
+    EXPECT_FALSE(second.find("sim")->lease.has_value());
+
+    ManualDesk desk{second};
+    const DeskOrder order{
+        .instrument = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0}), .price = "1.00", .qty = "0.001"};
+    const auto refused = desk.place(order, "", UnixNanos{1});
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error(), DeskError::RingHeld);
+
+    first.reset();
+    ASSERT_EQ(second.discover(segment_dir(), 1), 1U);
+    EXPECT_TRUE(second.find("sim")->lease.has_value()) << "taken up once the first admind is gone";
+    EXPECT_TRUE(desk.place(order, "", UnixNanos{2}).has_value());
 }
 
 TEST(AdminReattach, AStoppedGatewayIsLetGoOnceItsFileIsGone) {

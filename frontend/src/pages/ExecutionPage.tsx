@@ -39,6 +39,22 @@ export function ExecutionPage() {
   const detail = useQuery(chosen === null ? null : () => joe.parent(chosen), [chosen, tick], k_refresh_ms)
   const refresh = () => setTick((t) => t + 1)
 
+  // 503 is admind saying strategyd is absent or silent, not a failed request
+  if (parents.state === 'failed' && parents.status === 503) {
+    return (
+      <div className="flex h-full min-h-0 flex-col p-2 pt-0">
+        <section className="panel flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+          <span className="text-sm text-fg">Execution is not running</span>
+          <span className="max-w-[48ch] text-xs leading-relaxed text-fg-dim">
+            Parent orders are worked by strategyd, which places them through gateways started with API
+            keys. Run it and start admind with{' '}
+            <span className="num text-fg-mid">--upstream strategyd=&lt;port&gt;</span>.
+          </span>
+        </section>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-2 pt-0">
       <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch gap-2 xl:grid-cols-[minmax(0,1fr)_320px]">

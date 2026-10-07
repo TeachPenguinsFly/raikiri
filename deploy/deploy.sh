@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# deploy/deploy.sh raikiri@1.2.3.4
-# HOST=raikiri@1.2.3.4 deploy/deploy.sh
+# deploy/deploy.sh user@203.0.113.10
+# HOST=user@203.0.113.10 deploy/deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

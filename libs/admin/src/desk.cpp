@@ -31,6 +31,8 @@ std::string_view describe(DeskError error) noexcept {
         return "a limit order needs a price";
     case DeskError::RingFull:
         return "the intent ring is full: strategyd is not draining";
+    case DeskError::RingHeld:
+        return "another admind writes this gateway's intents";
     }
     return "refused";
 }
@@ -61,6 +63,9 @@ std::expected<ClientOrderId, DeskError> ManualDesk::place(const DeskOrder& order
     }
     if (row->gateway == nullptr || row->gateway->channels.order_intents == nullptr) {
         return std::unexpected{DeskError::GatewayGone};
+    }
+    if (!row->gateway->lease.has_value()) {
+        return std::unexpected{DeskError::RingHeld};
     }
     const auto& base = base_of(*row->instrument);
 
@@ -133,16 +138,21 @@ std::expected<void, DeskError> ManualDesk::cancel(ClientOrderId id, UnixNanos no
     cmd.ts_created = now;
 
     bool queued = false;
+    bool held_elsewhere = false;
     for (std::size_t i = 0; i < registry_->size(); ++i) {
         const auto* gw = registry_->at(i);
         if (gw == nullptr || gw->channels.order_intents == nullptr) {
+            continue;
+        }
+        if (!gw->lease.has_value()) {
+            held_elsewhere = true;
             continue;
         }
         shm::CmdProducer producer{gw->channels.order_intents};
         queued = producer.try_push(cmd).has_value() || queued;
     }
     if (!queued) {
-        return std::unexpected{DeskError::RingFull};
+        return std::unexpected{held_elsewhere ? DeskError::RingHeld : DeskError::RingFull};
     }
     return {};
 }

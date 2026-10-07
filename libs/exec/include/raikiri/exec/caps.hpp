@@ -50,7 +50,7 @@ struct VenueCaps {
     MarketSet manual_only{};
 
     bool ws_order_entry{false};  // the adapter sends orders over the venue ws trade api, rest while it is down
-    bool fix_order_entry{false}; // FIX offered at any access tier
+    bool fix_order_entry{false}; // the adapter sends orders over a fix session
     bool cancel_by_client_order_id{false};
     bool batch_cancel{false};
     bool amend_order{false};      // native modify (vs cancel+replace)

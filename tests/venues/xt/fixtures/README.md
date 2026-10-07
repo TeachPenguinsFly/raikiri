@@ -24,7 +24,7 @@ straight to a file. Frames are uncompressed UTF-8 JSON.
 | `rest_error_invalid_param.json` | `GET /future/market/v1/public/q/depth?symbol=btc_usdt&level=abc` |
 | `rest_symbol_list.json` | `GET /future/market/v1/public/symbol/list`, edited: five rows (`btc_usdt`, `eth_usdt`, `ftt_usdt`, `dia_usdt`, `btc_usdt_261225`) kept untouched and the envelope rebuilt |
 | `rest_symbol_list_twlo.json` | the same call on 2026-09-26, sliced verbatim to `twlo_usdt` |
-| `rest_futures_bills.json` | signed `GET /future/user/v1/balance/bills` on a live account: four rows (a FUND received, a FUND paid, a FEE, a CLOSE_POSITION) chosen from a 100-row capture, `accountId` replaced with a placeholder |
+| `rest_futures_bills.json` | signed `GET /future/user/v1/balance/bills` on a live account: four rows (a FUND received, a FUND paid, a FEE, a CLOSE_POSITION) chosen from a 100-row capture, with `accountId`, the row ids and `afterAmount` replaced by placeholders |
 
 ## Futures WebSocket
 

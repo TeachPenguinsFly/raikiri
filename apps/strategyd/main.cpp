@@ -26,6 +26,7 @@
 #include <raikiri/portfolio/reconcile.hpp>
 #include <raikiri/portfolio/target.hpp>
 #include <raikiri/schema/codec.hpp>
+#include <raikiri/shm/lease.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/strategies/register.hpp>
 #include <raikiri/strategy/control.hpp>
@@ -80,6 +81,8 @@ struct Gateway {
     AccountId account{};
     std::string name;
     shm::SegmentClient client;
+    // sole producer of cmd_create and cmd_cancel, sole consumer of order_intents
+    shm::WriterLease lease;
     shm::GatewayChannels ch{};
     shm::ExecReader exec;
     shm::LedgerEntryReader charges;
@@ -94,9 +97,13 @@ struct Gateway {
     // one kernel gate per gateway so a break on one does not stop another
     oms::KernelGate kernel;
 
-    Gateway(AccountId id, std::string display, shm::SegmentClient attached, shm::GatewayChannels channels)
-        : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels}, exec{channels.exec_events},
-          charges{channels.funding_charges}, fills{channels.fills}, md{channels.md_events},
+    Gateway(AccountId id,
+            std::string display,
+            shm::SegmentClient attached,
+            shm::WriterLease held,
+            shm::GatewayChannels channels)
+        : account{id}, name{std::move(display)}, client{std::move(attached)}, lease{std::move(held)}, ch{channels},
+          exec{channels.exec_events}, charges{channels.funding_charges}, fills{channels.fills}, md{channels.md_events},
           creates{channels.cmd_create}, cancels{channels.cmd_cancel}, intents{channels.order_intents},
           bbo_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_bbo_cells)),
           funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
@@ -1009,8 +1016,18 @@ int main(int argc, char** argv) {
             RLOG_ERROR("strategyd: channel open failed on {} ({})", seg_path, static_cast<int>(channels.error()));
             return 1;
         }
-        (void)client->register_reader(::getpid());
-        gateways.emplace_back(account, name, std::move(*client), *channels);
+        auto lease = shm::WriterLease::claim(seg_path, shm::LeaseRole::Strategy);
+        if (!lease.has_value()) {
+            RLOG_ERROR("strategyd: the command rings of {} are {} (pid {}); one strategyd per account",
+                       seg_path,
+                       shm::to_string(lease.error().error),
+                       lease.error().holder_pid);
+            return 1;
+        }
+        if (!client->register_reader(::getpid(), "strategyd").has_value()) {
+            RLOG_WARN("strategyd: {} has no free reader slot; reading unlisted", seg_path);
+        }
+        gateways.emplace_back(account, name, std::move(*client), std::move(*lease), *channels);
     }
 
     const char* data_dir_env = std::getenv("RAIKIRI_DATA_DIR");

@@ -1,11 +1,13 @@
-// admind: read-only http and websocket view of a running deployment; binds loopback, no auth
+// admind: http and websocket view of a running deployment; binds loopback, and only the stream checks a token
 
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/routes.hpp>
 #include <raikiri/admin/stream.hpp>
+#include <raikiri/admin/stream_token.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
+#include <raikiri/config/secret.hpp>
 #include <raikiri/http/server.hpp>
 #include <raikiri/introspect/files.hpp>
 #include <raikiri/introspect/routes.hpp>
@@ -22,6 +24,7 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -38,6 +41,7 @@ void on_signal(int) {
 constexpr std::string_view k_usage = R"(usage: admind [--address 127.0.0.1] [--port 8787] [--stream-port 8788]
               [--upstream <name>=<port>]...
               [--dsn <postgres-dsn>]
+              [--stream-secret env:NAME|file:PATH|exec:CMD]
 )";
 
 int main(int argc, char** argv) {
@@ -56,6 +60,7 @@ int main(int argc, char** argv) {
     std::map<std::string, std::uint16_t> upstreams;
     std::uint16_t stream_port = 0;
     std::string dsn;
+    std::string stream_secret_ref;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--address" && i + 1 < argc) {
@@ -72,6 +77,8 @@ int main(int argc, char** argv) {
             stream_port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (arg == "--dsn" && i + 1 < argc) {
             dsn = argv[++i];
+        } else if (arg == "--stream-secret" && i + 1 < argc) {
+            stream_secret_ref = argv[++i];
         }
     }
     if (stream_port == 0) {
@@ -85,10 +92,53 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 
+    auto stream_tokens = std::make_unique<admin::StreamTokens>();
+    if (stream_secret_ref.empty()) {
+        if (!stream_tokens->randomize()) {
+            RLOG_ERROR("admind: cannot draw a random stream secret");
+            return 1;
+        }
+        RLOG_INFO("admind: stream tokens signed with a per-process secret");
+    } else {
+        const auto ref = config::SecretRef::parse(stream_secret_ref);
+        if (!ref.has_value() || config::is_plaintext(ref->scheme)) {
+            RLOG_ERROR("admind: --stream-secret takes an env:, file: or exec: reference, not a value");
+            return 2;
+        }
+        config::DefaultSecretProvider provider;
+        if (const auto resolved = provider.resolve(*ref, stream_tokens->secret());
+            !resolved.has_value() || stream_tokens->secret().size() < 16) {
+            RLOG_ERROR("admind: stream secret from {} unusable ({})",
+                       config::to_string(ref->scheme),
+                       resolved.has_value() ? "shorter than 16 bytes" : config::to_string(resolved.error()));
+            return 2;
+        }
+        RLOG_INFO("admind: stream secret from {}", config::to_string(ref->scheme));
+    }
+
     const LiveClock clock;
     admin::Registry registry;
     const auto shm_dir = platform::runtime_dir() + "/shm";
+    std::set<std::string> warned;
+    // a second admind on the same gateways must not write order_intents beside the first
+    const auto warn_refused = [&registry, &warned] {
+        for (std::size_t i = 0; i < registry.size(); ++i) {
+            const auto* gw = registry.at(i);
+            if (gw == nullptr || warned.contains(gw->name)) {
+                continue;
+            }
+            if (!gw->lease.has_value()) {
+                RLOG_WARN("admind: another process produces order_intents on {}; manual orders there are refused",
+                          gw->name);
+                warned.insert(gw->name);
+            } else if (!gw->client.reader_listed()) {
+                RLOG_WARN("admind: {} has no free reader slot; reading unlisted", gw->name);
+                warned.insert(gw->name);
+            }
+        }
+    };
     auto attached = registry.discover(shm_dir, ::getpid());
+    warn_refused();
     if (attached == 0) {
         RLOG_INFO("admind: no gateway segments under {} yet", shm_dir);
     }
@@ -128,6 +178,7 @@ int main(int argc, char** argv) {
     const introspect::GetGatewayStats gateway_stats{stats_source, wall_ns};
     const introspect::CacheRoutes cache{machine_stats, gateway_stats};
     const introspect::MetricsRoute metrics{machine_stats};
+    const admin::StreamTokenRoute token_route{*stream_tokens, [&clock] { return clock.wall(); }};
 
     net::IoContext io;
     http::Server server{io,
@@ -135,6 +186,7 @@ int main(int argc, char** argv) {
                         port,
                         [cache,
                          metrics,
+                         token_route,
                          routes = admin::make_router(
                              registry,
                              history.get(),
@@ -148,6 +200,9 @@ int main(int argc, char** argv) {
                             if (auto answer = metrics(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
+                            if (auto answer = token_route(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
                             return routes(req);
                         }};
     if (!server.start()) {
@@ -156,7 +211,7 @@ int main(int argc, char** argv) {
     }
     RLOG_INFO("admind: listening on http://{}:{}", address, server.port());
 
-    admin::Stream stream{io, registry, clock, address, stream_port};
+    admin::Stream stream{io, registry, clock, *stream_tokens, address, stream_port};
     if (!stream.start()) {
         RLOG_ERROR("admind: cannot bind stream on {}:{}", address, stream_port);
         return 1;
@@ -170,7 +225,9 @@ int main(int argc, char** argv) {
     while (!g_stop.load(std::memory_order_relaxed)) {
         if (const auto mono = clock.mono().ns; mono >= rescan_due) {
             rescan_due = mono + k_rescan_ns;
-            if (const auto found = registry.discover(shm_dir, ::getpid()); found > attached) {
+            const auto found = registry.discover(shm_dir, ::getpid());
+            warn_refused();
+            if (found > attached) {
                 for (const auto& account : registry.accounts(clock.mono(), clock.wall())) {
                     RLOG_INFO("admind: attached to {} — {} instruments", account.account, account.gateway.instruments);
                 }

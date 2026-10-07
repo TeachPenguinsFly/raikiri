@@ -8,6 +8,8 @@
 
 #include <cstdint>
 #include <expected>
+#include <span>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -54,6 +56,20 @@ private:
 // Reads a JSON string as a view over the caller's buffer; JSON null reads as
 // empty.
 [[nodiscard]] std::expected<std::string_view, Error> str_of(ondemand::value value, const Session& s = session());
+
+// json escapes decoded to utf-8 in out, which never needs more bytes than the input;
+// a bad escape reads as NotJson and a short out as TooManyEntries
+[[nodiscard]] std::expected<std::string_view, Error> unescape(std::string_view escaped, std::span<char> out) noexcept;
+
+// str_of with its escapes decoded; the result views out
+[[nodiscard]] std::expected<std::string_view, Error>
+str_into(ondemand::value value, std::span<char> out, const Session& s = session());
+
+// a json document sent as a string; it reopens s, so read the outer fields first, and views live in storage
+[[nodiscard]] std::expected<ondemand::object, Error>
+open_nested_object(ondemand::value value, std::string& storage, Session& s = session());
+[[nodiscard]] std::expected<ondemand::array, Error>
+open_nested_array(ondemand::value value, std::string& storage, Session& s = session());
 
 // The token as written, trimmed, whatever its type.
 [[nodiscard]] std::expected<std::string_view, Error> raw_of(ondemand::value value, const Session& s = session());

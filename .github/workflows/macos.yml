@@ -26,7 +26,8 @@ jobs:
   # macos differs in shm backing, preallocate and thread pinning
   macos:
     name: apple-clang / dev-asan
-    runs-on: macos-14
+    # macos-14's newest xcode is 16.2, whose clang 16 crashes compiling tests/strategy/registry_test.cpp
+    runs-on: macos-15
     timeout-minutes: 90
 
     steps:

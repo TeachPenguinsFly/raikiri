@@ -87,9 +87,17 @@ struct DatabaseHealth {
     std::optional<double> lag_seconds;
 };
 
+// an upstream admind forwards to; any http answer counts as answering
+struct UpstreamHealth {
+    std::string name{};
+    bool answering{false};
+};
+
+// `upstreams` is filled on GET /v1/health only, never on the stream's health feed
 struct Health {
     std::vector<Account> gateways;
     DatabaseHealth database;
+    std::optional<std::vector<UpstreamHealth>> upstreams{};
 };
 
 struct Instrument {

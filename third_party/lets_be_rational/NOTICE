@@ -1,0 +1,17 @@
+Let's Be Rational, by Peter Jäckel, revision 1.0.0.1520 (2024-02-09), taken unchanged from
+www.jaeckel.org/LetsBeRational.7z, except that dllmain.h is reduced to the export macro and
+normaldistribution.cpp spells one function name with "_half" for "½", which C++ does not accept
+in an identifier.
+
+Copyright © 2013-2024 Peter Jäckel.
+
+Permission to use, copy, modify, and distribute this software is freely granted,
+provided that this notice is preserved.
+
+WARRANTY DISCLAIMER
+The Software is provided "as is" without warranty of any kind, either express or implied,
+including without limitation any implied warranties of condition, uninterrupted use,
+merchantability, fitness for a particular purpose, or non-infringement.
+
+erf_cody.cpp is W. J. Cody's erf, erfc and erfcx from netlib specfun (www.netlib.org/specfun/erf),
+put through f2c and adapted by hand in the same distribution.

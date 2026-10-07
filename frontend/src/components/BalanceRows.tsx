@@ -43,8 +43,8 @@ export function BalanceRows({ accounts }: { accounts: AccountBalances[] }) {
   if (reported.length === 0) {
     return (
       <EmptyState
-        title="No venue has answered with a balance"
-        hint={`${accounts.length} accounts attached`}
+        title="No balances yet"
+        hint={`a gateway reports its wallets once it runs with an API key; ${accounts.length} accounts attached on public data`}
       />
     )
   }

@@ -2,7 +2,7 @@
 """Regenerate the venue table in README.md from the caps table in libs/exec/src/caps.cpp.
 
     scripts/venue_table.py            # print the table
-    scripts/venue_table.py --write    # splice it into README.md
+    scripts/venue_table.py --write    # splice it into README.md and refresh the counts quoted elsewhere
 
 Custody is the one column the caps table does not hold, so it lives in CUSTODY below,
 and a venue missing from that map stops the run instead of being guessed.
@@ -15,6 +15,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CAPS = ROOT / "libs/exec/src/caps.cpp"
 README = ROOT / "README.md"
+DOCS = ROOT / "docs/README.md"
+TESTS = ROOT / "tests"
 # the terminal's marks, one file per venue named after it
 ICONS = ROOT / "frontend/src/assets/exchanges"
 
@@ -145,6 +147,39 @@ def table():
     return "\n".join(lines)
 
 
+def test_count():
+    pattern = re.compile(r"^\s*TEST(_F|_P)?\(", re.M)
+    return sum(len(pattern.findall(f.read_text(encoding="utf-8"))) for f in TESTS.rglob("*.cpp"))
+
+
+# each count is quoted in prose too; a pattern that stops matching fails the run rather than going stale
+def refresh_counts(all_rows):
+    venues = len(all_rows)
+    trading = sum(1 for r in all_rows if r["trades"])
+    tests = test_count() // 100 * 100
+    edits = {
+        README: [
+            (r"badge/venues-\d+%20live", f"badge/venues-{venues}%20live"),
+            (r"badge/tests-\d+\+?(%2B)?-", f"badge/tests-{tests}%2B-"),
+        ],
+        DOCS: [
+            (r'"\d+ venues<br/>', f'"{venues} venues<br/>'),
+            (
+                r"market data on all \d+ venues in the table, REST order entry on the \d+ it",
+                f"market data on all {venues} venues in the table, REST order entry on the {trading} it",
+            ),
+        ],
+    }
+    for path, subs in edits.items():
+        text = path.read_text(encoding="utf-8")
+        for pattern, replacement in subs:
+            text, n = re.subn(pattern, replacement, text)
+            if n == 0:
+                sys.exit(f"{path.relative_to(ROOT)}: nothing matches {pattern}")
+        path.write_text(text, encoding="utf-8")
+    return venues, trading, tests
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--write", action="store_true", help="splice into README.md")
@@ -159,7 +194,8 @@ def main():
     head, rest = text.split(BEGIN, 1)
     _, tail = rest.split(END, 1)
     README.write_text(f"{head}{BEGIN}\n{rendered}\n{END}{tail}", encoding="utf-8")
-    print(f"README.md: {len(rows())} venues written")
+    venues, trading, tests = refresh_counts(rows())
+    print(f"README.md: {venues} venues written, {trading} with order entry, tests badge {tests}+")
 
 
 if __name__ == "__main__":

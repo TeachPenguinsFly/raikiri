@@ -15,4 +15,10 @@ and their shapes follow from a requirement those techniques were not written
 for: living inside a memory segment that two processes map at once.
 
 Third-party code is used through the dependencies declared in conanfile.py,
-each under its own licence.
+each under its own licence, with one exception: the implied volatility in
+libs/options comes from Peter Jäckel's "Let's Be Rational", vendored in
+third_party/lets_be_rational under the permissive notice kept in its NOTICE
+file, which is compatible with the LGPL.
+
+The exchange logos in frontend/src/assets/exchanges belong to their owners and
+are shown only to name each venue.

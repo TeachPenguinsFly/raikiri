@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -49,9 +50,11 @@ void walk(ondemand::value& value, int depth) {
         }
         return;
     }
-    case ondemand::json_type::string:
-        (void)str_of(value);
+    case ondemand::json_type::string: {
+        std::array<char, 64> out{};
+        (void)str_into(value, out);
         return;
+    }
     case ondemand::json_type::number:
         (void)u64_of(value);
         return;

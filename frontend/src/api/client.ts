@@ -78,6 +78,8 @@ export const joe = {
 
 export const api = {
   health: () => get<Schema<'Health'>>('/v1/health'),
+  /** checked once, at the upgrade, so each connect takes a fresh one */
+  streamToken: () => get<Schema<'StreamToken'>>('/v1/stream/token'),
   accounts: () => get<Schema<'Account'>[]>('/v1/accounts'),
   upstreamIndex: (name: string) => get<Schema<'UpstreamIndex'>>(`/v1/x/${name}/`),
   upstreamTable: (name: string, path: string, params: Record<string, string | undefined> = {}) =>

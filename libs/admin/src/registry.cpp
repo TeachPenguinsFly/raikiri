@@ -56,6 +56,15 @@ Instrument describe(const raikiri::Instrument& instrument, std::string_view acco
     return out;
 }
 
+namespace {
+
+std::optional<shm::WriterLease> claim_desk(const std::string& path) {
+    auto lease = shm::WriterLease::claim(path, shm::LeaseRole::Desk);
+    return lease.has_value() ? std::optional{std::move(*lease)} : std::nullopt;
+}
+
+} // namespace
+
 std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_pid) {
     std::error_code ec;
     std::filesystem::directory_iterator it{shm_dir, ec};
@@ -88,6 +97,9 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
         }
         // same file and generation is the same run; a new file or generation is a restarted gateway
         if (held != nullptr && held->file_id == file_id && held->client.generation() == client->generation()) {
+            if (!held->lease.has_value()) {
+                held->lease = claim_desk(path);
+            }
             continue;
         }
         auto channels = shm::open_gateway_channels(*client);
@@ -95,12 +107,15 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
             // the file exists before the channels are published; a later rescan catches it
             continue;
         }
-        (void)client->register_reader(reader_pid);
+        (void)client->register_reader(reader_pid, "admind");
+        // a restart keeps the lease: a fresh claim would collide with the one this process holds
+        auto lease = held != nullptr && held->lease.has_value() ? std::move(held->lease) : claim_desk(path);
         Gateway fresh{.account = account,
                       .name = account_name,
                       .client = std::move(*client),
                       .channels = *channels,
-                      .file_id = file_id};
+                      .file_id = file_id,
+                      .lease = std::move(lease)};
         if (held != nullptr) {
             // in place so the gateway keeps its address; pointers into the old mapping now dangle, hence the epoch
             *held = std::move(fresh);

@@ -102,11 +102,14 @@ def test_every_order_reaches_a_terminal_state_on_the_stream(stack, sim_instrumen
     host, port = stack.api.removeprefix("http://").split(":")
     stream_port = _stream_port(stack)
 
+    code, issued = stack.get("/v1/stream/token")
+    assert code == 200, issued
+
     sock = socket.create_connection((host, stream_port), timeout=10)
     key = base64.b64encode(os.urandom(16)).decode()
     sock.send(
         (
-            f"GET /v1/stream HTTP/1.1\r\nHost: {host}:{stream_port}\r\nUpgrade: websocket\r\n"
+            f"GET /v1/stream?token={issued['token']} HTTP/1.1\r\nHost: {host}:{stream_port}\r\nUpgrade: websocket\r\n"
             f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
             f"Sec-WebSocket-Version: 13\r\n\r\n"
         ).encode()

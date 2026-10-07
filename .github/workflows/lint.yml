@@ -120,10 +120,10 @@ jobs:
           # a touched header pulls in its library's sources; header-only libs are not covered
           {
             grep -E '\.cpp$' changed.txt || true
-            grep -E '^libs/[^/]+/include/.*\.hpp$' changed.txt | \
+            # grep exits 1 when nothing matches, which fails the pipeline under pipefail
+            { grep -E '^libs/[^/]+/include/.*\.hpp$' changed.txt || true; } | \
               sed -E 's|^(libs/[^/]+)/include/.*|\1/src|' | sort -u | \
               while read -r dir; do ls "$dir"/*.cpp 2>/dev/null || true; done
-          # grep -v exits 1 on empty input, which fails under pipefail
           } | { grep -vE '^fuzz/' || true; } | sort -u > tidy-files.txt
 
           echo "count=$(wc -l < tidy-files.txt)" >> "$GITHUB_OUTPUT"

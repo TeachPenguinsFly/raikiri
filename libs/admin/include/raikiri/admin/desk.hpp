@@ -24,6 +24,7 @@ enum class DeskError : std::uint8_t {
     PriceOnMarket, // a market order carrying a price means two things
     MissingPrice,  // a limit order without one means none
     RingFull,      // strategyd is not draining
+    RingHeld,      // another process produces this gateway's order_intents
 };
 
 [[nodiscard]] std::string_view describe(DeskError error) noexcept;

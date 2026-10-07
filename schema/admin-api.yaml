@@ -729,12 +729,29 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/ReconBreak" }
 
+  /v1/stream/token:
+    get:
+      tags: [live]
+      summary: A short-lived token for the stream upgrade
+      description: |
+        Browsers send no basic auth on a WebSocket upgrade, so the stream takes this
+        token instead. It lives for 60 seconds and is checked only at the upgrade.
+      operationId: issueStreamToken
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StreamToken" }
+
   /v1/stream:
     get:
       tags: [live]
       summary: Everything live, over one WebSocket
       description: |
-        A WebSocket upgrade. Every message shape is a schema below.
+        A WebSocket upgrade, refused with 401 unless `token` is one that
+        `GET /v1/stream/token` issued and has not expired. Every message shape is a
+        schema below.
 
         ## State and events
 
@@ -772,9 +789,16 @@ paths:
         another rate; the ack states what the server will do, capped at its own
         sampling rate.
       operationId: openStream
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
       responses:
         "101":
           description: Switching protocols
+        "401":
+          description: The token is missing, malformed, forged or expired
 
 components:
   parameters:
@@ -1302,6 +1326,33 @@ components:
               description: |
                 How far persisterd is behind the journals it tails. Null when unknown,
                 which differs from zero.
+        upstreams:
+          type: array
+          description: |
+            Every service admind forwards to, by the name given to `--upstream`. An
+            unconfigured one is absent. Present on `GET /v1/health` only, not on the
+            stream's health frames.
+          items: { $ref: "#/components/schemas/UpstreamHealth" }
+
+    UpstreamHealth:
+      type: object
+      required: [name, answering]
+      properties:
+        name: { type: string, examples: ["boards", "strategyd"] }
+        answering:
+          type: boolean
+          description: |
+            It gave any HTTP answer within 250 ms of this request.
+
+    StreamToken:
+      type: object
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+          description: |
+            Opaque; pass it as `?token=` on the `/v1/stream` upgrade before it expires.
+        expires_at: { $ref: "#/components/schemas/Nanos" }
 
     Listing:
       type: object

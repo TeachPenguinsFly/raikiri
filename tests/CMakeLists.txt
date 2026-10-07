@@ -38,9 +38,10 @@ raikiri_add_test(secret_test SRCS config/secret_test.cpp LIBS raikiri::config)
 
 raikiri_add_test(json_writer_test SRCS net/json_writer_test.cpp LIBS raikiri::net)
 raikiri_add_test(protobuf_test SRCS wire/protobuf_test.cpp LIBS raikiri::wire)
+raikiri_add_test(unescape_test SRCS wire/unescape_test.cpp LIBS raikiri::wire raikiri::wire_malformed)
 
-set(malformed_srcs wire/malformed/harness.cpp wire/malformed/wire.cpp)
-set(malformed_libs raikiri::wire)
+set(malformed_srcs wire/malformed/wire.cpp)
+set(malformed_libs raikiri::wire raikiri::wire_malformed)
 foreach(venue IN ITEMS apex aster backpack binance bingx bitfinex bitget blofin bybit coinbase
     cryptocom deribit dydx edgex extended gate grvt htx hyperliquid kraken kucoin lighter mexc
     lbank okx pacifica phemex weex xt bitunix toobit derive arcus ostium paradex vest bullish
@@ -77,6 +78,7 @@ raikiri_add_test(xt_venue_test SRCS venues/xt/venue_test.cpp LIBS raikiri::venue
 raikiri_add_test(mexc_venue_test SRCS venues/mexc/venue_test.cpp LIBS raikiri::venue_mexc raikiri::exec)
 raikiri_add_test(deribit_venue_test SRCS venues/deribit/venue_test.cpp LIBS raikiri::venue_deribit raikiri::exec)
 raikiri_add_test(options_test SRCS options/options_test.cpp LIBS raikiri::options)
+raikiri_add_test(pricing_test SRCS options/pricing_test.cpp LIBS raikiri::options raikiri::lets_be_rational)
 raikiri_add_test(hyperliquid_venue_test SRCS venues/hyperliquid/venue_test.cpp LIBS raikiri::venue_hyperliquid raikiri::exec)
 raikiri_add_test(hyperliquid_post_test SRCS venues/hyperliquid/post_test.cpp LIBS raikiri::venue_hyperliquid raikiri::net)
 target_compile_definitions(hyperliquid_post_test PRIVATE
@@ -209,6 +211,7 @@ raikiri_add_test(spsc_ring_test SRCS shm/spsc_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(seqlock_test SRCS shm/seqlock_test.cpp LIBS raikiri::shm)
 raikiri_add_test(broadcast_ring_test SRCS shm/broadcast_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(segment_test SRCS shm/segment_test.cpp LIBS raikiri::shm)
+raikiri_add_test(lease_test SRCS shm/lease_test.cpp LIBS raikiri::shm)
 raikiri_add_test(balances_test SRCS shm/balances_test.cpp LIBS raikiri::shm)
 raikiri_add_test(positions_test SRCS shm/positions_test.cpp LIBS raikiri::shm)
 raikiri_add_test(catalogue_test SRCS shm/catalogue_test.cpp LIBS raikiri::shm)
@@ -218,6 +221,7 @@ raikiri_add_test(sim_engine_test SRCS simcore/engine_test.cpp LIBS raikiri::simc
 
 raikiri_add_test(history_test POSTGRES SRCS admin/history_test.cpp LIBS raikiri::admin raikiri::persist raikiri::schema glaze::glaze libpqxx::pqxx)
 raikiri_add_test(admin_stream_test SRCS admin/stream_test.cpp LIBS raikiri::admin)
+raikiri_add_test(admin_stream_token_test SRCS admin/stream_token_test.cpp LIBS raikiri::admin Boost::headers)
 
 add_test(NAME apps_help
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh

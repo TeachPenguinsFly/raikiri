@@ -846,7 +846,7 @@ TEST(XtLedger, TheAmountIsTakenVerbatimBecauseXtAlreadySignedIt) {
     EXPECT_EQ(paid->amount.raw, -13'700'000) << "0.0137 paid away, and NOT flipped back";
     EXPECT_EQ(paid->settled_at.ns, 1788652805992ULL * 1'000'000ULL);
     // the venue's row id distinguishes settlements with equal stamps
-    EXPECT_EQ(paid->reference.view(), "666688001376165376");
+    EXPECT_EQ(paid->reference.view(), "100000000000000003");
 }
 
 TEST(XtLedger, ARowNamingAnInstrumentWeDoNotHoldIsDroppedRatherThanGuessed) {

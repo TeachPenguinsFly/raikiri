@@ -79,24 +79,28 @@ export function TreasuryPage() {
   const drawn = pnl.state === 'ready' && x.length >= 2
 
   const pnlPlaceholder =
-    pnl.state === 'failed'
-      ? trouble(pnl.title, pnl.detail)
-      : pnl.state === 'loading'
-        ? 'Reading the ledger'
-        : x.length === 0
-          ? `The ledger has nothing in the last ${k_window_hours}h`
-          : x.length < 2
-            ? 'One increment in the window; a curve needs two'
-            : undefined
+    pnl.state === 'failed' && pnl.status === 503
+      ? 'No ledger without a database: start admind with --dsn'
+      : pnl.state === 'failed'
+        ? trouble(pnl.title, pnl.detail)
+        : pnl.state === 'loading'
+          ? 'Reading the ledger'
+          : x.length === 0
+            ? `The ledger has nothing in the last ${k_window_hours}h`
+            : x.length < 2
+              ? 'One increment in the window; a curve needs two'
+              : undefined
 
   const splitPlaceholder =
     balances.state === 'failed'
       ? trouble(balances.title, balances.detail)
       : balances.state === 'loading'
         ? 'Asking the venues'
-        : total === 0
-          ? `No venue is reporting a ${k_denomination} balance`
-          : undefined
+        : reporting.length === 0
+          ? 'Balances arrive from gateways started with API keys'
+          : total === 0
+            ? `No venue is reporting a ${k_denomination} balance`
+            : undefined
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-2 pt-0">

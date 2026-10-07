@@ -3,6 +3,7 @@
 #include <raikiri/admin/types.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
+#include <raikiri/shm/lease.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/shm/segment.hpp>
 
@@ -21,6 +22,8 @@ struct Gateway {
     shm::SegmentClient client;
     shm::GatewayChannels channels{};
     std::uint64_t file_id{0}; // the segment file's inode; a replaced file is attached again
+    // empty while another admind produces order_intents; the desk refuses this gateway then
+    std::optional<shm::WriterLease> lease{};
 };
 
 class Registry {

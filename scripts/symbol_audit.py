@@ -8,7 +8,7 @@ that some venue lists as crypto.
 
     build/rel/apps/symbolaudit/symbolaudit binance mexc weex > cat.tsv
     build/rel/apps/symbolaudit/symbolaudit --feed=xyz,para hyperliquid >> cat.tsv
-    scripts/symbol_audit.py --ssh raikiri-tokyo cat.tsv > audit.md
+    scripts/symbol_audit.py --ssh user@host cat.tsv > audit.md
 
 Needs the websockets package.
 """
@@ -53,7 +53,7 @@ def fetch_json(base, path):
         return json.load(r)
 
 
-def box_ids(base):
+def listed_ids(base):
     ids = {}
     cursor = "0"
     while cursor is not None:
@@ -124,11 +124,12 @@ def main():
                 time.sleep(0.2)
     try:
         rows = read_catalogue(args.catalogue)
-        ids = box_ids(f"http://{host}")
+        ids = listed_ids(f"http://{host}")
         for r in rows:
             r["id"] = ids.get((r["account"], r["exchange_symbol"]))
         live = [r["id"] for r in rows if r["id"]]
-        prices = asyncio.run(quotes(f"ws://{stream}/v1/stream", live, args.seconds))
+        token = fetch_json(f"http://{host}", "/v1/stream/token")["token"]
+        prices = asyncio.run(quotes(f"ws://{stream}/v1/stream?token={token}", live, args.seconds))
     finally:
         if tunnel:
             tunnel.terminate()
@@ -147,7 +148,7 @@ def main():
 
     out = sys.stdout
     accounts = sorted({r["account"] for r in rows})
-    out.write(f"# symbol audit\n\n{len(rows)} listings on {len(accounts)} accounts, {len(live)} on the box, "
+    out.write(f"# symbol audit\n\n{len(rows)} listings on {len(accounts)} accounts, {len(live)} listed live, "
               f"{len(prices)} priced; {len(by_key)} priced market keys.\n\n")
     classes = defaultdict(int)
     for r in rows:

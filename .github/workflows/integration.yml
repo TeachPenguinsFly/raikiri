@@ -47,6 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # an asan debug build of every test outgrows the runner's free disk
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
       - name: Install toolchain
         run: |
           sudo apt-get update

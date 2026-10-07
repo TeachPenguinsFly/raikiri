@@ -108,7 +108,7 @@ Each file is the captured header with its `channel` and `status` changed.
 
 | file | how |
 | --- | --- |
-| `ws_api_login.json` | `futures.login`, status 200, `data.result` holding `api_key` and `uid` |
+| `ws_api_login.json` | `futures.login`, status 200, `data.result` holding a zeroed `api_key` and a placeholder `uid` |
 | `ws_api_login_failure.json` | `futures.login`, status 400, with the label and message of `rest_error_invalid_key.json` |
 | `ws_api_order_place_ack.json` | `futures.order_place` with `ack: true`; `data.result` echoes the request |
 | `ws_api_order_place.json` | `futures.order_place` with `ack: false`; `data.result` is `rest_futures_order.json` |

@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { api } from '@/api/client'
 import type { components } from '@/api/types'
 
 type Frame = components['schemas']['StreamFrame']
@@ -18,6 +19,8 @@ const k_reconnect_ms = 1000
 /** one shared socket; a subscription lives while any listener holds it */
 class Socket {
   private ws: WebSocket | null = null
+  /** true while the token for the next socket is being fetched */
+  private connecting = false
   private retry: ReturnType<typeof setTimeout> | undefined
   private idle: ReturnType<typeof setTimeout> | undefined
   private nextId = 1
@@ -62,9 +65,29 @@ class Socket {
   }
 
   private open(): void {
-    if (this.ws !== null) return
+    if (this.ws !== null || this.connecting) return
     clearTimeout(this.retry)
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/v1/stream`)
+    this.connecting = true
+    api.streamToken().then(
+      ({ token }) => {
+        this.connecting = false
+        if (this.ws === null && this.subs.size > 0) this.connect(token)
+      },
+      () => {
+        this.connecting = false
+        this.setDown(true)
+        this.reconnect()
+      },
+    )
+  }
+
+  private reconnect(): void {
+    if (this.subs.size > 0) this.retry = setTimeout(() => this.subs.size > 0 && this.open(), k_reconnect_ms)
+  }
+
+  private connect(token: string): void {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${scheme}://${location.host}/v1/stream?token=${encodeURIComponent(token)}`)
     this.ws = ws
     // the server forgets a closed connection, so every open resends the live set
     ws.onopen = () => {
@@ -83,7 +106,7 @@ class Socket {
       if (this.ws !== ws) return
       this.ws = null
       this.setDown(true)
-      if (this.subs.size > 0) this.retry = setTimeout(() => this.subs.size > 0 && this.open(), k_reconnect_ms)
+      this.reconnect()
     }
     ws.onerror = () => ws.close()
   }

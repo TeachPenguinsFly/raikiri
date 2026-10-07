@@ -189,6 +189,9 @@ namespace {
 
 // only a full ring is worth retrying
 int status_for(DeskError error) noexcept {
+    if (error == DeskError::RingHeld) {
+        return 409;
+    }
     return error == DeskError::RingFull ? 503 : 422;
 }
 
@@ -342,6 +345,10 @@ http::Handler make_router(const Registry& registry,
             auto health = registry.health(now(), wall());
             if (history != nullptr) {
                 health.database = history->health();
+            }
+            auto& probed = health.upstreams.emplace();
+            for (const auto& [name, port] : upstreams) {
+                probed.push_back({.name = name, .answering = http::fetch("127.0.0.1", port, "/", 250).has_value()});
             }
             return json(health);
         }

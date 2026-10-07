@@ -3,6 +3,9 @@
 #include <atomic>
 #include <charconv>
 #include <cstring>
+#include <functional>
+#include <string>
+#include <type_traits>
 
 namespace raikiri::wire {
 
@@ -176,6 +179,182 @@ std::expected<std::string_view, Error> str_of(ondemand::value value, const Sessi
         return std::unexpected(Error::WrongType);
     }
     return s.rebase(raw.substr(1, raw.size() - 2));
+}
+
+namespace internal {
+
+[[nodiscard]] int hex4(std::string_view s, std::size_t at) noexcept {
+    if (at + 4 > s.size()) {
+        return -1;
+    }
+    int out = 0;
+    for (std::size_t i = at; i < at + 4; ++i) {
+        const char c = s[i];
+        int digit = 0;
+        if (c >= '0' && c <= '9') {
+            digit = c - '0';
+        } else if (c >= 'a' && c <= 'f') {
+            digit = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'F') {
+            digit = c - 'A' + 10;
+        } else {
+            return -1;
+        }
+        out = out * 16 + digit;
+    }
+    return out;
+}
+
+[[nodiscard]] char simple_escape(char c) noexcept {
+    switch (c) {
+    case '"':
+    case '\\':
+    case '/':
+        return c;
+    case 'b':
+        return '\b';
+    case 'f':
+        return '\f';
+    case 'n':
+        return '\n';
+    case 'r':
+        return '\r';
+    case 't':
+        return '\t';
+    default:
+        return 0;
+    }
+}
+
+[[nodiscard]] std::size_t utf8(std::uint32_t cp, char* out) noexcept {
+    if (cp < 0x80) {
+        out[0] = static_cast<char>(cp);
+        return 1;
+    }
+    if (cp < 0x800) {
+        out[0] = static_cast<char>(0xC0 | (cp >> 6));
+        out[1] = static_cast<char>(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = static_cast<char>(0xE0 | (cp >> 12));
+        out[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = static_cast<char>(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = static_cast<char>(0xF0 | (cp >> 18));
+    out[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out[3] = static_cast<char>(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+template <typename Root>
+std::expected<Root, Error> open_nested(ondemand::value value, std::string& storage, Session& s) {
+    const auto escaped = str_of(value, s);
+    if (!escaped.has_value()) {
+        return std::unexpected(escaped.error());
+    }
+    if (escaped->empty()) {
+        return std::unexpected(Error::MissingField);
+    }
+    std::string_view source = *escaped;
+    std::string held;
+    // a document nested twice may sit in the storage it is about to be decoded into
+    const std::less_equal<const char*> le;
+    if (le(storage.data(), source.data()) && le(source.data(), storage.data() + storage.size())) {
+        held.assign(source);
+        source = held;
+    }
+    storage.resize(source.size());
+    const auto text = unescape(source, storage);
+    if (!text.has_value()) {
+        return std::unexpected(text.error());
+    }
+    storage.resize(text->size());
+    if constexpr (std::is_same_v<Root, ondemand::object>) {
+        return s.open_object(storage);
+    } else {
+        return s.open_array(storage);
+    }
+}
+
+} // namespace internal
+
+std::expected<std::string_view, Error> unescape(std::string_view escaped, std::span<char> out) noexcept {
+    std::size_t n = 0;
+    std::size_t i = 0;
+    while (i < escaped.size()) {
+        const auto slash = escaped.find('\\', i);
+        const auto run = (slash == std::string_view::npos ? escaped.size() : slash) - i;
+        if (run > out.size() - n) {
+            return std::unexpected(Error::TooManyEntries);
+        }
+        if (run > 0) {
+            std::memmove(out.data() + n, escaped.data() + i, run);
+        }
+        n += run;
+        i += run;
+        if (i == escaped.size()) {
+            break;
+        }
+        if (i + 1 >= escaped.size()) {
+            return std::unexpected(Error::NotJson);
+        }
+        const char kind = escaped[i + 1];
+        if (kind != 'u') {
+            const char c = internal::simple_escape(kind);
+            if (c == 0) {
+                return std::unexpected(Error::NotJson);
+            }
+            if (n == out.size()) {
+                return std::unexpected(Error::TooManyEntries);
+            }
+            out[n++] = c;
+            i += 2;
+            continue;
+        }
+        const int unit = internal::hex4(escaped, i + 2);
+        if (unit < 0 || (unit >= 0xDC00 && unit <= 0xDFFF)) {
+            return std::unexpected(Error::NotJson);
+        }
+        auto cp = static_cast<std::uint32_t>(unit);
+        i += 6;
+        if (unit >= 0xD800 && unit <= 0xDBFF) {
+            const int low = i + 1 < escaped.size() && escaped[i] == '\\' && escaped[i + 1] == 'u'
+                                ? internal::hex4(escaped, i + 2)
+                                : -1;
+            if (low < 0xDC00 || low > 0xDFFF) {
+                return std::unexpected(Error::NotJson);
+            }
+            cp = 0x10000 + ((cp - 0xD800) << 10) + static_cast<std::uint32_t>(low - 0xDC00);
+            i += 6;
+        }
+        char bytes[4]{};
+        const auto len = internal::utf8(cp, bytes);
+        if (len > out.size() - n) {
+            return std::unexpected(Error::TooManyEntries);
+        }
+        std::memcpy(out.data() + n, bytes, len);
+        n += len;
+    }
+    return std::string_view{out.data(), n};
+}
+
+std::expected<std::string_view, Error> str_into(ondemand::value value, std::span<char> out, const Session& s) {
+    const auto escaped = str_of(value, s);
+    if (!escaped.has_value()) {
+        return std::unexpected(escaped.error());
+    }
+    return unescape(*escaped, out);
+}
+
+std::expected<ondemand::object, Error> open_nested_object(ondemand::value value, std::string& storage, Session& s) {
+    return internal::open_nested<ondemand::object>(value, storage, s);
+}
+
+std::expected<ondemand::array, Error> open_nested_array(ondemand::value value, std::string& storage, Session& s) {
+    return internal::open_nested<ondemand::array>(value, storage, s);
 }
 
 std::expected<std::string_view, Error> raw_of(ondemand::value value, const Session& s) {

@@ -6,7 +6,6 @@ namespace raikiri::exec {
 
 namespace {
 
-// caps state what the venue offers; fix is implemented for binance only
 constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     std::array<VenueCaps, k_venue_count> table{};
 
@@ -15,7 +14,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // spot and options are market data only
         .markets = {.spot = true, .perp = true, .option = true},
         .ws_order_entry = true, // ws-fapi (futures) and ws-api (spot)
-        .fix_order_entry = true,
+        .fix_order_entry = false,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,     // futures batch endpoints
         .amend_order = true,      // futures LIMIT modify
@@ -869,7 +868,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::OndoPerps)] = {
         .venue = VenueId::OndoPerps,
         .markets = {.spot = false, .perp = true, .option = false},
-        // market data only; the venue's terms bar the owner's residence
+        // market data only; order entry is out of scope
         .ws_order_entry = false,
         .fix_order_entry = false,
         .cancel_by_client_order_id = false,

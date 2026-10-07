@@ -1,7 +1,7 @@
 # The raikiri terminal
 
 A React front end for `admind`. It reads the HTTP API described in `../schema/admin-api.yaml` and the live
-stream on `/v1/stream`.
+stream on `/v1/stream`, which it opens with a fresh token from `/v1/stream/token` on every connect.
 
     npm install
     npm run dev      # proxies /v1 to admind on :8787 and /v1/stream to :8788
@@ -13,11 +13,12 @@ stream on `/v1/stream`.
 | route | what it shows | source |
 | --- | --- | --- |
 | `/` | market watch, chart, order book, ticket, blotter | `/v1/markets`, the stream, `/v1/orders`, `/v1/fills` |
-| `/scanner` | tables served by an upstream board service | `/v1/x/boards/` through `admind --upstream boards=<port>` |
-| `/strategies` | a note on what admind can and cannot say about strategies | none yet |
+| `/scanner` | tables served by an upstream board service; in the nav only when `/v1/health` lists that upstream | `/v1/x/boards/` through `admind --upstream boards=<port>` |
+| `/execution` | parent orders worked across venues, their children, and a ticket to start one | `/v1/joe/parents` through `admind --upstream strategyd=<port>` |
+| `/strategies` | a note on what admind can and cannot say about strategies; in the nav only while strategyd answers | none yet |
 | `/treasury` | balances, positions and the ledger by exchange and over time | `/v1/balances`, `/v1/positions`, `/v1/pnl` |
 | `/settings` | the accounts admind knows | `/v1/accounts` |
-| `/login` | sign-in screen; admind has no auth endpoint, so nothing enforces it | |
+| `/login` | a landing screen that leads into the terminal; the proxy in front asks for the password | |
 
 The ticket posts to `/v1/orders` with an `Idempotency-Key`. A 202 means the order was queued, and a risk refusal
 arrives later on the order's events.

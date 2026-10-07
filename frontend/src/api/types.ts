@@ -497,6 +497,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/stream/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A short-lived token for the stream upgrade
+         * @description Browsers send no basic auth on a WebSocket upgrade, so the stream takes this
+         *     token instead. It lives for 60 seconds and is checked only at the upgrade.
+         */
+        get: operations["issueStreamToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/stream": {
         parameters: {
             query?: never;
@@ -506,7 +527,9 @@ export interface paths {
         };
         /**
          * Everything live, over one WebSocket
-         * @description A WebSocket upgrade. Every message shape is a schema below.
+         * @description A WebSocket upgrade, refused with 401 unless `token` is one that
+         *     `GET /v1/stream/token` issued and has not expired. Every message shape is a
+         *     schema below.
          *
          *     ## State and events
          *
@@ -916,6 +939,26 @@ export interface components {
                  */
                 lag_seconds?: number | null;
             };
+            /**
+             * @description Every service admind forwards to, by the name given to `--upstream`. An
+             *     unconfigured one is absent. Present on `GET /v1/health` only, not on the
+             *     stream's health frames.
+             */
+            upstreams?: components["schemas"]["UpstreamHealth"][];
+        };
+        UpstreamHealth: {
+            /**
+             * @example boards
+             * @example strategyd
+             */
+            name: string;
+            /** @description It gave any HTTP answer within 250 ms of this request. */
+            answering: boolean;
+        };
+        StreamToken: {
+            /** @description Opaque; pass it as `?token=` on the `/v1/stream` upgrade before it expires. */
+            token: string;
+            expires_at: components["schemas"]["Nanos"];
         };
         Listing: {
             instrument_id: components["schemas"]["InstrumentId"];
@@ -2465,7 +2508,7 @@ export interface operations {
             };
         };
     };
-    openStream: {
+    issueStreamToken: {
         parameters: {
             query?: never;
             header?: never;
@@ -2474,8 +2517,37 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreamToken"];
+                };
+            };
+        };
+    };
+    openStream: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
             /** @description Switching protocols */
             101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The token is missing, malformed, forged or expired */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

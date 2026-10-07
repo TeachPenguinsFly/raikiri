@@ -9,9 +9,9 @@ A low-latency, multi-process crypto trading framework in C++23
 [![License](https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square)](LICENSE)
 [![Latency](https://img.shields.io/badge/cross--process%20p50-167%20ns-2da44e?style=flat-square)](docs/README.md#performance)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
-[![Venues](https://img.shields.io/badge/venues-32%20live-2da44e?style=flat-square)](#venues)
+[![Venues](https://img.shields.io/badge/venues-42%20live-2da44e?style=flat-square)](#venues)
 [![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
-[![Tests](https://img.shields.io/badge/tests-2300-2da44e?style=flat-square)](docs/README.md#build-and-test)
+[![Tests](https://img.shields.io/badge/tests-2500%2B-2da44e?style=flat-square)](docs/README.md#build-and-test)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](docs/README.md#build-and-test)
 
 [Documentation](docs/README.md) · [Venues](#venues) ·
@@ -46,7 +46,7 @@ The [documentation](docs/README.md) covers the architecture, the shared-memory t
 | <img src="frontend/src/assets/exchanges/arcus.png" height="18" align="absmiddle" alt="">&nbsp;`arcus` | DEX | perp | **market data only** | – | – | – | – |
 | <img src="frontend/src/assets/exchanges/aster.png" height="18" align="absmiddle" alt="">&nbsp;`aster` | DEX | spot · perp | **market data only** | – | – | – | – |
 | <img src="frontend/src/assets/exchanges/backpack.png" height="18" align="absmiddle" alt="">&nbsp;`backpack` | CEX | spot · perp | **market data only** | – | – | – | – |
-| <img src="frontend/src/assets/exchanges/binance.svg" height="18" align="absmiddle" alt="">&nbsp;`binance` | CEX | spot · perp · options | REST + WS | ✓ | ✓ | ListenKey | ✓ |
+| <img src="frontend/src/assets/exchanges/binance.svg" height="18" align="absmiddle" alt="">&nbsp;`binance` | CEX | spot · perp · options | REST + WS | ✓ | – | ListenKey | ✓ |
 | <img src="frontend/src/assets/exchanges/bingx.png" height="18" align="absmiddle" alt="">&nbsp;`bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 | <img src="frontend/src/assets/exchanges/bitfinex.png" height="18" align="absmiddle" alt="">&nbsp;`bitfinex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
 | <img src="frontend/src/assets/exchanges/bitget.png" height="18" align="absmiddle" alt="">&nbsp;`bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |

@@ -16,10 +16,10 @@
 namespace raikiri::shm {
 
 inline constexpr std::uint64_t k_magic = 0x5241494B53484D31ULL; // "RAIKSHM1"
-inline constexpr std::uint32_t k_abi_version = 15; // 15: open interest and the funding index
+inline constexpr std::uint32_t k_abi_version = 16;              // 16: 32 reader slots of a cache line each
 // spare slots so a new channel needs no header-layout change
 inline constexpr std::size_t k_max_channels = 24;
-inline constexpr std::size_t k_max_readers = 4;
+inline constexpr std::size_t k_max_readers = 32;
 inline constexpr std::uint64_t k_owner_stale_ns = 200'000'000; // 200 ms
 
 enum class SegError : std::uint8_t {
@@ -36,6 +36,12 @@ enum class SegError : std::uint8_t {
     NoReaderSlot,
 };
 
+// a project with its own record layout passes its own tag; attach refuses any other
+struct SegmentTag {
+    std::uint64_t magic{k_magic};
+    std::uint32_t abi{k_abi_version};
+};
+
 enum class SegmentState : std::uint32_t { Init = 0, Ready = 1 };
 
 struct ChannelDesc {
@@ -44,10 +50,18 @@ struct ChannelDesc {
     std::uint64_t size{0};
 };
 
-struct ReaderSlot {
-    std::atomic<std::int32_t> pid{0};
+// lease is the slot's claim count over the holder's pid, so one compare-exchange claims both; pid zero is free
+struct alignas(64) ReaderSlot {
+    std::atomic<std::uint64_t> lease{0};
+    // clients of one process and name share the slot
+    std::atomic<std::uint32_t> refs{0};
+    std::uint32_t pad_{0};
+    char name[16]{};
     std::atomic<std::uint64_t> heartbeat_ns{0};
+    std::atomic<std::uint64_t> last_seq{0};
 };
+
+static_assert(sizeof(ReaderSlot) == 64);
 
 struct SegmentHeader {
     std::uint64_t magic{0};
@@ -83,8 +97,11 @@ public:
     SegmentOwner& operator=(SegmentOwner&&) = delete;
     ~SegmentOwner();
 
-    [[nodiscard]] static std::expected<SegmentOwner, SegError>
-    create(const std::string& path, std::size_t total_size, std::uint64_t generation, std::uint64_t now_ns);
+    [[nodiscard]] static std::expected<SegmentOwner, SegError> create(const std::string& path,
+                                                                      std::size_t total_size,
+                                                                      std::uint64_t generation,
+                                                                      std::uint64_t now_ns,
+                                                                      SegmentTag tag = {});
 
     template <typename T> [[nodiscard]] T* create_channel(std::string_view name) noexcept {
         void* p = place(name, sizeof(T), alignof(T));
@@ -121,7 +138,7 @@ public:
     SegmentClient& operator=(SegmentClient&& other) noexcept;
     ~SegmentClient();
 
-    [[nodiscard]] static std::expected<SegmentClient, SegError> attach(const std::string& path);
+    [[nodiscard]] static std::expected<SegmentClient, SegError> attach(const std::string& path, SegmentTag tag = {});
 
     // Resolves a channel; the compiled type's size must match the owner's.
     template <typename T> [[nodiscard]] std::expected<T*, SegError> open_channel(std::string_view name) noexcept {
@@ -129,8 +146,14 @@ public:
         return raw.transform([](void* p) { return channel_cast<T>(p); });
     }
 
-    // Claims a reader-registry slot for this process (heartbeat + liveness).
-    [[nodiscard]] std::expected<std::size_t, SegError> register_reader(std::int32_t pid) noexcept;
+    // reading never needs a slot; NoReaderSlot only means this reader goes unlisted
+    // a second call returns the same slot, and the slot is released with the client or by release_reader
+    [[nodiscard]] std::expected<std::size_t, SegError> register_reader(std::int32_t pid,
+                                                                       std::string_view name = {}) noexcept;
+
+    void release_reader() noexcept;
+
+    [[nodiscard]] bool reader_listed() const noexcept { return reader_lease_ != 0; }
 
     void beat_reader(std::size_t slot, std::uint64_t now_ns) noexcept;
 
@@ -156,6 +179,8 @@ private:
     SegmentHeader* header_{nullptr};
     std::byte* base_{nullptr};
     std::size_t size_{0};
+    std::size_t reader_slot_{k_max_readers};
+    std::uint64_t reader_lease_{0};
 };
 
 // FNV-1a over the ABI version and channel directory; both sides must agree.

@@ -1,4 +1,4 @@
-#include "harness.hpp"
+#include <raikiri/wire/malformed.hpp>
 
 #include <gtest/gtest.h>
 
@@ -407,11 +407,10 @@ void odd_frames(const Feeder& feed) {
 
 } // namespace
 
-void hammer(std::string_view venue, std::initializer_list<Case> cases) {
+void hammer(std::string_view label, const std::filesystem::path& dir, std::initializer_list<Case> cases) {
 #ifdef RAIKIRI_HAS_SANITIZER_HOOK
     __sanitizer_set_death_callback(dump_frame);
 #endif
-    const auto dir = std::filesystem::path{RAIKIRI_VENUE_FIXTURES} / venue / "fixtures";
     std::vector<std::filesystem::path> files;
     for (const auto& entry : std::filesystem::directory_iterator{dir}) {
         if (entry.is_regular_file() && entry.path().filename() != "README.md") {
@@ -443,21 +442,30 @@ void hammer(std::string_view venue, std::initializer_list<Case> cases) {
             ++index;
         }
         if (parsers.empty()) {
-            ADD_FAILURE() << std::string{venue} << "/" << name << " matches no parser";
+            ADD_FAILURE() << std::string{label} << "/" << name << " matches no parser";
             continue;
         }
-        SCOPED_TRACE(std::string{venue} + "/" + name);
-        t_fixture = std::string{venue} + "/" + name;
+        SCOPED_TRACE(std::string{label} + "/" + name);
+        t_fixture = std::string{label} + "/" + name;
         const auto frame = load(path);
         ASSERT_FALSE(frame.empty());
         mutate(Feeder{std::move(parsers)}, frame, k_seed ^ fnv1a(name));
         ++used;
     }
-    EXPECT_GT(used, 0U);
+    EXPECT_GT(used, 0U) << std::string{label} << ": no fixtures in " << dir.string();
     std::size_t index = 0;
     for (const auto& c : cases) {
-        EXPECT_TRUE(case_used[index++]) << std::string{venue} << ": " << std::string{c.glob} << " matches no fixture";
+        EXPECT_TRUE(case_used[index++]) << std::string{label} << ": " << std::string{c.glob} << " matches no fixture";
     }
+}
+
+void hammer_frame(std::string_view label, std::string_view frame, std::initializer_list<Parse> parsers) {
+#ifdef RAIKIRI_HAS_SANITIZER_HOOK
+    __sanitizer_set_death_callback(dump_frame);
+#endif
+    SCOPED_TRACE(std::string{label});
+    t_fixture = std::string{label};
+    mutate(Feeder{std::vector<Parse>{parsers}}, frame, k_seed ^ fnv1a(label));
 }
 
 } // namespace raikiri::wire::malformed

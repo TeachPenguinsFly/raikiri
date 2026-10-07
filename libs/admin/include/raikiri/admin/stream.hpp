@@ -4,6 +4,7 @@
 // events are sequenced from the broadcast ring; an overrun sends a gap frame
 
 #include <raikiri/admin/registry.hpp>
+#include <raikiri/admin/stream_token.hpp>
 #include <raikiri/admin/types.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/instrument.hpp>
@@ -130,11 +131,20 @@ fill_frame(std::string_view id, std::uint64_t seq, const raikiri::OrderEvent& ev
 [[nodiscard]] std::string gap_frame(std::string_view id, std::uint64_t missed);
 [[nodiscard]] std::string problem_frame(std::string_view id, const Problem& problem);
 
-// single-threaded and poll-driven; binds its own port
+// single-threaded and poll-driven; binds its own port and refuses an upgrade without a valid ?token=
 class Stream {
 public:
-    Stream(const Registry& registry, const Clock& clock, std::string address, std::uint16_t port);
-    Stream(net::IoContext& io, const Registry& registry, const Clock& clock, std::string address, std::uint16_t port);
+    Stream(const Registry& registry,
+           const Clock& clock,
+           const StreamTokens& tokens,
+           std::string address,
+           std::uint16_t port);
+    Stream(net::IoContext& io,
+           const Registry& registry,
+           const Clock& clock,
+           const StreamTokens& tokens,
+           std::string address,
+           std::uint16_t port);
     ~Stream();
     Stream(const Stream&) = delete;
     Stream& operator=(const Stream&) = delete;

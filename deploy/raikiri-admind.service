@@ -18,7 +18,7 @@ EnvironmentFile=-/etc/raikiri/raikiri.env
 
 EnvironmentFile=-/etc/raikiri/database.env
 
-# loopback only: admind has no authentication
+# loopback only: admind checks the stream token and nothing else; caddy holds the password
 ExecStart=/opt/raikiri/bin/admind --port 8787 --stream-port 8788 \
     --upstream boards=8790 $RAIKIRI_ADMIND_ARGS
 

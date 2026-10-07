@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <utility>
@@ -15,6 +16,7 @@ namespace raikiri::shm {
 namespace {
 
 constexpr std::size_t k_header_reserved = 4096; // header page; channels follow
+static_assert(sizeof(SegmentHeader) <= k_header_reserved);
 
 struct Mapping {
     std::byte* base{nullptr};
@@ -36,6 +38,28 @@ bool header_owner_alive(const SegmentHeader& header, std::uint64_t now_ns) {
     }
     const auto beat = header.heartbeat_ns.load(std::memory_order_acquire);
     return now_ns <= beat + k_owner_stale_ns;
+}
+
+constexpr std::uint64_t k_lease_pid_mask = 0xFFFF'FFFFULL;
+
+std::int32_t lease_pid(std::uint64_t lease) noexcept {
+    return static_cast<std::int32_t>(lease & k_lease_pid_mask);
+}
+
+bool name_matches(const ReaderSlot& slot, std::string_view name) noexcept {
+    const std::string_view held{slot.name, ::strnlen(slot.name, sizeof slot.name)};
+    return held == name.substr(0, sizeof slot.name);
+}
+
+// never from zero, so a slot its last holder is releasing is not revived
+bool add_ref(ReaderSlot& slot) noexcept {
+    auto refs = slot.refs.load(std::memory_order_acquire);
+    while (refs != 0) {
+        if (slot.refs.compare_exchange_weak(refs, refs + 1, std::memory_order_acq_rel)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // only a dead pid clears the path, since a hung owner may wake and keep writing
@@ -78,8 +102,8 @@ SegmentOwner::~SegmentOwner() {
     }
 }
 
-std::expected<SegmentOwner, SegError>
-SegmentOwner::create(const std::string& path, std::size_t total_size, std::uint64_t generation, std::uint64_t now_ns) {
+std::expected<SegmentOwner, SegError> SegmentOwner::create(
+    const std::string& path, std::size_t total_size, std::uint64_t generation, std::uint64_t now_ns, SegmentTag tag) {
     if (total_size < k_header_reserved * 2) {
         return std::unexpected{SegError::TooSmall};
     }
@@ -99,7 +123,7 @@ SegmentOwner::create(const std::string& path, std::size_t total_size, std::uint6
             if (::fstat(probe, &st) == 0 && st.st_size >= static_cast<off_t>(sizeof(SegmentHeader))) {
                 if (auto m = map_file(probe, sizeof(SegmentHeader)); m.has_value()) {
                     const auto* h = channel_cast<SegmentHeader>(m->base);
-                    alive = h->magic == k_magic && header_blocks_takeover(*h);
+                    alive = h->magic == tag.magic && header_blocks_takeover(*h);
                     ::munmap(m->base, m->size);
                 }
             }
@@ -132,8 +156,8 @@ SegmentOwner::create(const std::string& path, std::size_t total_size, std::uint6
         owner.bump_ = k_header_reserved;
         owner.path_ = path;
         owner.header_ = ::new (mapping->base) SegmentHeader{};
-        owner.header_->magic = k_magic;
-        owner.header_->abi_version = k_abi_version;
+        owner.header_->magic = tag.magic;
+        owner.header_->abi_version = tag.abi;
         owner.header_->creator_pid = ::getpid();
         owner.header_->generation = generation;
         owner.header_->heartbeat_ns.store(now_ns, std::memory_order_release);
@@ -177,27 +201,32 @@ void SegmentOwner::publish_refusals(std::uint64_t count) noexcept {
 
 SegmentClient::SegmentClient(SegmentClient&& other) noexcept
     : header_{std::exchange(other.header_, nullptr)}, base_{std::exchange(other.base_, nullptr)},
-      size_{std::exchange(other.size_, 0)} {}
+      size_{std::exchange(other.size_, 0)}, reader_slot_{std::exchange(other.reader_slot_, k_max_readers)},
+      reader_lease_{std::exchange(other.reader_lease_, 0)} {}
 
 SegmentClient& SegmentClient::operator=(SegmentClient&& other) noexcept {
     if (this != &other) {
+        release_reader();
         if (base_ != nullptr) {
             ::munmap(base_, size_);
         }
         header_ = std::exchange(other.header_, nullptr);
         base_ = std::exchange(other.base_, nullptr);
         size_ = std::exchange(other.size_, 0);
+        reader_slot_ = std::exchange(other.reader_slot_, k_max_readers);
+        reader_lease_ = std::exchange(other.reader_lease_, 0);
     }
     return *this;
 }
 
 SegmentClient::~SegmentClient() {
+    release_reader();
     if (base_ != nullptr) {
         ::munmap(base_, size_);
     }
 }
 
-std::expected<SegmentClient, SegError> SegmentClient::attach(const std::string& path) {
+std::expected<SegmentClient, SegError> SegmentClient::attach(const std::string& path, SegmentTag tag) {
     const int fd = ::open(path.c_str(), O_RDWR);
     if (fd < 0) {
         return std::unexpected{SegError::MapFailed};
@@ -221,10 +250,10 @@ std::expected<SegmentClient, SegError> SegmentClient::attach(const std::string& 
     client.header_ = channel_cast<SegmentHeader>(mapping->base);
 
     const auto& h = *client.header_;
-    if (h.magic != k_magic) {
+    if (h.magic != tag.magic) {
         return std::unexpected{SegError::BadMagic};
     }
-    if (h.abi_version != k_abi_version) {
+    if (h.abi_version != tag.abi) {
         return std::unexpected{SegError::BadAbi};
     }
     if (h.state.load(std::memory_order_acquire) != static_cast<std::uint32_t>(SegmentState::Ready)) {
@@ -252,20 +281,59 @@ std::expected<void*, SegError> SegmentClient::find(std::string_view name, std::s
     return std::unexpected{SegError::NoSuchChannel};
 }
 
-std::expected<std::size_t, SegError> SegmentClient::register_reader(std::int32_t pid) noexcept {
+std::expected<std::size_t, SegError> SegmentClient::register_reader(std::int32_t pid, std::string_view name) noexcept {
+    if (reader_lease_ != 0) {
+        return reader_slot_;
+    }
     for (std::size_t i = 0; i < k_max_readers; ++i) {
         auto& slot = header_->readers[i];
-        std::int32_t cur = slot.pid.load(std::memory_order_acquire);
-        const bool reclaimable = cur == 0 || !platform::process_alive(cur);
-        if (reclaimable && slot.pid.compare_exchange_strong(cur, pid, std::memory_order_acq_rel)) {
+        const auto lease = slot.lease.load(std::memory_order_acquire);
+        if (lease_pid(lease) != 0 && lease_pid(lease) == pid && name_matches(slot, name) && add_ref(slot)) {
+            reader_slot_ = i;
+            reader_lease_ = lease;
             return i;
         }
+    }
+    for (std::size_t i = 0; i < k_max_readers; ++i) {
+        auto& slot = header_->readers[i];
+        auto lease = slot.lease.load(std::memory_order_acquire);
+        if (lease_pid(lease) != 0 && platform::process_alive(lease_pid(lease))) {
+            continue;
+        }
+        const auto claimed = (((lease >> 32) + 1) << 32) | (static_cast<std::uint64_t>(pid) & k_lease_pid_mask);
+        if (!slot.lease.compare_exchange_strong(lease, claimed, std::memory_order_acq_rel)) {
+            continue;
+        }
+        std::memset(slot.name, 0, sizeof slot.name);
+        std::memcpy(slot.name, name.data(), std::min(name.size(), sizeof slot.name));
+        slot.heartbeat_ns.store(0, std::memory_order_relaxed);
+        slot.last_seq.store(0, std::memory_order_relaxed);
+        slot.refs.store(1, std::memory_order_release);
+        reader_slot_ = i;
+        reader_lease_ = claimed;
+        return i;
     }
     return std::unexpected{SegError::NoReaderSlot};
 }
 
+void SegmentClient::release_reader() noexcept {
+    if (reader_lease_ == 0) {
+        return;
+    }
+    auto& slot = header_->readers[reader_slot_];
+    // a slot taken over after this pid was judged dead belongs to its new holder
+    if (slot.lease.load(std::memory_order_acquire) == reader_lease_ &&
+        slot.refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        auto lease = reader_lease_;
+        (void)slot.lease.compare_exchange_strong(lease, lease & ~k_lease_pid_mask, std::memory_order_acq_rel);
+    }
+    reader_slot_ = k_max_readers;
+    reader_lease_ = 0;
+}
+
 void SegmentClient::beat_reader(std::size_t slot, std::uint64_t now_ns) noexcept {
-    if (slot < k_max_readers) {
+    if (reader_lease_ != 0 && slot == reader_slot_ &&
+        header_->readers[slot].lease.load(std::memory_order_acquire) == reader_lease_) {
         header_->readers[slot].heartbeat_ns.store(now_ns, std::memory_order_release);
     }
 }

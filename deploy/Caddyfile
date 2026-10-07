@@ -1,9 +1,10 @@
 :80 {
 	encode zstd gzip
 
-	# the stream is exempt: browsers do not send basic auth on a websocket upgrade
+	# browsers send no basic auth on a websocket upgrade, so admind checks the stream's ?token= instead;
+	# the token comes from /v1/stream/token, which stays behind basic auth
 	# the bcrypt hash lives in /etc/caddy/terminal.env, not in this file
-	@guarded not path /v1/stream*
+	@guarded not path /v1/stream
 	basic_auth @guarded {
 		admin {env.RAIKIRI_TERMINAL_HASH}
 	}
@@ -19,8 +20,8 @@
 
 	# handle blocks run in order; bare directives get re-sorted and try_files would rewrite /v1
 
-	# before /v1/*, which would swallow it
-	handle /v1/stream* {
+	# exact, before /v1/*: /v1/stream/token is an ordinary admind route
+	handle /v1/stream {
 		reverse_proxy 127.0.0.1:8788
 	}
 

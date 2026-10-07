@@ -1,6 +1,6 @@
 #pragma once
 
-// market data only: the venue's terms bar the owner's residence, so no order path is built
+// market data only; order entry is out of scope
 
 #include <cstdint>
 #include <string_view>
