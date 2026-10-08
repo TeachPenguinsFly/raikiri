@@ -41,6 +41,15 @@ TEST(HostBackoff, TransportFailuresGrowFromOneSecondToTheThirtySecondCap) {
     EXPECT_EQ(host.stats().backoffs, bases.size());
 }
 
+TEST(HostBackoff, CountsOnlyTheHandshakesItAdmits) {
+    HostBackoff host{};
+    FakeClock clock;
+    EXPECT_EQ(host.admit(clock.now), 0U);
+    (void)host.failed(clock.now, WsFailure::Transport);
+    EXPECT_NE(host.admit(clock.now), 0U);
+    EXPECT_EQ(host.stats().handshakes, 1U);
+}
+
 TEST(HostBackoff, ARefusedHandshakeStartsAtThirtySecondsAndCapsAtTenMinutes) {
     HostBackoff host{};
     FakeClock clock;

@@ -175,7 +175,7 @@ public:
     explicit DeriveData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           pool_{state_->io,
-                net::WsConfig{.host = std::string{ep::k_host}, .port = "443", .target = std::string{ep::k_ws_path}},
+                net::WsConfig{.host = std::string{ep::k_ws_host}, .port = "443", .target = std::string{ep::k_ws_path}},
                 handler_,
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {}

@@ -44,6 +44,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One reference mid per asset, as refd publishes it
+         * @description Read from refd's `ref.mid` segment. Each asset's mid is the weighted
+         *     median of the venues' spot mids in USD, with perps entering only through
+         *     their measured basis to spot. A book is cut when it is empty, crossed,
+         *     wider than the spread limit, stale, quoted in a currency without a rate,
+         *     a second book of the same venue, a perp whose basis is still warming, or
+         *     an outlier from the median. Fewer than the minimum sources refuses the
+         *     row and leaves the mid out.
+         */
+        get: operations["listReferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/accounts": {
         parameters: {
             query?: never;
@@ -929,6 +955,67 @@ export interface components {
             reopens: number;
             channels: components["schemas"]["ChannelFeed"][];
         };
+        ReferenceCuts: {
+            empty: number;
+            crossed: number;
+            wide: number;
+            stale: number;
+            no_rate: number;
+            duplicate: number;
+            warming: number;
+            outlier: number;
+        };
+        Reference: {
+            /** @example crypto:BTC */
+            asset: string;
+            /** @description Fewer sources than the minimum survived; `mid` is absent. */
+            refused: boolean;
+            mid?: components["schemas"]["Decimal"];
+            spot_mid?: components["schemas"]["Decimal"];
+            /** @description The perps' own level, not basis-adjusted. */
+            perp_mid?: components["schemas"]["Decimal"];
+            /** @description perp_mid over mid, minus one, in basis points. */
+            basis_bp?: components["schemas"]["Decimal"];
+            /**
+             * @description Half-width in USD: the larger of half the weighted interquartile
+             *     range and the median half-spread of the sources used.
+             */
+            conf?: components["schemas"]["Decimal"];
+            conf_bp?: components["schemas"]["Decimal"];
+            /** @description Weighted median absolute deviation over the mid. */
+            dispersion_bp?: components["schemas"]["Decimal"];
+            used: number;
+            used_spot: number;
+            used_perp: number;
+            /** @description Books listed for the asset before any cut. */
+            quotes: number;
+            /** @description Since the cycle that wrote the row. */
+            age_ms: number;
+            /** @description The oldest book among those used, at that cycle. */
+            oldest_age_ms: number;
+            cuts: components["schemas"]["ReferenceCuts"];
+        };
+        ReferenceList: {
+            alive: boolean;
+            published_at: components["schemas"]["Nanos"];
+            age_ms: number;
+            period_ms: number;
+            took_us: number;
+            cycles: number;
+            gateways: number;
+            /** @description Gateways read without a reader slot. */
+            unlisted: number;
+            quotes: number;
+            refused: number;
+            usdt_usd: components["schemas"]["Decimal"];
+            usdc_usd: components["schemas"]["Decimal"];
+            /** @description No USD book of USDT was usable; the declared rate stands in. */
+            usdt_fallback: boolean;
+            usdc_fallback: boolean;
+            usdt_sources: number;
+            usdc_sources: number;
+            items: components["schemas"]["Reference"][];
+        };
         Health: {
             gateways: components["schemas"]["Account"][];
             database: {
@@ -1646,6 +1733,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenueMetrics"][];
+                };
+            };
+        };
+    };
+    listReferences: {
+        parameters: {
+            query?: {
+                /** @description An asset key such as `crypto:BTC`, or the bare `BTC`. */
+                asset?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferenceList"];
+                };
+            };
+            /** @description No refd publishes on this host. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

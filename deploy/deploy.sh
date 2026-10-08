@@ -29,7 +29,7 @@ fi
 
 if [[ -n "$BINARIES" ]]; then
     # checked before ssh so a binary the box cannot run never reaches a restart
-    for app in gatewayd admind replay persisterd; do
+    for app in gatewayd admind replay persisterd refd reftop; do
         [[ -x "$BINARIES/$app" ]] || continue
         if ! file -b "$BINARIES/$app" | grep -q "ELF 64-bit LSB.*x86-64"; then
             echo "deploy: $BINARIES/$app is not a Linux x86-64 binary" >&2
@@ -45,12 +45,12 @@ set -euo pipefail
 cd "\$HOME/$SRC_DIR"
 if [[ -z "$BINARIES" ]]; then
     cmake --preset $PRESET
-    cmake --build build/$PRESET --target gatewayd admind replay persisterd -j\$(nproc)
+    cmake --build build/$PRESET --target gatewayd admind replay persisterd refd reftop -j\$(nproc)
 fi
 
 sudo install -d -o raikiri -g raikiri "$REMOTE_ROOT/bin" "$REMOTE_ROOT/share" "$REMOTE_ROOT/web" /var/lib/raikiri
 sudo rsync -a --delete web-dist/ "$REMOTE_ROOT/web/"
-for app in gatewayd admind replay persisterd; do
+for app in gatewayd admind replay persisterd refd reftop; do
     if [[ -n "$BINARIES" ]]; then
         src="prebuilt/\$app"
     else
@@ -64,7 +64,7 @@ for app in gatewayd admind replay persisterd; do
 done
 sudo install -m 0755 deploy/gateway-run "$REMOTE_ROOT/bin/"
 sudo install -m 0644 deploy/venue_args.sh "$REMOTE_ROOT/share/"
-sudo install -m 0644 deploy/raikiri-gatewayd@.service deploy/raikiri-admind.service /etc/systemd/system/
+sudo install -m 0644 deploy/raikiri-gatewayd@.service deploy/raikiri-admind.service deploy/raikiri-refd.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 set -a; . /etc/raikiri/raikiri.env; set +a
@@ -72,8 +72,8 @@ for account in \$RAIKIRI_VENUES \$RAIKIRI_SPOT; do
     sudo systemctl enable --now "raikiri-gatewayd@\$account"
     sudo systemctl restart "raikiri-gatewayd@\$account"
 done
-sudo systemctl enable --now raikiri-admind
-sudo systemctl restart raikiri-admind
+sudo systemctl enable --now raikiri-refd raikiri-admind
+sudo systemctl restart raikiri-refd raikiri-admind
 REMOTE
 
 echo "==> up. check: ssh $HOST 'systemctl list-units raikiri-*'"

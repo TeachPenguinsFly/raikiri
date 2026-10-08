@@ -1,6 +1,6 @@
 #pragma once
 
-// v2 carries the live books; v3 at api.derive.xyz/v3 lists the same channels
+// rest stays on v2; the v2 socket answers 503 since 2026-10-08 and v3 streams the same channels and frames
 
 #include <cstddef>
 #include <cstdint>
@@ -9,7 +9,8 @@
 namespace raikiri::venues::derive::ep {
 
 inline constexpr std::string_view k_host = "api.lyra.finance";
-inline constexpr std::string_view k_ws_path = "/ws";
+inline constexpr std::string_view k_ws_host = "api.derive.xyz";
+inline constexpr std::string_view k_ws_path = "/v3/ws";
 
 inline constexpr std::string_view k_all_instruments = "/public/get_all_instruments";
 

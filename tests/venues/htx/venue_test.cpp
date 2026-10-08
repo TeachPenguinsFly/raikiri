@@ -1,6 +1,8 @@
 #include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
+#include <raikiri/net/ws_backoff.hpp>
 #include <raikiri/venues/htx/account.hpp>
+#include <raikiri/venues/htx/endpoints.hpp>
 #include <raikiri/venues/htx/envelope.hpp>
 #include <raikiri/venues/htx/errors.hpp>
 #include <raikiri/venues/htx/htx_venue.hpp>
@@ -119,6 +121,21 @@ TEST(HtxVenue, PullsRefuseRatherThanAnswerEmptyWithoutCredentials) {
     EXPECT_EQ(orders.error().cls, exec::ErrorClass::AuthFailure);
     EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
     EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
+}
+
+TEST(HtxVenue, ExecutionWithoutCredentialsOpensNoPrivateSocket) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto host = net::host_backoff(ep::k_stream_futures, "443", {});
+    const auto before = host->stats().handshakes;
+    ASSERT_TRUE(adapter->execution->start().has_value());
+    EXPECT_EQ(host->stats().handshakes, before);
+    EXPECT_FALSE(adapter->execution->connected());
+    adapter->execution->stop();
 }
 
 TEST(HtxInflate, RestoresACompressedFrame) {

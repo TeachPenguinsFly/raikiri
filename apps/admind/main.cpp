@@ -13,6 +13,8 @@
 #include <raikiri/introspect/routes.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
+#include <raikiri/reference/routes.hpp>
+#include <raikiri/reference/segment.hpp>
 
 #include <unistd.h>
 
@@ -179,6 +181,9 @@ int main(int argc, char** argv) {
     const introspect::CacheRoutes cache{machine_stats, gateway_stats};
     const introspect::MetricsRoute metrics{machine_stats};
     const admin::StreamTokenRoute token_route{*stream_tokens, [&clock] { return clock.wall(); }};
+    reference::ShmReferenceFeed reference_feed{
+        reference::ref_segment_path(), "admind", [&clock] { return clock.mono().ns; }};
+    const reference::ReferenceRoute reference_route{reference_feed, wall_ns};
 
     net::IoContext io;
     http::Server server{io,
@@ -187,6 +192,7 @@ int main(int argc, char** argv) {
                         [cache,
                          metrics,
                          token_route,
+                         reference_route,
                          routes = admin::make_router(
                              registry,
                              history.get(),
@@ -201,6 +207,9 @@ int main(int argc, char** argv) {
                                 return std::move(*answer);
                             }
                             if (auto answer = token_route(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
+                            if (auto answer = reference_route(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
                             return routes(req);

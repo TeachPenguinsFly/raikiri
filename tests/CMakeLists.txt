@@ -79,6 +79,8 @@ raikiri_add_test(mexc_venue_test SRCS venues/mexc/venue_test.cpp LIBS raikiri::v
 raikiri_add_test(deribit_venue_test SRCS venues/deribit/venue_test.cpp LIBS raikiri::venue_deribit raikiri::exec)
 raikiri_add_test(options_test SRCS options/options_test.cpp LIBS raikiri::options)
 raikiri_add_test(pricing_test SRCS options/pricing_test.cpp LIBS raikiri::options raikiri::lets_be_rational)
+raikiri_add_test(surface_test SRCS options/surface_test.cpp LIBS raikiri::options raikiri::wire)
+target_compile_definitions(surface_test PRIVATE RAIKIRI_SURFACE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/options/fixtures")
 raikiri_add_test(hyperliquid_venue_test SRCS venues/hyperliquid/venue_test.cpp LIBS raikiri::venue_hyperliquid raikiri::exec)
 raikiri_add_test(hyperliquid_post_test SRCS venues/hyperliquid/post_test.cpp LIBS raikiri::venue_hyperliquid raikiri::net)
 target_compile_definitions(hyperliquid_post_test PRIVATE
@@ -226,7 +228,7 @@ raikiri_add_test(admin_stream_token_test SRCS admin/stream_token_test.cpp LIBS r
 add_test(NAME apps_help
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh
     $<TARGET_FILE:gatewayd> $<TARGET_FILE:admind> $<TARGET_FILE:persisterd> $<TARGET_FILE:strategyd>
-    $<TARGET_FILE:symbolaudit>)
+    $<TARGET_FILE:symbolaudit> $<TARGET_FILE:refd> $<TARGET_FILE:reftop>)
 set_tests_properties(apps_help PROPERTIES TIMEOUT 30)
 
 add_test(NAME deploy_venue_args
@@ -242,3 +244,7 @@ raikiri_add_test(introspect_latency_test SRCS introspect/latency_test.cpp
   LIBS raikiri::introspect_http raikiri::introspect_probe)
 
 raikiri_add_test(joe_domain_test SRCS joe/domain_test.cpp LIBS raikiri::joe)
+
+raikiri_add_test(reference_mid_test SRCS reference/mid_test.cpp LIBS raikiri::reference)
+raikiri_add_test(reference_segment_test SRCS reference/segment_test.cpp
+  LIBS raikiri::reference_shm raikiri::reference_http)

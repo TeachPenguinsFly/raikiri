@@ -38,11 +38,15 @@ public:
         if (const auto ready = api_.start(); !ready.has_value()) {
             return std::unexpected{ready.error()};
         }
-        if (perp_stream_) {
-            perp_stream_->start();
-        }
-        if (spot_stream_) {
-            spot_stream_->start();
+        // without a key htx drops the private socket within seconds, and that streak holds the backoff
+        // its market sockets share
+        if (state_->signer.has_credentials()) {
+            if (perp_stream_) {
+                perp_stream_->start();
+            }
+            if (spot_stream_) {
+                spot_stream_->start();
+            }
         }
         started_ = true;
         return {};

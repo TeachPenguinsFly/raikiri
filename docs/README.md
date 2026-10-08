@@ -59,7 +59,9 @@ Each gateway is one process for one venue and one market
 (`gatewayd --venue=deribit --market=option`) and owns a shared-memory segment. A
 single-threaded kernel polls every segment it is attached to, keeps one book across
 them and sends orders back through the command rings. `persisterd` copies the journals
-into Postgres; the trading path never waits on it.
+into Postgres; the trading path never waits on it. `refd`, which is optional, reads every
+gateway segment and publishes one reference mid per asset into its own `ref.mid` segment, and
+admind serves it at `/v1/reference`.
 
 | Channel                                         | Kind                            | Why                                                                                                 |
 | :---------------------------------------------- | :------------------------------ | :-------------------------------------------------------------------------------------------------- |

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# deploy/build-linux.sh                  # gatewayd admind replay persisterd
+# deploy/build-linux.sh                  # gatewayd admind replay persisterd refd reftop
 # TARGETS=gatewayd deploy/build-linux.sh
 # stripped binaries go to build/linux, debug info to build/linux-debug
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TARGETS="${TARGETS:-gatewayd admind replay persisterd}"
+TARGETS="${TARGETS:-gatewayd admind replay persisterd refd reftop}"
 IMAGE="${IMAGE:-raikiri-linux-builder}"
 VOLUME="${VOLUME:-raikiri-linux-build}"
 CONAN_VOLUME="${CONAN_VOLUME:-raikiri-linux-conan}"

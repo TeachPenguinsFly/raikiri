@@ -36,6 +36,7 @@ std::uint64_t HostBackoff::admit(std::uint64_t now_ns) noexcept {
         return wait;
     }
     attempts_.spend(1, now_ns);
+    ++handshakes_;
     if (probing) {
         probe_until_ns_ = now_ns + policy_.probe_timeout_ns;
     }
@@ -94,7 +95,11 @@ void HostBackoff::healthy() noexcept {
 
 WsBackoffStats HostBackoff::stats() const noexcept {
     const std::scoped_lock lock{mu_};
-    return {.backoffs = backoffs_, .refusals = refusals_, .streak = streak_, .until_ns = until_ns_};
+    return {.backoffs = backoffs_,
+            .refusals = refusals_,
+            .handshakes = handshakes_,
+            .streak = streak_,
+            .until_ns = until_ns_};
 }
 
 std::shared_ptr<HostBackoff> host_backoff(std::string_view host, std::string_view port, const WsBackoffPolicy& policy) {

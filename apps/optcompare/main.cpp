@@ -1,12 +1,14 @@
 // reads two running option gateways and prints, per expiry, how the same contracts compare;
 // a report, so the medians are doubles and nothing here decides anything; core is the left
 // venue's 0.2 to 0.8 absolute delta; mid iv is implied here from each venue's mid on its own forward,
-// so the venues' iv conventions drop out
+// so the venues' iv conventions drop out; the surface is fitted to both venues' quotes together, and a venue's
+// residual is its mid iv minus the surface
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/options/chain.hpp>
 #include <raikiri/options/pricing.hpp>
+#include <raikiri/options/surface.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/shm/segment.hpp>
 
@@ -41,6 +43,7 @@ struct Quote {
     std::optional<double> mid_usd;
     std::optional<double> spread_usd;
     std::optional<double> mark_usd;
+    std::optional<options::MarketQuote> market;
 };
 
 std::optional<Side> attach(const std::string& name) {
@@ -117,6 +120,16 @@ Quote quote_of(const Side& side, InstrumentId id, const options::OptionKey& key,
         if (bid.is_undef() || ask.is_undef()) {
             return out;
         }
+        if (!forward.is_undef()) {
+            out.market = options::MarketQuote{.venue = id.venue(),
+                                              .strike = key.strike,
+                                              .put_call = key.put_call,
+                                              .bid = bid,
+                                              .ask = ask,
+                                              .unit = option.premium,
+                                              .forward = forward,
+                                              .ts = bbo.ts_init};
+        }
         out.mid_usd = (as_double(bid) + as_double(ask)) / 2.0 * scale;
         out.spread_usd = (as_double(ask) - as_double(bid)) * scale;
         out.mid_iv = defined(options::implied_vol({.price = FixedE9::from_raw(bid.raw + (ask.raw - bid.raw) / 2),
@@ -147,7 +160,103 @@ struct Bucket {
     std::vector<double> mark_diff;
     std::vector<double> spread_left;
     std::vector<double> spread_right;
+    std::vector<double> fit_left;
+    std::vector<double> fit_right;
 };
+
+using Slices = std::map<std::string, std::map<std::uint64_t, options::SliceInput>>;
+
+void collect(const Side& side, const options::OptionChain& chain, UnixNanos now, Slices& slices) {
+    for (const auto& underlying : chain.underlyings()) {
+        auto& by_expiry = slices[std::string{underlying.underlying.view()}];
+        for (const auto& expiry : underlying.expiries) {
+            auto& slice = by_expiry[expiry.expiry.ns];
+            slice.expiry = expiry.expiry;
+            for (const auto& row : expiry.rows) {
+                for (const auto& [id, pc] : {std::pair{row.call, PutCall::Call}, std::pair{row.put, PutCall::Put}}) {
+                    if (!id.has_value()) {
+                        continue;
+                    }
+                    const options::OptionKey key{.underlying = underlying.underlying,
+                                                 .expiry = expiry.expiry,
+                                                 .strike = row.strike,
+                                                 .put_call = pc};
+                    if (auto q = quote_of(side, *id, key, now); q.market.has_value()) {
+                        slice.quotes.push_back(*q.market);
+                    }
+                }
+            }
+        }
+    }
+}
+
+std::optional<double> fitted(const std::map<std::string, options::Surface>& surfaces, const options::OptionKey& key) {
+    const auto found = surfaces.find(std::string{key.underlying.view()});
+    if (found == surfaces.end()) {
+        return std::nullopt;
+    }
+    const auto at = options::surface_at(
+        found->second, key.strike, options::years_between(found->second.as_of, key.expiry));
+    return at.has_value() ? defined(at->vol) : std::nullopt;
+}
+
+std::string_view model_name(const options::Surface& surface) {
+    switch (surface.model) {
+    case options::SurfaceModel::Ssvi:
+        return "ssvi";
+    case options::SurfaceModel::Svi:
+        return surface.calendar_repair ? "svi, calendar repaired" : "svi";
+    case options::SurfaceModel::None:
+        break;
+    }
+    return "none";
+}
+
+void print_surface(const std::string& underlying, const options::Surface& surface) {
+    const auto report = options::check_arbitrage(surface);
+    fmt::print("\nsurface {}: {}, rmse {:.2f} vp (svi {:.2f}, ssvi {:.2f}), ssvi rho {:.3f} eta {:.3f} gamma {:.3f}\n"
+               "  butterfly points {} (min g {:.4f}), calendar points {}, ssvi conditions {}\n",
+               underlying,
+               model_name(surface),
+               as_double(surface.rmse) * 100.0,
+               as_double(surface.svi_rmse) * 100.0,
+               as_double(surface.ssvi_rmse) * 100.0,
+               as_double(surface.ssvi.rho),
+               as_double(surface.ssvi.eta),
+               as_double(surface.ssvi.gamma),
+               report.butterfly,
+               as_double(report.min_density),
+               report.calendar,
+               report.ssvi_conditions ? "hold" : "fail");
+    fmt::print("  {:<10} {:>6} {:>10} {:>5} {:>7} {:>8} {:>8} {:>7}\n",
+               "expiry",
+               "days",
+               "forward",
+               "n",
+               "dropped",
+               "svi vp",
+               "ssvi vp",
+               "inside");
+    for (const auto& slice : surface.slices) {
+        const auto name = options::canonical_name(options::OptionKey{.expiry = slice.expiry});
+        fmt::print("  {:<10} {:>6.1f} {:>10.2f} {:>5} {:>7} {:>8.2f} {:>8.2f} {:>6.0f}%\n",
+                   name.substr(1, 8),
+                   as_double(slice.years) * 365.0,
+                   as_double(slice.forward),
+                   slice.quotes,
+                   slice.dropped,
+                   as_double(slice.svi_rmse) * 100.0,
+                   as_double(slice.ssvi_rmse) * 100.0,
+                   as_double(slice.inside) * 100.0);
+    }
+    for (const auto& venue : surface.venues) {
+        fmt::print("  {:<10} n {:>4}  mid iv minus surface {:>+6.2f} vp, rms {:.2f} vp\n",
+                   to_string(venue.venue),
+                   venue.quotes,
+                   as_double(venue.mean) * 100.0,
+                   as_double(venue.rms) * 100.0);
+    }
+}
 
 } // namespace
 
@@ -173,8 +282,24 @@ int main(int argc, char** argv) {
                right_chain.size(),
                matched.size());
 
-    std::map<std::tuple<std::string, std::uint64_t>, Bucket> buckets;
     const auto now = wall_now();
+    Slices slices;
+    collect(*left, left_chain, now, slices);
+    collect(*right, right_chain, now, slices);
+    std::map<std::string, options::Surface> surfaces;
+    for (const auto& [underlying, by_expiry] : slices) {
+        std::vector<options::SliceInput> inputs;
+        for (const auto& [expiry, slice] : by_expiry) {
+            inputs.push_back(slice);
+        }
+        // a quiet book keeps its last quote, so stale means minutes here
+        auto surface = options::fit_surface(inputs, now, {.stale_ns = 600'000'000'000ULL});
+        if (surface.model != options::SurfaceModel::None) {
+            surfaces.emplace(underlying, std::move(surface));
+        }
+    }
+
+    std::map<std::tuple<std::string, std::uint64_t>, Bucket> buckets;
     for (const auto& pair : matched) {
         const auto a = quote_of(*left, pair.left, pair.key, now);
         const auto b = quote_of(*right, pair.right, pair.key, now);
@@ -189,6 +314,13 @@ int main(int argc, char** argv) {
         if (a.mid_iv.has_value() && b.mid_iv.has_value()) {
             bucket.mid_iv_diff.push_back((*b.mid_iv - *a.mid_iv) * 100.0);
         }
+        const auto fit = fitted(surfaces, pair.key);
+        if (fit.has_value() && a.mid_iv.has_value()) {
+            bucket.fit_left.push_back((*a.mid_iv - *fit) * 100.0);
+        }
+        if (fit.has_value() && b.mid_iv.has_value()) {
+            bucket.fit_right.push_back((*b.mid_iv - *fit) * 100.0);
+        }
         if (a.mark_usd.has_value() && b.mark_usd.has_value()) {
             bucket.mark_diff.push_back(*b.mark_usd - *a.mark_usd);
         }
@@ -198,13 +330,14 @@ int main(int argc, char** argv) {
             bucket.spread_right.push_back(*b.spread_usd);
         }
         if (rows) {
-            fmt::print("{:<26} iv {:>7.2f} {:>7.2f}  mid iv {:>7.2f} {:>7.2f}  mark {:>10.2f} {:>10.2f}  mid {:>10.2f} "
-                       "{:>10.2f}  spread {:>8.2f} {:>8.2f}\n",
+            fmt::print("{:<26} iv {:>7.2f} {:>7.2f}  mid iv {:>7.2f} {:>7.2f}  fit {:>7.2f}  mark {:>10.2f} {:>10.2f}  "
+                       "mid {:>10.2f} {:>10.2f}  spread {:>8.2f} {:>8.2f}\n",
                        options::canonical_name(pair.key),
                        a.iv.value_or(0.0) * 100.0,
                        b.iv.value_or(0.0) * 100.0,
                        a.mid_iv.value_or(0.0) * 100.0,
                        b.mid_iv.value_or(0.0) * 100.0,
+                       fit.value_or(0.0) * 100.0,
                        a.mark_usd.value_or(0.0),
                        b.mark_usd.value_or(0.0),
                        a.mid_usd.value_or(0.0),
@@ -214,7 +347,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    fmt::print("\n{:<6} {:<10} {:>7} {:>6} {:>10} {:>6} {:>10} {:>6} {:>10} {:>6} {:>11} {:>11} {:>10} {:>10}\n",
+    fmt::print("\n{:<6} {:<10} {:>7} {:>6} {:>10} {:>6} {:>10} {:>6} {:>10} {:>6} {:>11} {:>11} {:>10} {:>10} {:>9} "
+               "{:>9}\n",
                "und",
                "expiry",
                "matched",
@@ -228,14 +362,16 @@ int main(int argc, char** argv) {
                "d mark usd",
                "d mid usd",
                "sprd left",
-               "sprd rght");
+               "sprd rght",
+               "fit left",
+               "fit rght");
     for (const auto& [key, bucket] : buckets) {
         const auto& [underlying, expiry] = key;
         const options::OptionKey day{.expiry = UnixNanos{expiry}};
         const auto name = options::canonical_name(day);
         fmt::print(
             "{:<6} {:<10} {:>7} {:>6} {:>10.2f} {:>6} {:>10.2f} {:>6} {:>10.2f} {:>6} {:>11.2f} {:>11.2f} {:>10.2f} "
-            "{:>10.2f}\n",
+            "{:>10.2f} {:>9.2f} {:>9.2f}\n",
             underlying,
             name.substr(1, 8),
             bucket.matched,
@@ -249,7 +385,12 @@ int main(int argc, char** argv) {
             median(bucket.mark_diff),
             median(bucket.mid_diff),
             median(bucket.spread_left),
-            median(bucket.spread_right));
+            median(bucket.spread_right),
+            median(bucket.fit_left),
+            median(bucket.fit_right));
+    }
+    for (const auto& [underlying, surface] : surfaces) {
+        print_surface(underlying, surface);
     }
     return 0;
 }

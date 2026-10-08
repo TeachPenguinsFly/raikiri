@@ -1,0 +1,27 @@
+[Unit]
+Description=raikiri refd
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raikiri
+WorkingDirectory=/opt/raikiri
+Restart=always
+RestartSec=5s
+
+RuntimeDirectory=raikiri
+RuntimeDirectoryPreserve=yes
+Environment=RAIKIRI_RUNTIME_DIR=/run/raikiri
+EnvironmentFile=-/etc/raikiri/raikiri.env
+
+ExecStart=/opt/raikiri/bin/refd $RAIKIRI_REFD_ARGS
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/raikiri
+
+[Install]
+WantedBy=multi-user.target

@@ -15,6 +15,9 @@ from conftest import BIN
 # client order ids pack {strategy_id:16 | seq:48}; the manual desk has a reserved id
 K_MANUAL_STRATEGY_ID = 1
 
+# the sim's starting mids halved, which rests a buy inside the desk's test band without filling
+HALF_MID = {"BTCUSDT": "25000", "ETHUSDT": "1250"}
+
 
 def strategy_of(client_order_id: str) -> int:
     return int(client_order_id) >> 48
@@ -120,7 +123,7 @@ def test_every_order_reaches_a_terminal_state_on_the_stream(stack, sim_instrumen
     time.sleep(0.3)
 
     # market order so the risk gate's price band cannot refuse it
-    code, accepted = post_order(stack, sim_instrument, order_type="market", price=None)
+    code, accepted = post_order(stack, sim_instrument, order_type="market", price=None, qty="0.01")
     assert code in (200, 202), accepted
     coid = accepted["client_order_id"]
 
@@ -150,14 +153,15 @@ def test_a_resting_order_survives_reconciliation_rather_than_being_closed_under_
     stack, sim_instrument
 ) -> None:
     """strategyd's five-second sweep must not close an order the venue still lists"""
-    code, accepted = post_order(stack, sim_instrument, side="buy", price="1", qty="1")
+    price = HALF_MID[sim_instrument["exchange_symbol"]]
+    code, accepted = post_order(stack, sim_instrument, side="buy", price=price, qty="0.01")
     assert code in (200, 202), accepted
     coid = accepted["client_order_id"]
     assert f"desk order {coid} refused" not in stack.log("strategyd"), (
         f"the order never rested, so nothing was reconciled:\n{stack.refusals('strategyd')}"
     )
 
-    # a buy at 1 rests below any sim mid; wait out three five-second sweeps
+    # wait out three five-second sweeps
     time.sleep(18)
 
     closed = [

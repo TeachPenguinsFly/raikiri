@@ -24,6 +24,23 @@ BIN = ROOT / "build" / PRESET / "apps"
 # long enough for a sanitised build to map a 64 MiB segment and load a catalogue
 BOOT_TIMEOUT_S = 40.0
 
+# one sim lot is $50 of btc or $25 of eth, over the committed $20 caps, so the desk (id 1) gets its own;
+# its band is wide enough to rest a buy at half the mid and still refuses a price of 1
+TEST_RISK = """\
+defaults:
+  max_open_orders: 64
+  max_price_band_bp: 500
+  max_order_notional: 20
+  max_instrument_notional: 20
+  max_strategy_notional: 100
+strategies:
+  "1":
+    max_price_band_bp: 9000
+    max_order_notional: 1000
+    max_instrument_notional: 10000
+    max_strategy_notional: 10000
+"""
+
 
 def free_port() -> int:
     """a free port; bind-and-close can race"""
@@ -124,10 +141,19 @@ def build_stack(base: Path):
         "the sim gateway created its segment",
         lambda: stack.log("sim"),
     )
+    risk = base / "risk.yaml"
+    risk.write_text(TEST_RISK)
     # longer than any test; strategyd defaults to a ten-second demo run
     start(
         "strategyd",
-        [str(BIN / "strategyd" / "strategyd"), "--gateway=sim", "--duration", "900"],
+        [
+            str(BIN / "strategyd" / "strategyd"),
+            "--gateway=sim",
+            "--duration",
+            "900",
+            "--risk",
+            str(risk),
+        ],
     )
     start(
         "admind",

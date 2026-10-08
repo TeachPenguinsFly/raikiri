@@ -58,6 +58,37 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/VenueMetrics" }
 
+  /v1/reference:
+    get:
+      tags: [system]
+      summary: One reference mid per asset, as refd publishes it
+      description: |
+        Read from refd's `ref.mid` segment. Each asset's mid is the weighted
+        median of the venues' spot mids in USD, with perps entering only through
+        their measured basis to spot. A book is cut when it is empty, crossed,
+        wider than the spread limit, stale, quoted in a currency without a rate,
+        a second book of the same venue, a perp whose basis is still warming, or
+        an outlier from the median. Fewer than the minimum sources refuses the
+        row and leaves the mid out.
+      operationId: listReferences
+      parameters:
+        - name: asset
+          in: query
+          required: false
+          schema: { type: string }
+          description: An asset key such as `crypto:BTC`, or the bare `BTC`.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceList" }
+        "503":
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+          description: No refd publishes on this host.
+
   /v1/accounts:
     get:
       tags: [system]
@@ -1308,6 +1339,89 @@ components:
         channels:
           type: array
           items: { $ref: "#/components/schemas/ChannelFeed" }
+
+    ReferenceCuts:
+      type: object
+      required: [empty, crossed, wide, stale, no_rate, duplicate, warming, outlier]
+      properties:
+        empty: { type: integer }
+        crossed: { type: integer }
+        wide: { type: integer }
+        stale: { type: integer }
+        no_rate: { type: integer }
+        duplicate: { type: integer }
+        warming: { type: integer }
+        outlier: { type: integer }
+
+    Reference:
+      type: object
+      required: [asset, refused, used, used_spot, used_perp, quotes, age_ms, oldest_age_ms, cuts]
+      properties:
+        asset:
+          type: string
+          examples: ["crypto:BTC"]
+        refused:
+          type: boolean
+          description: Fewer sources than the minimum survived; `mid` is absent.
+        mid: { $ref: "#/components/schemas/Decimal" }
+        spot_mid: { $ref: "#/components/schemas/Decimal" }
+        perp_mid:
+          $ref: "#/components/schemas/Decimal"
+          description: The perps' own level, not basis-adjusted.
+        basis_bp:
+          $ref: "#/components/schemas/Decimal"
+          description: perp_mid over mid, minus one, in basis points.
+        conf:
+          $ref: "#/components/schemas/Decimal"
+          description: |
+            Half-width in USD: the larger of half the weighted interquartile
+            range and the median half-spread of the sources used.
+        conf_bp: { $ref: "#/components/schemas/Decimal" }
+        dispersion_bp:
+          $ref: "#/components/schemas/Decimal"
+          description: Weighted median absolute deviation over the mid.
+        used: { type: integer }
+        used_spot: { type: integer }
+        used_perp: { type: integer }
+        quotes:
+          type: integer
+          description: Books listed for the asset before any cut.
+        age_ms:
+          type: integer
+          description: Since the cycle that wrote the row.
+        oldest_age_ms:
+          type: integer
+          description: The oldest book among those used, at that cycle.
+        cuts: { $ref: "#/components/schemas/ReferenceCuts" }
+
+    ReferenceList:
+      type: object
+      required: [alive, published_at, age_ms, period_ms, took_us, cycles, gateways, unlisted, quotes, refused,
+                 usdt_usd, usdc_usd, usdt_fallback, usdc_fallback, usdt_sources, usdc_sources, items]
+      properties:
+        alive: { type: boolean }
+        published_at: { $ref: "#/components/schemas/Nanos" }
+        age_ms: { type: integer }
+        period_ms: { type: integer }
+        took_us: { type: integer }
+        cycles: { type: integer }
+        gateways: { type: integer }
+        unlisted:
+          type: integer
+          description: Gateways read without a reader slot.
+        quotes: { type: integer }
+        refused: { type: integer }
+        usdt_usd: { $ref: "#/components/schemas/Decimal" }
+        usdc_usd: { $ref: "#/components/schemas/Decimal" }
+        usdt_fallback:
+          type: boolean
+          description: No USD book of USDT was usable; the declared rate stands in.
+        usdc_fallback: { type: boolean }
+        usdt_sources: { type: integer }
+        usdc_sources: { type: integer }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Reference" }
 
     Health:
       type: object

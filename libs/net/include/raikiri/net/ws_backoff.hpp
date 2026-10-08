@@ -35,6 +35,7 @@ struct WsBackoffPolicy {
 struct WsBackoffStats {
     std::uint64_t backoffs{0};
     std::uint64_t refusals{0};
+    std::uint64_t handshakes{0};
     std::uint32_t streak{0};
     std::uint64_t until_ns{0};
 };
@@ -72,6 +73,7 @@ private:
     bool proven_{false};
     std::uint64_t backoffs_{0};
     std::uint64_t refusals_{0};
+    std::uint64_t handshakes_{0};
 };
 
 // the one shared by every socket to host:port; the first caller's policy holds
