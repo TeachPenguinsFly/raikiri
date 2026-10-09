@@ -49,6 +49,9 @@ struct WsPoolStats {
     std::uint64_t backoff_ms{0};
 };
 
+// every pool built afterwards offers permessage-deflate; set once per process
+void set_process_ws_deflate(bool on) noexcept;
+
 class WsPool {
 public:
     // builds the frames for `keys` on one connection; called again on every reconnect

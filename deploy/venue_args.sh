@@ -28,6 +28,9 @@ declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding [hyperliquid-hip3]=bb
 # hyperliquid: the hip-3 dexes to load; kucoin: the unified feed
 declare -A FEED=( [hyperliquid-hip3]=xyz,para,io,mkts [kucoin]=uta )
 
+# deflate pays only where a frame spans several segments; on small frames it costs cpu and saves no packets
+DEFLATE="deribit-opt derive-opt"
+
 # the account name's suffix names the market and overrides the table
 venue_argv() {
     local account="$1" adapter market channels
@@ -44,6 +47,7 @@ venue_argv() {
     [[ -z "$channels" && "$market" == spot ]] && channels="$SPOT_CHANNELS"
     [[ -n "$channels" ]] && printf -- ' --channels=%s' "$channels"
     [[ -n "${FEED[$account]:-}" ]] && printf -- ' --feed=%s' "${FEED[$account]}"
+    [[ " $DEFLATE " == *" $account "* ]] && printf -- ' --ws-deflate'
     return 0
 }
 

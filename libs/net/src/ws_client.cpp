@@ -441,6 +441,11 @@ private:
 
         conn->stream.read_message_max(cfg_.max_message_bytes);
         conn->stream.text(true);
+        if (cfg_.permessage_deflate) {
+            websock::permessage_deflate deflate{};
+            deflate.client_enable = true;
+            conn->stream.set_option(deflate);
+        }
         auto headers = cfg_.headers_for_connect ? cfg_.headers_for_connect()
                                                 : std::vector<std::pair<std::string, std::string>>{};
         conn->stream.set_option(

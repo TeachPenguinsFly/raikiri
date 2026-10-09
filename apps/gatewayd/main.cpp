@@ -19,6 +19,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_limits.hpp>
+#include <raikiri/net/ws_pool.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/venues/apex/apex_venue.hpp>
@@ -808,7 +809,7 @@ private:
 constexpr std::string_view
     k_usage = R"(usage: gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
                 [--channels=bbo,trades,depth,funding] [--feed=<adapter feed>] [--testnet]
-                [--api-key=<ref>] [--api-secret=<ref>] [--passphrase=<ref>]
+                [--api-key=<ref>] [--api-secret=<ref>] [--passphrase=<ref>] [--ws-deflate]
 )";
 
 int main(int argc, char** argv) {
@@ -833,6 +834,7 @@ int main(int argc, char** argv) {
     SubKinds wanted_channels{}; // all on
     std::string channels_arg;
     std::optional<std::string> feed_arg; // wins over venues.yaml's market_data_feed
+    bool ws_deflate = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg.starts_with("--venue=")) {
@@ -841,6 +843,8 @@ int main(int argc, char** argv) {
             duration_s = static_cast<std::uint64_t>(std::atoll(argv[++i]));
         } else if (arg == "--testnet") {
             testnet = true;
+        } else if (arg == "--ws-deflate") {
+            ws_deflate = true;
         } else if (arg.starts_with("--market=")) {
             market_arg = arg.substr(9);
         } else if (arg.starts_with("--channels=")) {
@@ -1041,6 +1045,7 @@ int main(int argc, char** argv) {
         RLOG_WARN("gatewayd: {} — running unlimited", settings.error());
     }
 
+    net::set_process_ws_deflate(ws_deflate);
     if (feed_arg.has_value()) {
         market_data_feed = *feed_arg;
     }

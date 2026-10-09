@@ -29,6 +29,8 @@ struct WsConfig {
     std::size_t send_queue_capacity{256};
     std::size_t max_message_bytes{1 << 20};
     bool verify_tls{true}; // false only for local test servers
+    // offers permessage-deflate in the handshake; the server decides
+    bool permessage_deflate{false};
     // false drops unsent frames on close; an order frame must not reach the next socket
     bool keep_queue_on_close{true};
     // asked before every connect: zero connects now, otherwise nanoseconds to wait

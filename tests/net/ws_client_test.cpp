@@ -3,6 +3,9 @@
 
 #include <gtest/gtest.h>
 
+#include <openssl/bio.h>
+#include <openssl/ssl.h>
+
 #include <atomic>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -76,6 +79,8 @@ struct ServerState {
     int decline_first{0};
     beast::http::status decline_status{beast::http::status::service_unavailable};
     std::string retry_after;
+    bool deflate{false};
+    std::atomic<std::uint64_t> wire_bytes{0};
 
     mutable std::mutex mu;
     std::vector<std::string> received;
@@ -95,6 +100,18 @@ struct ServerState {
         const std::lock_guard lock{mu};
         return received.size();
     }
+
+    void offer(std::string extensions) {
+        const std::lock_guard lock{mu};
+        offered = std::move(extensions);
+    }
+
+    [[nodiscard]] std::string offer() const {
+        const std::lock_guard lock{mu};
+        return offered;
+    }
+
+    std::string offered;
 };
 
 class ServerSession : public std::enable_shared_from_this<ServerSession> {
@@ -117,6 +134,10 @@ private:
             decline();
             return;
         }
+        if (state_.deflate) {
+            accept_deflate();
+            return;
+        }
         cork(state_.cork_greeting);
         ws_.async_accept([self = shared_from_this()](const boost::system::error_code& ec) {
             if (!ec) {
@@ -125,8 +146,31 @@ private:
         });
     }
 
+    // reads the upgrade first to keep what the client offered
+    void accept_deflate() {
+        websock::permessage_deflate deflate{};
+        deflate.server_enable = true;
+        ws_.set_option(deflate);
+        beast::http::async_read(
+            ws_.next_layer(),
+            buffer_,
+            request_,
+            [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+                if (ec) {
+                    return;
+                }
+                self->state_.offer(std::string{self->request_[beast::http::field::sec_websocket_extensions]});
+                self->ws_.async_accept(self->request_, [self](const boost::system::error_code& accept_ec) {
+                    if (!accept_ec) {
+                        self->write_greeting();
+                    }
+                });
+            });
+    }
+
     void write_greeting() {
         if (next_ >= state_.greeting.size()) {
+            state_.wire_bytes = BIO_number_written(SSL_get_wbio(ws_.next_layer().native_handle()));
             cork(false);
             do_read();
             return;
@@ -353,6 +397,57 @@ TEST(WsClient, ABurstThatQueuedWhileNoReadWasPendingArrivesWhole) {
     EXPECT_EQ(handler.messages, state.burst);
     EXPECT_TRUE(handler.closes.empty());
     EXPECT_EQ(client.stats().reconnects, 0U);
+    client.stop();
+}
+
+[[nodiscard]] std::string compressible_payload() {
+    std::string out{"["};
+    while (out.size() < 64 * 1024) {
+        out += std::format("{{\"p\":\"{}.5\",\"q\":\"0.001\"}},", 60'000 + out.size() % 97);
+    }
+    out.back() = ']';
+    return out;
+}
+
+TEST(WsClient, DeflateIsNegotiatedAndAFrameInflatesIntact) {
+    ServerState state;
+    state.deflate = true;
+    state.greeting = {compressible_payload()};
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
+    }};
+
+    IoContext io;
+    RecordingHandler handler;
+    auto config = loopback_config(listener.port());
+    config.permessage_deflate = true;
+    WsClient client{io, config, handler};
+    client.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return handler.messages.size() == 1 && state.wire_bytes != 0; }));
+    EXPECT_TRUE(state.offer().starts_with("permessage-deflate")) << state.offer();
+    EXPECT_EQ(handler.messages.front(), state.greeting.front());
+    EXPECT_LT(state.wire_bytes, state.greeting.front().size() / 4);
+    client.stop();
+}
+
+TEST(WsClient, ADefaultClientDoesNotOfferDeflate) {
+    ServerState state;
+    state.deflate = true;
+    state.greeting = {compressible_payload()};
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)->run();
+    }};
+
+    IoContext io;
+    RecordingHandler handler;
+    WsClient client{io, loopback_config(listener.port()), handler};
+    client.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return handler.messages.size() == 1 && state.wire_bytes != 0; }));
+    EXPECT_EQ(state.offer(), "");
+    EXPECT_EQ(handler.messages.front(), state.greeting.front());
+    EXPECT_GT(state.wire_bytes, state.greeting.front().size());
     client.stop();
 }
 

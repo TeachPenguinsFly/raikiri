@@ -16,6 +16,7 @@ namespace {
 
 std::mutex g_pools_mu;
 std::vector<const WsPool*> g_pools;
+bool g_deflate{false};
 
 // per-connection handler so a reconnect re-asks only that connection's keys
 class ConnHandler final : public WsHandler {
@@ -82,6 +83,7 @@ struct WsPool::Impl {
          OnConnectionOpen opened)
         : io{&io_ref}, config{std::move(cfg)}, handler{&shared}, settings{pool}, build_frames{std::move(build)},
           on_open{std::move(opened)}, backoff{host_backoff(config.host, config.port, config.backoff)} {
+        config.permessage_deflate = config.permessage_deflate || g_deflate;
         const auto& limits = process_ws_limits();
         if (limits.configured && limits.streams_per_socket != 0) {
             settings.max_keys_per_connection = limits.streams_per_socket;
@@ -126,6 +128,10 @@ struct WsPool::Impl {
     // whose message is in flight, or null between dispatches
     WsClient* dispatching{nullptr};
 };
+
+void set_process_ws_deflate(bool on) noexcept {
+    g_deflate = on;
+}
 
 WsPool::WsPool(
     IoContext& io, WsConfig config, WsHandler& handler, WsPoolConfig pool, BuildFrames build, OnConnectionOpen opened)
