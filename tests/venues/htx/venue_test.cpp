@@ -481,6 +481,10 @@ TEST(HtxMap, BuildsInstrumentsAndRefusesTheOnesItCannotTrade) {
     ASSERT_TRUE(btc.has_value());
     const auto& base = base_of(*btc);
     EXPECT_EQ(base.exchange_symbol.view(), "BTC-USDT");
+    EXPECT_EQ(base.local_symbol.view(), "BTC/USDT");
+    auto classified = base;
+    classify(VenueId::Htx, classified);
+    EXPECT_EQ(market_key(classified), "crypto:BTC/USD*");
     EXPECT_EQ(base.tick_size.raw, 100'000'000);    // 0.1
     EXPECT_EQ(base.lot_size.raw, k_e9);            // one contract, always
     EXPECT_EQ(base.contract_value.raw, 1'000'000); // 0.001 BTC per contract
@@ -489,6 +493,7 @@ TEST(HtxMap, BuildsInstrumentsAndRefusesTheOnesItCannotTrade) {
 
     const auto shib = map_instrument((*rows)[2], MarketType::Perp);
     ASSERT_TRUE(shib.has_value());
+    EXPECT_EQ(base_of(*shib).local_symbol.view(), "SHIB/USDT");
     EXPECT_EQ(base_of(*shib).tick_size.raw, 1); // the finest FixedE9 holds
     EXPECT_EQ(base_of(*shib).contract_value.raw, 1000 * k_e9);
 

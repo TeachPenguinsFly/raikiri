@@ -461,9 +461,10 @@ venues:
     limits:
       - { name: spot_rest, window_ms: 10000, max: 180, reserve: 18, match: ["/v2/"] }
       - { name: perp_rest, window_ms: 1000, max: 4, match: ["/cfd/"] }
-      - { name: ws_streams_perp, kind: ws_streams, market: perp, max: 250 }
+      # a perp socket streams 20 topics and acks the rest without data (g_nMaxSubTopics); 83 sockets held from one ip
+      - { name: ws_streams_perp, kind: ws_streams, market: perp, max: 20 }
       - { name: ws_streams_spot, kind: ws_streams, market: spot, max: 400 }
-      - { name: ws_sockets, kind: ws_sockets, max: 8 }
+      - { name: ws_sockets, kind: ws_sockets, max: 96 }
       - { name: ws_subscribe_perp, kind: ws_messages, scope: socket, market: perp, window_ms: 400, max: 1 }
       - { name: ws_subscribe_spot, kind: ws_messages, scope: socket, market: spot, window_ms: 50, max: 1 }
       - { name: ws_frame, kind: ws_frame, max: 1 }

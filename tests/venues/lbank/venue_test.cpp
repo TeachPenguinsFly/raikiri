@@ -137,6 +137,12 @@ TEST(LbankPerpStream, ClassifiesEveryFrame) {
     EXPECT_EQ(parse_head("not json").action, Action::Unknown);
 }
 
+TEST(LbankPerpStream, ReportsATopicPastTheSocketCapAsARefusal) {
+    EXPECT_EQ(parse_head(fixture("ws_topic_cap.json")).action, Action::Refused);
+    EXPECT_EQ(parse_head(fixture("ws_speed_cap.json")).action, Action::Refused);
+    EXPECT_EQ(parse_head(fixture("ws_resume_note.json")).action, Action::Note);
+}
+
 TEST(LbankPerpBook, SeedsFromTheSnapshotAndAppliesOnlyRowsAtItsOwnTick) {
     const auto btc = perp_base("BTCUSDT");
     const auto storage = std::make_unique<LevelBuffer>();

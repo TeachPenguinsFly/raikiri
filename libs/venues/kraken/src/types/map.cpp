@@ -5,6 +5,7 @@
 
 #include <limits>
 #include <optional>
+#include <string>
 
 namespace raikiri::venues::kraken {
 
@@ -209,6 +210,16 @@ bool copy_order_id(std::string_view text, ExchangeOrderId& out) {
     return true;
 }
 
+// PI_ and PF_ both quote usd, so the inverse pair carries a suffix the quote readers stop at
+std::optional<SymbolText> perp_symbol(const WireInstrument& wire, bool inverse) {
+    const auto pair = canonical_symbol(wire.base, wire.quote);
+    if (!pair.has_value() || !inverse) {
+        return pair;
+    }
+    const auto suffixed = SymbolText::from(std::string{pair->view()} + "-INV");
+    return suffixed.has_value() ? std::optional{*suffixed} : std::nullopt;
+}
+
 } // namespace
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -411,7 +422,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.id = InstrumentId::make(VenueId::Kraken, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     // the pair the spot side names too; a row without one keeps the venue's symbol
-    base.local_symbol = canonical_symbol(wire.base, wire.quote).value_or(*symbol);
+    base.local_symbol = perp_symbol(wire, inverse).value_or(*symbol);
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract;

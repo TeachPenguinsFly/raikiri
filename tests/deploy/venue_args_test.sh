@@ -45,7 +45,7 @@ expect binance-spot "--venue=binance --market=spot --channels=bbo,trades"
 expect kraken-spot "--venue=kraken --market=spot --channels=bbo,trades"
 expect hyperliquid-spot "--venue=hyperliquid --market=spot --channels=bbo,depth,funding"
 expect hyperliquid-hip3 "--venue=hyperliquid --market=perp --channels=bbo,trades,depth,funding --feed=xyz,para,io,mkts"
-expect deribit-opt "--venue=deribit --market=option"
+expect deribit-opt "--venue=deribit --market=option --ws-deflate"
 
 spots=$("$new" -c ". '$args' && spot_accounts_for 'binance bybit okx gate kucoin'")
 if [ "$spots" != " binance-spot bybit-spot okx-spot gate-spot kucoin-spot" ]; then

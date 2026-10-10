@@ -98,6 +98,9 @@ public:
                 refused(payload);
             }
             break;
+        case Action::Refused:
+            refused(payload);
+            break;
         case Action::Note:
         case Action::Unknown:
             break;
@@ -271,6 +274,7 @@ public:
                   '_' + market->tick_text;
             break;
         case exec::SubKind::Trades:
+            // the empty filter streams every print on one topic, but some 30 s behind, so each contract takes a topic
             key = std::string{ep::k_topic_trades} + k_key_sep + std::string{ep::k_exchange} + '_' + std::string{symbol};
             break;
         case exec::SubKind::Funding:

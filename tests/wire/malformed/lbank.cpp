@@ -41,6 +41,7 @@ TEST(Malformed, Lbank) {
                {"ws_ack.json", [](std::string_view f) { (void)parse_head(f); }},
                {"ws_refusal.json", [](std::string_view f) { (void)parse_head(f); }},
                {"ws_resume_note.json", [](std::string_view f) { (void)parse_head(f); }},
+               {"ws_*_cap.json", [](std::string_view f) { (void)parse_head(f); }},
                {"rest_instrument.json", [](std::string_view f) { (void)parse_perp_instruments(f, *contracts); }},
                {"rest_market_data.json", [](std::string_view f) { (void)parse_perp_markets(f, *markets); }},
                {"rest_market_order.json", [](std::string_view f) { (void)parse_market_order(f, *depth); }},

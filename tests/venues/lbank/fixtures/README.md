@@ -27,3 +27,14 @@ Added on 2026-10-03 between 15:13 and 15:20 UTC with the same user agent:
 | `ws_book_batch_first.json`, `ws_book_batch_second.json` | topic 25 on one socket carrying twelve books: two frames of one batch under bNo 219701801916, labelled QNTUSDT and BTCUSDT, cut to the SUSHIUSDT and ACHUSDT rows that only one of them carries |
 | `ws_book_replay.json` | the first diff on that socket's HYPEUSDT subscription, a replay older than the batches already seen, cut to HYPEUSDT rows |
 | `rest_market_order.json` | `GET https://lbkperp.lbank.com/cfd/openApi/v1/pub/marketOrder?symbol=ETHUSDT&depth=5` |
+
+Added on 2026-10-10 around 13:20 UTC with the same user agent:
+
+| file | source |
+|---|---|
+| `ws_topic_cap.json` | the note after the 21st topic-2 subscription on one socket, paced at 120 ms; the venue acked all 60 and streamed the first 20 |
+| `ws_speed_cap.json` | the note after the 21st of 120 topic-2 subscriptions sent in one burst |
+
+Topic 2 with an empty `FilterValue` streams every instrument's prints on one
+topic: 984 instruments in 20 s, 574 of them the 833 SwapU contracts, the rest
+numeric ids outside that group, but some 30 s behind the per-contract topics.

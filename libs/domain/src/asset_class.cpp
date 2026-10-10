@@ -1296,6 +1296,10 @@ std::string market_key(const InstrumentBase& base) {
     quote = quote.substr(0, quote.find('-'));
     out += '/';
     out += quote == "USDT" || quote == "USDC" ? std::string_view{"USD*"} : quote;
+    // an inverse contract counts usd and settles in the coin, so it never pairs with a linear one
+    if (base.kind == ContractKind::Inverse) {
+        out += "-INV";
+    }
     return out;
 }
 

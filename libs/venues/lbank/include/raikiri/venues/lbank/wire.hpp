@@ -47,7 +47,8 @@ struct PerpMarketBuffer {
 [[nodiscard]] std::expected<std::span<const WirePerpMarket>, WireError> parse_perp_markets(std::string_view body,
                                                                                            PerpMarketBuffer& storage);
 
-enum class Action : std::uint8_t { Unknown = 0, Book, Trade, Overview, Ack, Note };
+// Refused is a bare note naming a topic past the socket's cap or a frame past its speed limit
+enum class Action : std::uint8_t { Unknown = 0, Book, Trade, Overview, Ack, Note, Refused };
 
 struct WireHead {
     Action action{Action::Unknown};

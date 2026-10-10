@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kraken/book.hpp>
@@ -1298,6 +1299,38 @@ TEST(KrakenErrors, TheOrderVerdictVocabularyIsNotTheErrorVocabulary) {
     EXPECT_TRUE(is_edit_accepted("edited"));
     EXPECT_FALSE(is_edit_accepted("orderForEditNotFound"));
     EXPECT_FALSE(is_edit_accepted(""));
+}
+
+
+TEST(KrakenCatalogue, InversePerpsKeepASymbolAndMarketOfTheirOwn) {
+    static thread_local InstrumentBuffer storage;
+    const auto body = fixture("rest_instruments_inverse_pairs.json");
+    const auto wire = parse_instruments(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    exec::InstrumentTable table;
+    for (const auto& row : *wire) {
+        auto instrument = map_instrument(row, MarketType::Perp);
+        ASSERT_TRUE(instrument.has_value()) << row.symbol;
+        classify(VenueId::Kraken, *instrument);
+        ASSERT_TRUE(table.add(*instrument).has_value());
+    }
+    ASSERT_EQ(table.size(), 8U);
+
+    const auto& inverse = base_of(*table.find("PI_XBTUSD"));
+    const auto& linear = base_of(*table.find("PF_XBTUSD"));
+    EXPECT_EQ(inverse.local_symbol.view(), "BTC/USD-INV");
+    EXPECT_EQ(linear.local_symbol.view(), "BTC/USD");
+    EXPECT_EQ(inverse.kind, ContractKind::Inverse);
+    EXPECT_EQ(asset_key(inverse), asset_key(linear));
+    EXPECT_EQ(market_key(linear), "crypto:BTC/USD");
+    EXPECT_EQ(market_key(inverse), "crypto:BTC/USD-INV");
+
+    std::vector<std::string> locals;
+    for (const auto& listed : table.all()) {
+        locals.emplace_back(base_of(listed).local_symbol.view());
+    }
+    std::ranges::sort(locals);
+    EXPECT_EQ(std::ranges::adjacent_find(locals), locals.end());
 }
 
 } // namespace

@@ -33,6 +33,7 @@ Three subscribe-then-listen sessions.
 |---|---|
 | `rest_instruments.json` | `GET /instruments`, trimmed to six verbatim rows inside the original envelope (see below) |
 | `rest_instruments_live.json` | `GET /instruments` on 2026-09-25, all 299 rows, each cut to the fields the parser reads |
+| `rest_instruments_inverse_pairs.json` | `GET /instruments` on 2026-10-10, the four `PI_` rows and their `PF_` twins, verbatim |
 | `rest_ticker.json` | `GET /tickers/PF_XBTUSD` |
 | `rest_error_bad_symbol.json` | `GET /orderbook?symbol=` |
 | `rest_error_auth.json` | `GET /accounts` with no credentials (HTTP 200) |

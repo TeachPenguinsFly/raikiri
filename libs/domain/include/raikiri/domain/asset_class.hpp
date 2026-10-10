@@ -31,7 +31,7 @@ void classify(VenueId venue, InstrumentBase& base) noexcept;
 // what cross-venue matching keys on: "equity:TSLA", "commodity:XAU"; empty when unclassified
 [[nodiscard]] std::string asset_key(const InstrumentBase& base);
 
-// the asset key and the quote with usdt and usdc folded together: "equity:TSLA/USD*"
+// the asset key and the quote with usdt and usdc folded together: "equity:TSLA/USD*"; an inverse one ends "-INV"
 [[nodiscard]] std::string market_key(const InstrumentBase& base);
 
 // the hip-3 deployer a listing comes from, "xyz" of "xyz:TSLA/USDC"; empty elsewhere

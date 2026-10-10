@@ -156,7 +156,9 @@ WireHead parse_head(std::string_view frame) {
         } else if (*action == "RecvTopicAction") {
             out.action = Action::Ack;
         } else if (action->empty()) {
-            out.action = Action::Note;
+            const auto message = wire::opt_str(*root, "errorMsg").value_or(std::string_view{});
+            const bool capped = *code != 0 || message.find("g_nMaxSubTopics") != std::string_view::npos;
+            out.action = capped ? Action::Refused : Action::Note;
         }
         return out;
     });

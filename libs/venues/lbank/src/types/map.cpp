@@ -180,6 +180,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& 
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.aggressor = wire.buy ? Side::Buy : Side::Sell;
+    // TradeTime is the match time in whole seconds, the only stamp the feed carries
     out.ts_event = s_or(wire.time_s, UnixNanos{});
     out.ts_init = ts_init;
     return out;

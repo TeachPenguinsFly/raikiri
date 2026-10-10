@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/int128.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/htx/map.hpp>
 
 #include <array>
@@ -422,7 +423,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Htx, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // BTC-USDT names the pair; a code that does not split keeps the venue's spelling
+    const auto pair = split_symbol(wire.contract_code, '-');
+    const auto local = pair.has_value() ? canonical_symbol(pair->first.view(), pair->second.view()) : std::nullopt;
+    base.local_symbol = local.value_or(*symbol);
     base.asset_class = asset_class_of(wire.tradfi_labels);
     base.tick_size = *tick;
     base.lot_size = FixedE9::from_raw(k_e9);

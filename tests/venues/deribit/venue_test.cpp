@@ -280,7 +280,7 @@ TEST(DeribitCatalogue, LinearPerpetualsPairByTheirStatedUnderlying) {
         classify(VenueId::Deribit, base);
         return market_key(base);
     };
-    EXPECT_EQ(key("BTC-PERPETUAL"), "crypto:BTC/USD");
+    EXPECT_EQ(key("BTC-PERPETUAL"), "crypto:BTC/USD-INV");
     EXPECT_EQ(key("BTC_USDC-PERPETUAL"), "crypto:BTC/USD*");
     EXPECT_EQ(key("SOL_USDC-PERPETUAL"), "crypto:SOL/USD*");
     EXPECT_EQ(key("AAPL_USDC-PERPETUAL"), "equity:AAPL/USD*");
