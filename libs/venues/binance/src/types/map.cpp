@@ -96,7 +96,8 @@ std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::Instrument
     const auto& base = base_of(*instrument);
     const auto price = to_ticks(wire.price, base);
     const auto qty = to_lots(wire.qty, base);
-    if (!price.has_value() || !qty.has_value()) {
+    // the futures trade stream also carries non-market prints at price 0
+    if (!price.has_value() || !qty.has_value() || price->raw <= 0 || qty->raw <= 0) {
         return std::nullopt;
     }
 

@@ -129,6 +129,16 @@ TEST(BinanceMap, MissingVenueTimeFallsBackToIngest) {
     EXPECT_EQ(trade->ts_event.ns, 0U);
 }
 
+TEST(BinanceMap, ZeroPricePrintIsDropped) {
+    const auto table = table_with_btc();
+    WirePrint wire{};
+    wire.symbol = "BTCUSDT";
+    wire.price = "0";
+    wire.qty = "0.008";
+    wire.trade_ms = 1'786'375'704'122ULL;
+    EXPECT_FALSE(map_trade(wire, table, k_ingest).has_value());
+}
+
 TEST(BinanceMap, MarkPriceBecomesFunding) {
     const auto table = table_with_btc();
     WireMarkPrice wire{};

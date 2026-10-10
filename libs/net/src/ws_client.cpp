@@ -115,6 +115,8 @@ private:
             const auto n = ::recvmsg(native_handle(), &msg, MSG_DONTWAIT);
             if (n > 0) {
                 got = static_cast<std::size_t>(n);
+                // a read the kernel did not stamp must not inherit an earlier read's stamp; zero falls back to the wall clock
+                last_arrival_ns_ = 0;
                 for (auto* c = CMSG_FIRSTHDR(&msg); c != nullptr; c = CMSG_NXTHDR(&msg, c)) {
                     if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SO_TIMESTAMPING) {
                         ::scm_timestamping stamp{};
