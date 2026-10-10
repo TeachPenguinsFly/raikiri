@@ -65,7 +65,12 @@ jobs:
 
       # an asan debug build of every test outgrows the runner's free disk
       - name: Free disk space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium \
+            /usr/share/swift /usr/lib/jvm /opt/microsoft /opt/google /usr/local/graalvm
+          sudo docker image prune --all --force > /dev/null
+          df -h /
 
       - name: Install toolchain
         run: |
@@ -101,7 +106,7 @@ jobs:
         run: conan cache clean "*" --source --build --temp || true
 
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }} -DRAIKIRI_SANITIZE_DEBUG=-g1 -DCMAKE_CXX_FLAGS_DEBUG=-g1 -DCMAKE_C_FLAGS_DEBUG=-g1
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}

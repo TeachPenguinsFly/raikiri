@@ -72,7 +72,7 @@ public:
     template <typename MutableBuffers, typename Handler>
     auto async_read_some(const MutableBuffers& buffers, Handler&& handler) {
         return asio::async_initiate<Handler, void(boost::system::error_code, std::size_t)>(
-            [this](auto done, const MutableBuffers& into) { this->start(std::move(done), into); }, handler, buffers);
+            [self = this](auto done, const MutableBuffers& into) { self->start(std::move(done), into); }, handler, buffers);
     }
 
 private:

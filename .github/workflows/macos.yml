@@ -65,11 +65,11 @@ jobs:
         run: conan cache clean "*" --source --build --temp || true
 
       - name: Configure
-        run: cmake --preset dev-asan
+        run: cmake --preset dev-asan -DRAIKIRI_SANITIZE_DEBUG=-g1 -DCMAKE_CXX_FLAGS_DEBUG=-g1 -DCMAKE_C_FLAGS_DEBUG=-g1
 
-      # ninja's default job count can run this runner out of memory
+      # apple clang segfaulted at three jobs on this 7 GB runner, so two
       - name: Build
-        run: cmake --build --preset dev-asan --parallel 3
+        run: cmake --build --preset dev-asan --parallel 2
 
       - name: Test
         run: ctest --preset dev-asan --parallel 2
