@@ -1,3 +1,4 @@
+#include <raikiri/venues/phemex/trade.hpp>
 #include <raikiri/venues/phemex/book.hpp>
 #include <raikiri/venues/phemex/catalogue.hpp>
 #include <raikiri/venues/phemex/envelope.hpp>
@@ -84,6 +85,53 @@ TEST(Malformed, Phemex) {
                 [](std::string_view f) {
                     static CatalogueBuffer catalogue;
                     (void)parse_products(f, catalogue);
+                }},
+               {"rest_create_order.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_reply(f);
+                    (void)parse_order_rows(f, storage);
+                }},
+               {"rest_active_list.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_order_rows(f, storage);
+                }},
+               {"rest_order_by_id.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_order_rows(f, storage);
+                }},
+               {"rest_user_trades.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_order_rows(f, storage);
+                }},
+               {"rest_account_positions.json",
+                [](std::string_view f) {
+                    static PositionBuffer storage;
+                    (void)parse_account_positions(f, storage);
+                }},
+               {"rest_error_bad_key.json", [](std::string_view f) { (void)parse_reply(f); }},
+               {"ws_auth_ok.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_private(f, storage);
+                }},
+               {"ws_auth_refused.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_private(f, storage);
+                }},
+               {"ws_aop_p_snapshot.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_private(f, storage);
+                }},
+               {"ws_aop_p_incremental.json",
+                [](std::string_view f) {
+                    static OrderRowBuffer storage;
+                    (void)parse_private(f, storage);
                 }},
            });
 }

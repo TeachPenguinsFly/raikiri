@@ -6,6 +6,7 @@
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
+#include <raikiri/net/signer.hpp>
 #include <raikiri/venues/phemex/book.hpp>
 #include <raikiri/venues/phemex/map.hpp>
 #include <raikiri/venues/phemex/market_data.hpp>
@@ -28,7 +29,9 @@ struct VenueState {
     exec::RateBudget* budget{nullptr};
     bool testnet;
 
+    std::uint64_t order_answer_timeout_ns{0};
     net::IoContext io;
+    net::Signer signer;
     exec::InstrumentTable instruments;
     Protocol protocol;
     MarketType market{MarketType::Perp};
@@ -53,6 +56,7 @@ struct VenueState {
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
     std::uint64_t off_grid_frames{0};
+    std::uint64_t private_frames_dropped{0};
 
     struct Found {
         const InstrumentBase* base;

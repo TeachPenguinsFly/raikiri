@@ -52,6 +52,9 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: weight, window_ms: 60000, max: 2160, reserve: 216, match: ["/fapi/"] }
+      # ORDERS: 300 per 10 s and 1200 a minute per account, from exchangeInfo
+      - { name: orders, window_ms: 10000, max: 270, reserve: 27, match: ["/fapi/v3/order"] }
+      - { name: orders_minute, window_ms: 60000, max: 1080, reserve: 108, match: ["/fapi/v3/order"] }
       - { name: spot_weight, window_ms: 60000, max: 5400, match: ["/api/v1/"] }
       - { name: ws_streams, kind: ws_streams, max: 180 }
       - { name: ws_sockets, kind: ws_sockets, max: 12 }
@@ -59,12 +62,14 @@ venues:
       - { name: ws_frame, kind: ws_frame, max: 32 }
     default_cost: 40
     costs:
-      - { match: "/fapi/v1/order", cost: 1 }
-      - { match: "/fapi/v1/openOrders", cost: 5 }
-      - { match: "/fapi/v1/userTrades", cost: 5 }
-      - { match: "/fapi/v2/account", cost: 5 }
+      - { match: "/fapi/v3/order", cost: 1 }
+      # 40 with no symbol, which is how reconciliation asks
+      - { match: "/fapi/v3/openOrders", cost: 40 }
+      - { match: "/fapi/v3/userTrades", cost: 5 }
+      - { match: "/fapi/v3/account", cost: 5 }
       - { match: "/fapi/v3/positionRisk", cost: 5 }
-      - { match: "/fapi/v1/income", cost: 30 }
+      - { match: "/fapi/v3/income", cost: 30 }
+      - { match: "/fapi/v3/listenKey", cost: 1 }
       - { match: "/fapi/v1/exchangeInfo", cost: 1 }
       - { match: "/fapi/v1/time", cost: 1 }
       - { match: "/fapi/v1/premiumIndex", cost: 10 }
@@ -269,7 +274,8 @@ venues:
   lighter:
     order_answer_timeout_ms: 15000
     limits:
-      - { name: requests, window_ms: 60000, max: 54 }
+      - { name: requests, window_ms: 60000, max: 54, reserve: 12, match: ["/api/"] }
+      - { name: send_tx, window_ms: 60000, max: 54, match: ["/api/v1/sendTx", "ws:sendtx"] }
       - { name: ws_minute, kind: ws_messages, scope: ip, window_ms: 60000, max: 180 }
       - { name: ws_burst, kind: ws_messages, scope: ip, window_ms: 2000, max: 6 }
       - { name: ws_streams, kind: ws_streams, max: 500 }
@@ -288,6 +294,8 @@ venues:
     limits:
       - { name: minute, window_ms: 60000, max: 450 }
       - { name: five_minutes, window_ms: 300000, max: 1350 }
+      # place, cancel and amend share 30 per 10 s per user
+      - { name: trading, window_ms: 10000, max: 27, match: ["/api/v1/trade/order", "/api/v1/trade/cancel-order", "/api/v1/trade/amend-order"] }
       - { name: ws_streams, kind: ws_streams, max: 1000 }
       - { name: ws_sockets, kind: ws_sockets, max: 3 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 50, max: 1 }
@@ -305,6 +313,8 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: requests, window_ms: 1000, max: 60 }
+      # private limits are unpublished ("by api key tier"); kept far under the public one until measured
+      - { name: private, window_ms: 1000, max: 10, reserve: 2, match: ["/api/v2/private/"] }
       - { name: ws_streams, kind: ws_streams, max: 200 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 5, max: 1 }
@@ -321,6 +331,10 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: public, window_ms: 60000, max: 270, match: ["/public/"] }
+      # the contract group: 500 a minute per account; everything signed outside it shares 100
+      - { name: contract, window_ms: 60000, max: 450, reserve: 45, match: ["/g-orders", "/g-accounts"] }
+      - { name: others, window_ms: 60000, max: 90, match: ["/api-data/"] }
+      - { name: ip, window_ms: 300000, max: 4500 }
       - { name: ws_streams, kind: ws_streams, max: 90 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 60, max: 1 }

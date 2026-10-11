@@ -1,4 +1,5 @@
 add_library(raikiri_net STATIC
+  src/evm.cpp
   src/inflater.cpp
   src/io_context.cpp
   src/json_writer.cpp

@@ -1,3 +1,4 @@
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/venue_clock.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
@@ -19,8 +20,16 @@ namespace {
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
+    state->order_answer_timeout_ns = config.order_answer_timeout_ns;
+    // blofin signs with a passphrase as well; without one every signed call is refused
+    const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
+                                       .key([&](std::string_view value) { state->signer.set_api_key(value); })
+                                       .secret(state->signer.secret())
+                                       .passphrase([&](std::string_view value) { state->passphrase.assign(value); })
+                                       .resolve();
 
     exec::VenueAdapter adapter{};
+    adapter.credential_errors = config::describe(credential_errors);
     adapter.caps = exec::caps_of(VenueId::Blofin);
     // no time endpoint: the busiest book's stamp, which trails the server clock by milliseconds
     adapter.clock.emplace(

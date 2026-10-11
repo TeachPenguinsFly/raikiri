@@ -1,3 +1,6 @@
+#include <raikiri/venues/aster/account.hpp>
+#include <raikiri/venues/aster/orders.hpp>
+#include <raikiri/venues/aster/positions.hpp>
 #include <raikiri/venues/aster/book.hpp>
 #include <raikiri/venues/aster/catalogue.hpp>
 #include <raikiri/venues/aster/envelope.hpp>
@@ -116,6 +119,41 @@ TEST(Malformed, Aster) {
                     static Ticker24hBuffer storage;
                     (void)parse_ticker_24h(f, storage);
                 }},
+               {"user_order_trade_update.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    (void)parse_order_update(f);
+                }},
+               {"user_listen_key_expired.json", [](std::string_view f) { (void)parse_event(f); }},
+               {"rest_listen_key.json", [](std::string_view f) { (void)parse_listen_key(f); }},
+               {"rest_query_order.json", [](std::string_view f) { (void)parse_order(f); }},
+               {"rest_open_orders.json",
+                [](std::string_view f) {
+                    static OrderBuffer storage;
+                    (void)parse_orders(f, storage);
+                }},
+               {"rest_user_trades.json",
+                [](std::string_view f) {
+                    static TradeBuffer storage;
+                    (void)parse_user_trades(f, storage);
+                }},
+               {"rest_position_risk.json",
+                [](std::string_view f) {
+                    std::array<WirePositionRisk, 8> storage{};
+                    (void)parse_position_risk(f, storage);
+                }},
+               {"rest_account.json",
+                [](std::string_view f) {
+                    static BalanceBuffer storage;
+                    (void)parse_account(f, storage);
+                }},
+               {"rest_income.json",
+                [](std::string_view f) {
+                    static IncomeBuffer storage;
+                    (void)parse_income(f, storage);
+                }},
+               {"rest_error_signature.json", [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"rest_error_no_nonce.json", [](std::string_view f) { (void)parse_rest_error(f); }},
            });
 }
 

@@ -20,3 +20,11 @@ venue's spelling.
 | `ws_error_contract.json`, `ws_error_depth.json`, `ws_error_channel.json` | refusals of `depth.99999999.15`, `depth.30000001.50` and `nosuch.30000001` |
 | `ws_ping.json`, `ws_subscribed.json` | the server's ping and a subscription ack |
 | `ws_spot_depth_snapshot.json`, `ws_spot_trades_changed.json`, `ws_spot_ticker_all.json` | `depth.90000002.15`, `trades.90000002` and `ticker.all.1s` on the spot socket |
+
+Order entry fixtures, 2026-10-11, no credentials:
+
+| file | source |
+|---|---|
+| `rest_create_no_headers.json` | `POST /api/v2/private/order/createOrder` with body `{}` and no auth headers: HTTP 400 |
+| `rest_create_bad_key.json` | the same with `X-edgeX-Api-Key: x` and a junk signature: HTTP 401 |
+| `ws_private_connected.json`, `ws_private_snapshot.json`, `ws_private_order_update.json` | the live examples printed in the v2 private websocket docs (edgex-1.gitbook.io, api-v2/websocket-api/private-websocket), re-serialised compactly; the venue's own trimming kept |

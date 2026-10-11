@@ -1,3 +1,5 @@
+#include <raikiri/exec/caps.hpp>
+#include <raikiri/venues/phemex/trade.hpp>
 #include <raikiri/venues/phemex/book.hpp>
 #include <raikiri/venues/phemex/catalogue.hpp>
 #include <raikiri/venues/phemex/envelope.hpp>
@@ -403,6 +405,207 @@ TEST(PhemexWs, KeysAndFramesFollowTheInstrumentsEncoding) {
               R"({"id":1,"method":"orderbook_p.subscribe","params":["BTCUSDT"]})");
     EXPECT_EQ(protocol.subscribe_frame("perp_market24h_pack_p"),
               R"({"id":2,"method":"perp_market24h_pack_p.subscribe","params":[]})");
+}
+
+exec::InstrumentTable btc_table() {
+    exec::InstrumentTable table;
+    EXPECT_TRUE(table.add(listed("BTCUSDT", MarketType::Perp).instrument).has_value());
+    return table;
+}
+
+ExchangeClientOrderId coid() {
+    return *ExchangeClientOrderId::from("01HZY3M7K8Q9R0S1T2V3W4X5Y6");
+}
+
+constexpr std::string_view k_doc_uuid = "c0327a7d-9064-62a9-28f6-2db9aaaa04e0";
+
+// the docs print the signed strings but no secret; the digests are python hmac's over the same bytes
+TEST(PhemexSigner, SignsPathQueryExpiryAndBodyAsTheDocsJoinThem) {
+    net::Signer signer;
+    signer.set_api_key("806066b0-f02b-4d3e-b444-76ec718e1023");
+    ASSERT_TRUE(signer.secret().assign("not-a-real-secret-0123456789abcdef").has_value());
+    std::array<char, net::k_hex_bytes + 1> out{};
+    EXPECT_EQ(sign_request(signer, "/accounts/accountPositions", "currency=BTC", 1575735514, {}, out),
+              "4393fea89386c1ab329a183b781368bf0fafd2d7464e9a80829956bac37db339");
+    EXPECT_EQ(sign_request(signer,
+                           "/orders",
+                           {},
+                           1575735514,
+                           R"({"symbol":"BTCUSD","clOrdID":"uuid-1573058952273","side":"Sell","priceEp":93185000,)"
+                           R"("orderQty":7,"ordType":"Limit","reduceOnly":false,"timeInForce":"GoodTillCancel",)"
+                           R"("takeProfitEp":0,"stopLossEp":0})",
+                           out),
+              "6b62de98aff0038c4876684cd2406ee37bb1d3f4be49589290162b1565fdc96f");
+    EXPECT_EQ(sign_request(signer, "/g-orders/activeList", "symbol=BTCUSDT", 1575735514, {}, out),
+              "7560e7573ec14cf3e7855e8142826e32c188a1bd411cda52b1925737c3669d0a");
+
+    // user.auth signs the key and the expiry, in seconds
+    const auto auth = auth_frame(signer, UnixNanos{1'570'091'172'000'000'000ULL}, 7);
+    ASSERT_TRUE(auth.has_value());
+    EXPECT_EQ(*auth,
+              R"({"method":"user.auth","params":["API","806066b0-f02b-4d3e-b444-76ec718e1023",)"
+              R"("65d9a9434b7918a95deba4569a445a6804d4663248b22c3e9909d63259feea5d",1570091232],"id":7})");
+}
+
+TEST(PhemexRequests, SignsTheQueryItSendsAndRefusesWithoutKeys) {
+    const auto& base = base_of(listed("BTCUSDT", MarketType::Perp).instrument);
+    net::Signer signer;
+    RequestBuilder unkeyed{signer};
+    OrderCmd cmd{};
+    cmd.instrument = base.id;
+    cmd.side = Side::Sell;
+    cmd.flags = OrderFlags::PostOnly | OrderFlags::ReduceOnly;
+    cmd.qty = QtyLots::from_raw(5);
+    cmd.price = PriceTicks::from_raw(848001);
+    cmd.exchange_client_order_id = coid();
+    const UnixNanos now{1'575'735'454'000'000'000ULL};
+    EXPECT_EQ(unkeyed.create_order(cmd, base, now).error(), BuildError::NoCredentials);
+
+    signer.set_api_key("key");
+    ASSERT_TRUE(signer.secret().assign("secret").has_value());
+    RequestBuilder builder{signer};
+    const auto request = builder.create_order(cmd, base, now);
+    ASSERT_TRUE(request.has_value());
+    const std::string query{"clOrdID=01HZY3M7K8Q9R0S1T2V3W4X5Y6&symbol=BTCUSDT&side=Sell&posSide=Merged&ordType=Limit"
+                            "&orderQtyRq=0.005&priceRp=84800.1&timeInForce=PostOnly&reduceOnly=true"};
+    EXPECT_EQ(builder.last_signed(), "/g-orders/create" + query + "1575735514");
+    EXPECT_EQ(request->target, "/g-orders/create?" + query);
+    EXPECT_EQ(request->method, net::HttpMethod::Put);
+    ASSERT_EQ(request->headers.size(), 3U);
+    EXPECT_EQ(request->headers[1].value, "1575735514");
+    std::array<char, net::k_hex_bytes + 1> out{};
+    EXPECT_EQ(request->headers[2].value, sign_request(signer, "/g-orders/create", query, 1575735514, {}, out));
+
+    const auto cancel = builder.cancel_order(cmd, "BTCUSDT", now);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(cancel->method, net::HttpMethod::Delete);
+    EXPECT_EQ(cancel->target, "/g-orders/cancel?clOrdID=01HZY3M7K8Q9R0S1T2V3W4X5Y6&posSide=Merged&symbol=BTCUSDT");
+
+    cmd.flags = OrderFlags::None;
+    cmd.tif = TimeInForce::Fok;
+    ASSERT_TRUE(builder.create_order(cmd, base, now).has_value());
+    EXPECT_NE(builder.last_signed().find("timeInForce=FillOrKill"), std::string_view::npos);
+    const auto amend = builder.amend_order(cmd, base, now);
+    ASSERT_TRUE(amend.has_value());
+    EXPECT_EQ(amend->target,
+              "/g-orders/replace?symbol=BTCUSDT&origClOrdID=01HZY3M7K8Q9R0S1T2V3W4X5Y6&priceRp=84800.1"
+              "&orderQtyRq=0.005&posSide=Merged");
+}
+
+TEST(PhemexErrors, ReadsStringAndNumberCodes) {
+    const auto bad_key = parse_reply(fixture("rest_error_bad_key.json"));
+    ASSERT_TRUE(bad_key.has_value());
+    EXPECT_EQ(bad_key->code, k_unauthorized);
+    EXPECT_EQ(classify(bad_key->code, 401), exec::ErrorClass::AuthFailure);
+    const auto ok = parse_reply(fixture("rest_create_order.json"));
+    ASSERT_TRUE(ok.has_value());
+    EXPECT_EQ(ok->code, k_ok);
+    EXPECT_EQ(classify(k_no_balance, 200), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_too_many_requests, 200), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify(0, 503), exec::ErrorClass::Retryable);
+    EXPECT_TRUE(is_benign_cancel_failure(k_order_not_found));
+}
+
+TEST(PhemexUserStream, AuthRepliesAndOrderRowsMapToLifecycleAndFills) {
+    const auto table = btc_table();
+    const auto storage = std::make_unique<OrderRowBuffer>();
+    const auto ok = parse_private(fixture("ws_auth_ok.json"), *storage);
+    ASSERT_TRUE(ok.has_value());
+    EXPECT_EQ(ok->kind, PrivateKind::Reply);
+    EXPECT_EQ(ok->error_code, 0);
+    const auto refused = parse_private(fixture("ws_auth_refused.json"), *storage);
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_EQ(refused->error_code, k_invalid_login_token);
+
+    const auto snapshot = parse_private(fixture("ws_aop_p_snapshot.json"), *storage);
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->kind, PrivateKind::Snapshot);
+
+    // the doc's uuid client id is longer than the ulids this oms mints, so its rows are re-keyed
+    auto push_body = fixture("ws_aop_p_incremental.json");
+    for (auto at = push_body.find(k_doc_uuid); at != std::string::npos; at = push_body.find(k_doc_uuid)) {
+        push_body.replace(at, k_doc_uuid.size(), coid().view());
+    }
+    const auto push = parse_private(push_body, *storage);
+    ASSERT_TRUE(push.has_value());
+    EXPECT_EQ(push->kind, PrivateKind::Orders);
+    ASSERT_EQ(push->orders.size(), 2U);
+    const auto accepted = map_order_row(push->orders[0], table, k_ingest);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->type, OrderEventType::Accepted);
+    EXPECT_EQ(accepted->qty.raw, 3);
+    EXPECT_EQ(accepted->exchange_order_id.view(), "fa64c6f2-47a4-4929-aab4-b7fa9bbc4323");
+    const auto fill = map_order_row(push->orders[1], table, k_ingest);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->type, OrderEventType::Filled);
+    EXPECT_EQ(fill->qty.raw, 3);
+    EXPECT_EQ(fill->leaves_qty.raw, 0);
+    EXPECT_EQ(fill->price.raw, 207251);
+    EXPECT_EQ(fill->fee, e9("0.03730518"));
+    EXPECT_EQ(fill->liquidity, Liquidity::Taker);
+    EXPECT_EQ(fill->exec_id.view(), "b6c8d16b-c777-510c-8476-80f399b2d5ad");
+    EXPECT_EQ(fill->ts_event.ns, 1'666'858'780'881'545'305ULL);
+}
+
+TEST(PhemexReconciliation, ReadsOrdersFillsPositionsAndTheUsdtAccount) {
+    const auto table = btc_table();
+    const auto storage = std::make_unique<OrderRowBuffer>();
+    const auto active_body = fixture("rest_active_list.json");
+    const auto active = parse_order_rows(active_body, *storage);
+    ASSERT_TRUE(active.has_value());
+    ASSERT_FALSE(active->empty());
+    const auto report = map_order_report(active->front(), table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->qty.raw, 5);
+    EXPECT_EQ(report->leaves.raw, 5);
+    EXPECT_EQ(report->price.raw, 224904);
+    EXPECT_EQ(report->side, Side::Sell);
+
+    auto by_id_body = fixture("rest_order_by_id.json");
+    by_id_body.replace(by_id_body.find("cfffa744-712d-867a-e397-9888eec3f6d1"), 36, coid().view());
+    const auto by_id = parse_order_rows(by_id_body, *storage);
+    ASSERT_TRUE(by_id.has_value());
+    ASSERT_EQ(by_id->size(), 1U);
+    EXPECT_EQ(by_id->front().order_id, "743fc923-cb01-4261-88d1-b35dba2cdac0");
+    EXPECT_EQ(map_order_report(by_id->front(), table)->status, OrderStatus::Filled);
+
+    const auto trades_body = fixture("rest_user_trades.json");
+    const auto trades = parse_order_rows(trades_body, *storage);
+    ASSERT_TRUE(trades.has_value());
+    const auto fill = map_fill_report(trades->front(), table);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->qty.raw, 1);
+    EXPECT_EQ(fill->price.raw, 166000);
+    EXPECT_EQ(fill->liquidity, Liquidity::Maker);
+    EXPECT_EQ(fill->fee, e9("0.00166"));
+
+    const auto positions_storage = std::make_unique<PositionBuffer>();
+    const auto account_body = fixture("rest_account_positions.json");
+    const auto account = parse_account_positions(account_body, *positions_storage);
+    ASSERT_TRUE(account.has_value());
+    EXPECT_EQ(account->positions.size(), 2U);
+    const auto balance = map_balance(account->account, k_ingest);
+    ASSERT_TRUE(balance.has_value());
+    EXPECT_EQ(balance->total, e9("730.97309163"));
+    EXPECT_EQ(balance->available, e9("729.95271609"));
+
+    const auto short_btc =
+        map_position(WirePosition{.symbol = "BTCUSDT", .side = "Sell", .size = "0.007", .avg_entry_price = "84000"},
+                     table);
+    ASSERT_TRUE(short_btc.has_value());
+    EXPECT_EQ(short_btc->net_qty.raw, -7);
+    EXPECT_EQ(short_btc->avg_entry.raw, 840000);
+}
+
+TEST(PhemexCaps, StatesRestOrderEntryOnUsdtPerps) {
+    const auto& caps = exec::caps_of(VenueId::Phemex);
+    EXPECT_FALSE(caps.ws_order_entry);
+    EXPECT_TRUE(caps.cancel_by_client_order_id);
+    EXPECT_TRUE(caps.amend_order);
+    EXPECT_TRUE(caps.native_post_only);
+    EXPECT_TRUE(caps.position_pull.perp);
+    EXPECT_FALSE(caps.order_pull.spot);
+    EXPECT_EQ(caps.user_stream, exec::UserStreamModel::AuthSubscribe);
 }
 
 } // namespace

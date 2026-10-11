@@ -24,3 +24,17 @@ so every number keeps the venue's spelling.
 `wss://openapi.blofin.com/ws/public`, `books` for every live perp over three
 sockets: the widest diff in eight minutes and 467 000 book frames, CT-USDT with
 482 bids and 332 asks. Verbatim.
+
+Order entry fixtures, from `docs.blofin.com`, read 2026-10-11 (the docs print 18-decimal strings):
+
+| file | source |
+|---|---|
+| `rest_place_order.json`, `rest_cancel_order.json` | `POST /api/v1/trade/order`, `POST /api/v1/trade/cancel-order` |
+| `rest_orders_pending.json` | `GET /api/v1/trade/orders-pending` |
+| `rest_fills_history.json` | `GET /api/v1/trade/fills-history` |
+| `rest_positions.json`, `rest_balance.json` | `GET /api/v1/account/positions`, `GET /api/v1/account/balance` |
+| `ws_orders_snapshot.json` | the private `orders` channel |
+| `ws_login.json`, `ws_login_failed.json` | the private socket's login answers |
+
+Live, 2026-10-11, no account: `rest_error_no_such_key.json` is `GET /api/v1/account/balance` with
+made-up headers (HTTP 200).

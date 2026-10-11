@@ -216,4 +216,292 @@ map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, 
     return out;
 }
 
+namespace {
+
+// the sign survives into the lot conversion
+[[nodiscard]] std::optional<std::int64_t> signed_steps(std::string_view text, FixedE9 step) {
+    if (text.empty() || step.raw <= 0) {
+        return std::nullopt;
+    }
+    const auto value = parse_decimal_e9(text);
+    if (!value.has_value() || value->raw % step.raw != 0) {
+        return std::nullopt;
+    }
+    return value->raw / step.raw;
+}
+
+[[nodiscard]] Side side_from(std::string_view text) noexcept {
+    return text == "SELL" ? Side::Sell : Side::Buy;
+}
+
+[[nodiscard]] bool copy_id(std::string_view text, ExchangeOrderId& out) {
+    if (text.empty()) {
+        return true; // absent is fine; wrong is not
+    }
+    const auto id = ExchangeOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+[[nodiscard]] bool copy_coid(std::string_view text, ExchangeClientOrderId& out) {
+    if (text.empty()) {
+        return true;
+    }
+    const auto id = ExchangeClientOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+[[nodiscard]] std::optional<OrderEventType> event_for(std::string_view exec_type) noexcept {
+    if (exec_type == "NEW") {
+        return OrderEventType::Accepted;
+    }
+    if (exec_type == "TRADE") {
+        return OrderEventType::Filled;
+    }
+    if (exec_type == "CANCELED") {
+        return OrderEventType::Canceled;
+    }
+    if (exec_type == "EXPIRED") {
+        return OrderEventType::Expired;
+    }
+    if (exec_type == "AMENDMENT") {
+        return OrderEventType::Updated;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] OrderStatus status_from(std::string_view text) noexcept {
+    if (text == "FILLED") {
+        return OrderStatus::Filled;
+    }
+    if (text == "PARTIALLY_FILLED") {
+        return OrderStatus::PartiallyFilled;
+    }
+    if (text == "CANCELED") {
+        return OrderStatus::Canceled;
+    }
+    if (text == "EXPIRED") {
+        return OrderStatus::Expired;
+    }
+    if (text == "REJECTED") {
+        return OrderStatus::Rejected;
+    }
+    return OrderStatus::Accepted;
+}
+
+} // namespace
+
+
+std::optional<OrderEvent>
+map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto type = event_for(wire.exec_type);
+    if (!type.has_value()) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+
+    OrderEvent out{};
+    out.type = *type;
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    out.order_type = wire.order_type == "MARKET" ? OrderType::Market : OrderType::Limit;
+    out.tif = wire.time_in_force == "IOC"   ? TimeInForce::Ioc
+              : wire.time_in_force == "FOK" ? TimeInForce::Fok
+                                            : TimeInForce::Gtc;
+    if (wire.time_in_force == "GTX") {
+        out.flags = OrderFlags::PostOnly;
+    }
+    if (wire.reduce_only) {
+        out.flags = out.flags | OrderFlags::ReduceOnly;
+    }
+    if (!copy_coid(wire.client_order_id, out.exchange_client_order_id)) {
+        return std::nullopt;
+    }
+    std::array<char, 24> id_text{};
+    if (const auto [stop, ec] = std::to_chars(id_text.data(), id_text.data() + id_text.size(), wire.order_id);
+        ec == std::errc{}) {
+        if (!copy_id({id_text.data(), static_cast<std::size_t>(stop - id_text.data())}, out.exchange_order_id)) {
+            return std::nullopt;
+        }
+    }
+
+    if (*type == OrderEventType::Filled) {
+        const auto price = exact_steps(wire.last_filled_price, base.tick_size);
+        const auto qty = exact_steps(wire.last_filled_qty, base.lot_size);
+        const auto cum = exact_steps(wire.cum_filled_qty, base.lot_size);
+        const auto total = exact_steps(wire.order_qty, base.lot_size);
+        if (!price.has_value() || !qty.has_value()) {
+            return std::nullopt;
+        }
+        out.price = PriceTicks::from_raw(*price);
+        out.qty = QtyLots::from_raw(*qty);
+        out.leaves_qty = QtyLots::from_raw(cum.has_value() && total.has_value() ? *total - *cum : 0);
+        out.fee = to_e9(wire.commission);
+        out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;
+        std::array<char, 24> exec_text{};
+        if (const auto [stop, ec] = std::to_chars(exec_text.data(), exec_text.data() + exec_text.size(), wire.trade_id);
+            ec == std::errc{}) {
+            if (const auto id = ExecId::from({exec_text.data(), static_cast<std::size_t>(stop - exec_text.data())});
+                id.has_value()) {
+                out.exec_id = *id;
+            }
+        }
+    } else {
+        const auto price = exact_steps(wire.order_price, base.tick_size);
+        const auto qty = exact_steps(wire.order_qty, base.lot_size);
+        const auto cum = exact_steps(wire.cum_filled_qty, base.lot_size);
+        out.price = PriceTicks::from_raw(price.value_or(0));
+        out.qty = QtyLots::from_raw(qty.value_or(0));
+        out.leaves_qty = QtyLots::from_raw(qty.has_value() && cum.has_value() ? *qty - *cum : qty.value_or(0));
+    }
+
+    out.ts_event = ms_to_unix(wire.trade_ms != 0 ? wire.trade_ms : wire.event_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    exec::OrderStatusReport out{};
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    out.status = status_from(wire.status);
+    if (!copy_coid(wire.client_order_id, out.exchange_client_order_id)) {
+        return std::nullopt;
+    }
+    std::array<char, 24> id_text{};
+    if (const auto [stop, ec] = std::to_chars(id_text.data(), id_text.data() + id_text.size(), wire.order_id);
+        ec == std::errc{}) {
+        if (!copy_id({id_text.data(), static_cast<std::size_t>(stop - id_text.data())}, out.exchange_order_id)) {
+            return std::nullopt;
+        }
+    }
+    const auto price = exact_steps(wire.price, base.tick_size);
+    const auto qty = exact_steps(wire.orig_qty, base.lot_size);
+    const auto executed = exact_steps(wire.executed_qty, base.lot_size);
+    if (!qty.has_value()) {
+        return std::nullopt;
+    }
+    out.price = PriceTicks::from_raw(price.value_or(0));
+    out.qty = QtyLots::from_raw(*qty);
+    out.leaves = QtyLots::from_raw(executed.has_value() ? *qty - *executed : *qty);
+    out.ts_venue = ms_to_unix(wire.update_ms, UnixNanos{0});
+    return out;
+}
+
+std::optional<exec::FillReport> map_user_trade(const WireTrade& wire, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = exact_steps(wire.price, base.tick_size);
+    const auto qty = exact_steps(wire.qty, base.lot_size);
+    if (!price.has_value() || !qty.has_value()) {
+        return std::nullopt;
+    }
+    exec::FillReport out{};
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    out.price = PriceTicks::from_raw(*price);
+    out.qty = QtyLots::from_raw(*qty);
+    out.fee = to_e9(wire.commission);
+    out.liquidity = wire.maker ? Liquidity::Maker : Liquidity::Taker;
+    std::array<char, 24> text{};
+    if (const auto [stop, ec] = std::to_chars(text.data(), text.data() + text.size(), wire.trade_id);
+        ec == std::errc{}) {
+        if (const auto id = ExecId::from({text.data(), static_cast<std::size_t>(stop - text.data())}); id.has_value()) {
+            out.exec_id = *id;
+        }
+    }
+    std::array<char, 24> order_text{};
+    if (const auto [stop, ec] = std::to_chars(order_text.data(), order_text.data() + order_text.size(), wire.order_id);
+        ec == std::errc{}) {
+        if (!copy_id({order_text.data(), static_cast<std::size_t>(stop - order_text.data())}, out.exchange_order_id)) {
+            return std::nullopt;
+        }
+    }
+    out.ts_venue = ms_to_unix(wire.time_ms, UnixNanos{0});
+    return out;
+}
+
+namespace {
+
+// a wallet figure, truncated so an extra digit does not fail the read
+[[nodiscard]] std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
+[[nodiscard]] bool has_value_other_than_zero(const std::optional<FixedE9>& value) noexcept {
+    return value.has_value() && value->raw != 0;
+}
+
+} // namespace
+
+std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool multi_assets_margin) {
+    const auto asset = to_asset_code(wire.asset);
+    if (!asset.has_value() || asset->empty()) {
+        return std::nullopt;
+    }
+    const auto total = to_amount(wire.wallet_balance);
+    const auto unrealized = to_amount(wire.unrealized_profit);
+    // drops rows aster reported empty with no pnl; an unsent wallet figure is kept
+    const bool wallet_reported_empty = total.has_value() && total->raw == 0;
+    if (wallet_reported_empty && !has_value_other_than_zero(unrealized)) {
+        return std::nullopt;
+    }
+
+    BalanceReport out{};
+    out.asset = *asset;
+    // each field stays undef where aster sent nothing readable
+    if (total.has_value()) {
+        out.total = *total;
+    }
+    if (unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    // in multi-assets mode aster repeats one account-wide figure on every row, so it stays undef there
+    if (!multi_assets_margin) {
+        if (const auto available = to_amount(wire.available_balance); available.has_value()) {
+            out.available = *available;
+        }
+    }
+    out.ts_venue = ms_to_unix(wire.update_ms, UnixNanos{0});
+    return out;
+}
+
+std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto qty = signed_steps(wire.position_amt, base.lot_size);
+    if (!qty.has_value()) {
+        return std::nullopt;
+    }
+    exec::PositionReport out{};
+    out.instrument = base.id;
+    out.net_qty = QtyLots::from_raw(*qty);
+    if (const auto entry = parse_decimal_e9(wire.entry_price); entry.has_value() && base.tick_size.raw > 0) {
+        out.avg_entry = PriceTicks::from_raw(entry->raw / base.tick_size.raw);
+    }
+    return out;
+}
+
 } // namespace raikiri::venues::aster

@@ -26,11 +26,22 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
         return exec::ErrorClass::Retryable;
 
     case k_invalid_listen_key:
+    case k_nonce_expired:
         return exec::ErrorClass::Retryable;
+
+    case k_needs_deposit:
+        return exec::ErrorClass::AuthFailure;
 
     default:
         return exec::ErrorClass::Terminal;
     }
+}
+
+exec::ErrorClass classify(std::int64_t code, std::string_view msg) noexcept {
+    if (code == k_unknown && msg.starts_with("Signature")) {
+        return exec::ErrorClass::AuthFailure;
+    }
+    return classify(code);
 }
 
 bool is_benign_cancel_failure(std::int64_t code) noexcept {

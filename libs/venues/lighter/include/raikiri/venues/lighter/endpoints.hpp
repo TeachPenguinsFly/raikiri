@@ -25,6 +25,16 @@ inline constexpr std::string_view k_order_book_details = "/api/v1/orderBookDetai
 // under lighter market ids.
 inline constexpr std::string_view k_funding_comparison = "/api/v1/funding-rates";
 
+inline constexpr std::string_view k_send_tx = "/api/v1/sendTx";
+inline constexpr std::string_view k_next_nonce = "/api/v1/nextNonce";
+inline constexpr std::string_view k_account = "/api/v1/account";
+inline constexpr std::string_view k_active_orders = "/api/v1/accountActiveOrders";
+inline constexpr std::string_view k_account_orders = "/api/v1/accountOrders";
+inline constexpr std::string_view k_trades = "/api/v1/trades";
+
+// the budget target of a tx sent on the socket; the venue counts it with rest sendTx
+inline constexpr std::string_view k_ws_send_tx = "ws:sendtx";
+
 // A REST 429 throttles the same IP's sockets too, so REST fetches only the catalogue.
 inline constexpr std::uint32_t k_rest_requests_per_minute = 60;
 inline constexpr std::uint64_t k_rest_cooldown_ns = 60ULL * 1'000'000'000ULL;

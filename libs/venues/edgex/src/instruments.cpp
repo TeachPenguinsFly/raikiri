@@ -3,6 +3,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/edgex/endpoints.hpp>
 #include <raikiri/venues/edgex/map.hpp>
+#include <raikiri/venues/edgex/trade.hpp>
 #include <raikiri/venues/edgex/wire.hpp>
 
 #include <memory>
@@ -62,6 +63,15 @@ public:
         // the dead v1 host answers SUCCESS with an empty catalogue
         if (wire->empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "catalogue: empty")};
+        }
+        // the order signature names the chain, the exchange contract and each contract's resolution
+        if (market == MarketType::Perp && state_->signing.loaded()) {
+            auto meta = parse_signing_meta(response->body);
+            if (!meta.has_value()) {
+                return std::unexpected{exec::VenueError::make(
+                    exec::ErrorClass::Terminal, 0, "catalogue: no signing metadata")};
+            }
+            state_->signing.set_meta(std::move(*meta));
         }
 
         std::vector<Instrument> loaded;

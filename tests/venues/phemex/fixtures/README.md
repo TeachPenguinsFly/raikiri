@@ -18,3 +18,19 @@ keeps every string and integer as the venue sent it.
 | `ws_inverse_ticker.json`, `ws_spot_ticker.json` | one `market24h` (BTCUSD) and one `spot_market24h` (sBTCUSDT) frame |
 | `ws_ack.json`, `ws_pong.json` | the reply to a subscription and to `server.ping` |
 | `ws_error_subscription_limit.json` | the reply to the 102nd subscription on one socket |
+
+Order entry fixtures, from the hedged-perpetual (usdt-m) docs at `phemex-docs.github.io` and
+`github.com/phemex/phemex-api-docs` `Public-Hedged-Perpetual-API.md`, read 2026-10-11:
+
+| file | source |
+|---|---|
+| `rest_create_order.json` | `PUT /g-orders/create` response |
+| `rest_active_list.json` | `GET /g-orders/activeList` |
+| `rest_order_by_id.json` | `GET /api-data/g-futures/orders/by-order-id` |
+| `rest_user_trades.json` | `GET /api-data/g-futures/trades` |
+| `rest_account_positions.json` | `GET /g-accounts/accountPositions?currency=USDT` |
+| `ws_auth_ok.json` | `user.auth` reply |
+| `ws_aop_p_snapshot.json`, `ws_aop_p_incremental.json` | `aop_p` pushes; the incremental one holds a New and a TakerFill row |
+
+Live, 2026-10-11, no account: `rest_error_bad_key.json` is `GET /g-orders/activeList` with a made-up
+token (HTTP 401), `ws_auth_refused.json` a `user.auth` with a made-up key on `wss://ws.phemex.com`.

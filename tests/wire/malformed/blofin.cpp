@@ -1,3 +1,4 @@
+#include <raikiri/venues/blofin/trade.hpp>
 #include <raikiri/venues/blofin/book.hpp>
 #include <raikiri/venues/blofin/catalogue.hpp>
 #include <raikiri/venues/blofin/envelope.hpp>
@@ -81,6 +82,44 @@ TEST(Malformed, Blofin) {
                     static MarkBuffer marks;
                     (void)parse_rest_envelope(f);
                     (void)parse_mark_table(f, marks);
+                }},
+               {"rest_place_order.json", [](std::string_view f) { (void)parse_reply(f); }},
+               {"rest_cancel_order.json", [](std::string_view f) { (void)parse_reply(f); }},
+               {"rest_error_no_such_key.json", [](std::string_view f) { (void)parse_reply(f); }},
+               {"rest_orders_pending.json",
+                [](std::string_view f) {
+                    static OrderBuffer storage;
+                    (void)parse_orders(f, storage);
+                }},
+               {"rest_fills_history.json",
+                [](std::string_view f) {
+                    static FillBuffer storage;
+                    (void)parse_fills(f, storage);
+                }},
+               {"rest_positions.json",
+                [](std::string_view f) {
+                    static PositionBuffer storage;
+                    (void)parse_positions(f, storage);
+                }},
+               {"rest_balance.json",
+                [](std::string_view f) {
+                    static BalanceBuffer storage;
+                    (void)parse_balances(f, storage);
+                }},
+               {"ws_orders_snapshot.json",
+                [](std::string_view f) {
+                    static OrderBuffer storage;
+                    (void)parse_private(f, storage);
+                }},
+               {"ws_login.json",
+                [](std::string_view f) {
+                    static OrderBuffer storage;
+                    (void)parse_private(f, storage);
+                }},
+               {"ws_login_failed.json",
+                [](std::string_view f) {
+                    static OrderBuffer storage;
+                    (void)parse_private(f, storage);
                 }},
            });
 }

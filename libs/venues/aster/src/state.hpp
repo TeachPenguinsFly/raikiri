@@ -8,6 +8,7 @@
 #include <raikiri/exec/ticker_poll.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
+#include <raikiri/net/evm.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -46,7 +47,9 @@ struct VenueState {
     std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
+    // the key slot carries the user's wallet address; the agent wallet signs v3
     net::Signer signer;
+    net::evm::Wallet wallet;
     exec::InstrumentTable instruments;
     Protocol protocol;
     RequestBuilder builder{signer, market};

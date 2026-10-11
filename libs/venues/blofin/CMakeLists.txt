@@ -7,6 +7,7 @@ add_library(raikiri_venue_blofin STATIC
   src/types/envelope.cpp
   src/types/map.cpp
   src/types/market_data.cpp
+  src/types/trade.cpp
   src/types/ws.cpp
   src/marketdata/client.cpp
 )
@@ -17,4 +18,4 @@ target_include_directories(raikiri_venue_blofin PUBLIC
 )
 target_link_libraries(raikiri_venue_blofin
   PUBLIC raikiri::book raikiri::domain raikiri::exec raikiri::net raikiri::wire
-  PRIVATE raikiri::log simdjson::simdjson raikiri::warnings)
+  PRIVATE raikiri::config raikiri::log simdjson::simdjson raikiri::warnings)

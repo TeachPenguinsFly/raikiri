@@ -7,6 +7,7 @@
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/venues/lighter/book.hpp>
+#include <raikiri/venues/lighter/sign.hpp>
 #include <raikiri/venues/lighter/ws.hpp>
 
 #include <cstdint>
@@ -26,6 +27,13 @@ struct VenueState {
     const Clock* clock;
     exec::RateBudget* rest_budget{nullptr};
     bool testnet;
+    std::uint64_t order_answer_timeout_ns{0};
+
+    // "account:key" from api_key_env; both public, the key is the signing secret
+    std::int64_t account_index{-1};
+    std::uint8_t api_key_index{0};
+    bool account_parsed{false};
+    ApiKey key;
 
     net::IoContext io;
     exec::InstrumentTable instruments;

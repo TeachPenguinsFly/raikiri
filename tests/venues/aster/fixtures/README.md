@@ -33,3 +33,20 @@ API's shapes.
 | `spot_ws_book_ticker.json` | first `btcusdt@bookTicker` push |
 | `spot_ws_depth_update.json`, `spot_ws_depth_update_next.json` | two consecutive `btcusdt@depth@500ms` pushes |
 | `spot_ws_trade.json` | first `formusdt@trade` push |
+
+Order entry fixtures, from the v3 (Pro API) futures docs at
+`github.com/asterdex/api-docs`, `V3(Recommended)/EN/aster-finance-futures-api-v3.md`, read 2026-10-11:
+
+| file | source |
+|---|---|
+| `user_order_trade_update.json` | Event: Order Update |
+| `user_listen_key_expired.json` | Event: User Data Stream Expired |
+| `rest_listen_key.json` | `POST /fapi/v3/listenKey` |
+| `rest_query_order.json`, `rest_open_orders.json` | `GET /fapi/v3/order`, `GET /fapi/v3/openOrders` |
+| `rest_user_trades.json` | `GET /fapi/v3/userTrades` |
+| `rest_position_risk.json` | `GET /fapi/v3/positionRisk`, one-way mode |
+| `rest_account.json` | `GET /fapi/v3/account` |
+| `rest_income.json` | `GET /fapi/v3/income` |
+
+Live, 2026-10-11, no account: `rest_error_signature.json` is `POST /fapi/v3/order` with a made-up
+signature (HTTP 400), `rest_error_no_nonce.json` the same call without a nonce (HTTP 400).

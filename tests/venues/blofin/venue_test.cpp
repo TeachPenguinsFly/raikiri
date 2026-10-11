@@ -1,6 +1,8 @@
 // against captured bytes; see fixtures/README.md
 
 #include <raikiri/domain/asset_class.hpp>
+#include <raikiri/exec/caps.hpp>
+#include <raikiri/venues/blofin/trade.hpp>
 #include <raikiri/venues/blofin/book.hpp>
 #include <raikiri/venues/blofin/catalogue.hpp>
 #include <raikiri/venues/blofin/envelope.hpp>
@@ -454,6 +456,238 @@ TEST(BlofinProtocol, OneFrameCarriesOneInstrument) {
     ASSERT_TRUE(off.has_value());
     EXPECT_EQ(*off, R"({"op":"unsubscribe","args":[{"channel":"books","instId":"BTC-USDT"}]})");
     EXPECT_FALSE(protocol.subscribe_frame("", channels).has_value());
+}
+
+exec::InstrumentTable btc_perp_table() {
+    exec::InstrumentTable table;
+    EXPECT_TRUE(table.add(*map_instrument(instrument_row("BTC-USDT"), MarketType::Perp)).has_value());
+    return table;
+}
+
+const InstrumentBase& btc_perp() {
+    static const auto table = btc_perp_table();
+    return base_of(*table.find("BTC-USDT"));
+}
+
+ExchangeClientOrderId coid() {
+    return *ExchangeClientOrderId::from("01HZY3M7K8Q9R0S1T2V3W4X5Y6");
+}
+
+// the docs' examples trade ETH-USDT, which this catalogue fixture does not hold
+std::string on_btc(std::string body) {
+    for (auto at = body.find("ETH-USDT"); at != std::string::npos; at = body.find("ETH-USDT")) {
+        body.replace(at, 8, "BTC-USDT");
+    }
+    return body;
+}
+
+TEST(BlofinSigner, MatchesTheVectorInBlofinsOwnTests) {
+    net::Signer signer;
+    signer.set_api_key("key");
+    ASSERT_TRUE(signer.secret().assign("secret").has_value());
+    std::array<char, 96> out{};
+    // blofin-mcp tests/auth.test.ts
+    EXPECT_EQ(sign_prehash(signer, "/api/v1/testGET1700000000000123e4567-e89b-12d3-a456-426614174000", out),
+              "ZTQ2N2RhODY4OTExZjc1NjQyMDVhODVhZmIxOTFhYTk1OTkxODE1ZWZjNGJhNGZmOWQ1YTA2NGQ4YTE3NGUwNw==");
+    // the body is signed as sent
+    EXPECT_EQ(sign_prehash(signer, R"(/api/v1/trade/orderPOST1700000000000nonce-test-value{"instId":"BTC-USDT"})", out),
+              "ZmRjMTZlOWY0NzBlMzU5NTUxMmYzZWJjNThmM2MzMTgzZjJkNTNmNjYwZGUzYTBhOGJjNmI4OGRjNWJhOTkxZg==");
+
+    EXPECT_FALSE(login_frame(signer, "", UnixNanos{1'700'000'000'000'000'000ULL}).has_value());
+    const auto login = login_frame(signer, "pass", UnixNanos{1'700'000'000'000'000'000ULL});
+    ASSERT_TRUE(login.has_value());
+    const auto sign = std::string{sign_prehash(signer, "/users/self/verifyGET17000000000001700000000000", out)};
+    EXPECT_EQ(*login,
+              R"({"op":"login","args":[{"apiKey":"key","passphrase":"pass","timestamp":"1700000000000","sign":")" +
+                  sign + R"(","nonce":"1700000000000"}]})");
+}
+
+TEST(BlofinRequests, SignsTheBodyItSendsAndRefusesWithoutAPassphrase) {
+    net::Signer signer;
+    std::string passphrase;
+    signer.set_api_key("key");
+    ASSERT_TRUE(signer.secret().assign("secret").has_value());
+    RequestBuilder builder{signer, passphrase};
+    OrderCmd cmd{};
+    cmd.instrument = btc_perp().id;
+    cmd.side = Side::Buy;
+    cmd.flags = OrderFlags::PostOnly;
+    cmd.qty = QtyLots::from_raw(3);
+    cmd.price = PriceTicks::from_raw(848001);
+    cmd.exchange_client_order_id = coid();
+    const UnixNanos now{1'700'000'000'000'000'000ULL};
+    EXPECT_EQ(builder.create_order(cmd, btc_perp(), now).error(), BuildError::NoCredentials);
+
+    passphrase = "pass";
+    const auto request = builder.create_order(cmd, btc_perp(), now);
+    ASSERT_TRUE(request.has_value());
+    const std::string body{R"({"instId":"BTC-USDT","marginMode":"cross","positionSide":"net","side":"buy",)"
+                           R"("orderType":"post_only","price":"84800.1","size":"0.3","reduceOnly":"false",)"
+                           R"("clientOrderId":"01HZY3M7K8Q9R0S1T2V3W4X5Y6"})"};
+    EXPECT_EQ(request->body, body);
+    EXPECT_EQ(builder.last_prehash(), "/api/v1/trade/orderPOST1700000000000" + std::string{request->headers[3].value} + body);
+    EXPECT_EQ(request->headers[4].value, "pass");
+    std::array<char, 96> out{};
+    EXPECT_EQ(request->headers[1].value, sign_prehash(signer, builder.last_prehash(), out));
+
+    // a second request in the same nanosecond still gets its own nonce
+    const auto again = builder.create_order(cmd, btc_perp(), now);
+    ASSERT_TRUE(again.has_value());
+    EXPECT_NE(again->headers[3].value, std::string_view{"1700000000000000000-1"});
+
+    cmd.flags = OrderFlags::ReduceOnly;
+    cmd.tif = TimeInForce::Ioc;
+    ASSERT_TRUE(builder.create_order(cmd, btc_perp(), now).has_value());
+    EXPECT_NE(builder.last_prehash().find(R"("orderType":"ioc")"), std::string_view::npos);
+    EXPECT_NE(builder.last_prehash().find(R"("reduceOnly":"true")"), std::string_view::npos);
+
+    const auto cancel = builder.cancel_order(cmd, "BTC-USDT", now);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(cancel->body, R"({"instId":"BTC-USDT","clientOrderId":"01HZY3M7K8Q9R0S1T2V3W4X5Y6"})");
+
+    const auto pending = builder.orders_pending(now);
+    ASSERT_TRUE(pending.has_value());
+    EXPECT_TRUE(builder.last_prehash().starts_with("/api/v1/trade/orders-pendingGET1700000000000"));
+    ASSERT_TRUE(builder.order_detail("BTC-USDT", coid(), now).has_value());
+    EXPECT_TRUE(builder.last_prehash().starts_with(
+        "/api/v1/trade/order-detail?instId=BTC-USDT&clientOrderId=01HZY3M7K8Q9R0S1T2V3W4X5Y6GET"));
+}
+
+TEST(BlofinErrors, ReadsStringCodesAndTheOrdersOwnVerdict) {
+    const auto missing_key = parse_reply(fixture("rest_error_no_such_key.json"));
+    ASSERT_TRUE(missing_key.has_value());
+    EXPECT_EQ(missing_key->code, k_no_such_key);
+    EXPECT_EQ(classify(missing_key->code, 200), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(parse_reply(fixture("rest_place_order.json"))->code, k_ok);
+    const auto refused = parse_reply(R"({"code":"0","msg":"","data":[{"orderId":"","code":"103003","msg":"x"}]})");
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_EQ(refused->code, 103003);
+    EXPECT_EQ(classify(103003, 200), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(0, 429), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify(k_repeated_nonce, 200), exec::ErrorClass::Retryable);
+    EXPECT_TRUE(is_benign_cancel_failure(k_cancel_failed));
+}
+
+TEST(BlofinUserStream, CumulativeFillsBecomeOneFillEachAndTheSnapshotOnlySeeds) {
+    const auto table = btc_perp_table();
+    const auto storage = std::make_unique<OrderBuffer>();
+    EXPECT_EQ(parse_private(fixture("ws_login.json"), *storage)->kind, PrivateKind::Login);
+    const auto failed = parse_private(fixture("ws_login_failed.json"), *storage);
+    ASSERT_TRUE(failed.has_value());
+    EXPECT_EQ(failed->kind, PrivateKind::LoginFailed);
+    EXPECT_EQ(classify(failed->code, 200), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(parse_private("pong", *storage)->kind, PrivateKind::Other);
+
+    ProgressTable progress;
+    std::array<OrderEvent, 2> events{};
+    std::size_t count = 0;
+    const auto snapshot_body = fixture("ws_orders_snapshot.json");
+    const auto snapshot = parse_private(snapshot_body, *storage);
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->kind, PrivateKind::Snapshot);
+    ASSERT_EQ(snapshot->orders.size(), 1U);
+    map_order_push(snapshot->orders[0], table, progress, k_ingest, events, count, true);
+    EXPECT_EQ(count, 0U);
+    EXPECT_EQ(progress.count("28334314"), 1U);
+
+    const auto push = [&](std::string_view state, std::string_view filled, std::string_view avg, std::string_view fee) {
+        return std::string{R"({"action":"update","arg":{"channel":"orders"},"data":[{"instType":"SWAP",)"} +
+               R"("instId":"BTC-USDT","orderId":"28334315","clientOrderId":"01HZY3M7K8Q9R0S1T2V3W4X5Y6",)" +
+               R"("price":"28000.000000000000000000","size":"10","orderType":"limit","side":"buy",)" +
+               R"("filledSize":")" + std::string{filled} + R"(","averagePrice":")" + std::string{avg} +
+               R"(","state":")" + std::string{state} + R"(","fee":")" + std::string{fee} +
+               R"(","updateTime":"1696760245973","reduceOnly":"false"}]})";
+    };
+    const auto live_body = push("live", "0", "0", "0");
+    const auto live = parse_private(live_body, *storage);
+    ASSERT_TRUE(live.has_value());
+    map_order_push(live->orders[0], table, progress, k_ingest, events, count);
+    ASSERT_EQ(count, 1U);
+    EXPECT_EQ(events[0].type, OrderEventType::Accepted);
+    EXPECT_EQ(events[0].qty.raw, 100);
+    EXPECT_EQ(events[0].exchange_client_order_id, coid());
+
+    const auto part_body = push("partially_filled", "4", "28000.000000000000000000", "0.100000000000000000");
+    const auto part = parse_private(part_body, *storage);
+    map_order_push(part->orders[0], table, progress, k_ingest, events, count);
+    ASSERT_EQ(count, 1U);
+    EXPECT_EQ(events[0].type, OrderEventType::Filled);
+    EXPECT_EQ(events[0].qty.raw, 40);
+    EXPECT_EQ(events[0].leaves_qty.raw, 60);
+    EXPECT_EQ(events[0].price.raw, 280000);
+    EXPECT_EQ(events[0].exec_id.view(), "28334315-40");
+
+    const auto done_body = push("filled", "10", "28000.600000000000000000", "0.250000000000000000");
+    const auto done = parse_private(done_body, *storage);
+    map_order_push(done->orders[0], table, progress, k_ingest, events, count);
+    ASSERT_EQ(count, 1U);
+    EXPECT_EQ(events[0].qty.raw, 60);
+    EXPECT_EQ(events[0].leaves_qty.raw, 0);
+    EXPECT_EQ(events[0].price.raw, 280010);
+    EXPECT_EQ(events[0].fee, FixedE9::from_raw(150'000'000));
+    EXPECT_EQ(events[0].exec_id.view(), "28334315-100");
+    EXPECT_EQ(progress.count("28334315"), 0U);
+
+    // a replay after the order closed derives the same exec id, which the oms already holds
+    map_order_push(done->orders[0], table, progress, k_ingest, events, count);
+    EXPECT_EQ(events[0].exec_id.view(), "28334315-100");
+}
+
+TEST(BlofinReconciliation, ReadsPendingOrdersFillsPositionsAndTheFuturesBalance) {
+    const auto table = btc_perp_table();
+    const auto orders_storage = std::make_unique<OrderBuffer>();
+    const auto pending_body = on_btc(fixture("rest_orders_pending.json"));
+    const auto pending = parse_orders(pending_body, *orders_storage);
+    ASSERT_TRUE(pending.has_value());
+    ASSERT_FALSE(pending->empty());
+    const auto report = map_order_report(pending->front(), table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->qty.raw, 10);
+    EXPECT_EQ(report->leaves.raw, 10);
+    EXPECT_EQ(report->exchange_order_id.view(), "29531103");
+
+    const auto fills_storage = std::make_unique<FillBuffer>();
+    const auto fills_body = on_btc(fixture("rest_fills_history.json"));
+    const auto fills = parse_fills(fills_body, *fills_storage);
+    ASSERT_TRUE(fills.has_value());
+    const auto fill = map_fill(fills->front(), table);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->qty.raw, 20);
+    EXPECT_EQ(fill->price.raw, 15878);
+    EXPECT_EQ(fill->exec_id.view(), "7772187");
+
+    const auto positions_storage = std::make_unique<PositionBuffer>();
+    const auto positions_body = on_btc(fixture("rest_positions.json"));
+    const auto positions = parse_positions(positions_body, *positions_storage);
+    ASSERT_TRUE(positions.has_value());
+    ASSERT_EQ(positions->size(), 2U);
+    const auto held = map_position(positions->front(), table);
+    ASSERT_TRUE(held.has_value());
+    EXPECT_EQ(held->net_qty.raw, 10);
+    EXPECT_FALSE(map_position(positions->back(), table).has_value());
+    EXPECT_EQ(map_position(WirePosition{.inst_id = "BTC-USDT", .positions = "-2.5", .average_price = "1"}, table)
+                  ->net_qty.raw,
+              -25);
+
+    BalanceBuffer balance_storage{};
+    const auto balance_body = fixture("rest_balance.json");
+    const auto balances = parse_balances(balance_body, balance_storage);
+    ASSERT_TRUE(balances.has_value());
+    const auto usdt = map_balance(balances->front(), k_ingest);
+    ASSERT_TRUE(usdt.has_value());
+    EXPECT_EQ(usdt->asset, *to_asset_code("USDT"));
+    EXPECT_EQ(usdt->total, FixedE9::from_raw(10'013'119'885'958'415));
+}
+
+TEST(BlofinCaps, StatesRestOrderEntryWithAPassphrase) {
+    const auto& caps = exec::caps_of(VenueId::Blofin);
+    EXPECT_FALSE(caps.ws_order_entry);
+    EXPECT_TRUE(caps.amend_order);
+    EXPECT_TRUE(caps.native_post_only);
+    EXPECT_TRUE(caps.needs_passphrase);
+    EXPECT_TRUE(caps.position_pull.perp);
+    EXPECT_EQ(caps.user_stream, exec::UserStreamModel::AuthSubscribe);
+    EXPECT_EQ(caps.max_client_order_id_len, 32);
 }
 
 } // namespace

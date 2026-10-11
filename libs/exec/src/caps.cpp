@@ -407,27 +407,30 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Aster)] = {
         .venue = VenueId::Aster,
-        // perp quotes include USDT, USD1 and U
+        // perp quotes include USDT, USD1 and U; spot is market data only
         .markets = {.spot = true, .perp = true},
-        // market data and funding only; orders need an evm wallet signer, not a key
+        // v3 rest signed by an evm agent wallet; aster has no ws order api and no fix
         .ws_order_entry = false,
         .fix_order_entry = false,
-        .cancel_by_client_order_id = false,
+        .cancel_by_client_order_id = true, // origClientOrderId
+        // batch cancel exists but the adapter cancels one by one
         .batch_cancel = false,
-        .amend_order = false,
-        .native_post_only = false,
-        .book_checksum = false, // the depth channel carries no checksum
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
-        .balance_pull = {},
-        .funding_charge = {},
+        .amend_order = true,      // PUT /fapi/v3/order, limit only, price and quantity restated
+        .native_post_only = true, // timeInForce GTX; no FOK
+        .book_checksum = false,   // the depth channel carries no checksum
+        .position_pull = {.perp = true},
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
+        .balance_pull = {.perp = true},
+        // /fapi/v3/income: FUNDING_FEE and COMMISSION rows
+        .funding_charge = {.perp = true},
         // /fapi/v1/ticker/24hr: `volume` base, `quoteVolume` quote
         .ticker_stats = true,
-        .user_stream = UserStreamModel::None,
-        // no orders leave this adapter; 36 matches the wire-compatible venue
+        .user_stream = UserStreamModel::ListenKey,
+        // ^[\.A-Z\:/a-z0-9_-]{1,36}$
         .max_client_order_id_len = 36,
-        .headline_order_rate_per_s = 0,
+        // 300 orders per 10 s and 1200 a minute per account
+        .headline_order_rate_per_s = 30,
     };
 
     table[static_cast<std::size_t>(VenueId::Grvt)] = {
@@ -455,23 +458,26 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::Lighter)] = {
         .venue = VenueId::Lighter,
         .markets = {.spot = true, .perp = true},
-        // orders are zk-rollup transactions that need a signer
-        .ws_order_entry = false,
+        // orders are signed rollup txs sent on the stream socket, rest when it is down; perps only
+        .ws_order_entry = true,
         .fix_order_entry = false,
-        .cancel_by_client_order_id = false,
+        .cancel_by_client_order_id = true,
         .batch_cancel = false,
         .amend_order = false,
-        .native_post_only = false,
+        .native_post_only = true,
         .book_checksum = false,
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
-        .balance_pull = {},
+        .position_pull = {.perp = true},
+        // one account-wide read each, filtered by market
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
+        .balance_pull = {.perp = true},
         .funding_charge = {},
         .ticker_stats = true,
-        .user_stream = UserStreamModel::None,
-        .max_client_order_id_len = 0,
-        .headline_order_rate_per_s = 0,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        // a ulid, of which the low 48 bits become the venue's client order index
+        .max_client_order_id_len = 26,
+        // a standard account's 60 sendTx a minute
+        .headline_order_rate_per_s = 1,
     };
 
     table[static_cast<std::size_t>(VenueId::Backpack)] = {
@@ -520,22 +526,29 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::Blofin)] = {
         .venue = VenueId::Blofin,
         .markets = {.spot = false, .perp = true},
+        // orders go over rest alone; the private socket only pushes
         .ws_order_entry = false,
         .fix_order_entry = false,
+        // the docs mark orderId required on cancel; clientOrderId is sent only before the ack
         .cancel_by_client_order_id = false,
         .batch_cancel = false,
-        .amend_order = false,
-        .native_post_only = false,
+        .amend_order = true,      // /api/v1/trade/amend-order
+        .native_post_only = true, // orderType post_only
         .book_checksum = false,
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
-        .balance_pull = {},
+        // cross margin, net position mode
+        .position_pull = {.perp = true},
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
+        .balance_pull = {.perp = true},
         .funding_charge = {},
         .ticker_stats = true,
-        .user_stream = UserStreamModel::None,
+        .needs_passphrase = true,
+        // the orders channel states cumulative fills; a fill is the step between two pushes
+        .user_stream = UserStreamModel::AuthSubscribe,
+        // alphanumerics up to 32
         .max_client_order_id_len = 32,
-        .headline_order_rate_per_s = 0,
+        // 30 trading requests per 10 s per user
+        .headline_order_rate_per_s = 3,
     };
 
     table[static_cast<std::size_t>(VenueId::Apex)] = {
@@ -562,22 +575,23 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::Edgex)] = {
         .venue = VenueId::Edgex,
         .markets = {.spot = true, .perp = true},
-        // market data only; orders need an eip-712 signer
+        // perp orders over rest, each an eip-712 LimitOrderParams; spot is market data only
         .ws_order_entry = false,
         .fix_order_entry = false,
-        .cancel_by_client_order_id = false,
+        .cancel_by_client_order_id = true,
         .batch_cancel = false,
         .amend_order = false,
-        .native_post_only = false,
+        .native_post_only = true,
         .book_checksum = false,
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
+        .position_pull = {.perp = true},
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
         .balance_pull = {},
         .funding_charge = {},
         .ticker_stats = true,
-        .user_stream = UserStreamModel::None,
-        .max_client_order_id_len = 0,
+        // hmac headers on the handshake; no subscribe message
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 32, // unstated; the sdk mints 19 digits
         .headline_order_rate_per_s = 0,
     };
 
@@ -606,24 +620,28 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Phemex)] = {
         .venue = VenueId::Phemex,
+        // orders reach usdt perpetuals only; inverse perps and spot are market data
         .markets = {.spot = true, .perp = true},
-        // market data only; account access is missing
+        // the hedged-perpetual api takes orders over rest alone; aop_p only pushes
         .ws_order_entry = false,
         .fix_order_entry = false,
-        .cancel_by_client_order_id = false,
+        .cancel_by_client_order_id = true, // DELETE /g-orders/cancel by clOrdID
         .batch_cancel = false,
-        .amend_order = false,
-        .native_post_only = false,
+        .amend_order = true,      // PUT /g-orders/replace
+        .native_post_only = true, // timeInForce PostOnly
         .book_checksum = false,
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
-        .balance_pull = {},
+        // GET /g-accounts/accountPositions?currency=USDT, one-way (Merged) mode
+        .position_pull = {.perp = true},
+        // activeList and the trade history are per symbol: the ones traded here or held
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
+        .balance_pull = {.perp = true},
         .funding_charge = {},
         .ticker_stats = true,
-        .user_stream = UserStreamModel::None,
+        .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 40,
-        .headline_order_rate_per_s = 0,
+        // the contract group allows 500 a minute per account
+        .headline_order_rate_per_s = 8,
     };
 
     table[static_cast<std::size_t>(VenueId::Extended)] = {

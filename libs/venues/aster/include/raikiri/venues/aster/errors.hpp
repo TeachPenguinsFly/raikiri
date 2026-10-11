@@ -6,6 +6,7 @@
 #include <raikiri/wire/error.hpp>
 
 #include <cstdint>
+#include <string_view>
 
 namespace raikiri::venues::aster {
 
@@ -42,8 +43,14 @@ inline constexpr std::int64_t k_would_trigger_immediately = -2021;
 inline constexpr std::int64_t k_reduce_only_rejected = -2022;
 inline constexpr std::int64_t k_min_notional = -4164;
 inline constexpr std::int64_t k_post_only_would_take = -5021; // GTX crossed the book
+inline constexpr std::int64_t k_nonce_expired = -4225;
+// v3 refuses every signed call until the main wallet has made a deposit
+inline constexpr std::int64_t k_needs_deposit = -5050;
 
 [[nodiscard]] exec::ErrorClass classify(std::int64_t code) noexcept;
+
+// v3 answers a bad signature with -1000 "Signature check failed", which is otherwise unknown and retryable
+[[nodiscard]] exec::ErrorClass classify(std::int64_t code, std::string_view msg) noexcept;
 
 // an unknown-order cancel usually means already filled or cancelled; reconciliation settles it
 [[nodiscard]] bool is_benign_cancel_failure(std::int64_t code) noexcept;

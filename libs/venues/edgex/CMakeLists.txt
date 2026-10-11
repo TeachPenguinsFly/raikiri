@@ -4,6 +4,7 @@ add_library(raikiri_venue_edgex STATIC
   src/instruments.cpp
   src/types/book.cpp
   src/types/map.cpp
+  src/types/trade.cpp
   src/types/wire.cpp
   src/marketdata/client.cpp
 )
@@ -14,4 +15,4 @@ target_include_directories(raikiri_venue_edgex PUBLIC
 )
 target_link_libraries(raikiri_venue_edgex
   PUBLIC raikiri::book raikiri::domain raikiri::exec raikiri::net raikiri::wire
-  PRIVATE raikiri::log simdjson::simdjson raikiri::warnings)
+  PRIVATE raikiri::config raikiri::log simdjson::simdjson raikiri::warnings)

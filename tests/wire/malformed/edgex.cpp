@@ -1,3 +1,4 @@
+#include <raikiri/venues/edgex/trade.hpp>
 #include <raikiri/venues/edgex/wire.hpp>
 
 #include <gtest/gtest.h>
@@ -58,7 +59,15 @@ TEST(Malformed, Edgex) {
                 [](std::string_view f) {
                     static ContractBuffer contracts;
                     (void)parse_perp_catalogue(f, contracts);
+                    (void)parse_signing_meta(f);
                 }},
+               {"ws_private_*",
+                [](std::string_view f) {
+                    static TradeBuffer rows;
+                    (void)parse_private_kind(f);
+                    (void)parse_trade_event(f, rows);
+                }},
+               {"rest_create_*", [](std::string_view f) { (void)parse_reply(f); }},
                {"rest_latest_funding_rate.json",
                 [](std::string_view f) {
                     static ContractBuffer contracts;

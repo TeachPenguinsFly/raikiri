@@ -5,6 +5,7 @@
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/venues/edgex/book.hpp>
+#include <raikiri/venues/edgex/trade.hpp>
 #include <raikiri/venues/edgex/wire.hpp>
 
 #include <cstdint>
@@ -22,10 +23,13 @@ struct VenueState {
     const Clock* clock;
     exec::RateBudget* budget{nullptr};
     MarketType market;
+    std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
+    // unloaded on a market-data-only gateway; the catalogue load fills its signing metadata
+    RequestBuilder signing;
 
     std::unordered_map<std::uint32_t, InstrumentId> by_contract;
     std::unordered_map<std::uint64_t, std::uint32_t> contract_of; // InstrumentId::packed

@@ -42,9 +42,11 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
     const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env}
+                                       // the user's wallet address rides api_key_env; it is public
                                        .key([&](std::string_view value) { state->signer.set_api_key(value); })
-                                       .secret(state->signer.secret())
+                                       .secret([&](std::string_view value) { (void)state->wallet.load(value); })
                                        .resolve();
+    state->builder.set_wallet(state->wallet, config.testnet);
 
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
