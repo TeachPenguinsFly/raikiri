@@ -157,8 +157,8 @@ either(Object& obj, std::string_view first, std::string_view second) {
     return out;
 }
 
-[[nodiscard]] std::expected<std::size_t, WireError>
-read_order_array(wire::ondemand::array& rows, OrderRowBuffer& storage) {
+[[nodiscard]] std::expected<std::size_t, WireError> read_order_array(wire::ondemand::array& rows,
+                                                                     OrderRowBuffer& storage) {
     std::size_t count = 0;
     for (auto entry : rows) {
         if (count == storage.rows.size()) {
@@ -371,8 +371,8 @@ RequestBuilder::create_order(const OrderCmd& cmd, const InstrumentBase& instrume
     }
     Appender q{query_};
     q << "clOrdID=" << cmd.exchange_client_order_id.view() << "&symbol=" << instrument.exchange_symbol.view()
-      << "&side=" << (cmd.side == Side::Buy ? "Buy" : "Sell") << "&posSide=Merged&ordType="
-      << (market ? "Market" : "Limit") << "&orderQtyRq=";
+      << "&side=" << (cmd.side == Side::Buy ? "Buy" : "Sell")
+      << "&posSide=Merged&ordType=" << (market ? "Market" : "Limit") << "&orderQtyRq=";
     if (!put_scaled(q, cmd.qty.raw, instrument.lot_size)) {
         return std::unexpected{BuildError::BadValue};
     }
@@ -599,8 +599,7 @@ std::expected<PrivateFrame, WireError> parse_private(std::string_view frame, Ord
     });
 }
 
-std::expected<WireAccountPositions, WireError> parse_account_positions(std::string_view body,
-                                                                       PositionBuffer& storage) {
+std::expected<WireAccountPositions, WireError> parse_account_positions(std::string_view body, PositionBuffer& storage) {
     return wire::guarded([&]() -> std::expected<WireAccountPositions, WireError> {
         WireAccountPositions out{};
         std::string_view positions;
@@ -654,7 +653,8 @@ std::expected<WireAccountPositions, WireError> parse_account_positions(std::stri
     });
 }
 
-std::optional<OrderEvent> map_order_row(const WireOrderRow& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_order_row(const WireOrderRow& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* base = linear(table, wire.symbol);
     if (base == nullptr) {
         return std::nullopt;

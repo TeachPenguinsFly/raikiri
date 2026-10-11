@@ -54,7 +54,8 @@ inline constexpr std::int64_t k_login_failed = 60009;
 [[nodiscard]] bool is_benign_cancel_failure(std::int64_t code) noexcept;
 
 // base64 of the lowercase hex hmac, the hex taken as text
-[[nodiscard]] std::string_view sign_prehash(const net::Signer& signer, std::string_view prehash, std::span<char> out) noexcept;
+[[nodiscard]] std::string_view
+sign_prehash(const net::Signer& signer, std::string_view prehash, std::span<char> out) noexcept;
 
 [[nodiscard]] std::optional<std::string>
 login_frame(const net::Signer& signer, std::string_view passphrase, UnixNanos now);
@@ -146,7 +147,7 @@ struct PrivateFrame {
 [[nodiscard]] std::expected<PrivateFrame, WireError> parse_private(std::string_view frame, OrderBuffer& storage);
 
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
-                                                                               OrderBuffer& storage);
+                                                                                OrderBuffer& storage);
 
 struct WireFill {
     std::string_view inst_id;
@@ -164,7 +165,7 @@ struct FillBuffer {
 };
 
 [[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
-                                                                             FillBuffer& storage);
+                                                                              FillBuffer& storage);
 
 struct WirePosition {
     std::string_view inst_id;
@@ -177,7 +178,7 @@ struct PositionBuffer {
 };
 
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
-                                                                                     PositionBuffer& storage);
+                                                                                      PositionBuffer& storage);
 
 struct WireBalance {
     std::string_view currency;
@@ -191,13 +192,14 @@ struct BalanceBuffer {
 };
 
 [[nodiscard]] std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body,
-                                                                                   BalanceBuffer& storage);
+                                                                                    BalanceBuffer& storage);
 
 // what the orders channel has said about one order so far
 struct OrderProgress {
     std::int64_t filled_lots{0};
-    FixedE9 average_price{};
-    FixedE9 fee{};
+    // zero, not undef: the first fill subtracts these
+    FixedE9 average_price{FixedE9::from_raw(0)};
+    FixedE9 fee{FixedE9::from_raw(0)};
 };
 
 using ProgressTable = std::unordered_map<std::string, OrderProgress>;

@@ -17,7 +17,7 @@ How the framework is put together and how to work with it. The
 flowchart LR
     subgraph V["exchanges"]
         direction TB
-        E1["42 venues<br/>WS · REST"]
+        E1["43 venues<br/>WS · REST"]
     end
 
     subgraph G["gatewayd: one process per (venue, market)"]
@@ -152,7 +152,7 @@ The table in the [project README](../README.md#venues) is generated from
 | column | meaning |
 | :-- | :-- |
 | `custody` | CEX if the venue holds your coins, DEX if a contract does. The caps table has no bit for this, so the generator keeps its own list and refuses a venue missing from it. |
-| `order entry` | *market data only*: the adapter sends no orders. Some of these venues sign orders with keys this codebase has no signer for: an EVM wallet on `aster` and `grvt` (EIP-712 on `grvt`), and a zk-rollup key on `lighter`. `cryptocom` uses a plain HMAC key, but its order path is not written yet. *no perp order API*: the venue publishes none, so trades there are placed by hand; `manual_only` in the caps row lists the markets. |
+| `order entry` | *market data only*: the adapter sends no orders. `grvt` signs orders with an EIP-712 EVM wallet this codebase has no signer for yet. `cryptocom` uses a plain HMAC key, but its order path is not written yet. *no perp order API*: the venue publishes none, so trades there are placed by hand; `manual_only` in the caps row lists the markets. |
 | `WS`, `FIX` | `WS`: the adapter sends create, cancel and amend over the venue's websocket trade API while that socket is logged in, and over REST otherwise. `FIX`: the adapter sends orders over a FIX session; none does yet, whatever the venue offers. |
 | `private stream` | how the account socket authenticates. `ListenKey` gets a token over REST and puts it in the URL; `AuthSubscribe` signs a frame on an open socket; `–` means there is no account socket, and fills arrive through the reconciliation pull. |
 | `funding ledger` | the adapter reads the funding the venue actually charged from the account ledger. Without it, funding PnL is not tracked. |
@@ -218,7 +218,7 @@ make bench                 # Release benchmarks
 
 ## Status
 
-Working today: market data on all 42 venues in the table, REST order entry on the 21 it
+Working today: market data on all 43 venues in the table, REST order entry on the 23 it
 marks, the shared-memory transport, the SBE journals and their Postgres copy, and the
 HTTP/WebSocket admin API in [`schema/admin-api.yaml`](../schema/admin-api.yaml).
 

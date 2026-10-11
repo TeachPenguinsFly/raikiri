@@ -85,7 +85,7 @@ SimResult MdGen::step(Engine& engine, InstrumentId instrument, UnixNanos now) {
     st.orders = std::move(keep);
 
     for (std::uint32_t lvl = 1; lvl <= cfg_.depth; ++lvl) {
-        const std::int64_t d = static_cast<std::int64_t>(lvl);
+        const auto d = static_cast<std::int64_t>(lvl);
         quote_level(engine, instrument, st, Side::Buy, PriceTicks::from_raw(mid - d), now, out);
         quote_level(engine, instrument, st, Side::Sell, PriceTicks::from_raw(mid + d), now, out);
     }

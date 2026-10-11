@@ -265,29 +265,10 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
     }
     std::ranges::sort(claiming);
     EXPECT_EQ(claiming,
-              (std::vector<std::string_view>{"aster",
-                                             "binance",
-                                             "bingx",
-                                             "bitfinex",
-                                             "bitget",
-                                             "bitunix",
-                                             "blofin",
-                                             "bybit",
-                                             "deribit",
-                                             "edgex",
-                                             "gate",
-                                             "htx",
-                                             "hyperliquid",
-                                             "kraken",
-                                             "kucoin",
-                                             "lighter",
-                                             "mexc",
-                                             "okx",
-                                             "phemex",
-                                             "sim",
-                                             "toobit",
-                                             "weex",
-                                             "xt"}));
+              (std::vector<std::string_view>{"aster",       "binance", "bingx",   "bitfinex", "bitget", "bitunix",
+                                             "blofin",      "bybit",   "deribit", "edgex",    "gate",   "htx",
+                                             "hyperliquid", "kraken",  "kucoin",  "lighter",  "mexc",   "okx",
+                                             "phemex",      "sim",     "toobit",  "weex",     "xt"}));
 }
 
 TEST_F(VenueContract, NoRowClaimsAPositionPullOnSpot) {

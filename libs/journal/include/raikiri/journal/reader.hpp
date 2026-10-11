@@ -46,7 +46,7 @@ private:
     std::string prefix_;
 
     const FileHeader* header_{nullptr};
-    const std::byte* base_{nullptr};
+    std::byte* base_{nullptr};
     std::size_t map_size_{0};
     std::uint64_t segment_seq_{0};
     std::uint64_t read_off_{0};

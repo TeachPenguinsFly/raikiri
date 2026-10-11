@@ -7,6 +7,7 @@
 #include <raikiri/admin/stream_token.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
+#include <raikiri/common/version.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/http/server.hpp>
 #include <raikiri/introspect/files.hpp>
@@ -48,8 +49,13 @@ constexpr std::string_view k_usage = R"(usage: admind [--address 127.0.0.1] [--p
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
-        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+        const std::string_view arg{argv[i]};
+        if (arg == "--help" || arg == "-h") {
             std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+        if (arg == "--version") {
+            std::printf("raikiri %.*s\n", static_cast<int>(raikiri::k_version.size()), raikiri::k_version.data());
             return 0;
         }
     }

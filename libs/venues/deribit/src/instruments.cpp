@@ -89,7 +89,7 @@ public:
             }
             for (const auto& entry : *wire) {
                 if (auto instrument = map_instrument(entry, market); instrument.has_value()) {
-                    mapped.push_back(std::move(*instrument));
+                    mapped.push_back(*instrument);
                 }
             }
         }
@@ -98,7 +98,7 @@ public:
         std::vector<Instrument> loaded;
         state_->instruments.reserve(state_->instruments.size() + mapped.size());
         for (auto& instrument : mapped) {
-            if (const auto id = state_->instruments.add(std::move(instrument)); id.has_value()) {
+            if (const auto id = state_->instruments.add(instrument); id.has_value()) {
                 loaded.push_back(*state_->instruments.find(*id));
             }
         }

@@ -72,7 +72,9 @@ public:
     template <typename MutableBuffers, typename Handler>
     auto async_read_some(const MutableBuffers& buffers, Handler&& handler) {
         return asio::async_initiate<Handler, void(boost::system::error_code, std::size_t)>(
-            [self = this](auto done, const MutableBuffers& into) { self->start(std::move(done), into); }, handler, buffers);
+            [self = this](auto done, const MutableBuffers& into) { self->start(std::move(done), into); },
+            handler,
+            buffers);
     }
 
 private:
@@ -115,7 +117,8 @@ private:
             const auto n = ::recvmsg(native_handle(), &msg, MSG_DONTWAIT);
             if (n > 0) {
                 got = static_cast<std::size_t>(n);
-                // a read the kernel did not stamp must not inherit an earlier read's stamp; zero falls back to the wall clock
+                // a read the kernel did not stamp must not inherit an earlier read's stamp; zero falls back to the wall
+                // clock
                 last_arrival_ns_ = 0;
                 for (auto* c = CMSG_FIRSTHDR(&msg); c != nullptr; c = CMSG_NXTHDR(&msg, c)) {
                     if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SO_TIMESTAMPING) {
@@ -235,13 +238,13 @@ public:
             const auto trust = resolve_trust_store();
             boost::system::error_code ec;
             if (!trust.file.empty()) {
-                tls_.load_verify_file(trust.file, ec);
+                (void)tls_.load_verify_file(trust.file, ec);
             }
             if (!trust.dir.empty()) {
-                tls_.add_verify_path(trust.dir, ec);
+                (void)tls_.add_verify_path(trust.dir, ec);
             }
             if (!trust.found) {
-                tls_.set_default_verify_paths(ec);
+                (void)tls_.set_default_verify_paths(ec);
             }
             tls_.set_verify_mode(ssl::verify_peer);
             tls_.set_verify_callback(ssl::host_name_verification{cfg_.host});
@@ -409,7 +412,7 @@ private:
         }
         state_ = State::TlsHandshake;
         boost::system::error_code nodelay_ec;
-        beast::get_lowest_layer(conn->stream).set_option(tcp::no_delay{true}, nodelay_ec);
+        (void)beast::get_lowest_layer(conn->stream).set_option(tcp::no_delay{true}, nodelay_ec);
 #ifdef __linux__
         beast::get_lowest_layer(conn->stream).enable_stamps();
 #endif
@@ -673,6 +676,7 @@ private:
             try {
                 handler_.on_close(reason);
             } catch (...) {
+                // a throwing handler must not stop the reconnect below
             }
         }
         if (running_ && !dead_) {

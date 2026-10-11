@@ -7,7 +7,6 @@ namespace raikiri::venues::okx {
 namespace {
 
 using wire::guarded;
-using wire::session;
 
 std::expected<void, WireError> read_position(wire::ondemand::object& obj, WirePosition& out) {
     const auto inst_id = wire::req_str(obj, "instId");

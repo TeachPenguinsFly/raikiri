@@ -131,13 +131,13 @@ public:
             const auto trust = resolve_trust_store();
             boost::system::error_code ec;
             if (!trust.file.empty()) {
-                tls_.load_verify_file(trust.file, ec);
+                (void)tls_.load_verify_file(trust.file, ec);
             }
             if (!trust.dir.empty()) {
-                tls_.add_verify_path(trust.dir, ec);
+                (void)tls_.add_verify_path(trust.dir, ec);
             }
             if (!trust.found) {
-                tls_.set_default_verify_paths(ec);
+                (void)tls_.set_default_verify_paths(ec);
             }
             tls_.set_verify_mode(ssl::verify_peer);
             tls_.set_verify_callback(ssl::host_name_verification{cfg_.host});
@@ -346,7 +346,7 @@ private:
             return;
         }
         boost::system::error_code nodelay_ec;
-        beast::get_lowest_layer(conn->stream).socket().set_option(tcp::no_delay{true}, nodelay_ec);
+        (void)beast::get_lowest_layer(conn->stream).socket().set_option(tcp::no_delay{true}, nodelay_ec);
         if (!is_ip_literal(cfg_.host) && !internal::set_sni_host(conn->stream.native_handle(), cfg_.host.c_str())) {
             on_setup_failed(idx, beast::error_code{asio::error::invalid_argument});
             return;
@@ -404,11 +404,11 @@ private:
             fail_in_flight(idx, conn, ec);
             return;
         }
-        conn->parser.emplace();
-        conn->parser->body_limit(cfg_.body_limit);
+        auto& parser = conn->parser.emplace();
+        parser.body_limit(cfg_.body_limit);
         http::async_read(conn->stream,
                          conn->buffer,
-                         *conn->parser,
+                         parser,
                          [self = shared_from_this(), idx, gen, conn](const beast::error_code& read_ec, std::size_t) {
                              self->on_read(idx, gen, conn, read_ec);
                          });
@@ -422,7 +422,12 @@ private:
             fail_in_flight(idx, conn, ec);
             return;
         }
-        conn->res = conn->parser->release();
+        auto& parser = conn->parser;
+        if (!parser.has_value()) {
+            fail_in_flight(idx, conn, beast::error_code{asio::error::invalid_argument});
+            return;
+        }
+        conn->res = parser->release();
         RestResponse response;
         response.status = static_cast<int>(conn->res.result_int());
         response.body = std::move(conn->res.body());
@@ -570,6 +575,7 @@ private:
         try {
             callback(std::move(response));
         } catch (...) {
+            // a throwing callback must not unwind into asio
         }
     }
 

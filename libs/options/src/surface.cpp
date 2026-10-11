@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <numbers>
 #include <utility>
 #include <vector>
 
@@ -331,7 +332,7 @@ Slice prepare(const SliceInput& in, UnixNanos now, const SurfaceConfig& config) 
         const double spread = p.mid * root_t;
         const double d1 = -p.k / spread + 0.5 * spread;
         // a far wing quoted at the venue's least tick has an iv that only says how big the tick is
-        const double delta = 0.5 * std::erfc((q.put_call == PutCall::Call ? -d1 : d1) / std::sqrt(2.0));
+        const double delta = 0.5 * std::erfc((q.put_call == PutCall::Call ? -d1 : d1) / std::numbers::sqrt2);
         if (delta < num(config.min_delta)) {
             ++s.dropped;
             continue;
@@ -620,6 +621,7 @@ Ssvi fit_ssvi_shape(std::vector<Slice*>& slices) {
 
 Ssvi fit_ssvi(std::vector<Slice*>& slices) {
     std::vector<double> thetas;
+    thetas.reserve(slices.size());
     for (const auto* s : slices) {
         thetas.push_back(std::max(svi_w(s->svi, 0.0).w, 1e-10));
     }
@@ -648,9 +650,9 @@ struct SliceView {
     double k_low{};
     double k_high{};
 
-    explicit SliceView(const Surface& s) noexcept : surface{s}, ssvi{ssvi_of(s.ssvi)} {
-        k_low = std::numeric_limits<double>::infinity();
-        k_high = -k_low;
+    explicit SliceView(const Surface& s) noexcept
+        : surface{s}, ssvi{ssvi_of(s.ssvi)}, k_low{std::numeric_limits<double>::infinity()},
+          k_high{-std::numeric_limits<double>::infinity()} {
         for (const auto& slice : s.slices) {
             k_low = std::min(k_low, num(slice.k_low));
             k_high = std::max(k_high, num(slice.k_high));
@@ -943,6 +945,7 @@ ArbitrageReport check_arbitrage(const Surface& surface) noexcept {
     report.min_density = fixed(lowest);
     report.calendar = calendar_crossings(view);
     std::vector<FixedE9> thetas;
+    thetas.reserve(surface.slices.size());
     for (const auto& slice : surface.slices) {
         thetas.push_back(slice.theta);
     }
@@ -1015,6 +1018,7 @@ Surface proxy_surface(const Surface& reference, const ProxyInput& in, const Surf
         out.slices.push_back(slice);
     }
     std::vector<double> thetas;
+    thetas.reserve(out.slices.size());
     for (const auto& slice : out.slices) {
         thetas.push_back(num(slice.theta));
     }

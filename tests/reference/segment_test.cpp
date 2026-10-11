@@ -66,10 +66,10 @@ TEST(ReferenceSegment, RowsAndMetricsRoundTripAndKeepTheirSlot) {
     EXPECT_EQ(btc.used_perp, 3);
     EXPECT_EQ(btc.cuts[static_cast<std::size_t>(Cut::Outlier)], 1);
     EXPECT_EQ(btc.usdt_usd.raw, 999'800'000);
-    EXPECT_EQ(btc.flags, std::uint32_t{k_flag_usdc_fallback});
+    EXPECT_EQ(btc.flags, std::uint32_t{FlagUsdcFallback});
     EXPECT_EQ(btc.ts_ns, k_wall);
     EXPECT_EQ(snap.rows[1].asset_key(), "crypto:ETH");
-    EXPECT_NE(snap.rows[1].flags & k_flag_refused, 0U);
+    EXPECT_NE(snap.rows[1].flags & FlagRefused, 0U);
     EXPECT_EQ(snap.metrics.gateways, 5U);
     EXPECT_EQ(snap.metrics.unlisted, 1U);
     EXPECT_EQ(snap.metrics.cycles, 1U);

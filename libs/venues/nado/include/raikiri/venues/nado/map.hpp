@@ -25,8 +25,8 @@ inline constexpr std::uint32_t k_funding_interval_s = 3600;
 [[nodiscard]] std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 // the 24h rate the venue states, as the hourly rate it settles; mark and index from the contracts poll, ticks or undef
-[[nodiscard]] std::optional<FundingUpdate> map_funding(
-    const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, PriceTicks index, UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate>
+map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, PriceTicks index, UnixNanos ts_init);
 
 // the contracts poll's decimals: mark and index floored onto the tick grid, and the 24h window
 [[nodiscard]] std::optional<PriceTicks> map_price(std::string_view decimal, const InstrumentBase& base) noexcept;

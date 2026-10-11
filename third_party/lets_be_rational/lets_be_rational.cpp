@@ -1064,7 +1064,7 @@ double implied_normalised_volatility_atm(double 𝛽) {
 double erfinv(double);
 
 // Specialisation for x = 0 where bₐₜₘ(s) = 1-2·Φ(-s/2) = 2·Φ(s/2)-1 = erf(s/√8).
-#define implied_normalised_volatility_atm(𝛽) ((2 * SQRT_TWO) * erfinv(𝛽))
+#define implied_normalised_volatility_atm(beta) ((2 * SQRT_TWO) * erfinv(beta))
 
 #endif
 

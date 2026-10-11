@@ -51,7 +51,7 @@ std::optional<Fetched> fetch(std::string_view host,
         beast_http::read(stream, buffer, res);
 
         beast::error_code ec;
-        stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+        (void)stream.socket().shutdown(tcp::socket::shutdown_both, ec);
         return Fetched{.status = static_cast<int>(res.result_int()), .body = std::move(res.body())};
     } catch (...) {
         // every failure maps to nullopt

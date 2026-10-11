@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/common/int128.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/edgex/trade.hpp>
 #include <raikiri/wire/json.hpp>
@@ -20,18 +21,18 @@ constexpr std::uint64_t k_l2_window_ms = 30 * k_day_ms;
 constexpr std::uint64_t k_l1_offset_ms = 8 * k_day_ms;
 constexpr std::uint8_t k_max_scale = 36;
 
-constexpr std::string_view k_domain_type =
-    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)";
-constexpr std::string_view k_base_type =
-    "OrderBase(uint256 nonce,address signer,uint64 accountId,uint256 expirationTimestamp)";
-constexpr std::string_view k_limit_type =
-    "LimitOrderParams(OrderBase base,int256 amountSynthetic,int256 amountCollateral,uint256 amountFee,"
-    "uint64 assetIdSynthetic,uint64 assetIdCollateral,bool isBuyingSynthetic,bytes32 parentOrderHash,"
-    "uint256 subOrderIndex)"
-    "OrderBase(uint256 nonce,address signer,uint64 accountId,uint256 expirationTimestamp)";
+constexpr std::string_view
+    k_domain_type = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)";
+constexpr std::string_view
+    k_base_type = "OrderBase(uint256 nonce,address signer,uint64 accountId,uint256 expirationTimestamp)";
+constexpr std::string_view
+    k_limit_type = "LimitOrderParams(OrderBase base,int256 amountSynthetic,int256 amountCollateral,uint256 amountFee,"
+                   "uint64 assetIdSynthetic,uint64 assetIdCollateral,bool isBuyingSynthetic,bytes32 parentOrderHash,"
+                   "uint256 subOrderIndex)"
+                   "OrderBase(uint256 nonce,address signer,uint64 accountId,uint256 expirationTimestamp)";
 
-[[nodiscard]] unsigned __int128 pow10(std::uint8_t exponent) noexcept {
-    unsigned __int128 out = 1;
+[[nodiscard]] uint128_t pow10(std::uint8_t exponent) noexcept {
+    uint128_t out = 1;
     for (std::uint8_t i = 0; i < exponent; ++i) {
         out *= 10;
     }
@@ -46,7 +47,7 @@ class Words {
 public:
     void hash(const evm::Hash& value) noexcept { put(value); }
 
-    void uint(unsigned __int128 value) noexcept {
+    void uint(uint128_t value) noexcept {
         evm::Hash word{};
         for (std::size_t i = 0; i < 16; ++i) {
             word[31 - i] = static_cast<std::uint8_t>(value >> (8U * i));
@@ -70,7 +71,7 @@ private:
         }
     }
 
-    std::array<std::uint8_t, 32 * 10> bytes_{};
+    std::array<std::uint8_t, std::size_t{32} * 10> bytes_{};
     std::size_t used_{0};
 };
 
@@ -80,7 +81,7 @@ private:
                              : std::string_view{};
 }
 
-[[nodiscard]] std::string_view digits128(unsigned __int128 value, std::span<char> out) noexcept {
+[[nodiscard]] std::string_view digits128(uint128_t value, std::span<char> out) noexcept {
     std::array<char, 40> reversed{};
     std::size_t count = 0;
     do {
@@ -104,7 +105,8 @@ private:
     for (std::size_t i = 0; i < in.size(); i += 3) {
         const auto rest = in.size() - i;
         const std::uint32_t chunk = (static_cast<std::uint32_t>(static_cast<std::uint8_t>(in[i])) << 16U) |
-                                    (rest > 1 ? static_cast<std::uint32_t>(static_cast<std::uint8_t>(in[i + 1])) << 8U : 0U) |
+                                    (rest > 1 ? static_cast<std::uint32_t>(static_cast<std::uint8_t>(in[i + 1])) << 8U
+                                              : 0U) |
                                     (rest > 2 ? static_cast<std::uint32_t>(static_cast<std::uint8_t>(in[i + 2])) : 0U);
         out.push_back(alphabet[(chunk >> 18U) & 0x3FU]);
         out.push_back(alphabet[(chunk >> 12U) & 0x3FU]);
@@ -138,9 +140,18 @@ private:
 }
 
 // strings as their contents, numbers and booleans as their raw text
+// an object or array gives nothing; reading it raw after a failed string read trips simdjson
 [[nodiscard]] std::string_view text_of(json::ondemand::value& value) {
-    if (const auto text = json::str_of(value); text.has_value()) {
-        return *text;
+    json::ondemand::json_type type{};
+    if (value.type().get(type) != simdjson::SUCCESS) {
+        return {};
+    }
+    if (type == json::ondemand::json_type::string) {
+        const auto text = json::str_of(value);
+        return text.has_value() ? *text : std::string_view{};
+    }
+    if (type != json::ondemand::json_type::number && type != json::ondemand::json_type::boolean) {
+        return {};
     }
     const auto raw = json::raw_of(value);
     return raw.has_value() ? json::trim(*raw) : std::string_view{};
@@ -162,9 +173,8 @@ std::expected<std::size_t, WireError> read_rows(json::ondemand::value& value, st
             return std::unexpected(json::map_error(ec));
         }
         Row row{};
-        const auto read = json::for_each_field(obj, [&](std::string_view key, json::ondemand::value& field) {
-            fill(row, key, field);
-        });
+        const auto read = json::for_each_field(
+            obj, [&](std::string_view key, json::ondemand::value& field) { fill(row, key, field); });
         if (!read.has_value()) {
             return std::unexpected(read.error());
         }
@@ -245,35 +255,35 @@ void fill_collateral(WireCollateral& row, std::string_view key, json::ondemand::
 // one group per key; groups this adapter does not read are skipped
 std::expected<TradeRows, WireError> read_groups(json::ondemand::object& data, TradeBuffer& storage) {
     TradeRows out{};
-    const auto read = json::for_each_field(data, [&](std::string_view key, json::ondemand::value& value)
-                                                     -> std::expected<void, WireError> {
-        std::expected<std::size_t, WireError> count{0};
-        if (key == "order" || key == "dataList") {
-            count = read_rows(value, storage.orders, fill_order);
-            if (count.has_value()) {
-                out.orders = {storage.orders.data(), *count};
+    const auto read = json::for_each_field(
+        data, [&](std::string_view key, json::ondemand::value& value) -> std::expected<void, WireError> {
+            std::expected<std::size_t, WireError> count{0};
+            if (key == "order" || key == "dataList") {
+                count = read_rows(value, storage.orders, fill_order);
+                if (count.has_value()) {
+                    out.orders = {storage.orders.data(), *count};
+                }
+            } else if (key == "orderFillTransaction") {
+                count = read_rows(value, storage.fills, fill_fill);
+                if (count.has_value()) {
+                    out.fills = {storage.fills.data(), *count};
+                }
+            } else if (key == "position" || key == "positionList") {
+                count = read_rows(value, storage.positions, fill_position);
+                if (count.has_value()) {
+                    out.positions = {storage.positions.data(), *count};
+                }
+            } else if (key == "collateral" || key == "collateralList") {
+                count = read_rows(value, storage.collateral, fill_collateral);
+                if (count.has_value()) {
+                    out.collateral = {storage.collateral.data(), *count};
+                }
             }
-        } else if (key == "orderFillTransaction") {
-            count = read_rows(value, storage.fills, fill_fill);
-            if (count.has_value()) {
-                out.fills = {storage.fills.data(), *count};
+            if (!count.has_value()) {
+                return std::unexpected(count.error());
             }
-        } else if (key == "position" || key == "positionList") {
-            count = read_rows(value, storage.positions, fill_position);
-            if (count.has_value()) {
-                out.positions = {storage.positions.data(), *count};
-            }
-        } else if (key == "collateral" || key == "collateralList") {
-            count = read_rows(value, storage.collateral, fill_collateral);
-            if (count.has_value()) {
-                out.collateral = {storage.collateral.data(), *count};
-            }
-        }
-        if (!count.has_value()) {
-            return std::unexpected(count.error());
-        }
-        return {};
-    });
+            return {};
+        });
     if (!read.has_value()) {
         return std::unexpected(read.error());
     }
@@ -404,73 +414,75 @@ std::expected<SigningMeta, WireError> parse_signing_meta(std::string_view body) 
         std::string_view native_chain;
         std::string_view chain;
         std::string_view contract;
-        const auto read = json::for_each_field(data, [&](std::string_view key, json::ondemand::value& group)
-                                                         -> std::expected<void, WireError> {
-            if (key == "global") {
-                json::ondemand::object global;
-                if (const auto ec = group.get_object().get(global); ec != simdjson::SUCCESS) {
+        const auto read = json::for_each_field(
+            data, [&](std::string_view key, json::ondemand::value& group) -> std::expected<void, WireError> {
+                if (key == "global") {
+                    json::ondemand::object global;
+                    if (const auto ec = group.get_object().get(global); ec != simdjson::SUCCESS) {
+                        return std::unexpected(json::map_error(ec));
+                    }
+                    return json::for_each_field(global, [&](std::string_view field, json::ondemand::value& v) {
+                        if (field == "nativeChainId") {
+                            native_chain = text_of(v);
+                        } else if (field == "chainId") {
+                            chain = text_of(v);
+                        } else if (field == "contractAddress") {
+                            contract = text_of(v);
+                        }
+                    });
+                }
+                json::ondemand::array list;
+                if (key != "coinList" && key != "contractList") {
+                    return {};
+                }
+                if (const auto ec = group.get_array().get(list); ec != simdjson::SUCCESS) {
                     return std::unexpected(json::map_error(ec));
                 }
-                return json::for_each_field(global, [&](std::string_view field, json::ondemand::value& v) {
-                    if (field == "nativeChainId") {
-                        native_chain = text_of(v);
-                    } else if (field == "chainId") {
-                        chain = text_of(v);
-                    } else if (field == "contractAddress") {
-                        contract = text_of(v);
+                for (auto entry : list) {
+                    json::ondemand::object obj;
+                    if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                        return std::unexpected(json::map_error(ec));
                     }
-                });
-            }
-            json::ondemand::array list;
-            if (key != "coinList" && key != "contractList") {
+                    Row row{};
+                    std::string_view resolution;
+                    const auto fields = json::for_each_field(obj,
+                                                             [&](std::string_view field, json::ondemand::value& v) {
+                                                                 if (field == "coinId" || field == "contractId") {
+                                                                     row.id = id_of(text_of(v));
+                                                                 } else if (field == "resolution") {
+                                                                     resolution = text_of(v);
+                                                                 } else if (field == "quoteCoinId") {
+                                                                     row.quote = id_of(text_of(v));
+                                                                 } else if (field == "defaultTakerFeeRate") {
+                                                                     row.taker = text_of(v);
+                                                                 } else if (field == "defaultMakerFeeRate") {
+                                                                     row.maker = text_of(v);
+                                                                 }
+                                                             });
+                    if (!fields.has_value()) {
+                        return std::unexpected(fields.error());
+                    }
+                    // coins hold hex ("0xf4240"), contracts decimal ("10000000000")
+                    if (resolution.starts_with("0x")) {
+                        const auto hex = resolution.substr(2);
+                        const auto [stop,
+                                    ec] = std::from_chars(hex.data(), hex.data() + hex.size(), row.resolution, 16);
+                        if (ec != std::errc{} || stop != hex.data() + hex.size()) {
+                            row.resolution = 0;
+                        }
+                    } else {
+                        row.resolution = u64_of(resolution);
+                    }
+                    if (key == "coinList") {
+                        if (row.id != 0 && row.resolution != 0) {
+                            coin_resolution.emplace(row.id, row.resolution);
+                        }
+                    } else if (row.id != 0 && row.resolution != 0) {
+                        rows.push_back(row);
+                    }
+                }
                 return {};
-            }
-            if (const auto ec = group.get_array().get(list); ec != simdjson::SUCCESS) {
-                return std::unexpected(json::map_error(ec));
-            }
-            for (auto entry : list) {
-                json::ondemand::object obj;
-                if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                    return std::unexpected(json::map_error(ec));
-                }
-                Row row{};
-                std::string_view resolution;
-                const auto fields = json::for_each_field(obj, [&](std::string_view field, json::ondemand::value& v) {
-                    if (field == "coinId" || field == "contractId") {
-                        row.id = id_of(text_of(v));
-                    } else if (field == "resolution") {
-                        resolution = text_of(v);
-                    } else if (field == "quoteCoinId") {
-                        row.quote = id_of(text_of(v));
-                    } else if (field == "defaultTakerFeeRate") {
-                        row.taker = text_of(v);
-                    } else if (field == "defaultMakerFeeRate") {
-                        row.maker = text_of(v);
-                    }
-                });
-                if (!fields.has_value()) {
-                    return std::unexpected(fields.error());
-                }
-                // coins hold hex ("0xf4240"), contracts decimal ("10000000000")
-                if (resolution.starts_with("0x")) {
-                    const auto hex = resolution.substr(2);
-                    const auto [stop, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), row.resolution, 16);
-                    if (ec != std::errc{} || stop != hex.data() + hex.size()) {
-                        row.resolution = 0;
-                    }
-                } else {
-                    row.resolution = u64_of(resolution);
-                }
-                if (key == "coinList") {
-                    if (row.id != 0 && row.resolution != 0) {
-                        coin_resolution.emplace(row.id, row.resolution);
-                    }
-                } else if (row.id != 0 && row.resolution != 0) {
-                    rows.push_back(row);
-                }
-            }
-            return {};
-        });
+            });
         if (!read.has_value()) {
             return std::unexpected(read.error());
         }
@@ -552,7 +564,7 @@ std::expected<L2Order, BuildError> l2_order(const OrderTerms& terms, const Signi
     out.limit_fee = static_cast<std::uint64_t>((fee_raw + unit - 1) / unit);
     out.amount_synthetic = size->mantissa * contract.resolution / pow10(size->scale);
     out.amount_collateral = out.value.mantissa * contract.collateral_resolution / pow10(out.value.scale);
-    out.amount_fee = static_cast<unsigned __int128>(out.limit_fee) * contract.collateral_resolution;
+    out.amount_fee = static_cast<uint128_t>(out.limit_fee) * contract.collateral_resolution;
     return out;
 }
 
@@ -627,7 +639,10 @@ void RequestBuilder::set_meta(SigningMeta meta) {
     domain_ = domain_separator(meta_);
 }
 
-bool RequestBuilder::sign(std::string_view method, std::string_view path, std::string_view payload, std::uint64_t now_ms) {
+bool RequestBuilder::sign(std::string_view method,
+                          std::string_view path,
+                          std::string_view payload,
+                          std::uint64_t now_ms) {
     timestamp_len_ = digits(now_ms, timestamp_).size();
     message_.clear();
     message_.append(timestamp_.data(), timestamp_len_);
@@ -843,37 +858,37 @@ std::expected<WireReply, WireError> parse_reply(std::string_view body) {
             return std::unexpected(root.error());
         }
         WireReply out{};
-        const auto read = json::for_each_field(*root, [&](std::string_view key, json::ondemand::value& value)
-                                                          -> std::expected<void, WireError> {
-            if (key == "code") {
-                out.code = text_of(value);
-            } else if (key == "msg") {
-                out.msg = text_of(value);
-            } else if (key == "data") {
-                json::ondemand::object data;
-                if (value.get_object().get(data) != simdjson::SUCCESS) {
-                    return {}; // null or a list carries no verdict detail
+        const auto read = json::for_each_field(
+            *root, [&](std::string_view key, json::ondemand::value& value) -> std::expected<void, WireError> {
+                if (key == "code") {
+                    out.code = text_of(value);
+                } else if (key == "msg") {
+                    out.msg = text_of(value);
+                } else if (key == "data") {
+                    json::ondemand::object data;
+                    if (value.get_object().get(data) != simdjson::SUCCESS) {
+                        return {}; // null or a list carries no verdict detail
+                    }
+                    return json::for_each_field(
+                        data, [&](std::string_view field, json::ondemand::value& v) -> std::expected<void, WireError> {
+                            if (field == "orderId") {
+                                out.order_id = text_of(v);
+                                return {};
+                            }
+                            json::ondemand::object results;
+                            if (field != "cancelResultMap" || v.get_object().get(results) != simdjson::SUCCESS) {
+                                return {};
+                            }
+                            return json::for_each_field(results, [&](std::string_view id, json::ondemand::value& r) {
+                                if (out.order_id.empty()) {
+                                    out.order_id = id;
+                                    out.cancel_result = text_of(r);
+                                }
+                            });
+                        });
                 }
-                return json::for_each_field(data, [&](std::string_view field, json::ondemand::value& v)
-                                                      -> std::expected<void, WireError> {
-                    if (field == "orderId") {
-                        out.order_id = text_of(v);
-                        return {};
-                    }
-                    json::ondemand::object results;
-                    if (field != "cancelResultMap" || v.get_object().get(results) != simdjson::SUCCESS) {
-                        return {};
-                    }
-                    return json::for_each_field(results, [&](std::string_view id, json::ondemand::value& r) {
-                        if (out.order_id.empty()) {
-                            out.order_id = id;
-                            out.cancel_result = text_of(r);
-                        }
-                    });
-                });
-            }
-            return {};
-        });
+                return {};
+            });
         if (!read.has_value()) {
             return std::unexpected(read.error());
         }
@@ -1081,7 +1096,8 @@ std::optional<exec::OrderStatusReport> map_order_report(const WireOrder& wire, c
     return out;
 }
 
-std::optional<OrderEvent> map_fill(const WireFill& wire, const InstrumentBase& base, QtyLots leaves, UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_fill(const WireFill& wire, const InstrumentBase& base, QtyLots leaves, UnixNanos ts_init) {
     const auto side = side_of(wire.side);
     const auto price = ticks_of(wire.price, base);
     const auto qty = lots_of(wire.size, base);
@@ -1137,7 +1153,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire, const
     const auto notional = parse_decimal_e9(value);
     const auto qty = base.lots_to_qty(*lots);
     if (notional.has_value() && qty.raw > 0) {
-        const auto scaled = static_cast<__int128>(notional->raw) * 1'000'000'000;
+        const auto scaled = static_cast<int128_t>(notional->raw) * 1'000'000'000;
         if (scaled % qty.raw == 0) {
             const auto entry = FixedE9::from_raw(static_cast<std::int64_t>(scaled / qty.raw));
             if (const auto ticks = base.price_to_ticks(entry); ticks.has_value()) {

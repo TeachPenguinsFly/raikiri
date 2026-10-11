@@ -583,7 +583,7 @@ using tcp = asio::ip::tcp;
 constexpr std::string_view k_path = "/v1/stream";
 
 // the largest honest message is a watchlist of a few hundred ids
-constexpr std::uint64_t k_max_message_bytes = 64 * 1024;
+constexpr std::uint64_t k_max_message_bytes = std::uint64_t{64} * 1024;
 constexpr std::size_t k_max_feeds = 64;
 
 // control frames queue here; state frames are dropped instead

@@ -75,9 +75,7 @@ std::string_view to_string(SecretError err) noexcept {
     return "unknown";
 }
 
-Secret::Secret() noexcept {
-    locked_ = ::mlock(buf_, sizeof buf_) == 0;
-}
+Secret::Secret() noexcept : locked_{::mlock(buf_, sizeof buf_) == 0} {}
 
 Secret::~Secret() {
     clear();

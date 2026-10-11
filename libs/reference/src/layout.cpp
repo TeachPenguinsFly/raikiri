@@ -26,8 +26,8 @@ RefCell to_cell(const Row& row, std::uint64_t ts_ns) noexcept {
                  .used_perp = ref.used_perp,
                  .cuts = ref.cuts};
     std::memcpy(cell.asset, row.asset.data(), std::min(row.asset.size(), sizeof cell.asset - 1));
-    cell.flags = (ref.refused ? k_flag_refused : 0U) | (ref.rates.usdt_fallback ? k_flag_usdt_fallback : 0U) |
-                 (ref.rates.usdc_fallback ? k_flag_usdc_fallback : 0U);
+    cell.flags = (ref.refused ? FlagRefused : 0U) | (ref.rates.usdt_fallback ? FlagUsdtFallback : 0U) |
+                 (ref.rates.usdc_fallback ? FlagUsdcFallback : 0U);
     return cell;
 }
 

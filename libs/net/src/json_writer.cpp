@@ -1,6 +1,7 @@
 #include <raikiri/net/json_writer.hpp>
 
 #include <charconv>
+#include <cstdio>
 #include <cstring>
 
 namespace raikiri::net {

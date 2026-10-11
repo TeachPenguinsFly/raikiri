@@ -1,8 +1,8 @@
 // aster parser tests against captured bytes; see fixtures/README.md
 
 #include <raikiri/domain/asset_class.hpp>
-#include <raikiri/venues/aster/book.hpp>
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/venues/aster/book.hpp>
 #include <raikiri/venues/aster/catalogue.hpp>
 #include <raikiri/venues/aster/endpoints.hpp>
 #include <raikiri/venues/aster/envelope.hpp>
@@ -309,9 +309,9 @@ TEST(AsterSpot, SpotAddressesItsOwnHostsAndPaths) {
 // the docs publish this agent key and its address; the digest and signature were computed with eth-account
 constexpr std::string_view k_demo_agent_key = "0x4fd0a42218f3eae43a6ce26d22544e986139a01e5b34a62db53757ffca81bae1";
 constexpr std::string_view k_demo_user = "0x63DD5aCC6b1aa0f563956C0e534DD30B6dcF7C4e";
-constexpr std::string_view k_demo_msg =
-    "symbol=ASTERUSDT&type=LIMIT&side=BUY&timeInForce=GTC&quantity=20&price=0.5&nonce=1748310859508867"
-    "&user=0x63DD5aCC6b1aa0f563956C0e534DD30B6dcF7C4e&signer=0x21cF8Ae13Bb72632562c6Fff438652Ba1a151bb0";
+constexpr std::string_view
+    k_demo_msg = "symbol=ASTERUSDT&type=LIMIT&side=BUY&timeInForce=GTC&quantity=20&price=0.5&nonce=1748310859508867"
+                 "&user=0x63DD5aCC6b1aa0f563956C0e534DD30B6dcF7C4e&signer=0x21cF8Ae13Bb72632562c6Fff438652Ba1a151bb0";
 
 std::string hex_of(const net::evm::Hash& hash) {
     constexpr std::string_view digits = "0123456789abcdef";

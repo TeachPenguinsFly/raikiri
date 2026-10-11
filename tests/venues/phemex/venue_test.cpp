@@ -1,10 +1,10 @@
 #include <raikiri/exec/caps.hpp>
-#include <raikiri/venues/phemex/trade.hpp>
 #include <raikiri/venues/phemex/book.hpp>
 #include <raikiri/venues/phemex/catalogue.hpp>
 #include <raikiri/venues/phemex/envelope.hpp>
 #include <raikiri/venues/phemex/map.hpp>
 #include <raikiri/venues/phemex/market_data.hpp>
+#include <raikiri/venues/phemex/trade.hpp>
 #include <raikiri/venues/phemex/ws.hpp>
 
 #include <gtest/gtest.h>
@@ -589,9 +589,8 @@ TEST(PhemexReconciliation, ReadsOrdersFillsPositionsAndTheUsdtAccount) {
     EXPECT_EQ(balance->total, e9("730.97309163"));
     EXPECT_EQ(balance->available, e9("729.95271609"));
 
-    const auto short_btc =
-        map_position(WirePosition{.symbol = "BTCUSDT", .side = "Sell", .size = "0.007", .avg_entry_price = "84000"},
-                     table);
+    const auto short_btc = map_position(
+        WirePosition{.symbol = "BTCUSDT", .side = "Sell", .size = "0.007", .avg_entry_price = "84000"}, table);
     ASSERT_TRUE(short_btc.has_value());
     EXPECT_EQ(short_btc->net_qty.raw, -7);
     EXPECT_EQ(short_btc->avg_entry.raw, 840000);

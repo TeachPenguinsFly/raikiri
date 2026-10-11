@@ -15,9 +15,9 @@
 namespace raikiri::reference {
 
 enum RefFlag : std::uint32_t {
-    k_flag_refused = 1U << 0,
-    k_flag_usdt_fallback = 1U << 1,
-    k_flag_usdc_fallback = 1U << 2,
+    FlagRefused = 1U << 0,
+    FlagUsdtFallback = 1U << 1,
+    FlagUsdcFallback = 1U << 2,
 };
 
 struct RefCell {

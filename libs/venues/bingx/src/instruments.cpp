@@ -41,7 +41,8 @@ public:
         case MarketType::Future:
         case MarketType::Option:
             // neither tree lists dated futures
-            return std::unexpected{exec::not_implemented(to_string(*market_refusal(market)))};
+            return std::unexpected{
+                exec::not_implemented(to_string(market_refusal(market).value_or(BuildError::OptionsUnsupported)))};
         }
         return std::unexpected{exec::not_implemented("bingx: unknown market")};
     }

@@ -1,13 +1,13 @@
 #include <raikiri/config/one_password.hpp>
 
 #include <poll.h>
-#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

@@ -55,7 +55,7 @@ inline constexpr std::size_t k_max_perp_categories = 2048;
 // rows view `text`; the next parse reuses its buffer
 struct PerpCategoryBuffer {
     std::array<WireCategory, k_max_perp_categories> rows{};
-    std::array<char, 64 * 1024> text{};
+    std::array<char, std::size_t{64} * 1024> text{};
 };
 
 [[nodiscard]] std::expected<std::span<const WireCategory>, WireError>

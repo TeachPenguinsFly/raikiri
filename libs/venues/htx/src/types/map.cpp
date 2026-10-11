@@ -236,7 +236,8 @@ std::optional<FixedE9> rate_e9(std::string_view token) {
 
 namespace {
 
-// spot states some top sizes off the lot grid (0.025997995991983963 on a 1e-4 lot); the size is floored, never the price
+// spot states some top sizes off the lot grid (0.025997995991983963 on a 1e-4 lot); the size is floored, never the
+// price
 std::optional<QtyLots> floor_lots(std::string_view text, const InstrumentBase& base) {
     const auto value = rate_e9(text);
     if (!value.has_value() || value->raw < 0 || base.lot_size.raw <= 0) {

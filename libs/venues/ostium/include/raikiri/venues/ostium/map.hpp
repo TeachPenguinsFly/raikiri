@@ -12,7 +12,7 @@ namespace raikiri::venues::ostium {
 
 // rollover accrues every arbitrum block; the rate is stated per hour
 inline constexpr std::uint32_t k_rate_unit_s = 3600;
-inline constexpr std::int64_t k_blocks_per_hour = 4 * 3600;
+inline constexpr std::int64_t k_blocks_per_hour = std::int64_t{4} * 3600;
 
 // the oracle has no tick and positions have no lot; both sit at the finest step raikiri holds
 inline constexpr std::int64_t k_step_raw = 1;

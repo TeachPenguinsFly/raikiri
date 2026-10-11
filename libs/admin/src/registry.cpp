@@ -8,6 +8,7 @@
 #include <array>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <limits>
 #include <memory>
 #include <unordered_map>
@@ -85,7 +86,7 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
         ++epoch_;
     }
     for (const auto& [account_name, file_id] : present) {
-        const auto path = shm_dir + "/" + std::string{k_segment_prefix} + account_name;
+        const auto path = std::format("{}/{}{}", shm_dir, k_segment_prefix, account_name);
         const auto account = account_from_string(account_name);
         if (account.venue == VenueId::Invalid) {
             continue; // a file whose name is not an account is not ours

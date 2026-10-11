@@ -91,13 +91,13 @@ struct PrintBuffer {
 
 // a row of the `prices` stream and of GET /api/v1/info/prices
 struct WirePrice {
-    std::string_view symbol;
-    std::string_view funding;      // fixed for the next settlement
-    std::string_view next_funding; // running estimate for the one after
-    std::string_view mark;
-    std::string_view oracle;        // the index
-    std::string_view volume_24h;    // USD
-    std::string_view open_interest; // base units
+    std::string_view symbol{};
+    std::string_view funding{};      // fixed for the next settlement
+    std::string_view next_funding{}; // running estimate for the one after
+    std::string_view mark{};
+    std::string_view oracle{};        // the index
+    std::string_view volume_24h{};    // USD
+    std::string_view open_interest{}; // base units
     std::uint64_t ts_ms{0};
 };
 

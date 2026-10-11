@@ -96,8 +96,9 @@ jobs:
       - name: Install dependencies
         run: make deps PRESET=rel PROFILE=profiles/linux-clang18
 
+      # tidy reads compile_commands.json, whose precompiled headers this job never builds
       - name: Configure
-        run: cmake --preset rel
+        run: cmake --preset rel -DRAIKIRI_PCH=OFF
 
       # the sbe codecs are generated at build time and tidy cannot parse without them
       - name: Generate SBE codecs
@@ -124,7 +125,7 @@ jobs:
             { grep -E '^libs/[^/]+/include/.*\.hpp$' changed.txt || true; } | \
               sed -E 's|^(libs/[^/]+)/include/.*|\1/src|' | sort -u | \
               while read -r dir; do ls "$dir"/*.cpp 2>/dev/null || true; done
-          } | { grep -vE '^fuzz/' || true; } | sort -u > tidy-files.txt
+          } | { grep -vE '^(fuzz|third_party)/' || true; } | sort -u > tidy-files.txt
 
           echo "count=$(wc -l < tidy-files.txt)" >> "$GITHUB_OUTPUT"
           cat tidy-files.txt

@@ -95,7 +95,7 @@ public:
                 return opened;
             }
         }
-        return open(std::move(channel));
+        return open(channel);
     }
 
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
@@ -266,7 +266,7 @@ private:
         }
     }
 
-    std::expected<void, exec::VenueError> open(std::string channel) {
+    std::expected<void, exec::VenueError> open(const std::string& channel) {
         if (!state_->channels.insert(channel).second) {
             return {}; // Bbo and Depth share a book; every perp shares one stats key
         }

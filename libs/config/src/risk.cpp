@@ -1,6 +1,7 @@
 #include <raikiri/config/risk.hpp>
 
 #include <array>
+#include <format>
 #include <glaze/glaze.hpp>
 #include <glaze/yaml.hpp>
 #include <limits>
@@ -24,8 +25,9 @@ template <typename T> void overlay(std::optional<T>& into, const std::optional<T
         {"max_strategy_notional", &settings.max_strategy_notional},
         {"max_price_band_bp", &settings.max_price_band_bp},
     }};
-    for (const auto& [name, value] : positives) {
-        if (value->has_value() && (**value <= 0 || **value > k_max_whole)) {
+    for (const auto& [name, slot] : positives) {
+        const auto& value = *slot;
+        if (value.has_value() && (*value <= 0 || *value > k_max_whole)) {
             return std::string{name} + " must be positive and below " + std::to_string(k_max_whole);
         }
     }
@@ -61,7 +63,7 @@ std::expected<RiskFile, std::string> load_risk(std::string_view path) {
     }
     for (const auto& [key, settings] : out.strategies) {
         if (auto why = internal::check(settings); !why.empty()) {
-            return std::unexpected{std::string{path} + " strategy " + key + ": " + why};
+            return std::unexpected{std::format("{} strategy {}: {}", path, key, why)};
         }
     }
     return out;

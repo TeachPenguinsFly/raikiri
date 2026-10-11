@@ -56,7 +56,7 @@ struct SymbolBuffer {
 
 // data.symbols is an object keyed by symbol
 [[nodiscard]] std::expected<std::span<const WireSymbol>, WireError> parse_symbols(std::string_view body,
-                                                                                SymbolBuffer& storage);
+                                                                                  SymbolBuffer& storage);
 
 enum class EventKind : std::uint8_t { Unknown = 0, Bbo, Trade, Depth, Funding, Reply };
 
@@ -141,7 +141,7 @@ struct ContractBuffer {
 };
 
 [[nodiscard]] std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
-                                                                                    ContractBuffer& storage);
+                                                                                      ContractBuffer& storage);
 
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time_ms(std::string_view body);
 

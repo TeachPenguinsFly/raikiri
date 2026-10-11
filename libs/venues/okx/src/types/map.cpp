@@ -78,7 +78,7 @@ std::optional<QtyLots> leaves_of(const WireOrder& wire, const InstrumentBase& ba
         return std::nullopt;
     }
     if (wire.acc_fill_sz.empty()) {
-        return *total;
+        return total;
     }
     const auto filled = to_lots(wire.acc_fill_sz, base);
     if (!filled.has_value() || filled->raw > total->raw) {

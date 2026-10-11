@@ -29,10 +29,10 @@ std::string_view to_string(Error err) noexcept {
 
 namespace {
 
-constexpr std::size_t k_initial_scratch = 64 * 1024;
+constexpr std::size_t k_initial_scratch = std::size_t{64} * 1024;
 
 // a ceiling far above the largest real response
-constexpr std::size_t k_max_frame = 64 * 1024 * 1024;
+constexpr std::size_t k_max_frame = std::size_t{64} * 1024 * 1024;
 
 [[nodiscard]] constexpr bool is_space(char c) noexcept {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
@@ -261,7 +261,7 @@ std::expected<Root, Error> open_nested(ondemand::value value, std::string& stora
     std::string_view source = *escaped;
     std::string held;
     // a document nested twice may sit in the storage it is about to be decoded into
-    const std::less_equal<const char*> le;
+    const std::less_equal<> le;
     if (le(storage.data(), source.data()) && le(source.data(), storage.data() + storage.size())) {
         held.assign(source);
         source = held;

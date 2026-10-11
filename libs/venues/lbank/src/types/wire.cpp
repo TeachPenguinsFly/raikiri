@@ -614,7 +614,8 @@ std::uint64_t beijing_to_ms(std::string_view text) noexcept {
             millis *= 10;
         }
     }
-    const auto seconds = days_from_civil(year, month, day) * 86'400 + hour * 3'600 + minute * 60 + second - 8 * 3'600;
+    const auto seconds = days_from_civil(year, month, day) * 86'400 + hour * 3'600 + minute * 60 + second -
+                         std::int64_t{8} * 3'600;
     return seconds < 0 ? 0 : static_cast<std::uint64_t>(seconds * 1'000 + millis);
 }
 

@@ -23,6 +23,7 @@ namespace raikiri::config {
 
 [[nodiscard]] inline std::vector<exec::RateCost> rest_costs(const VenueSettings& venue) {
     std::vector<exec::RateCost> out;
+    out.reserve(venue.costs.size());
     for (const auto& cost : venue.costs) {
         out.push_back({.match = cost.match, .cost = cost.cost});
     }

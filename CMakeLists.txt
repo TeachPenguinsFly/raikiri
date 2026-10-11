@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(raikiri VERSION 0.1.0 LANGUAGES CXX)
+# VERSION holds the release, a pre-release with its suffix; cmake's own version takes only the numbers
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" RAIKIRI_VERSION LIMIT_COUNT 1)
+string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" RAIKIRI_VERSION_CORE "${RAIKIRI_VERSION}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+
+project(raikiri VERSION ${RAIKIRI_VERSION_CORE} LANGUAGES CXX)
 
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Use a CMake preset.")
@@ -8,12 +13,19 @@ endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# no modules here; clang's dependency scan would also trip over the shared pch
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-# libc++ before apple clang 17 hides std::stop_token behind its experimental switch
-if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+# libc++ before apple clang 17 and llvm 20 hides std::stop_token behind its experimental switch
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+check_cxx_source_compiles("#include <stop_token>\nint main() { std::stop_source s; return s.stop_requested(); }"
+  RAIKIRI_HAS_STOP_TOKEN)
+if(NOT RAIKIRI_HAS_STOP_TOKEN)
   add_compile_options(-fexperimental-library)
   add_link_options(-fexperimental-library)
 endif()
+unset(CMAKE_REQUIRED_FLAGS)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)

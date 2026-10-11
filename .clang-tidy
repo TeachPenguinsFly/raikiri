@@ -10,7 +10,31 @@ Checks: >
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-type-vararg,
   -cppcoreguidelines-avoid-do-while,
-  -bugprone-easily-swappable-parameters
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  -cppcoreguidelines-avoid-c-arrays,
+  -modernize-avoid-c-arrays,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-special-member-functions,
+  -cppcoreguidelines-macro-usage,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
+  -cppcoreguidelines-rvalue-reference-param-not-moved,
+  -cppcoreguidelines-missing-std-forward,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  -cppcoreguidelines-owning-memory,
+  -bugprone-branch-clone,
+  -modernize-use-nodiscard,
+  -modernize-use-std-print,
+  -modernize-raw-string-literal,
+  -performance-enum-size
 CheckOptions:
   readability-identifier-naming.ClassCase: CamelCase
   readability-identifier-naming.StructCase: CamelCase
@@ -21,4 +45,6 @@ CheckOptions:
   readability-identifier-naming.PrivateMemberSuffix: '_'
   readability-identifier-naming.ConstexprVariableCase: lower_case
   readability-identifier-naming.NamespaceCase: lower_case
+  bugprone-unused-return-value.AllowCastToVoid: true
+  bugprone-empty-catch.IgnoreCatchWithKeywords: '//'
 HeaderFilterRegex: 'libs/.*/include/raikiri/.*'

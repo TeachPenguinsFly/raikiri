@@ -48,7 +48,7 @@ std::expected<InstrumentId, TableError> InstrumentTable::add(Instrument instrume
     const auto id = InstrumentId::make(base.id.venue(), base.id.market(), SymbolId{index});
     std::visit([id](auto& concrete) { concrete.base.id = id; }, instrument);
 
-    instruments_.push_back(std::move(instrument));
+    instruments_.push_back(instrument);
     exchange_symbols_.push_back(symbol_text);
     by_exchange_symbol_[exchange_symbols_.back()].push_back(index);
     return id;

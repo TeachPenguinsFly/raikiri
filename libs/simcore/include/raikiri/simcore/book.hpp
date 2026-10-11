@@ -96,9 +96,9 @@ private:
         PriceTicks price{};
     };
 
-    std::map<PriceTicks, Level, std::greater<PriceTicks>> bids_; // best (highest) first
-    std::map<PriceTicks, Level, std::less<PriceTicks>> asks_;    // best (lowest) first
-    std::unordered_map<std::uint64_t, Locator> index_;           // id -> level, for O(1)-ish cancel
+    std::map<PriceTicks, Level, std::greater<>> bids_; // best (highest) first
+    std::map<PriceTicks, Level, std::less<>> asks_;    // best (lowest) first
+    std::unordered_map<std::uint64_t, Locator> index_; // id -> level, for O(1)-ish cancel
     std::uint64_t next_seq_{0};
 };
 

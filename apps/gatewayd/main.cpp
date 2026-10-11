@@ -1,6 +1,7 @@
 // gatewayd: one venue and one market per process; owns the venue's shm segment and runs the hot loop
 
 #include <raikiri/common/platform.hpp>
+#include <raikiri/common/version.hpp>
 #include <raikiri/config/one_password.hpp>
 #include <raikiri/config/rest_limits.hpp>
 #include <raikiri/config/secret.hpp>
@@ -32,7 +33,6 @@
 #include <raikiri/venues/bitget/bitget_venue.hpp>
 #include <raikiri/venues/bithumb/bithumb_venue.hpp>
 #include <raikiri/venues/bitstamp/bitstamp_venue.hpp>
-#include <raikiri/venues/nado/nado_venue.hpp>
 #include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bullish/bullish_venue.hpp>
@@ -53,6 +53,7 @@
 #include <raikiri/venues/lbank/lbank_venue.hpp>
 #include <raikiri/venues/lighter/lighter_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
+#include <raikiri/venues/nado/nado_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
 #include <raikiri/venues/ondoperps/ondoperps_venue.hpp>
 #include <raikiri/venues/ostium/ostium_venue.hpp>
@@ -815,8 +816,13 @@ constexpr std::string_view
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
-        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+        const std::string_view arg{argv[i]};
+        if (arg == "--help" || arg == "-h") {
             std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+        if (arg == "--version") {
+            std::printf("raikiri %.*s\n", static_cast<int>(raikiri::k_version.size()), raikiri::k_version.data());
             return 0;
         }
     }

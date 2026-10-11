@@ -6,9 +6,9 @@
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/exec/ticker_poll.hpp>
+#include <raikiri/net/evm.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
-#include <raikiri/net/evm.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>

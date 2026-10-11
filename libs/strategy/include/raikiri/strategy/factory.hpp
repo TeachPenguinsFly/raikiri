@@ -49,8 +49,8 @@ private:
 
 // register with `register_type<Carry>("carry")` at namespace scope; from a static library,
 // call it from a function the service calls (see raikiri/strategies/register.hpp)
-template <typename T> [[nodiscard]] bool register_type(Factory& types, std::string type) {
-    return types.add(std::move(type), [](const Params& params) -> MakeResult {
+template <typename T> [[nodiscard]] bool register_type(Factory& types, std::string_view type) {
+    return types.add(std::string{type}, [](const Params& params) -> MakeResult {
         if constexpr (requires {
                           { T::make(params) } -> std::same_as<MakeResult>;
                       }) {

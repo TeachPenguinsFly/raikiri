@@ -1,3 +1,4 @@
+#include <raikiri/common/int128.hpp>
 #include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/blofin/trade.hpp>
 #include <raikiri/wire/json.hpp>
@@ -55,8 +56,8 @@ private:
     for (std::size_t i = 0; i < in.size(); i += 3) {
         const auto rest = in.size() - i;
         const auto byte = [&](std::size_t k) { return std::uint32_t{static_cast<std::uint8_t>(in[k])}; };
-        const std::uint32_t chunk =
-            (byte(i) << 16U) | (rest > 1 ? byte(i + 1) << 8U : 0U) | (rest > 2 ? byte(i + 2) : 0U);
+        const std::uint32_t chunk = (byte(i) << 16U) | (rest > 1 ? byte(i + 1) << 8U : 0U) |
+                                    (rest > 2 ? byte(i + 2) : 0U);
         out[at++] = k_base64[(chunk >> 18U) & 0x3FU];
         out[at++] = k_base64[(chunk >> 12U) & 0x3FU];
         out[at++] = rest > 1 ? k_base64[(chunk >> 6U) & 0x3FU] : '=';
@@ -193,7 +194,9 @@ void stamp_order(OrderEvent& out, const WireOrder& wire, const InstrumentBase& b
     out.instrument = base.id;
     out.side = side_of(wire.side);
     out.order_type = wire.order_type == "market" ? OrderType::Market : OrderType::Limit;
-    out.tif = wire.order_type == "ioc" ? TimeInForce::Ioc : wire.order_type == "fok" ? TimeInForce::Fok : TimeInForce::Gtc;
+    out.tif = wire.order_type == "ioc"   ? TimeInForce::Ioc
+              : wire.order_type == "fok" ? TimeInForce::Fok
+                                         : TimeInForce::Gtc;
     if (wire.order_type == "post_only") {
         out.flags = OrderFlags::PostOnly;
     }
@@ -460,7 +463,7 @@ std::expected<PrivateFrame, WireError> parse_private(std::string_view frame, Ord
         const auto event = text_of(*root, "event");
         if (!event.empty()) {
             out.code = code_of(*root);
-            out.kind = event == "login" && out.code == k_ok ? PrivateKind::Login
+            out.kind = event == "login" && out.code == k_ok             ? PrivateKind::Login
                        : event == "login" || out.code == k_login_failed ? PrivateKind::LoginFailed
                                                                         : PrivateKind::Other;
             return {};
@@ -513,8 +516,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
     });
 }
 
-std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body,
-                                                                      BalanceBuffer& storage) {
+std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body, BalanceBuffer& storage) {
     return wire::guarded([&]() -> std::expected<std::span<const WireBalance>, WireError> {
         std::string_view details;
         {
@@ -578,8 +580,8 @@ void map_order_push(const WireOrder& wire,
     const bool known = seen != progress.end();
     const OrderProgress before = known ? seen->second : OrderProgress{};
     OrderProgress now{.filled_lots = *filled,
-                      .average_price = amount(wire.average_price).value_or(FixedE9{}),
-                      .fee = amount(wire.fee).value_or(FixedE9{})};
+                      .average_price = amount(wire.average_price).value_or(FixedE9::from_raw(0)),
+                      .fee = amount(wire.fee).value_or(FixedE9::from_raw(0))};
     const bool done = wire.state == "filled" || wire.state == "canceled" || wire.state == "partially_canceled";
     if (done) {
         progress.erase(key);
@@ -593,8 +595,8 @@ void map_order_push(const WireOrder& wire,
     const auto delta = now.filled_lots - before.filled_lots;
     if (delta > 0 && base->tick_size.raw > 0) {
         // the venue states only the running average, so this fill's price is what moved it
-        const auto notional_now = static_cast<__int128>(now.average_price.raw) * now.filled_lots;
-        const auto notional_before = static_cast<__int128>(before.average_price.raw) * before.filled_lots;
+        const auto notional_now = static_cast<int128_t>(now.average_price.raw) * now.filled_lots;
+        const auto notional_before = static_cast<int128_t>(before.average_price.raw) * before.filled_lots;
         const auto price_e9 = static_cast<std::int64_t>((notional_now - notional_before) / delta);
         OrderEvent& fill = out[count++];
         fill = OrderEvent{};
@@ -641,8 +643,8 @@ std::optional<exec::OrderStatusReport> map_order_report(const WireOrder& wire, c
     }
     out.instrument = base->id;
     out.side = side_of(wire.side);
-    out.status = wire.state == "partially_filled" ? OrderStatus::PartiallyFilled
-                 : wire.state == "filled"         ? OrderStatus::Filled
+    out.status = wire.state == "partially_filled"                                 ? OrderStatus::PartiallyFilled
+                 : wire.state == "filled"                                         ? OrderStatus::Filled
                  : wire.state == "canceled" || wire.state == "partially_canceled" ? OrderStatus::Canceled
                                                                                   : OrderStatus::Accepted;
     out.price = PriceTicks::from_raw(steps(wire.price, base->tick_size).value_or(0));

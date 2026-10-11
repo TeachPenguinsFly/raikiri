@@ -19,8 +19,7 @@ std::string_view to_string(TransitionError error) noexcept {
     return "unknown";
 }
 
-Parent::Parent(std::uint64_t id, ParentSpec spec, UnixNanos created)
-    : id_{id}, spec_{std::move(spec)}, created_{created} {}
+Parent::Parent(std::uint64_t id, ParentSpec spec, UnixNanos created) : id_{id}, spec_{spec}, created_{created} {}
 
 std::expected<void, TransitionError> Parent::start(UnixNanos now, FixedE9 qty, FixedE9 arrival) {
     if (status_ != Status::Pending) {

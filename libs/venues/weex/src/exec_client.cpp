@@ -390,13 +390,14 @@ private:
         }
         const auto failure = request_failure(response);
         if (failure.has_value()) {
-            const bool already_gone = is_benign_cancel_failure(failure->venue_code);
+            const auto& error = *failure;
+            const bool already_gone = is_benign_cancel_failure(error.venue_code);
             for (const auto& cmd : batch) {
                 if (already_gone) {
                     emit(cmd, OrderEventType::Canceled, {}, QtyLots::from_raw(0));
                     continue;
                 }
-                emit_reject(cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, Kind::Cancel, *failure);
+                emit_reject(cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, Kind::Cancel, error);
             }
             return;
         }

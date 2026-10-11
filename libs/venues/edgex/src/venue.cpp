@@ -61,12 +61,13 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     std::string key;
     std::string passphrase;
     bool refused = false;
-    const auto credential_errors =
-        config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
-            .key([&](std::string_view value) { key = std::string{value}; })
-            .passphrase([&](std::string_view value) { passphrase = std::string{value}; })
-            .secret([&](std::string_view value) { refused = !load_signing(state->signing, key, passphrase, value); })
-            .resolve();
+    const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
+                                       .key([&](std::string_view value) { key = std::string{value}; })
+                                       .passphrase([&](std::string_view value) { passphrase = std::string{value}; })
+                                       .secret([&](std::string_view value) {
+                                           refused = !load_signing(state->signing, key, passphrase, value);
+                                       })
+                                       .resolve();
 
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);

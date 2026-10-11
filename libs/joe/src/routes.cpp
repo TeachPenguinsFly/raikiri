@@ -4,6 +4,7 @@
 #include <charconv>
 #include <glaze/glaze.hpp>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -284,8 +285,8 @@ std::optional<http::Response> JoeRoutes::operator()(const http::Request& req) co
     if (tail == "parents") {
         if (req.method == "GET") {
             ParentList list;
-            for (auto it = desk_->parents().rbegin(); it != desk_->parents().rend(); ++it) {
-                list.items.push_back(to_dto(*it, false, desk_->now()));
+            for (const auto& parent : std::views::reverse(desk_->parents())) {
+                list.items.push_back(to_dto(parent, false, desk_->now()));
             }
             return json(list);
         }

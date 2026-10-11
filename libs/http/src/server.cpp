@@ -16,7 +16,7 @@ namespace http = beast::http;
 using tcp = boost::asio::ip::tcp;
 
 // bounded so a request cannot make the process allocate
-constexpr std::uint64_t k_max_body_bytes = 16 * 1024;
+constexpr std::uint64_t k_max_body_bytes = std::uint64_t{16} * 1024;
 
 std::string_view reason_of(int status) noexcept {
     switch (status) {

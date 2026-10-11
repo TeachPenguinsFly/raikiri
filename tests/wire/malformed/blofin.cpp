@@ -1,8 +1,8 @@
-#include <raikiri/venues/blofin/trade.hpp>
 #include <raikiri/venues/blofin/book.hpp>
 #include <raikiri/venues/blofin/catalogue.hpp>
 #include <raikiri/venues/blofin/envelope.hpp>
 #include <raikiri/venues/blofin/market_data.hpp>
+#include <raikiri/venues/blofin/trade.hpp>
 
 #include <gtest/gtest.h>
 

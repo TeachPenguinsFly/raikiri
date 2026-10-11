@@ -2,6 +2,7 @@
 
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
+#include <raikiri/common/version.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/reference/engine.hpp>
 #include <raikiri/reference/gateways.hpp>
@@ -58,8 +59,13 @@ constexpr std::uint64_t k_ms = 1'000'000;
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
-        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+        const std::string_view arg{argv[i]};
+        if (arg == "--help" || arg == "-h") {
             std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+        if (arg == "--version") {
+            std::printf("raikiri %.*s\n", static_cast<int>(raikiri::k_version.size()), raikiri::k_version.data());
             return 0;
         }
     }

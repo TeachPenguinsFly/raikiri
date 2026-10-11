@@ -98,8 +98,8 @@ std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std
             const auto amount_precision = wire::opt_u64(obj, "amount-precision");
             const auto min_value = num_of(obj, "min-order-value");
             if (!base.has_value() || !quote.has_value() || !symbol.has_value() || !state.has_value() ||
-                !trading.has_value() || !price_precision.has_value() ||
-                !amount_precision.has_value() || !min_value.has_value()) {
+                !trading.has_value() || !price_precision.has_value() || !amount_precision.has_value() ||
+                !min_value.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             storage.symbols[count] = {.symbol = *symbol,

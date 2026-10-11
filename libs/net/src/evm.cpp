@@ -74,7 +74,6 @@ void absorb_block(std::array<std::uint64_t, 25>& state, std::span<const std::uin
     permute(state);
 }
 
-
 constexpr std::size_t k_key_bytes = 32;
 constexpr std::string_view k_hex_digits = "0123456789abcdef";
 
@@ -161,7 +160,7 @@ void wipe(std::span<std::uint8_t> bytes) noexcept {
     return text.has_value() ? *text : FixedString<66>{};
 }
 
-constexpr std::size_t k_address_bytes_ = 20;
+constexpr std::size_t k_address_bytes = 20;
 
 // rfc 6979 deterministic nonce, which makes the published vectors a real test
 class Rfc6979 {
@@ -335,8 +334,8 @@ bool Wallet::load(std::string_view hex_key) noexcept {
     const auto hashed = keccak256(std::span{uncompressed}.subspan(1));
     address_[0] = '0';
     address_[1] = 'x';
-    for (std::size_t i = 0; i < k_address_bytes_; ++i) {
-        const auto byte = hashed[k_hash_bytes - k_address_bytes_ + i];
+    for (std::size_t i = 0; i < k_address_bytes; ++i) {
+        const auto byte = hashed[k_hash_bytes - k_address_bytes + i];
         address_[2 + i * 2] = k_hex_digits[byte >> 4];
         address_[3 + i * 2] = k_hex_digits[byte & 0x0FU];
     }

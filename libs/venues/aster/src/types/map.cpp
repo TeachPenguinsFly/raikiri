@@ -298,7 +298,6 @@ namespace {
 
 } // namespace
 
-
 std::optional<OrderEvent>
 map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);

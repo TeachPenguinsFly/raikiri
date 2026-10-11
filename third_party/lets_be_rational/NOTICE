@@ -1,7 +1,8 @@
 Let's Be Rational, by Peter Jäckel, revision 1.0.0.1520 (2024-02-09), taken unchanged from
 www.jaeckel.org/LetsBeRational.7z, except that dllmain.h is reduced to the export macro and
 normaldistribution.cpp spells one function name with "_half" for "½", which C++ does not accept
-in an identifier.
+in an identifier, and lets_be_rational.cpp names one macro parameter "beta" for "𝛽", which clang 18
+rejects.
 
 Copyright © 2013-2024 Peter Jäckel.
 

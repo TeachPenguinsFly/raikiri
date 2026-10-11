@@ -1,8 +1,7 @@
 #include <raikiri/introspect/files.hpp>
 
-#include <signal.h>
-
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>

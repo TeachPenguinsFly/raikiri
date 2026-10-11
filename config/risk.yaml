@@ -4,4 +4,6 @@ defaults:
   max_order_notional: 20
   max_instrument_notional: 20
   max_strategy_notional: 100
-strategies: {}
+strategies:
+  # make demo quotes one sim lot, $50 of btc; demo-maker trades only the sim venue
+  demo-maker: { max_order_notional: 100, max_instrument_notional: 200, max_strategy_notional: 400 }

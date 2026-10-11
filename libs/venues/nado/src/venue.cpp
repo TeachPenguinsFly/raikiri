@@ -347,7 +347,7 @@ private:
             if (!parts.has_value() || parts->first != k_stream_types[static_cast<std::size_t>(Stream::Depth)]) {
                 continue;
             }
-            if (auto* product = state_->product(parts->second); product != nullptr) {
+            if (auto* product = state_->product(parts->second); product != nullptr && product->book.has_value()) {
                 product->book->invalidate();
                 product->pending.clear();
                 product->wants_snapshot = true;
@@ -359,7 +359,7 @@ private:
         static thread_local LevelBuffer levels;
         const auto wire = parse_depth(frame, levels);
         auto* product = wire.has_value() ? state_->product(wire->product_id) : nullptr;
-        if (product == nullptr || !product->depth) {
+        if (product == nullptr || !product->depth || !product->book.has_value()) {
             return;
         }
         if (!product->book->synced()) {
@@ -389,7 +389,7 @@ private:
     }
 
     void publish(const Product& product, UnixNanos received) {
-        if (!state_->sink->wants_depth(product.id, received)) {
+        if (!product.book.has_value() || !state_->sink->wants_depth(product.id, received)) {
             return;
         }
         if (const auto book = product.book->snapshot(received); book.has_value()) {
@@ -403,10 +403,8 @@ private:
             if (!product.wants_snapshot || product.fetching || !product.id.valid()) {
                 continue;
             }
-            const net::RestRequest request{.method = net::HttpMethod::Get,
-                                           .target = product.liquidity_target,
-                                           .body = {},
-                                           .headers = k_headers};
+            const net::RestRequest request{
+                .method = net::HttpMethod::Get, .target = product.liquidity_target, .body = {}, .headers = k_headers};
             if (!gateway_.send(request, [this, id](const net::RestResponse& response) { on_snapshot(id, response); })) {
                 return; // refused by the budget; next tick
             }
@@ -419,7 +417,7 @@ private:
     void on_snapshot(std::uint32_t product_id, const net::RestResponse& response) noexcept {
         --in_flight_;
         auto* product = state_->product(product_id);
-        if (product == nullptr) {
+        if (product == nullptr || !product->book.has_value()) {
             return;
         }
         product->fetching = false;
@@ -505,7 +503,8 @@ void Handler::on_close(net::WsCloseReason) {
         {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = owner_->state_->clock->wall()});
 }
 
-constexpr std::string_view k_why = "nado order entry needs an eip-712 signer over the ink clearinghouse, which is not built";
+constexpr std::string_view
+    k_why = "nado order entry needs an eip-712 signer over the ink clearinghouse, which is not built";
 
 [[nodiscard]] exec::VenueError refusal() noexcept {
     return exec::VenueError::make(exec::ErrorClass::Terminal, 0, k_why);
@@ -570,14 +569,14 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     auto state = std::make_shared<VenueState>(sink, clock, config.budget);
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Nado);
-    adapter.clock.emplace(exec::ServerTimeQuery{
-        .host = std::string{ep::k_gateway},
-        .target = std::string{ep::k_time},
-        .headers = {{"Accept-Encoding", std::string{ep::k_accept_encoding}}},
-        .parse = [](std::string_view body) -> std::optional<std::uint64_t> {
-            const auto ms = parse_server_time_ms(body);
-            return ms.has_value() ? std::optional{*ms * 1'000'000ULL} : std::nullopt;
-        }});
+    adapter.clock.emplace(exec::ServerTimeQuery{.host = std::string{ep::k_gateway},
+                                                .target = std::string{ep::k_time},
+                                                .headers = {{"Accept-Encoding", std::string{ep::k_accept_encoding}}},
+                                                .parse = [](std::string_view body) -> std::optional<std::uint64_t> {
+                                                    const auto ms = parse_server_time_ms(body);
+                                                    return ms.has_value() ? std::optional{*ms * 1'000'000ULL}
+                                                                          : std::nullopt;
+                                                }});
     adapter.data = std::make_unique<NadoData>(state);
     adapter.execution = std::make_unique<NadoExecution>(state);
     adapter.instruments = std::make_unique<NadoInstruments>(state);

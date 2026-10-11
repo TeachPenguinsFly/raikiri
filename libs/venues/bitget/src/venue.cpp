@@ -24,7 +24,6 @@
 
 namespace raikiri::venues::bitget {
 
-using internal::await_response;
 using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;

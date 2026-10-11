@@ -1,6 +1,7 @@
 // strategyd: strategy kernel; attaches gateways, runs strategies and serves a loopback control port
 // single thread: rings, timers and the control surface are polled in one loop
 
+#include <raikiri/common/version.hpp>
 #include <raikiri/config/risk.hpp>
 #include <raikiri/config/settings.hpp>
 #include <raikiri/http/server.hpp>
@@ -936,8 +937,13 @@ constexpr std::string_view k_usage = R"(usage: strategyd [--gateway=<account>]..
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
-        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+        const std::string_view arg{argv[i]};
+        if (arg == "--help" || arg == "-h") {
             std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+        if (arg == "--version") {
+            std::printf("raikiri %.*s\n", static_cast<int>(raikiri::k_version.size()), raikiri::k_version.data());
             return 0;
         }
     }
@@ -1053,7 +1059,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     // used only for the exchange-side id; client order ids are minted per instance
-    oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
+    oms::IdGen ids{strategy_id, /*ulid_seed=*/0x7A10ULL};
     KernelContext ctx{gateways, store, std::move(*risk), ids, *journal_writer, clock};
 
     std::size_t instrument_count = 0;
@@ -1142,6 +1148,7 @@ int main(int argc, char** argv) {
     }
 
     std::vector<joe::GatewayView> joe_views;
+    joe_views.reserve(gateways.size());
     for (const auto& gw : gateways) {
         joe_views.push_back({.account = gw.account, .channels = gw.ch});
     }

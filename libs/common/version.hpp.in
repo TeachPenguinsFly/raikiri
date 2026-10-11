@@ -1,0 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+namespace raikiri {
+
+// from VERSION at the repository root; a pre-release carries its suffix, e.g. 0.1.0-beta.1
+inline constexpr std::string_view k_version = "@RAIKIRI_VERSION@";
+
+} // namespace raikiri

@@ -225,8 +225,7 @@ public:
         std::vector<exec::OrderStatusReport> out;
         static thread_local const auto storage = std::make_unique<OrderRowBuffer>();
         for (const auto& symbol : symbols_) {
-            const auto body =
-                signed_pull(k_active_orders, builder_.open_orders(symbol, state_->clock->wall()));
+            const auto body = signed_pull(k_active_orders, builder_.open_orders(symbol, state_->clock->wall()));
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
@@ -250,8 +249,7 @@ public:
         }
         static thread_local const auto storage = std::make_unique<OrderRowBuffer>();
         for (const auto& symbol : symbols_) {
-            const auto body =
-                signed_pull(k_order_by_id, builder_.query_order(symbol, id, state_->clock->wall()));
+            const auto body = signed_pull(k_order_by_id, builder_.query_order(symbol, id, state_->clock->wall()));
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
@@ -277,8 +275,7 @@ public:
         std::vector<exec::FillReport> out;
         static thread_local const auto storage = std::make_unique<OrderRowBuffer>();
         for (const auto& symbol : symbols_) {
-            const auto body =
-                signed_pull(k_user_trades, builder_.user_trades(symbol, since, state_->clock->wall()));
+            const auto body = signed_pull(k_user_trades, builder_.user_trades(symbol, since, state_->clock->wall()));
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }

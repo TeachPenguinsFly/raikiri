@@ -81,7 +81,7 @@ constexpr std::uint64_t k_ms = 1'000'000;
 [[nodiscard]] dto::Item to_item(const RefCell& cell, std::uint64_t now_ns) {
     const auto cut = [&cell](Cut c) { return std::uint32_t{cell.cuts[static_cast<std::size_t>(c)]}; };
     dto::Item item{.asset = std::string{cell.asset_key()},
-                   .refused = (cell.flags & k_flag_refused) != 0,
+                   .refused = (cell.flags & FlagRefused) != 0,
                    .mid = decimal(cell.mid),
                    .spot_mid = decimal(cell.spot_mid),
                    .perp_mid = decimal(cell.perp_mid),
@@ -159,8 +159,8 @@ std::optional<http::Response> ReferenceRoute::operator()(const http::Request& re
                    .refused = m.refused,
                    .usdt_usd = std::string{format_e9(m.usdt_usd, rate, sizeof rate)},
                    .usdc_usd = std::string{format_e9(m.usdc_usd, rate, sizeof rate)},
-                   .usdt_fallback = (m.flags & k_flag_usdt_fallback) != 0,
-                   .usdc_fallback = (m.flags & k_flag_usdc_fallback) != 0,
+                   .usdt_fallback = (m.flags & FlagUsdtFallback) != 0,
+                   .usdc_fallback = (m.flags & FlagUsdcFallback) != 0,
                    .usdt_sources = m.usdt_sources,
                    .usdc_sources = m.usdc_sources};
     const auto filter = http::query_param(req.query, "asset");

@@ -80,14 +80,14 @@ std::optional<FixedE9> forward_from_parity(std::span<const ParityQuote> quotes,
 }
 
 Forward pick_forward(const ForwardSources& sources) noexcept {
-    const auto usable = [](const std::optional<FixedE9>& v) { return v.has_value() && !v->is_undef() && v->raw > 0; };
-    if (usable(sources.parity)) {
+    const auto usable = [](FixedE9 v) { return !v.is_undef() && v.raw > 0; };
+    if (sources.parity.has_value() && usable(*sources.parity)) {
         return {.value = *sources.parity, .source = ForwardSource::Parity};
     }
-    if (usable(sources.future)) {
+    if (sources.future.has_value() && usable(*sources.future)) {
         return {.value = *sources.future, .source = ForwardSource::Future};
     }
-    if (usable(sources.perp) && !sources.carry.is_undef()) {
+    if (sources.perp.has_value() && usable(*sources.perp) && !sources.carry.is_undef()) {
         const auto perp = sources.perp->raw;
         return {.value = FixedE9::from_raw(perp + mul_div(perp, sources.carry.raw, k_e9)),
                 .source = ForwardSource::Perp};

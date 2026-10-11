@@ -133,7 +133,8 @@ struct Notional128 {
     if (qty.is_undef() || price.is_undef()) {
         return FixedE6::undef();
     }
-    const int128_t product = (static_cast<int128_t>(qty.raw) * price.raw) / (k_e9 * (k_e9 / k_e6));
+    const int128_t product = (static_cast<int128_t>(qty.raw) * price.raw) /
+                             (static_cast<int128_t>(k_e9) * (k_e9 / k_e6));
     if (product > std::numeric_limits<std::int64_t>::max() || product <= std::numeric_limits<std::int64_t>::min()) {
         return FixedE6::undef();
     }

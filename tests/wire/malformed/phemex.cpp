@@ -1,8 +1,8 @@
-#include <raikiri/venues/phemex/trade.hpp>
 #include <raikiri/venues/phemex/book.hpp>
 #include <raikiri/venues/phemex/catalogue.hpp>
 #include <raikiri/venues/phemex/envelope.hpp>
 #include <raikiri/venues/phemex/market_data.hpp>
+#include <raikiri/venues/phemex/trade.hpp>
 
 #include <gtest/gtest.h>
 

@@ -110,8 +110,8 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& 
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(
-    const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, PriceTicks index, UnixNanos ts_init) {
+std::optional<FundingUpdate>
+map_funding(const WireFunding& wire, const InstrumentBase& base, PriceTicks mark, PriceTicks index, UnixNanos ts_init) {
     const auto daily = x18_to_e9(wire.rate_x18, /*exact=*/false);
     if (!daily.has_value()) {
         return std::nullopt;

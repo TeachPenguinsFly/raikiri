@@ -15,7 +15,6 @@
 #include <raikiri/venues/bitget/bitget_venue.hpp>
 #include <raikiri/venues/bithumb/bithumb_venue.hpp>
 #include <raikiri/venues/bitstamp/bitstamp_venue.hpp>
-#include <raikiri/venues/nado/nado_venue.hpp>
 #include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
@@ -35,6 +34,7 @@
 #include <raikiri/venues/lbank/lbank_venue.hpp>
 #include <raikiri/venues/lighter/lighter_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
+#include <raikiri/venues/nado/nado_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
 #include <raikiri/venues/pacifica/pacifica_venue.hpp>
 #include <raikiri/venues/phemex/phemex_venue.hpp>

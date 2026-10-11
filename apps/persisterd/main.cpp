@@ -1,5 +1,6 @@
 // persisterd: tails one journal directory into postgres; run one per journal
 
+#include <raikiri/common/version.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/persist/mapper.hpp>
@@ -34,8 +35,13 @@ constexpr std::string_view k_usage = R"(usage: persisterd --dir <journal-dir> [-
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
-        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+        const std::string_view arg{argv[i]};
+        if (arg == "--help" || arg == "-h") {
             std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+        if (arg == "--version") {
+            std::printf("raikiri %.*s\n", static_cast<int>(raikiri::k_version.size()), raikiri::k_version.data());
             return 0;
         }
     }

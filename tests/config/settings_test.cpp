@@ -112,12 +112,12 @@ TEST(Settings, LighterHoldsOneSocketUnderTheIpsTwoHundredAMinute) {
 TEST(Settings, EveryPooledVenueSizesItsSocketsFromTheTable) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
-    for (const auto& name : {"binance",  "aster",    "bybit",   "gate",    "kucoin",      "xt",
-                             "htx",      "weex",     "bingx",   "bitget",  "backpack",    "cryptocom",
-                             "apex",     "blofin",   "grvt",    "edgex",   "dydx",        "phemex",
-                             "coinbase", "pacifica", "okx",     "mexc",    "hyperliquid", "deribit",
-                             "lighter",  "lbank",    "bitunix", "toobit",  "derive",      "arcus",
-                             "ostium",   "paradex",  "vest",    "bullish", "ondoperps",   "polymarketperps",
+    for (const auto& name : {"binance",  "aster",    "bybit",    "gate",    "kucoin",      "xt",
+                             "htx",      "weex",     "bingx",    "bitget",  "backpack",    "cryptocom",
+                             "apex",     "blofin",   "grvt",     "edgex",   "dydx",        "phemex",
+                             "coinbase", "pacifica", "okx",      "mexc",    "hyperliquid", "deribit",
+                             "lighter",  "lbank",    "bitunix",  "toobit",  "derive",      "arcus",
+                             "ostium",   "paradex",  "vest",     "bullish", "ondoperps",   "polymarketperps",
                              "upbit",    "bithumb",  "bitstamp", "nado"}) {
         ASSERT_TRUE(file->venues.contains(name)) << name;
         const auto& venue = file->venues.at(name);
@@ -247,7 +247,7 @@ TEST(RiskSettings, UnsetIsOffAndAStrategyEntryOverridesFieldByField) {
   max_order_notional: 1000
   max_lots: { perp: 500000 }
 strategies:
-  stale-quote: { max_order_notional: 250 }
+  demo-maker: { max_order_notional: 250 }
   "9": { max_instrument_notional: 4000, max_open_orders: 8 }
 )");
     const auto file = load_risk(path);
@@ -263,7 +263,7 @@ strategies:
     EXPECT_EQ(plain.max_lots.perp, QtyLots::from_raw(500'000));
     EXPECT_TRUE(plain.max_lots.spot.is_undef());
 
-    const auto named = to_risk_config(risk_for(*file, "stale-quote", 9));
+    const auto named = to_risk_config(risk_for(*file, "demo-maker", 9));
     EXPECT_EQ(named.max_order_notional, FixedE9::from_raw(250 * k_e9)) << "the name wins over the id";
     EXPECT_TRUE(named.max_instrument_notional.is_undef());
     EXPECT_EQ(named.max_lots.perp, QtyLots::from_raw(500'000));

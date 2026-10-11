@@ -99,7 +99,7 @@ std::string orders_frame(std::int64_t client_index, std::string_view status, std
            std::string{status} + R"(","updated_at":1791726881383}]},"type":"update/account_all_orders"})";
 }
 
-// the recorded print with our account on the bid and our client index on it
+// the recorded print with the account under test on the bid and its client index on it
 std::string trades_frame(std::int64_t client_index) {
     auto body = fixture("rest_trades.json");
     const auto replace = [&](std::string_view from, std::string_view to) {

@@ -164,8 +164,8 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType, UnixNanos since) override {
         std::array<char, 24> since_text{};
-        const auto [stop, ec] =
-            std::to_chars(since_text.data(), since_text.data() + since_text.size(), since.ns / 1'000'000ULL);
+        const auto [stop, ec] = std::to_chars(
+            since_text.data(), since_text.data() + since_text.size(), since.ns / 1'000'000ULL);
         const std::array<Param, 3> params{{{"accountId", account()},
                                            {"filterStartCreatedTimeInclusive",
                                             {since_text.data(), static_cast<std::size_t>(stop - since_text.data())}},
@@ -223,7 +223,8 @@ public:
             if (instrument == nullptr) {
                 continue;
             }
-            if (auto report = map_position(wire, base_of(*instrument)); report.has_value() && report->net_qty.raw != 0) {
+            if (auto report = map_position(wire, base_of(*instrument));
+                report.has_value() && report->net_qty.raw != 0) {
                 out.push_back(*report);
             }
         }
@@ -234,7 +235,8 @@ private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
     net::WsConfig stream_config() {
-        net::WsConfig config{.host = std::string{ep::k_perp_stream}, .port = "443", .target = std::string{k_private_ws}};
+        net::WsConfig config{
+            .host = std::string{ep::k_perp_stream}, .port = "443", .target = std::string{k_private_ws}};
         // headers are asked first, so the target repeats their timestamp
         config.headers_for_connect = [this] { return state_->signing.stream_headers(wall_ms(*state_->clock)); };
         config.target_for_connect = [this] { return state_->signing.stream_target(); };
@@ -287,11 +289,11 @@ private:
     }
 
     void remember_pending(const OrderCmd& cmd, std::uint32_t contract_id) {
-        pending_[std::string{cmd.exchange_client_order_id.view()}] = KnownOrder{
-            .client = cmd.exchange_client_order_id,
-            .contract_id = contract_id,
-            .side = cmd.side == Side::Buy ? "BUY" : "SELL",
-            .size = cmd.qty};
+        pending_[std::string{cmd.exchange_client_order_id.view()}] = KnownOrder{.client = cmd.exchange_client_order_id,
+                                                                                .contract_id = contract_id,
+                                                                                .side = cmd.side == Side::Buy ? "BUY"
+                                                                                                              : "SELL",
+                                                                                .size = cmd.qty};
     }
 
     void send(const OrderCmd& cmd, Kind kind, const net::RestRequest& request) noexcept {
@@ -390,7 +392,8 @@ private:
     }
 
     // cold path: pumps the reactor until the answer arrives
-    [[nodiscard]] std::expected<std::string, exec::VenueError> read(std::string_view path, std::span<const Param> params) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError> read(std::string_view path,
+                                                                    std::span<const Param> params) {
         if (!started_) {
             return std::unexpected{refusal(ErrorClass::Terminal, 0, to_string(BuildError::NotSigned))};
         }
@@ -424,9 +427,10 @@ private:
         const auto rows = parse_rest_rows(body, *storage, false);
         if (!rows.has_value()) {
             const auto reply = parse_reply(body);
-            return std::unexpected{refusal(ErrorClass::Terminal,
-                                           0,
-                                           reply.has_value() ? reply->code : std::string_view{"edgex: unreadable orders"})};
+            return std::unexpected{
+                refusal(ErrorClass::Terminal,
+                        0,
+                        reply.has_value() ? reply->code : std::string_view{"edgex: unreadable orders"})};
         }
         std::vector<exec::OrderStatusReport> out;
         for (const auto& wire : rows->orders) {
@@ -534,8 +538,8 @@ private:
         if (known == known_.end()) {
             return; // no order row and no create answer names it; the fill pull finds it
         }
-        const auto* instrument =
-            state_->instrument_of(wire.contract_id != 0 ? wire.contract_id : known->second.contract_id);
+        const auto* instrument = state_->instrument_of(wire.contract_id != 0 ? wire.contract_id
+                                                                             : known->second.contract_id);
         if (instrument == nullptr) {
             return;
         }
@@ -546,7 +550,8 @@ private:
         }
         auto& order = known->second;
         order.matched = QtyLots::from_raw(order.matched.raw + qty->raw);
-        const auto leaves = QtyLots::from_raw(order.size.raw > order.matched.raw ? order.size.raw - order.matched.raw : 0);
+        const auto leaves = QtyLots::from_raw(order.size.raw > order.matched.raw ? order.size.raw - order.matched.raw
+                                                                                 : 0);
         WireFill complete = wire;
         if (complete.side.empty()) {
             complete.side = order.side;

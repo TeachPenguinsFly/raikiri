@@ -10,8 +10,7 @@
 
 namespace raikiri::venues::htx::internal {
 
-[[nodiscard]] std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state,
-                                                                 MarketType market);
+[[nodiscard]] std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state, MarketType market);
 
 [[nodiscard]] std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<VenueState> state,
                                                                            MarketType market);

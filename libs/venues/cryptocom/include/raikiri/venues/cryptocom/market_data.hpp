@@ -32,10 +32,10 @@ struct TradeBuffer {
                                                                                 TradeBuffer& storage);
 
 struct WireTicker {
-    std::string_view instrument;    // i
-    std::string_view volume;        // base
-    std::string_view quote_volume;  // quote
-    std::string_view open_interest; // oi, in contracts; spot rows say 0
+    std::string_view instrument{};    // i
+    std::string_view volume{};        // base
+    std::string_view quote_volume{};  // quote
+    std::string_view open_interest{}; // oi, in contracts; spot rows say 0
     std::uint64_t ts_ms{0};
 };
 

@@ -65,8 +65,8 @@ void RefWriter::publish(std::span<const Row> rows, const CycleReport& report) {
                      .quotes = static_cast<std::uint32_t>(report.quotes),
                      .assets = written,
                      .refused = static_cast<std::uint32_t>(report.refused),
-                     .flags = (report.rates.usdt_fallback ? k_flag_usdt_fallback : 0U) |
-                              (report.rates.usdc_fallback ? k_flag_usdc_fallback : 0U),
+                     .flags = (report.rates.usdt_fallback ? FlagUsdtFallback : 0U) |
+                              (report.rates.usdc_fallback ? FlagUsdcFallback : 0U),
                      .usdt_usd = report.rates.usdt_usd,
                      .usdc_usd = report.rates.usdc_usd,
                      .usdt_sources = report.rates.usdt_sources,

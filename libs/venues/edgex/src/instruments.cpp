@@ -68,8 +68,8 @@ public:
         if (market == MarketType::Perp && state_->signing.loaded()) {
             auto meta = parse_signing_meta(response->body);
             if (!meta.has_value()) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, "catalogue: no signing metadata")};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "catalogue: no signing metadata")};
             }
             state_->signing.set_meta(std::move(*meta));
         }

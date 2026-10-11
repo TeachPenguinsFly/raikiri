@@ -70,7 +70,7 @@ FixedE9 lot_for(std::string_view quote, std::string_view price) noexcept {
     if (!at.has_value() || at->raw <= 0) {
         return FixedE9::from_raw(k_finest);
     }
-    constexpr int128_t k_e18 = static_cast<int128_t>(1'000'000'000'000'000'000LL);
+    constexpr auto k_e18 = static_cast<int128_t>(1'000'000'000'000'000'000LL);
     const int128_t most = static_cast<int128_t>(largest_level(quote)) * k_e18 / at->raw;
     constexpr auto k_i64_max = static_cast<int128_t>(std::numeric_limits<std::int64_t>::max());
     std::int64_t lot = k_finest;

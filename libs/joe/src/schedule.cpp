@@ -20,7 +20,8 @@ namespace internal {
 } // namespace internal
 
 std::vector<std::uint64_t> flat_weights(std::uint32_t slices) {
-    return std::vector<std::uint64_t>(slices, 1);
+    std::vector<std::uint64_t> out(slices, 1);
+    return out;
 }
 
 std::vector<std::uint64_t> u_weights(std::uint32_t slices) {

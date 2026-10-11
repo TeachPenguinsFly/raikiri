@@ -1,3 +1,4 @@
+#include <raikiri/common/int128.hpp>
 #include <raikiri/venues/lighter/sign.hpp>
 
 #include <openssl/crypto.h>
@@ -13,7 +14,7 @@ namespace raikiri::venues::lighter {
 namespace {
 
 using u64 = std::uint64_t;
-using u128 = unsigned __int128;
+using u128 = uint128_t;
 
 constexpr u64 k_p = 0xFFFFFFFF00000001ULL;
 constexpr u64 k_epsilon = 0xFFFFFFFFULL;

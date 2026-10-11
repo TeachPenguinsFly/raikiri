@@ -113,8 +113,10 @@ std::expected<std::span<const WireCancel>, WireError> parse_cancels(std::string_
             return std::unexpected(data.error());
         }
         std::size_t count = 0;
-        for (const auto& [list, ok] :
+        for (const auto& entry :
              {std::pair{std::string_view{"successList"}, true}, std::pair{std::string_view{"failureList"}, false}}) {
+            const auto list = entry.first;
+            const bool ok = entry.second;
             wire::ondemand::array rows;
             if (wire::find(*data, list).get_array().get(rows) != simdjson::SUCCESS) {
                 continue;

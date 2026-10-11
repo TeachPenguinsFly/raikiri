@@ -75,7 +75,7 @@ private:
                 continue; // delisted, or an underivable step
             }
             // the row's position in `universe` is the asset id
-            keep(std::move(*instrument), entry.index, loaded);
+            keep(*instrument, entry.index, loaded);
         }
         if (auto dexes = load_dexes(loaded); !dexes.has_value()) {
             return std::unexpected{dexes.error()};
@@ -147,7 +147,7 @@ private:
                 if (auto instrument = map_dex_instrument(entry, collateral); instrument.has_value()) {
                     std::visit([&](auto& row) { row.base.asset_class = dex_asset_class(entry.name, categories); },
                                *instrument);
-                    keep(std::move(*instrument), std::nullopt, loaded);
+                    keep(*instrument, std::nullopt, loaded);
                 }
             }
         }
@@ -175,14 +175,14 @@ private:
                 continue;
             }
             // spot asset id is 10000 + pair index; the low range is perps
-            keep(std::move(*instrument), spot_asset_id(entry.index), loaded);
+            keep(*instrument, spot_asset_id(entry.index), loaded);
         }
         return loaded;
     }
 
     // hip-3 rows get no asset id, so the order path refuses them
     void keep(Instrument instrument, std::optional<std::int64_t> asset, std::vector<Instrument>& loaded) {
-        const auto id = state_->instruments.add(std::move(instrument));
+        const auto id = state_->instruments.add(instrument);
         if (!id.has_value()) {
             return; // duplicate or table full: reported by count, not by throw
         }

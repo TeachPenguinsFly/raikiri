@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <format>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -40,8 +41,8 @@ constexpr std::int64_t k_tx_lifetime_ms = 10 * 60 * 1000 - 1000;
 // a resting order gets the reference sdk's 28 days; the venue allows 5 minutes to 30 days
 constexpr std::int64_t k_resting_lifetime_ms = 28LL * 24 * 60 * 60 * 1000;
 // the venue caps a token at 8 h
-constexpr std::int64_t k_token_lifetime_s = 7 * 60 * 60;
-constexpr std::int64_t k_token_renew_s = 6 * 60 * 60;
+constexpr std::int64_t k_token_lifetime_s = std::int64_t{7} * 60 * 60;
+constexpr std::int64_t k_token_renew_s = std::int64_t{6} * 60 * 60;
 
 constexpr std::int64_t k_max_base_amount = (std::int64_t{1} << 48) - 1;
 constexpr std::int64_t k_max_price = 0xFFFFFFFFLL;
@@ -380,7 +381,7 @@ private:
         return tx;
     }
 
-    void send(const OrderCmd& cmd, Kind kind, std::uint8_t type, std::string info) noexcept {
+    void send(const OrderCmd& cmd, Kind kind, std::uint8_t type, const std::string& info) noexcept {
         if (trade_ && trade_->ready()) {
             const auto id = trade_->next_id();
             std::string frame = R"({"type":"jsonapi/sendtx","data":{"id":")" + std::to_string(id) + R"(","tx_type":)" +
@@ -605,8 +606,7 @@ private:
         const auto auth = token();
         const auto id = account();
         for (const std::string_view channel : {"account_all_orders/", "account_all_trades/"}) {
-            const std::string frame = R"({"type":"subscribe","channel":")" + std::string{channel} + id +
-                                      R"(","auth":")" + auth + R"("})";
+            const auto frame = std::format(R"({{"type":"subscribe","channel":"{}{}","auth":"{}"}})", channel, id, auth);
             (void)account_ws_.send(frame);
         }
         state_->sink->on_connectivity(

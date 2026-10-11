@@ -3,6 +3,7 @@
 // v2 order entry: an eip-712 LimitOrderParams signed by the trading key, every private call
 // hmac-signed; every stage is pinned to edgex-python-sdk 2.0.1 vectors in the tests
 
+#include <raikiri/common/int128.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/domain/order_events.hpp>
@@ -27,7 +28,7 @@ namespace evm = raikiri::net::evm;
 
 // a non-negative decimal as python's Decimal holds it, so products keep its trailing zeros
 struct Decimal {
-    unsigned __int128 mantissa{0};
+    uint128_t mantissa{0};
     std::uint8_t scale{0};
 };
 
@@ -61,10 +62,10 @@ struct OrderTerms {
     std::uint64_t account_id{0};
     std::uint32_t contract_id{0};
     Side side{Side::Buy};
-    std::string_view price; // decimal text as sent; the signed value is price * size
-    std::string_view size;
-    std::string_view time_in_force; // GOOD_TIL_CANCEL, IMMEDIATE_OR_CANCEL, FILL_OR_KILL, POST_ONLY
-    std::string_view client_order_id;
+    std::string_view price{}; // decimal text as sent; the signed value is price * size
+    std::string_view size{};
+    std::string_view time_in_force{}; // GOOD_TIL_CANCEL, IMMEDIATE_OR_CANCEL, FILL_OR_KILL, POST_ONLY
+    std::string_view client_order_id{};
     bool reduce_only{false};
     std::uint64_t now_ms{0};
     // `expireTime`; zero takes the sdk's default of now + 22 days
@@ -78,9 +79,9 @@ struct L2Order {
     std::uint64_t l2_expire_ms{0}; // now + 30 days
     Decimal value{};
     std::uint64_t limit_fee{0};
-    unsigned __int128 amount_synthetic{0};
-    unsigned __int128 amount_collateral{0};
-    unsigned __int128 amount_fee{0};
+    uint128_t amount_synthetic{0};
+    uint128_t amount_collateral{0};
+    uint128_t amount_fee{0};
 };
 
 enum class BuildError : std::uint8_t {
@@ -160,7 +161,8 @@ public:
     [[nodiscard]] std::string_view last_signed_message() const noexcept { return message_; }
 
 private:
-    [[nodiscard]] bool sign(std::string_view method, std::string_view path, std::string_view payload, std::uint64_t now_ms);
+    [[nodiscard]] bool
+    sign(std::string_view method, std::string_view path, std::string_view payload, std::uint64_t now_ms);
 
     [[nodiscard]] net::RestRequest request(net::HttpMethod method, std::string_view target, std::string_view body);
 
@@ -201,15 +203,15 @@ struct WireReply {
 [[nodiscard]] bool is_benign_cancel_failure(std::string_view code) noexcept;
 
 struct WireOrder {
-    std::string_view id;
-    std::string_view client_order_id;
+    std::string_view id{};
+    std::string_view client_order_id{};
     std::uint32_t contract_id{0};
-    std::string_view side;
-    std::string_view price;
-    std::string_view size;
-    std::string_view status; // PENDING, OPEN, FILLED, CANCELING, CANCELED, UNTRIGGERED
-    std::string_view cum_match_size;
-    std::string_view cancel_reason;
+    std::string_view side{};
+    std::string_view price{};
+    std::string_view size{};
+    std::string_view status{}; // PENDING, OPEN, FILLED, CANCELING, CANCELED, UNTRIGGERED
+    std::string_view cum_match_size{};
+    std::string_view cancel_reason{};
     std::uint64_t updated_ms{0};
 };
 
@@ -248,10 +250,10 @@ struct TradeBuffer {
 };
 
 struct TradeRows {
-    std::span<const WireOrder> orders;
-    std::span<const WireFill> fills;
-    std::span<const WirePosition> positions;
-    std::span<const WireCollateral> collateral;
+    std::span<const WireOrder> orders{};
+    std::span<const WireFill> fills{};
+    std::span<const WirePosition> positions{};
+    std::span<const WireCollateral> collateral{};
 };
 
 enum class PrivateKind : std::uint8_t {
@@ -264,7 +266,7 @@ enum class PrivateKind : std::uint8_t {
 
 struct PrivateFrame {
     PrivateKind kind{PrivateKind::Other};
-    std::string_view event; // content.event on a trade-event
+    std::string_view event{}; // content.event on a trade-event
 };
 
 [[nodiscard]] std::expected<PrivateFrame, WireError> parse_private_kind(std::string_view frame);
@@ -289,7 +291,6 @@ parse_rest_rows(std::string_view body, TradeBuffer& storage, bool fills);
 [[nodiscard]] std::optional<OrderEvent>
 map_fill(const WireFill& wire, const InstrumentBase& base, QtyLots leaves, UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
-                                                               const InstrumentBase& base);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire, const InstrumentBase& base);
 
 } // namespace raikiri::venues::edgex

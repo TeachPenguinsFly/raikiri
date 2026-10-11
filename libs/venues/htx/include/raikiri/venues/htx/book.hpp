@@ -37,7 +37,8 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// full snapshot every frame; swap's version is epoch seconds, so mrid orders frames; spot has no mrid and its version is a sequence
+// full snapshot every frame; swap's version is epoch seconds, so mrid orders frames; spot has no mrid and its version
+// is a sequence
 struct WireDepth {
     std::string_view contract_code;
     std::uint64_t ts_ms{0};

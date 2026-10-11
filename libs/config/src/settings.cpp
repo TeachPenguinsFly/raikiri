@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <format>
 #include <glaze/glaze.hpp>
 #include <glaze/yaml.hpp>
 #include <set>
@@ -68,7 +69,7 @@ template <typename T> std::expected<T, std::string> read_file(std::string_view p
         std::set<std::string> names;
         for (const auto& limit : settings.limits) {
             if (auto why = check_limit(limit); !why.empty()) {
-                return std::unexpected{venue + " limit '" + limit.name + "': " + why};
+                return std::unexpected{std::format("{} limit '{}': {}", venue, limit.name, why)};
             }
             if (!names.insert(limit.name).second) {
                 return std::unexpected{venue + " limit '" + limit.name + "': named twice"};

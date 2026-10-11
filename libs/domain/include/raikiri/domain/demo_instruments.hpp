@@ -26,8 +26,8 @@ inline std::vector<Instrument> sim_instruments() {
         return base;
     };
     std::vector<Instrument> out;
-    out.push_back(PerpInstrument{make_base(0, "BTC/USDT", "BTCUSDT", "0.1", "0.001"), 28'800});
-    out.push_back(PerpInstrument{make_base(1, "ETH/USDT", "ETHUSDT", "0.01", "0.01"), 28'800});
+    out.emplace_back(PerpInstrument{make_base(0, "BTC/USDT", "BTCUSDT", "0.1", "0.001"), 28'800});
+    out.emplace_back(PerpInstrument{make_base(1, "ETH/USDT", "ETHUSDT", "0.01", "0.01"), 28'800});
     return out;
 }
 

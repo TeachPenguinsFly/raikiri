@@ -45,9 +45,9 @@ void print(const raikiri::reference::RefSnapshot& snap, std::uint64_t wall_ns) {
                m.unlisted,
                m.quotes,
                price(m.usdt_usd),
-               (m.flags & ref::k_flag_usdt_fallback) != 0 ? "*" : "",
+               (m.flags & ref::FlagUsdtFallback) != 0 ? "*" : "",
                price(m.usdc_usd),
-               (m.flags & ref::k_flag_usdc_fallback) != 0 ? "*" : "",
+               (m.flags & ref::FlagUsdcFallback) != 0 ? "*" : "",
                m.took_ns / 1'000);
     fmt::print("{:<18} {:>18} {:>8} {:>8} {:>9} {:>6} {:>6} {:>8} {}\n",
                "asset",
@@ -79,7 +79,7 @@ void print(const raikiri::reference::RefSnapshot& snap, std::uint64_t wall_ns) {
                    cell.used_spot,
                    cell.used_perp,
                    wall_ns > cell.ts_ns ? (wall_ns - cell.ts_ns) / k_ms : 0,
-                   (cell.flags & ref::k_flag_refused) != 0 ? "refused " : "",
+                   (cell.flags & ref::FlagRefused) != 0 ? "refused " : "",
                    cuts);
     }
     std::fflush(stdout);

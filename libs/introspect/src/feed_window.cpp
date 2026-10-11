@@ -53,7 +53,7 @@ std::int64_t LagHistogram::quantile(std::uint32_t permille) const noexcept {
             const auto base = 1000ULL << ((side - 1) / k_per_octave);
             const auto width = base / k_per_octave;
             const auto near = base + ((side - 1) % k_per_octave) * width;
-            const auto into = (2 * (rank - seen) - 1) * 1000 / (2 * counts_[i]);
+            const auto into = (2 * (rank - seen) - 1) * 1000 / (2 * std::uint64_t{counts_[i]});
             const auto offset = i > k_side ? into : 1000 - into;
             const auto magnitude = static_cast<std::int64_t>(near + width * offset / 1000);
             return i > k_side ? magnitude : -magnitude;

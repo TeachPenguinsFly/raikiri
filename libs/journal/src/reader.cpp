@@ -39,7 +39,7 @@ JournalReader::~JournalReader() {
 
 void JournalReader::close_segment() noexcept {
     if (base_ != nullptr) {
-        ::munmap(const_cast<std::byte*>(base_), map_size_);
+        ::munmap(base_, map_size_);
         base_ = nullptr;
         header_ = nullptr;
     }
@@ -96,7 +96,7 @@ bool JournalReader::open_segment(std::uint64_t segment_seq) noexcept {
     if (p == MAP_FAILED) {
         return false;
     }
-    base_ = static_cast<const std::byte*>(p);
+    base_ = static_cast<std::byte*>(p);
     map_size_ = static_cast<std::size_t>(st.st_size);
     header_ = std::launder(reinterpret_cast<const FileHeader*>(base_));
     if (header_->magic != k_file_magic || header_->abi != k_file_abi) {

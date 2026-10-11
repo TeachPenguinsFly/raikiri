@@ -49,7 +49,8 @@ std::optional<UnixNanos> parse_utc(std::string_view text) noexcept {
         return std::nullopt;
     }
     const auto days = std::chrono::sys_days{date}.time_since_epoch().count();
-    const auto secs = static_cast<std::int64_t>(days) * 86'400 + *hour * 3'600 + *minute * 60 + *second;
+    const auto secs = static_cast<std::int64_t>(days) * 86'400 + std::int64_t{*hour} * 3'600 +
+                      std::int64_t{*minute} * 60 + *second;
     if (secs < 0) {
         return std::nullopt;
     }

@@ -145,7 +145,7 @@ struct OrderRowBuffer {
 
 // a bare array, {"data":[..]} or {"data":{"rows":[..]}}; the docs show all three
 [[nodiscard]] std::expected<std::span<const WireOrderRow>, WireError> parse_order_rows(std::string_view body,
-                                                                                      OrderRowBuffer& storage);
+                                                                                       OrderRowBuffer& storage);
 
 enum class PrivateKind : std::uint8_t {
     Orders,   // an incremental aop_p push

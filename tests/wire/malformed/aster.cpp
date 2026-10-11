@@ -1,10 +1,10 @@
 #include <raikiri/venues/aster/account.hpp>
-#include <raikiri/venues/aster/orders.hpp>
-#include <raikiri/venues/aster/positions.hpp>
 #include <raikiri/venues/aster/book.hpp>
 #include <raikiri/venues/aster/catalogue.hpp>
 #include <raikiri/venues/aster/envelope.hpp>
 #include <raikiri/venues/aster/market_data.hpp>
+#include <raikiri/venues/aster/orders.hpp>
+#include <raikiri/venues/aster/positions.hpp>
 
 #include <gtest/gtest.h>
 

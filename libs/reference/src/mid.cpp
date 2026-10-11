@@ -396,6 +396,7 @@ Reference compute(std::span<const Quote> quotes,
     }
     if (!perps.empty()) {
         std::vector<std::int64_t> mids;
+        mids.reserve(perps.size());
         for (const auto* c : perps) {
             mids.push_back(c->mid);
         }
@@ -454,6 +455,7 @@ Reference compute(std::span<const Quote> quotes,
     out.mid = FixedE9::from_raw(mid);
 
     std::vector<Weighted> points;
+    points.reserve(admitted.size());
     for (const auto* c : admitted) {
         points.push_back({.price = c->price, .weight = c->weight});
     }

@@ -201,7 +201,7 @@ MappedCatalogue map_catalogue(const WireCatalogue& wire, MarketType market) {
     MappedCatalogue out{};
     const auto keep = [&](std::optional<Listed> listed) {
         if (listed.has_value()) {
-            out.listed.push_back(std::move(*listed));
+            out.listed.push_back(*listed);
         } else {
             ++out.refused;
         }

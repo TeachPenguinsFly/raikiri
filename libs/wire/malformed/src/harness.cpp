@@ -42,8 +42,8 @@ namespace {
 
 constexpr std::uint64_t k_seed = 0x5241494b4952490aULL;
 constexpr std::size_t k_full_size = 512;
-constexpr std::size_t k_long_string = 4 * 1024;
-constexpr std::size_t k_huge_string = 64 * 1024;
+constexpr std::size_t k_long_string = std::size_t{4} * 1024;
+constexpr std::size_t k_huge_string = std::size_t{64} * 1024;
 constexpr std::array<char, 12> k_flips{'"', '}', ']', ',', '\\', '\0', 'x', ':', '{', '[', '-', '9'};
 
 std::string t_fixture;

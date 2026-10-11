@@ -63,7 +63,8 @@ struct OrderVector {
 class EdgexSigning : public ::testing::Test {
 protected:
     void SetUp() override {
-        ASSERT_TRUE(builder_.load(k_account, "kat-api-key-0001", "kat-passphrase-0001", "kat-api-secret-0001", k_trading_key));
+        ASSERT_TRUE(
+            builder_.load(k_account, "kat-api-key-0001", "kat-passphrase-0001", "kat-api-secret-0001", k_trading_key));
         auto meta = parse_signing_meta(fixture("rest_meta_perp.json"));
         ASSERT_TRUE(meta.has_value());
         builder_.set_meta(std::move(*meta));
@@ -124,10 +125,12 @@ TEST_F(EdgexSigning, OrdersSignAndSerialiseExactlyAsTheSdk) {
                    .now_ms = k_now_ms},
          .nonce = "2282593784",
          .digest = "0x980c8de5a22d6552018929b751200446a2a82c4a784ef0d6512bfc5df0faa9a2",
-         .signature = "c731535c7e9291e8f9ff05922d614acfab85e8eab369e1711a8bb20e81cb95232725e03bf81b4de50c5faac4eb06dc47af"
+         .signature = "c731535c7e9291e8f9ff05922d614acfab85e8eab369e1711a8bb20e81cb95232725e03bf81b4de50c5faac4eb06dc47"
+                      "af"
                       "7166b20f932cbb7c2e2f3d1d9d79d31c",
          .hmac = "34fabe6bc49926327d55e3162829d357a5bf04bdeeff9a10f309b3d3fe3c0b74",
-         .body = R"({"accountId": "724625476626153743", "contractId": "30000001", "price": "97463.4", "size": "0.001", "type": "LIMIT", "side": "BUY", "timeInForce": "GOOD_TIL_CANCEL", "clientOrderId": "kat-buy-0001", "expireTime": "1793620800000", "l2Nonce": "2282593784", "l2Signature": "c731535c7e9291e8f9ff05922d614acfab85e8eab369e1711a8bb20e81cb95232725e03bf81b4de50c5faac4eb06dc47af7166b20f932cbb7c2e2f3d1d9d79d31c", "l2ExpireTime": "1794312000000", "l2Value": "97.4634", "l2Size": "0.001", "l2LimitFee": "1", "reduceOnly": false, "triggerPrice": "", "triggerPriceType": "", "sourceKey": "", "isPositionTpsl": false, "openTpslParentOrderId": "", "isSetOpenTp": false, "openTp": null, "isSetOpenSl": false, "openSl": null, "extraType": "", "extraDataJson": ""})"},
+         .body =
+             R"({"accountId": "724625476626153743", "contractId": "30000001", "price": "97463.4", "size": "0.001", "type": "LIMIT", "side": "BUY", "timeInForce": "GOOD_TIL_CANCEL", "clientOrderId": "kat-buy-0001", "expireTime": "1793620800000", "l2Nonce": "2282593784", "l2Signature": "c731535c7e9291e8f9ff05922d614acfab85e8eab369e1711a8bb20e81cb95232725e03bf81b4de50c5faac4eb06dc47af7166b20f932cbb7c2e2f3d1d9d79d31c", "l2ExpireTime": "1794312000000", "l2Value": "97.4634", "l2Size": "0.001", "l2LimitFee": "1", "reduceOnly": false, "triggerPrice": "", "triggerPriceType": "", "sourceKey": "", "isPositionTpsl": false, "openTpslParentOrderId": "", "isSetOpenTp": false, "openTp": null, "isSetOpenSl": false, "openSl": null, "extraType": "", "extraDataJson": ""})"},
         {.terms = {.account_id = k_account,
                    .contract_id = 30000001,
                    .side = Side::Sell,
@@ -138,10 +141,12 @@ TEST_F(EdgexSigning, OrdersSignAndSerialiseExactlyAsTheSdk) {
                    .now_ms = k_now_ms},
          .nonce = "1918773737",
          .digest = "0xa03da17dc8e1e91137be0abe6a2ecea7033e25c5b46a5edfaf6547a7dac61233",
-         .signature = "89c9ae37ef9bf2f09aa93b077eb0b9dc467a215e5740607908b62782f57fe7a80600f2d5c81e4efb9161866db9e5cd1ecd"
+         .signature = "89c9ae37ef9bf2f09aa93b077eb0b9dc467a215e5740607908b62782f57fe7a80600f2d5c81e4efb9161866db9e5cd1e"
+                      "cd"
                       "e3a11ddf6174a5be532e32a7cda5671c",
          .hmac = "6d6c46deaf9e23df912d3285b8da86ba2fe17f8570d8ecdd2320884bbddda44c",
-         .body = R"({"accountId": "724625476626153743", "contractId": "30000001", "price": "101234.5", "size": "0.123", "type": "LIMIT", "side": "SELL", "timeInForce": "POST_ONLY", "clientOrderId": "kat-sell-0002", "expireTime": "1793620800000", "l2Nonce": "1918773737", "l2Signature": "89c9ae37ef9bf2f09aa93b077eb0b9dc467a215e5740607908b62782f57fe7a80600f2d5c81e4efb9161866db9e5cd1ecde3a11ddf6174a5be532e32a7cda5671c", "l2ExpireTime": "1794312000000", "l2Value": "12451.8435", "l2Size": "0.123", "l2LimitFee": "6", "reduceOnly": false, "triggerPrice": "", "triggerPriceType": "", "sourceKey": "", "isPositionTpsl": false, "openTpslParentOrderId": "", "isSetOpenTp": false, "openTp": null, "isSetOpenSl": false, "openSl": null, "extraType": "", "extraDataJson": ""})"},
+         .body =
+             R"({"accountId": "724625476626153743", "contractId": "30000001", "price": "101234.5", "size": "0.123", "type": "LIMIT", "side": "SELL", "timeInForce": "POST_ONLY", "clientOrderId": "kat-sell-0002", "expireTime": "1793620800000", "l2Nonce": "1918773737", "l2Signature": "89c9ae37ef9bf2f09aa93b077eb0b9dc467a215e5740607908b62782f57fe7a80600f2d5c81e4efb9161866db9e5cd1ecde3a11ddf6174a5be532e32a7cda5671c", "l2ExpireTime": "1794312000000", "l2Value": "12451.8435", "l2Size": "0.123", "l2LimitFee": "6", "reduceOnly": false, "triggerPrice": "", "triggerPriceType": "", "sourceKey": "", "isPositionTpsl": false, "openTpslParentOrderId": "", "isSetOpenTp": false, "openTp": null, "isSetOpenSl": false, "openSl": null, "extraType": "", "extraDataJson": ""})"},
         {.terms = {.account_id = k_account,
                    .contract_id = 30000001,
                    .side = Side::Sell,
@@ -154,10 +159,12 @@ TEST_F(EdgexSigning, OrdersSignAndSerialiseExactlyAsTheSdk) {
                    .expire_ms = 1792324800000ULL},
          .nonce = "944839142",
          .digest = "0x5b5a7a9eed8b8add1808e79f8da7f1b47576458d26af83850baeee883fbdf1cc",
-         .signature = "c3a9010c28b0ac691f38245b57e2f1a321c51b1520e2df3882cc54c54005263e512b60f8bd37937843c43cbc84e6f59bdb"
+         .signature = "c3a9010c28b0ac691f38245b57e2f1a321c51b1520e2df3882cc54c54005263e512b60f8bd37937843c43cbc84e6f59b"
+                      "db"
                       "3624c22520daee94681256387420a81b",
          .hmac = "e090855bde84a3250320a913fd13ad28dca019883d942ea8f01440b5a3366e1d",
-         .body = R"({"accountId": "724625476626153743", "contractId": "30000001", "price": "95000.0", "size": "0.05", "type": "LIMIT", "side": "SELL", "timeInForce": "IMMEDIATE_OR_CANCEL", "clientOrderId": "kat-sell-0003", "expireTime": "1792324800000", "l2Nonce": "944839142", "l2Signature": "c3a9010c28b0ac691f38245b57e2f1a321c51b1520e2df3882cc54c54005263e512b60f8bd37937843c43cbc84e6f59bdb3624c22520daee94681256387420a81b", "l2ExpireTime": "1793016000000", "l2Value": "4750.000", "l2Size": "0.05", "l2LimitFee": "3", "reduceOnly": true, "triggerPrice": "", "triggerPriceType": "", "sourceKey": "", "isPositionTpsl": false, "openTpslParentOrderId": "", "isSetOpenTp": false, "openTp": null, "isSetOpenSl": false, "openSl": null, "extraType": "", "extraDataJson": ""})"},
+         .body =
+             R"({"accountId": "724625476626153743", "contractId": "30000001", "price": "95000.0", "size": "0.05", "type": "LIMIT", "side": "SELL", "timeInForce": "IMMEDIATE_OR_CANCEL", "clientOrderId": "kat-sell-0003", "expireTime": "1792324800000", "l2Nonce": "944839142", "l2Signature": "c3a9010c28b0ac691f38245b57e2f1a321c51b1520e2df3882cc54c54005263e512b60f8bd37937843c43cbc84e6f59bdb3624c22520daee94681256387420a81b", "l2ExpireTime": "1793016000000", "l2Value": "4750.000", "l2Size": "0.05", "l2LimitFee": "3", "reduceOnly": true, "triggerPrice": "", "triggerPriceType": "", "sourceKey": "", "isPositionTpsl": false, "openTpslParentOrderId": "", "isSetOpenTp": false, "openTp": null, "isSetOpenSl": false, "openSl": null, "extraType": "", "extraDataJson": ""})"},
     }};
     std::array<std::uint8_t, 20> signer{};
     ASSERT_TRUE(evm::from_hex(builder_.signer(), signer));
@@ -167,7 +174,8 @@ TEST_F(EdgexSigning, OrdersSignAndSerialiseExactlyAsTheSdk) {
         const auto order = l2_order(v.terms, contract);
         ASSERT_TRUE(order.has_value()) << i;
         EXPECT_EQ(std::to_string(order->nonce), v.nonce) << i;
-        EXPECT_EQ(hex(order_digest(domain_separator(builder_.meta()), v.terms, contract, *order, signer)), v.digest) << i;
+        EXPECT_EQ(hex(order_digest(domain_separator(builder_.meta()), v.terms, contract, *order, signer)), v.digest)
+            << i;
 
         const auto request = builder_.create_order(v.terms);
         ASSERT_TRUE(request.has_value()) << i;
@@ -202,21 +210,21 @@ TEST_F(EdgexSigning, AmountsTruncateAndTheFeeLimitRoundsUpToWholeCollateral) {
 }
 
 TEST_F(EdgexSigning, ReadsAndCancelsSignTheSortedParameters) {
-    const std::array<Param, 3> active{{{"accountId", "724625476626153743"},
-                                       {"filterContractIdList", "30000001"},
-                                       {"size", "50"}}};
+    const std::array<Param, 3> active{
+        {{"accountId", "724625476626153743"}, {"filterContractIdList", "30000001"}, {"size", "50"}}};
     const auto get = builder_.get(k_active_orders, active, k_now_ms);
     ASSERT_TRUE(get.has_value());
     EXPECT_EQ(builder_.last_signed_message(),
               "1791720000000GET/api/v2/private/order/getActiveOrderPage"
               "accountId=724625476626153743&filterContractIdList=30000001&size=50");
     EXPECT_EQ(get->headers[2].value, "e54dc5a6aaf31d022f648416850f6c483cb232714996cef81736a0a8fe39514d");
-    EXPECT_EQ(get->target,
-              "/api/v2/private/order/getActiveOrderPage?accountId=724625476626153743&filterContractIdList=30000001&size=50");
+    EXPECT_EQ(
+        get->target,
+        "/api/v2/private/order/getActiveOrderPage?accountId=724625476626153743&filterContractIdList=30000001&size=50");
     EXPECT_EQ(get->method, net::HttpMethod::Get);
 
-    const std::array<Param, 2> by_client{{{"accountId", "724625476626153743"},
-                                          {"clientOrderIdList", "kat-buy-0001,kat-sell-0002"}}};
+    const std::array<Param, 2> by_client{
+        {{"accountId", "724625476626153743"}, {"clientOrderIdList", "kat-buy-0001,kat-sell-0002"}}};
     const auto query = builder_.get(k_order_by_client_id, by_client, k_now_ms);
     ASSERT_TRUE(query.has_value());
     EXPECT_EQ(query->headers[2].value, "2231ec810a29bcf68df2dd2dfc93f3650b0fefe166d5cc2e56091126a0d54dd8");
@@ -268,8 +276,8 @@ TEST(EdgexReply, ACreateNamesItsOrderAndACancelItsResult) {
     ASSERT_TRUE(created.has_value());
     EXPECT_EQ(created->code, "SUCCESS");
     EXPECT_EQ(created->order_id, "564827797948727434");
-    const auto canceled =
-        parse_reply(R"({"code":"SUCCESS","data":{"cancelResultMap":{"564827797948727434":"ORDER_NOT_FOUND"}}})");
+    const auto canceled = parse_reply(
+        R"({"code":"SUCCESS","data":{"cancelResultMap":{"564827797948727434":"ORDER_NOT_FOUND"}}})");
     ASSERT_TRUE(canceled.has_value());
     EXPECT_EQ(canceled->cancel_result, "ORDER_NOT_FOUND");
     EXPECT_TRUE(is_benign_cancel_failure(canceled->cancel_result));
@@ -277,8 +285,8 @@ TEST(EdgexReply, ACreateNamesItsOrderAndACancelItsResult) {
 
 InstrumentBase eth_base() {
     InstrumentBase base{};
-    base.tick_size = FixedE9::from_raw(10'000'000);    // 0.01
-    base.lot_size = FixedE9::from_raw(10'000'000);     // 0.01
+    base.tick_size = FixedE9::from_raw(10'000'000); // 0.01
+    base.lot_size = FixedE9::from_raw(10'000'000);  // 0.01
     return base;
 }
 

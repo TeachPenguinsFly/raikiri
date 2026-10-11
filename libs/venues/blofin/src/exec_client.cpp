@@ -102,11 +102,11 @@ private:
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)
-        : handler_{state}, ws_{state.io,
-                               net::WsConfig{.host = std::string{ep::host(state.testnet)},
-                                             .port = "443",
-                                             .target = std::string{k_ws_private}},
-                               handler_} {
+        : handler_{state},
+          ws_{state.io,
+              net::WsConfig{
+                  .host = std::string{ep::host(state.testnet)}, .port = "443", .target = std::string{k_ws_private}},
+              handler_} {
         handler_.attach(ws_);
     }
 
@@ -229,8 +229,7 @@ public:
         return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not found")};
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType,
-                                                                                UnixNanos since) override {
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType, UnixNanos since) override {
         const auto body = signed_pull(k_fills_history, builder_.fills(since, state_->clock->wall()));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
@@ -338,10 +337,10 @@ private:
         if (state_->budget != nullptr) {
             if (const auto taken = state_->budget->take(target, state_->clock->mono(), exec::RateClass::Poll);
                 !taken.has_value()) {
-                return std::unexpected{exec::VenueError::make(exec::ErrorClass::RateLimited,
-                                                              static_cast<std::int64_t>(taken.error().retry_after_ns /
-                                                                                        1'000'000),
-                                                              "local rate budget spent")};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::RateLimited,
+                                           static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
+                                           "local rate budget spent")};
             }
         }
         const auto response = net::await_response(state_->io, *state_->clock, rest_, *request, k_pull_timeout_ms);

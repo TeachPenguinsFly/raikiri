@@ -168,15 +168,19 @@ private:
     }
 
     void on_bbo(std::string_view payload, UnixNanos received) {
-        const auto wire = parse_bbo(payload);
-        if (!wire.has_value() || !wire->has_value()) {
+        const auto parsed = parse_bbo(payload);
+        if (!parsed.has_value()) {
             return;
         }
-        const auto found = lookup((*wire)->symbol);
+        const auto& wire = *parsed;
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto found = lookup(wire->symbol);
         if (!found.has_value()) {
             return;
         }
-        if (const auto bbo = map_bbo(**wire, *found->base, received); bbo.has_value()) {
+        if (const auto bbo = map_bbo(*wire, *found->base, received); bbo.has_value()) {
             state_->sink->on_bbo(*bbo);
             found->market->priced = true;
         }
@@ -184,11 +188,15 @@ private:
 
     void on_depth(std::string_view payload, UnixNanos received) {
         static thread_local LevelBuffer storage;
-        const auto wire = parse_depth(payload, storage);
-        if (!wire.has_value() || !wire->has_value()) {
+        const auto parsed = parse_depth(payload, storage);
+        if (!parsed.has_value()) {
             return;
         }
-        const auto& depth = **wire;
+        const auto& wire = *parsed;
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto& depth = *wire;
         const auto found = lookup(depth.symbol);
         if (!found.has_value()) {
             return;
@@ -250,15 +258,19 @@ private:
     }
 
     void on_mark(std::string_view payload, UnixNanos received) {
-        const auto wire = parse_mark(payload);
-        if (!wire.has_value() || !wire->has_value()) {
+        const auto parsed = parse_mark(payload);
+        if (!parsed.has_value()) {
             return;
         }
-        const auto found = lookup((*wire)->symbol);
+        const auto& wire = *parsed;
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto found = lookup(wire->symbol);
         if (!found.has_value()) {
             return;
         }
-        const auto mark = map_mark(**wire, *found->base);
+        const auto mark = map_mark(*wire, *found->base);
         if (!mark.has_value()) {
             return;
         }
@@ -269,7 +281,7 @@ private:
         }
         auto update = *market->funding;
         update.mark_price = *mark;
-        update.ts_event = ms_to_unix((*wire)->ts_ms, UnixNanos{});
+        update.ts_event = ms_to_unix(wire->ts_ms, UnixNanos{});
         update.ts_init = received;
         state_->sink->on_funding(update);
     }

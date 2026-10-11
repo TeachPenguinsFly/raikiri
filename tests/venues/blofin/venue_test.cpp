@@ -2,12 +2,12 @@
 
 #include <raikiri/domain/asset_class.hpp>
 #include <raikiri/exec/caps.hpp>
-#include <raikiri/venues/blofin/trade.hpp>
 #include <raikiri/venues/blofin/book.hpp>
 #include <raikiri/venues/blofin/catalogue.hpp>
 #include <raikiri/venues/blofin/envelope.hpp>
 #include <raikiri/venues/blofin/map.hpp>
 #include <raikiri/venues/blofin/market_data.hpp>
+#include <raikiri/venues/blofin/trade.hpp>
 #include <raikiri/venues/blofin/ws.hpp>
 
 #include <gtest/gtest.h>
@@ -525,7 +525,8 @@ TEST(BlofinRequests, SignsTheBodyItSendsAndRefusesWithoutAPassphrase) {
                            R"("orderType":"post_only","price":"84800.1","size":"0.3","reduceOnly":"false",)"
                            R"("clientOrderId":"01HZY3M7K8Q9R0S1T2V3W4X5Y6"})"};
     EXPECT_EQ(request->body, body);
-    EXPECT_EQ(builder.last_prehash(), "/api/v1/trade/orderPOST1700000000000" + std::string{request->headers[3].value} + body);
+    EXPECT_EQ(builder.last_prehash(),
+              "/api/v1/trade/orderPOST1700000000000" + std::string{request->headers[3].value} + body);
     EXPECT_EQ(request->headers[4].value, "pass");
     std::array<char, 96> out{};
     EXPECT_EQ(request->headers[1].value, sign_prehash(signer, builder.last_prehash(), out));

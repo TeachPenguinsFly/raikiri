@@ -24,7 +24,8 @@ std::expected<std::uint64_t, WireError> u64_text(wire::ondemand::value& value) {
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    if (text->empty() || text->size() > 20 || !std::ranges::all_of(*text, [](char c) { return c >= '0' && c <= '9'; })) {
+    if (text->empty() || text->size() > 20 ||
+        !std::ranges::all_of(*text, [](char c) { return c >= '0' && c <= '9'; })) {
         return std::unexpected(WireError::WrongType);
     }
     return wire::digits_to_u64(*text);
@@ -91,8 +92,8 @@ std::expected<WireDepth, WireError> read_book(wire::ondemand::object& obj, Level
         obj, [&](std::string_view key, wire::ondemand::value& value) -> std::expected<void, WireError> {
             if (key == "bids" || key == "asks") {
                 const bool bid = key == "bids";
-                const auto count = read_levels(value, bid ? std::span<WireLevel>{storage.bids}
-                                                          : std::span<WireLevel>{storage.asks});
+                const auto count = read_levels(
+                    value, bid ? std::span<WireLevel>{storage.bids} : std::span<WireLevel>{storage.asks});
                 if (!count.has_value()) {
                     return std::unexpected(count.error());
                 }
@@ -413,7 +414,7 @@ std::expected<WireFunding, WireError> parse_funding(std::string_view frame) {
 }
 
 std::expected<std::span<const WireContract>, WireError> parse_contracts(std::string_view body,
-                                                                      ContractBuffer& storage) {
+                                                                        ContractBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireContract>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
