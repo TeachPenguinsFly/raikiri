@@ -15,7 +15,7 @@ declare -A MARKET=(
   [upbit]=spot [bithumb]=spot [bitstamp]=perp
 )
 
-SPOT_CAPABLE="binance bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex lbank kraken weex aster bullish bitstamp"
+SPOT_CAPABLE="binance bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex lbank kraken weex aster bullish bitstamp htx"
 
 # spot is recorded beside the perps: the quote and the tape, no ladder
 SPOT_CHANNELS="bbo,trades"

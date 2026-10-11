@@ -71,6 +71,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
+    case EventKind::LastMatch:
+        break; // minutes old on a thin product, and a repeat after a reconnect
     case EventKind::Snapshot: {
         static thread_local LevelBuffer levels;
         const auto wire = parse_l2_snapshot(frame, levels);

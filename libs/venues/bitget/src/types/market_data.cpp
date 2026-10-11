@@ -13,60 +13,39 @@ using wire::session;
 
 } // namespace
 
-std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
-    return guarded([&]() -> std::expected<WireTicker, WireError> {
-        auto root = session().open_object(frame);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        const auto inst_id = arg_inst_id(*root);
-        if (!inst_id.has_value()) {
-            return std::unexpected(inst_id.error());
-        }
-        return with_first_data(*root, [&](wire::ondemand::object& obj) -> std::expected<WireTicker, WireError> {
-            WireTicker out{};
-            out.inst_id = *inst_id;
-            const auto bid = wire::req_str(obj, "bidPr");
-            const auto bid_qty = wire::req_str(obj, "bidSz");
-            const auto ask = wire::req_str(obj, "askPr");
-            const auto ask_qty = wire::req_str(obj, "askSz");
-            if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() || !ask_qty.has_value()) {
-                return std::unexpected(WireError::MissingField);
-            }
-            out.bid_price = *bid;
-            out.bid_qty = *bid_qty;
-            out.ask_price = *ask;
-            out.ask_qty = *ask_qty;
-            // optional, so a missing field does not cost the bbo
-            const auto last = wire::opt_str(obj, "lastPr");
-            const auto mark = wire::opt_str(obj, "markPrice");
-            const auto index = wire::opt_str(obj, "indexPrice");
-            const auto rate = wire::opt_str(obj, "fundingRate");
-            if (!last.has_value() || !mark.has_value() || !index.has_value() || !rate.has_value()) {
-                return std::unexpected(WireError::WrongType);
-            }
-            out.last_price = *last;
-            out.mark_price = *mark;
-            out.index_price = *index;
-            out.funding_rate = *rate;
-            // optional: an untraded instrument carries no volume column
-            const auto base_volume = wire::opt_str(obj, "baseVolume");
-            const auto quote_volume = wire::opt_str(obj, "quoteVolume");
-            if (!base_volume.has_value() || !quote_volume.has_value()) {
-                return std::unexpected(WireError::WrongType);
-            }
-            out.volume_24h_base = *base_volume;
-            out.volume_24h_quote = *quote_volume;
-            out.open_interest = wire::opt_str(obj, "holdingAmount").value_or(std::string_view{});
-            const auto next = wire::opt_ms(obj, "nextFundingTime");
-            const auto ts = wire::opt_ms(obj, "ts");
-            if (!next.has_value() || !ts.has_value()) {
-                return std::unexpected(WireError::WrongType);
-            }
-            out.next_funding_ms = *next;
-            out.ts_ms = *ts;
-            return out;
-        });
+std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_view body, TickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTicker>, WireError> {
+        return read_rows<WireTicker>(
+            body, {}, storage.rows, [](wire::ondemand::object& obj, WireTicker& out) -> std::expected<void, WireError> {
+                const auto symbol = wire::req_str(obj, "symbol");
+                if (!symbol.has_value()) {
+                    return std::unexpected(symbol.error());
+                }
+                out.inst_id = *symbol;
+                // every column is optional: a halted pair quotes nothing and spot has no funding
+                for (const auto& [key, target] : {std::pair{"bidPr", &out.bid_price},
+                                                  std::pair{"bidSz", &out.bid_qty},
+                                                  std::pair{"askPr", &out.ask_price},
+                                                  std::pair{"askSz", &out.ask_qty},
+                                                  std::pair{"markPrice", &out.mark_price},
+                                                  std::pair{"indexPrice", &out.index_price},
+                                                  std::pair{"fundingRate", &out.funding_rate},
+                                                  std::pair{"baseVolume", &out.volume_24h_base},
+                                                  std::pair{"quoteVolume", &out.volume_24h_quote},
+                                                  std::pair{"holdingAmount", &out.open_interest}}) {
+                    const auto value = wire::opt_str(obj, key);
+                    if (!value.has_value()) {
+                        return std::unexpected(value.error());
+                    }
+                    *target = *value;
+                }
+                const auto ts = wire::opt_ms(obj, "ts");
+                if (!ts.has_value()) {
+                    return std::unexpected(ts.error());
+                }
+                out.ts_ms = *ts;
+                return {};
+            });
     });
 }
 
@@ -118,36 +97,41 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
     });
 }
 
-std::expected<WireFundingRate, WireError> parse_current_fund_rate(std::string_view body) {
-    return guarded([&]() -> std::expected<WireFundingRate, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        return with_first_data(*root, [](wire::ondemand::object& obj) -> std::expected<WireFundingRate, WireError> {
-            WireFundingRate out{};
-            const auto symbol = wire::req_str(obj, "symbol");
-            if (!symbol.has_value()) {
-                return std::unexpected(symbol.error());
-            }
-            out.symbol = *symbol;
-            for (const auto& [key, target] : {std::pair{"fundingRate", &out.funding_rate},
-                                              std::pair{"fundingRateInterval", &out.interval_hours},
-                                              std::pair{"minFundingRate", &out.min_rate},
-                                              std::pair{"maxFundingRate", &out.max_rate}}) {
-                const auto value = wire::opt_str(obj, key);
-                if (!value.has_value()) {
-                    return std::unexpected(value.error());
+std::expected<std::span<const WireFundingRate>, WireError> parse_current_fund_rates(std::string_view body,
+                                                                                    FundRateBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireFundingRate>, WireError> {
+        const auto rows = read_rows<WireFundingRate>(
+            body,
+            {},
+            storage.rows,
+            [](wire::ondemand::object& obj, WireFundingRate& out) -> std::expected<void, WireError> {
+                const auto symbol = wire::req_str(obj, "symbol");
+                if (!symbol.has_value()) {
+                    return std::unexpected(symbol.error());
                 }
-                *target = *value;
-            }
-            const auto next = wire::opt_ms(obj, "nextUpdate");
-            if (!next.has_value()) {
-                return std::unexpected(next.error());
-            }
-            out.next_update_ms = *next;
-            return out;
-        });
+                out.symbol = *symbol;
+                for (const auto& [key, target] : {std::pair{"fundingRate", &out.funding_rate},
+                                                  std::pair{"fundingRateInterval", &out.interval_hours},
+                                                  std::pair{"minFundingRate", &out.min_rate},
+                                                  std::pair{"maxFundingRate", &out.max_rate}}) {
+                    const auto value = wire::opt_str(obj, key);
+                    if (!value.has_value()) {
+                        return std::unexpected(value.error());
+                    }
+                    *target = *value;
+                }
+                const auto next = wire::opt_ms(obj, "nextUpdate");
+                if (!next.has_value()) {
+                    return std::unexpected(next.error());
+                }
+                out.next_update_ms = *next;
+                return {};
+            });
+        // an empty list must not become a zero reading
+        if (rows.has_value() && rows->empty()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        return rows;
     });
 }
 

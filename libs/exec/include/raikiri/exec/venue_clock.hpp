@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace raikiri::exec {
 
@@ -17,6 +18,8 @@ struct ServerTimeQuery {
     std::string target{};
     // a non-empty body is POSTed as json
     std::string body{};
+    // name and value, for a venue that refuses a request without them
+    std::vector<std::pair<std::string, std::string>> headers{};
     std::uint64_t resolution_ns{1'000'000};
     ParseServerTime parse{nullptr};
 };

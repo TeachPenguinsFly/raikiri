@@ -38,6 +38,8 @@ inline constexpr std::string_view k_mix_account_bill = "/api/v2/mix/account/bill
 
 inline constexpr std::string_view k_mix_contracts = "/api/v2/mix/market/contracts";
 inline constexpr std::string_view k_mix_ticker = "/api/v2/mix/market/ticker";
+inline constexpr std::string_view k_mix_tickers = "/api/v2/mix/market/tickers";
+inline constexpr std::string_view k_spot_tickers = "/api/v2/spot/market/tickers";
 inline constexpr std::string_view k_mix_fund_rate = "/api/v2/mix/market/current-fund-rate";
 inline constexpr std::string_view k_mix_orderbook = "/api/v2/mix/market/orderbook";
 inline constexpr std::string_view k_spot_symbols = "/api/v2/spot/public/symbols";

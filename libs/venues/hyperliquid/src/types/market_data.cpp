@@ -2,6 +2,7 @@
 #include <raikiri/venues/hyperliquid/market_data.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <algorithm>
 #include <utility>
 
 namespace raikiri::venues::hyperliquid {
@@ -31,6 +32,18 @@ std::expected<void, WireError> read_ctx_fields(wire::ondemand::object& ctx, Wire
 }
 
 } // namespace
+
+bool is_backfill(std::span<const WireTrade> trades, std::uint64_t ack_ms) noexcept {
+    // a block reaches us in under a second; the margin keeps a slow one live
+    constexpr std::uint64_t k_block_margin_ms = 2'000;
+    if (trades.empty()) {
+        return false;
+    }
+    const auto block_ms = trades.front().ts_ms;
+    const bool one_block = std::ranges::all_of(trades,
+                                               [block_ms](const WireTrade& trade) { return trade.ts_ms == block_ms; });
+    return !one_block || block_ms + k_block_margin_ms < ack_ms;
+}
 
 std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame, TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {

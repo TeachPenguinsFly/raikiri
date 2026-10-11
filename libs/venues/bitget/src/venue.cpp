@@ -44,6 +44,7 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     const auto market = config.market;
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet, market);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
+    state->budget = config.budget;
     const auto credential_errors = load_credentials(config, *state);
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);

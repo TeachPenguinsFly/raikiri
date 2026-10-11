@@ -154,6 +154,35 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
 
+std::optional<Bbo> map_bbo(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // a one-sided book has no quote
+    if (wire.bids.empty() || wire.asks.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto bid = to_ticks(wire.bids.front().price, base);
+    const auto ask = to_ticks(wire.asks.front().price, base);
+    const auto bid_qty = to_lots(wire.bids.front().qty, base);
+    const auto ask_qty = to_lots(wire.asks.front().qty, base);
+    if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
+        return std::nullopt;
+    }
+
+    Bbo out{};
+    out.instrument = base.id;
+    out.bid = *bid;
+    out.ask = *ask;
+    out.bid_qty = *bid_qty;
+    out.ask_qty = *ask_qty;
+    out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
@@ -179,8 +208,16 @@ std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& 
     return out;
 }
 
+std::optional<FundingClock> funding_clock_of(const WireFundingRate& wire) {
+    const auto hours = whole_number(wire.interval_hours);
+    if (wire.next_update_ms == 0 || !hours.has_value() || *hours <= 0 || *hours > 24) {
+        return std::nullopt;
+    }
+    return FundingClock{.next_ms = wire.next_update_ms, .interval_s = static_cast<std::uint32_t>(*hours * 3600)};
+}
+
 std::optional<FundingUpdate>
-map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+map_funding(const WireTicker& wire, const FundingClock& clock, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -201,10 +238,16 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (const auto index = parse_amount_e9(wire.index_price); index.has_value() && base.tick_size.raw > 0) {
         out.index_price = PriceTicks::from_raw(index->raw / base.tick_size.raw);
     }
-    out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
-    if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
+    out.interval_s = clock.interval_s;
+    if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr && out.interval_s == 0) {
         out.interval_s = perp->funding_interval_s;
     }
+    // the clock is polled once a minute, so a settlement it has not caught up with is rolled past
+    auto next_ms = clock.next_ms;
+    if (const std::uint64_t step_ms = out.interval_s * 1000ULL; step_ms != 0 && next_ms != 0 && next_ms <= wire.ts_ms) {
+        next_ms += ((wire.ts_ms - next_ms) / step_ms + 1) * step_ms;
+    }
+    out.next_funding_time = ms_to_unix(next_ms, UnixNanos{0});
     out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
     return out;

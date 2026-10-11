@@ -10,13 +10,14 @@
 namespace raikiri::venues::kraken {
 
 enum class EventKind : std::uint8_t {
-    Ticker,     // bid/ask/mark/index/funding in one frame
-    TickerLite, // ticker without the derivative fields
-    Trade,      // trade and trade_snapshot
-    Book,       // book and book_snapshot
-    Subscribed, // subscribed / unsubscribed acknowledgement
-    Alert,      // a refusal; see StreamAlert
-    Info,       // {"event":"info","version":1} on connect
+    Ticker,        // bid/ask/mark/index/funding in one frame
+    TickerLite,    // ticker without the derivative fields
+    Trade,         // a live print
+    TradeSnapshot, // the backfill a subscription opens with
+    Book,          // book and book_snapshot
+    Subscribed,    // subscribed / unsubscribed acknowledgement
+    Alert,         // a refusal; see StreamAlert
+    Info,          // {"event":"info","version":1} on connect
 
     Challenge,          // {"event":"challenge","message":"<uuid>"}
     OpenOrdersSnapshot, // the whole working set

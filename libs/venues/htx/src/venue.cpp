@@ -60,7 +60,7 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
                 .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
             std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     }
-    adapter.data = make_data_client(state);
+    adapter.data = make_data_client(state, config.market);
     adapter.execution = make_execution_client(state, config.market);
     adapter.instruments = make_instrument_source(state);
     return adapter;

@@ -202,6 +202,25 @@ net::RestRequest RequestBuilder::current_fund_rate(std::string_view symbol, std:
     return writer.get();
 }
 
+net::RestRequest RequestBuilder::tickers(MarketType market, std::string_view product) noexcept {
+    if (market == MarketType::Spot) {
+        return {.method = net::HttpMethod::Get, .target = ep::k_spot_tickers, .body = {}};
+    }
+    TargetWriter writer{target_};
+    writer.put(ep::k_mix_tickers);
+    writer.put("?productType=");
+    writer.put(product);
+    return writer.get();
+}
+
+net::RestRequest RequestBuilder::current_fund_rates(std::string_view product) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_mix_fund_rate);
+    writer.put("?productType=");
+    writer.put(product);
+    return writer.get();
+}
+
 net::RestRequest
 RequestBuilder::orderbook(std::string_view symbol, std::string_view product, std::uint32_t depth) noexcept {
     TargetWriter writer{target_};

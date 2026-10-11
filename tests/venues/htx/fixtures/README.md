@@ -30,6 +30,7 @@ Subscribe with `{"sub":"market.BTC-USDT.bbo","id":"id1"}` and the like.
 | `ws_bbo.json` | `market.BTC-USDT.bbo` |
 | `ws_trade.json` | `market.BTC-USDT.trade.detail`, one print |
 | `ws_trades_batch.json` | `market.ETH-USDT.trade.detail`, four prints off one match |
+| `ws_trade_subbed.json`, `ws_trade_backfill.json`, `ws_trade_after_ack.json` | 2026-10-10: a `market.ETH-USDT.trade.detail` subscribe, its ack, the last trade pushed right after it (4 s older than the ack) and the first live push |
 | `ws_depth_step0.json` | `market.BTC-USDT.depth.step0`, each side cut to its first five levels at the bracket boundaries |
 | `ws_depth_step0_full.json` | `market.BTC-USDT.depth.step0`, whole, 150 levels a side; first frame of a 15 s capture on 2026-08-17 |
 | `ws_detail.json` | `market.BTC-USDT.detail`, captured 2026-09-04 |
@@ -48,6 +49,23 @@ Subscribe with `{"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"c1"}`.
 | `ws_notify_error.json` | the answer for `public.NOSUCH-USDT.funding_rate` |
 | `ws_notify_ping.json` | the server's keepalive; answered `{"op":"pong","ts":"1786431124111"}` |
 
+## Spot market socket, `wss://api-aws.huobi.pro/ws`
+
+Captured 2026-10-11. The same gzip, `sub`/`subbed` and `{"ping":n}` dialect as
+the swap market socket, but the bbo names price and size apart, trade rows
+carry a 28-digit `id` beside `tradeId`, and a bbo is pushed only on a change:
+nothing arrives on subscribe for a pair whose top does not move.
+
+| file | topic |
+| --- | --- |
+| `ws_spot_bbo.json` | `market.btcusdt.bbo` |
+| `ws_spot_trade.json` | `market.btcusdt.trade.detail`, the print pushed right after the ack |
+| `ws_spot_trade_exponent.json` | `market.btcusdt.trade.detail`, an `amount` of `1.3E-5` |
+| `ws_spot_depth_step0_full.json` | `market.btcusdt.depth.step0`, whole, 150 levels a side |
+| `ws_spot_subscribe_ack.json` | the answer to the trade.detail subscribe |
+| `ws_spot_error.json` | the answer to `{"sub":"market.nosuchusdt.bbo"}` |
+| `ws_spot_ping.json` | the server's keepalive |
+
 ## REST
 
 | file | request |
@@ -56,6 +74,8 @@ Subscribe with `{"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"c1"}`.
 | `rest_swap_index.json` | `GET /linear-swap-api/v1/swap_index` on 2026-10-06, trimmed from 391 rows to `BTC-USDT`, `ETH-USDT`, `BOME-USDT` and one other |
 | `rest_swap_open_interest.json` | `GET /linear-swap-api/v1/swap_open_interest?business_type=swap` on 2026-10-06, trimmed from 391 rows to `BTC-USDT`, `ETH-USDT`, `SOL-USDT` and one other |
 | `rest_server_time.json` | `GET /api/v1/timestamp` |
+| `rest_spot_symbols.json` | `GET https://api-aws.huobi.pro/v1/common/symbols` on 2026-10-11, trimmed from 2172 rows to `btcusdt`, `ethusdt`, `ethbtc`, an offline, a suspended and an api-disabled pair |
+| `rest_spot_tickers.json` | `GET https://api-aws.huobi.pro/market/tickers` on 2026-10-11, trimmed to `funusdt`, `ethbtc` and `btcusdt` |
 | `rest_error_bad_contract.json` | `GET /linear-swap-api/v1/swap_contract_info?contract_code=NOSUCH-USDT` |
 | `rest_error_invalid_parameter.json` | `GET /linear-swap-ex/market/depth?contract_code=BTC-USDT&type=stepXX` |
 | `rest_error_not_found.json` | `GET /linear-swap-api/v1/no_such_endpoint` (HTTP 404) |

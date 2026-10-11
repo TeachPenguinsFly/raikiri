@@ -55,6 +55,11 @@ public:
 
     [[nodiscard]] net::RestRequest current_fund_rate(std::string_view symbol, std::string_view product) noexcept;
 
+    // every contract or pair in one answer
+    [[nodiscard]] net::RestRequest tickers(MarketType market, std::string_view product) noexcept;
+
+    [[nodiscard]] net::RestRequest current_fund_rates(std::string_view product) noexcept;
+
     [[nodiscard]] net::RestRequest
     orderbook(std::string_view symbol, std::string_view product, std::uint32_t depth) noexcept;
 

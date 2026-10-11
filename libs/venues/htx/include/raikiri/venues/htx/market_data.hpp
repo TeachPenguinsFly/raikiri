@@ -1,5 +1,6 @@
 #pragma once
 
+#include <raikiri/venues/htx/catalogue.hpp>
 #include <raikiri/venues/htx/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -69,5 +70,28 @@ struct WireFunding {
 };
 
 [[nodiscard]] std::expected<WireFunding, WireError> parse_funding(std::string_view frame);
+
+// /market/tickers: every spot pair's top and 24h window; amount is base, vol quote; one stamp for all rows
+struct WireSpotTicker {
+    std::string_view symbol;
+    std::string_view bid;
+    std::string_view bid_qty;
+    std::string_view ask;
+    std::string_view ask_qty;
+    std::string_view amount;
+    std::string_view vol;
+};
+
+struct SpotTickerBuffer {
+    std::array<WireSpotTicker, k_max_spot_symbols> rows{};
+};
+
+struct WireSpotTickers {
+    std::span<const WireSpotTicker> rows;
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireSpotTickers, WireError> parse_spot_tickers(std::string_view body,
+                                                                           SpotTickerBuffer& storage);
 
 } // namespace raikiri::venues::htx

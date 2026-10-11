@@ -110,6 +110,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         Text ping{std::string_view{}};
         Text ts{std::string_view{}};
         Text err_code{std::string_view{}};
+        Text subbed{std::string_view{}};
         std::expected<std::int64_t, WireError> code{0};
         const auto walked = wire::for_each_field(*root, [&](std::string_view key, wire::ondemand::value& value) {
             if (key == "ch") {
@@ -126,6 +127,8 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                 ping = wire::raw_of(value);
             } else if (key == "status") {
                 status = wire::str_of(value);
+            } else if (key == "subbed") {
+                subbed = wire::str_of(value);
             } else if (key == "err-code") {
                 err_code = wire::raw_of(value);
             } else if (key == "code") {
@@ -247,6 +250,10 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         if (*status == "ok") {
             info.kind = EventKind::SubscribeAck;
+            if (subbed.has_value() && ts.has_value() && kind_from_topic(*subbed) == EventKind::Trade) {
+                info.contract_code = code_of(*subbed);
+                info.trade_ack_ms = wire::digits_to_u64(*ts);
+            }
             return info;
         }
         return info;

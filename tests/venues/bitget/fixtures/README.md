@@ -16,14 +16,16 @@ One session subscribing `ticker`, `trade` and `books5` on `BTCUSDT`, read for 14
 | file | source |
 |---|---|
 | `ws_subscribe_ack.json` | the `ticker` acknowledgement |
-| `ws_ticker.json` | one `ticker` push |
 | `ws_trade.json` | a `trade` push carrying four prints |
+| `ws_trades_snapshot.json` | 2026-10-10: the `"action":"snapshot"` backfill a `trade` subscribe on `USDT-FUTURES` `BTCUSDT` opens with, 50 prints |
+| `ws_trades_spot_snapshot.json`, `ws_trades_spot_update.json` | 2026-10-10: the same on `SPOT` `BTCUSDT`, and the first live `"action":"update"` after it |
 
 Other sessions:
 
 | file | source |
 |---|---|
 | `ws_books15.json` | a `books15` push on `BTCUSDT`, recaptured 2026-08-17 |
+| `ws_books1.json`, `ws_books1_spot.json` | 2026-10-11: a `books1` push on `USDT-FUTURES` `BTCUSDT` and on `SPOT` `ETHUSDT` |
 | `ws_books_update.json` | a `books` delta on `BTCUSDT` containing a `"0"` (delete) level |
 | `ws_books_update_one_sided.json` | a `books` delta with `"bids":[]` |
 | `ws_error_unknown_instrument.json` | subscribing `instId=NOSUCHCOINUSDT`, `code:30001` |
@@ -38,6 +40,9 @@ Other sessions:
 | `rest_ticker.json` | `GET /api/v2/mix/market/ticker?symbol=BTCUSDT&productType=USDT-FUTURES` |
 | `rest_orderbook.json` | `GET /api/v2/mix/market/orderbook?symbol=BTCUSDT&productType=USDT-FUTURES&limit=5` |
 | `rest_current_fund_rate.json` | `GET /api/v2/mix/market/current-fund-rate?symbol=BTCUSDT&productType=USDT-FUTURES` |
+| `rest_current_fund_rates.json` | 2026-10-11: the same without `symbol`, trimmed to `BTCUSDT`, `ETHUSDT`, `SHIBUSDT` and the 4 h `XTZUSDT` |
+| `rest_tickers.json` | 2026-10-11: `GET /api/v2/mix/market/tickers?productType=USDT-FUTURES`, trimmed to `BTCUSDT`, `ETHUSDT` and `SHIBUSDT` |
+| `rest_spot_tickers.json` | 2026-10-11: `GET /api/v2/spot/market/tickers`, trimmed to `BTCUSDT` and `ETHUSDT` |
 | `rest_server_time.json` | `GET /api/v2/public/time` |
 | `rest_spot_symbols.json` | `GET /api/v2/spot/public/symbols`, trimmed; `requestTime` is 2026-08-25 |
 | `rest_error_unknown_symbol.json` | the ticker call with `symbol=NOSUCHUSDT`, code `40034` |

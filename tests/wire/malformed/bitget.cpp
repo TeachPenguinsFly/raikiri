@@ -28,12 +28,19 @@ TEST(Malformed, Bitget) {
                {"ws_login_*", [](std::string_view f) { (void)parse_event(f); }},
                {"ws_trade_*", [](std::string_view f) { (void)parse_trade_reply(f); }},
 
-               {"ws_ticker.json",
+               {"ws_books1*",
                 [](std::string_view f) {
+                    static LevelBuffer storage;
                     (void)parse_event(f);
-                    (void)parse_ticker(f);
+                    (void)parse_books(f, storage);
                 }},
                {"ws_trade.json",
+                [](std::string_view f) {
+                    static TradeBuffer storage;
+                    (void)parse_event(f);
+                    (void)parse_trades(f, storage);
+                }},
+               {"ws_trades_*",
                 [](std::string_view f) {
                     static TradeBuffer storage;
                     (void)parse_event(f);
@@ -72,7 +79,11 @@ TEST(Malformed, Bitget) {
                     static LevelBuffer storage;
                     (void)parse_rest_orderbook(f, storage);
                 }},
-               {"rest_current_fund_rate.json", [](std::string_view f) { (void)parse_current_fund_rate(f); }},
+               {"rest_current_fund_rate*",
+                [](std::string_view f) {
+                    static FundRateBuffer storage;
+                    (void)parse_current_fund_rates(f, storage);
+                }},
                {"rest_error_*", [](std::string_view f) { (void)parse_rest_envelope(f); }},
                {"rest_mix_account_bill.json",
                 [](std::string_view f) {
@@ -92,8 +103,19 @@ TEST(Malformed, Bitget) {
                {"rest_server_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
                {"rest_ticker.json",
                 [](std::string_view f) {
+                    static TickerBuffer storage;
                     (void)parse_rest_envelope(f);
-                    (void)parse_ticker(f);
+                    (void)parse_tickers(f, storage);
+                }},
+               {"rest_tickers.json",
+                [](std::string_view f) {
+                    static TickerBuffer storage;
+                    (void)parse_tickers(f, storage);
+                }},
+               {"rest_spot_tickers.json",
+                [](std::string_view f) {
+                    static TickerBuffer storage;
+                    (void)parse_tickers(f, storage);
                 }},
                {"rest_mix_fills.json",
                 [](std::string_view f) {

@@ -31,6 +31,10 @@ struct TradeBuffer {
 [[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
                                                                                 TradeBuffer& storage);
 
+// a trades subscription opens with the coin's last prints, unflagged and hours old on a thin coin;
+// a live push is one block, so several blocks or one block older than the ack mark the backfill
+[[nodiscard]] bool is_backfill(std::span<const WireTrade> trades, std::uint64_t ack_ms) noexcept;
+
 // `funding` is an hourly rate; there is no timestamp, so ts_event stays zero
 struct WireAssetCtx {
     std::string_view coin{};

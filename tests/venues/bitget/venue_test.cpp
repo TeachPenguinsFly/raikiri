@@ -62,7 +62,7 @@ const InstrumentBase* base_for(const exec::InstrumentTable& table, std::string_v
 }
 
 TEST(BitgetWire, EventDispatchResolvesKindAndInstrument) {
-    for (const auto& [file, kind] : {std::pair{"ws_ticker.json", EventKind::Ticker},
+    for (const auto& [file, kind] : {std::pair{"ws_books1.json", EventKind::Top},
                                      std::pair{"ws_trade.json", EventKind::Trade},
                                      std::pair{"ws_books15.json", EventKind::Books},
                                      std::pair{"ws_books_update.json", EventKind::Books}}) {
@@ -73,6 +73,35 @@ TEST(BitgetWire, EventDispatchResolvesKindAndInstrument) {
         // only arg names the instrument on every channel
         EXPECT_EQ(event->inst_id, "BTCUSDT") << file;
     }
+}
+
+TEST(BitgetWire, TheTradeBackfillASubscriptionOpensWithIsKeptApartFromLiveTrades) {
+    static thread_local TradeBuffer storage;
+    for (const auto* file : {"ws_trades_snapshot.json", "ws_trades_spot_snapshot.json"}) {
+        const auto frame = fixture(file);
+        const auto event = parse_event(frame);
+        ASSERT_TRUE(event.has_value()) << file;
+        EXPECT_EQ(event->kind, EventKind::TradeSnapshot) << file;
+        EXPECT_EQ(event->inst_id, "BTCUSDT") << file;
+        const auto prints = parse_trades(frame, storage);
+        ASSERT_TRUE(prints.has_value()) << file;
+        EXPECT_EQ(prints->size(), 50U) << file;
+    }
+
+    // the spot pair's next push: every backfill print is older than it
+    const auto backfill = fixture("ws_trades_spot_snapshot.json");
+    std::uint64_t newest_backfill_ms = 0;
+    for (const auto& print : *parse_trades(backfill, storage)) {
+        newest_backfill_ms = std::max(newest_backfill_ms, print.ts_ms);
+    }
+    const auto live = fixture("ws_trades_spot_update.json");
+    const auto event = parse_event(live);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::Trade);
+    const auto prints = parse_trades(live, storage);
+    ASSERT_TRUE(prints.has_value());
+    ASSERT_FALSE(prints->empty());
+    EXPECT_GT(prints->front().ts_ms, newest_backfill_ms);
 }
 
 TEST(BitgetWire, ControlFramesAreNotMistakenForData) {
@@ -114,28 +143,68 @@ TEST(BitgetWire, KeepaliveIsExactlyFourBytesAndItsAnswerIsNotJson) {
     EXPECT_EQ(err->msg, R"(Unrecognized request:ping\n)");
 }
 
-TEST(BitgetWire, TickerCarriesBookMarkAndFundingOnOneFrame) {
-    const auto frame = fixture("ws_ticker.json");
-    const auto ticker = parse_ticker(frame);
-    ASSERT_TRUE(ticker.has_value());
-    EXPECT_EQ(ticker->inst_id, "BTCUSDT");
-    EXPECT_EQ(ticker->bid_price, "63923.8");
-    EXPECT_EQ(ticker->ask_price, "63923.9");
-    EXPECT_EQ(ticker->bid_qty, "11.3297");
-    EXPECT_EQ(ticker->ask_qty, "15.7309");
-    EXPECT_EQ(ticker->mark_price, "63923.8");
-    EXPECT_EQ(ticker->index_price, "63936.84");
-    EXPECT_EQ(ticker->funding_rate, "0.0001");
-    // base and quote turnover of the same window
-    EXPECT_EQ(ticker->volume_24h_base, "30602.4556");
-    EXPECT_EQ(ticker->volume_24h_quote, "1969900863.29574");
-    EXPECT_EQ(ticker->next_funding_ms, 1'786'435'200'000ULL);
-    // the element's ts, not the frame's outer one
-    EXPECT_EQ(ticker->ts_ms, 1'786'430'817'946ULL);
+TEST(BitgetWire, TickersListCarriesMarkFundingAndTurnoverPerRow) {
+    const auto body = fixture("rest_tickers.json");
+    auto storage = std::make_unique<TickerBuffer>();
+    const auto rows = parse_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    const auto& btc = rows->front();
+    EXPECT_EQ(btc.inst_id, "BTCUSDT");
+    EXPECT_EQ(btc.bid_price, "83013.6");
+    EXPECT_EQ(btc.ask_price, "83013.7");
+    EXPECT_EQ(btc.bid_qty, "7.8717");
+    EXPECT_EQ(btc.ask_qty, "0.9306");
+    EXPECT_EQ(btc.mark_price, "83014");
+    EXPECT_EQ(btc.index_price, "83052.16");
+    EXPECT_EQ(btc.funding_rate, "-0.000018");
+    EXPECT_EQ(btc.volume_24h_base, "6819.5606");
+    EXPECT_EQ(btc.volume_24h_quote, "565627243.19969");
+    EXPECT_EQ(btc.open_interest, "33917.1983000000078");
+    EXPECT_EQ(btc.ts_ms, 1'791'706'610'254ULL);
+    EXPECT_EQ((*rows)[2].inst_id, "SHIBUSDT");
 
     // views point into the caller's buffer, not parser scratch
-    EXPECT_GE(ticker->bid_price.data(), frame.data());
-    EXPECT_LE(ticker->bid_price.data() + ticker->bid_price.size(), frame.data() + frame.size());
+    EXPECT_GE(btc.bid_price.data(), body.data());
+    EXPECT_LE(btc.bid_price.data() + btc.bid_price.size(), body.data() + body.size());
+
+    // the single-contract endpoint answers the same list shape
+    const auto one_body = fixture("rest_ticker.json");
+    const auto one = parse_tickers(one_body, *storage);
+    ASSERT_TRUE(one.has_value());
+    EXPECT_EQ(one->size(), 1U);
+}
+
+TEST(BitgetWire, SpotTickersCarryTurnoverButNoFunding) {
+    const auto body = fixture("rest_spot_tickers.json");
+    auto storage = std::make_unique<TickerBuffer>();
+    const auto rows = parse_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    EXPECT_EQ(rows->front().inst_id, "BTCUSDT");
+    EXPECT_EQ(rows->front().bid_price, "83051.35");
+    EXPECT_EQ(rows->front().volume_24h_base, "852.611041");
+    EXPECT_TRUE(rows->front().mark_price.empty());
+    EXPECT_TRUE(rows->front().funding_rate.empty());
+    EXPECT_TRUE(rows->front().open_interest.empty());
+}
+
+TEST(BitgetWire, BooksOneIsAOneLevelSnapshotOnBothMarkets) {
+    auto storage = std::make_unique<LevelBuffer>();
+    for (const auto& [file, symbol] :
+         {std::pair{"ws_books1.json", "BTCUSDT"}, std::pair{"ws_books1_spot.json", "ETHUSDT"}}) {
+        const auto frame = fixture(file);
+        const auto event = parse_event(frame);
+        ASSERT_TRUE(event.has_value()) << file;
+        EXPECT_EQ(event->kind, EventKind::Top) << file;
+        const auto books = parse_books(frame, *storage);
+        ASSERT_TRUE(books.has_value()) << file;
+        EXPECT_EQ(books->inst_id, symbol);
+        EXPECT_TRUE(books->snapshot);
+        EXPECT_EQ(books->bids.size(), 1U);
+        EXPECT_EQ(books->asks.size(), 1U);
+        EXPECT_EQ(books->prev_seq_id, 0);
+    }
 }
 
 TEST(BitgetWire, TradesCarryTakerSideDirectly) {
@@ -274,15 +343,35 @@ TEST(BitgetWire, ServerTimeAndFundRateParse) {
     ASSERT_TRUE(time.has_value());
     EXPECT_EQ(*time, 1'786'430'803'575ULL);
 
+    auto storage = std::make_unique<FundRateBuffer>();
     const auto funding_body = fixture("rest_current_fund_rate.json");
-    const auto funding = parse_current_fund_rate(funding_body);
-    ASSERT_TRUE(funding.has_value());
-    EXPECT_EQ(funding->symbol, "BTCUSDT");
-    EXPECT_EQ(funding->funding_rate, "0.0001");
+    const auto one = parse_current_fund_rates(funding_body, *storage);
+    ASSERT_TRUE(one.has_value());
+    ASSERT_EQ(one->size(), 1U);
+    const auto& funding = one->front();
+    EXPECT_EQ(funding.symbol, "BTCUSDT");
+    EXPECT_EQ(funding.funding_rate, "0.0001");
     // this endpoint names the interval fundingRateInterval and the settlement nextUpdate
-    EXPECT_EQ(funding->interval_hours, "8");
-    EXPECT_EQ(funding->next_update_ms, 1'786'435'200'000ULL);
-    EXPECT_EQ(funding->min_rate, "-0.003");
+    EXPECT_EQ(funding.interval_hours, "8");
+    EXPECT_EQ(funding.next_update_ms, 1'786'435'200'000ULL);
+    EXPECT_EQ(funding.min_rate, "-0.003");
+
+    // without a symbol it lists every contract, each on its own clock
+    const auto all_body = fixture("rest_current_fund_rates.json");
+    const auto all = parse_current_fund_rates(all_body, *storage);
+    ASSERT_TRUE(all.has_value());
+    ASSERT_EQ(all->size(), 4U);
+    EXPECT_EQ((*all)[3].symbol, "XTZUSDT");
+    const auto clock = funding_clock_of((*all)[3]);
+    ASSERT_TRUE(clock.has_value());
+    EXPECT_EQ(clock->interval_s, 14'400U);
+    EXPECT_EQ(clock->next_ms, 1'791'720'000'000ULL);
+
+    auto broken = (*all)[3];
+    broken.interval_hours = "";
+    EXPECT_FALSE(funding_clock_of(broken).has_value());
+    broken.interval_hours = "0.5";
+    EXPECT_FALSE(funding_clock_of(broken).has_value());
 }
 
 TEST(BitgetWire, RestShapesAreNotWebsocketShapes) {
@@ -298,15 +387,17 @@ TEST(BitgetWire, RestShapesAreNotWebsocketShapes) {
     auto ws_storage = std::make_unique<LevelBuffer>();
     EXPECT_FALSE(parse_books(book_body, *ws_storage).has_value());
 
-    // the rest ticker names the instrument symbol and omits nextFundingTime
-    const auto ticker_body = fixture("rest_ticker.json");
-    EXPECT_FALSE(parse_ticker(ticker_body).has_value());
+    // the ws reader wants arg.instId, which no rest list carries
+    const auto tickers_body = fixture("rest_tickers.json");
+    EXPECT_FALSE(parse_books(tickers_body, *ws_storage).has_value());
 }
 
 TEST(BitgetWire, GarbageIsRefusedRatherThanPartiallyRead) {
     auto levels = std::make_unique<LevelBuffer>();
     auto trades = std::make_unique<TradeBuffer>();
     auto contracts = std::make_unique<ContractBuffer>();
+    auto tickers = std::make_unique<TickerBuffer>();
+    auto rates = std::make_unique<FundRateBuffer>();
     for (const char* junk : {"",
                              "{",
                              "[]",
@@ -317,15 +408,15 @@ TEST(BitgetWire, GarbageIsRefusedRatherThanPartiallyRead) {
                              R"({"arg":{"channel":"ticker","instId":"BTCUSDT"},"data":[{}]})"}) {
         const std::string_view frame{junk};
         (void)parse_event(frame);
-        EXPECT_FALSE(parse_ticker(frame).has_value()) << junk;
+        EXPECT_FALSE(parse_tickers(frame, *tickers).has_value()) << junk;
         EXPECT_FALSE(parse_trades(frame, *trades).has_value()) << junk;
         EXPECT_FALSE(parse_books(frame, *levels).has_value()) << junk;
         EXPECT_FALSE(parse_contracts(frame, *contracts).has_value()) << junk;
         EXPECT_FALSE(parse_server_time(frame).has_value()) << junk;
-        EXPECT_FALSE(parse_current_fund_rate(frame).has_value()) << junk;
+        EXPECT_FALSE(parse_current_fund_rates(frame, *rates).has_value()) << junk;
     }
     // an empty data array must not become a zero reading
-    EXPECT_FALSE(parse_current_fund_rate(R"({"code":"40034","msg":"x","data":[]})").has_value());
+    EXPECT_FALSE(parse_current_fund_rates(R"({"code":"40034","msg":"x","data":[]})", *rates).has_value());
 }
 
 TEST(BitgetMap, TickComposesPricePlaceWithPriceEndStep) {
@@ -466,6 +557,31 @@ TEST(BitgetMap, TickerBecomesTopOfBook) {
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 
+TEST(BitgetMap, BooksOneBecomesTopOfBook) {
+    const auto table = table_from_catalogue();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_books1.json");
+    const auto wire = parse_books(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto bbo = map_bbo(*wire, table, k_ingest);
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid.raw, 830'136); // 83013.6 / 0.1
+    EXPECT_EQ(bbo->ask.raw, 830'137);
+    EXPECT_EQ(bbo->bid_qty.raw, 78'717); // 7.8717 / 0.0001
+    EXPECT_EQ(bbo->ask_qty.raw, 19'150);
+    EXPECT_EQ(bbo->ts_event.ns, 1'791'706'614'780ULL * 1'000'000ULL);
+    EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
+
+    // a book with one side empty quotes nothing
+    auto one_sided = *wire;
+    one_sided.asks = {};
+    EXPECT_FALSE(map_bbo(one_sided, table, k_ingest).has_value());
+    auto unknown = *wire;
+    unknown.inst_id = "PEPEUSDT";
+    EXPECT_FALSE(map_bbo(unknown, table, k_ingest).has_value());
+}
+
 TEST(BitgetMap, BookSnapshotCrossesIntoTheDomain) {
     const auto table = table_from_catalogue();
     auto storage = std::make_unique<LevelBuffer>();
@@ -592,7 +708,7 @@ TEST(BitgetMap, MissingVenueTimeFallsBackToIngest) {
     EXPECT_EQ(trade->ts_event.ns, 0U);
 }
 
-TEST(BitgetMap, FundingRidesTheTickerFrame) {
+TEST(BitgetMap, FundingJoinsTheTickersRowToTheSettlementClock) {
     const auto table = table_from_catalogue();
     WireTicker wire{};
     wire.inst_id = "BTCUSDT";
@@ -603,38 +719,47 @@ TEST(BitgetMap, FundingRidesTheTickerFrame) {
     wire.mark_price = "63923.8";
     wire.index_price = "63930.17";
     wire.funding_rate = "0.0001";
-    wire.next_funding_ms = 1'786'435'200'000ULL;
     wire.ts_ms = 1'786'430'817'946ULL;
 
-    const auto funding = map_funding(wire, table, k_ingest);
+    const FundingClock clock{.next_ms = 1'786'435'200'000ULL, .interval_s = 0};
+    const auto funding = map_funding(wire, clock, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000); // 0.0001 * 1e9
     EXPECT_EQ(funding->mark_price.raw, 639'238);
     EXPECT_EQ(funding->index_price.raw, 639'301) << "floored onto the tick";
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'435'200'000ULL * 1'000'000ULL);
-    // from the catalogue
+    // a clock without an interval falls back to the catalogue
     EXPECT_EQ(funding->interval_s, 28'800U);
-    // this channel has no forecast, so it stays undef
+    // bitget publishes no forecast, so it stays undef
     EXPECT_TRUE(funding->predicted_rate.is_undef());
+
+    // the venue moved this contract to 4 h, and the polled clock is a settlement behind
+    const FundingClock stale{.next_ms = wire.ts_ms - 1'000, .interval_s = 14'400};
+    const auto rolled = map_funding(wire, stale, table, k_ingest);
+    ASSERT_TRUE(rolled.has_value());
+    EXPECT_EQ(rolled->interval_s, 14'400U);
+    EXPECT_EQ(rolled->next_funding_time.ns, (wire.ts_ms - 1'000 + 14'400'000) * 1'000'000ULL);
 
     // A contract quoting no rate is not a contract funding at zero.
     wire.funding_rate = "";
-    EXPECT_FALSE(map_funding(wire, table, k_ingest).has_value());
+    EXPECT_FALSE(map_funding(wire, clock, table, k_ingest).has_value());
 }
 
-TEST(BitgetMap, TurnoverRidesTheSameTickerFrame) {
+TEST(BitgetMap, TurnoverRidesTheSameTickersRow) {
     const auto table = table_from_catalogue();
-    const auto frame = fixture("ws_ticker.json");
-    const auto wire = parse_ticker(frame);
-    ASSERT_TRUE(wire.has_value());
+    const auto body = fixture("rest_tickers.json");
+    auto storage = std::make_unique<TickerBuffer>();
+    const auto rows = parse_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto* wire = rows->data();
 
     const auto stats = map_ticker_stats(*wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_base.raw, 30'602'455'600'000LL);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 1'969'900'863'295'740LL);
-    EXPECT_EQ(stats->ts_event.ns, 1'786'430'817'946ULL * 1'000'000ULL);
+    EXPECT_EQ(stats->volume_24h_base.raw, 6'819'560'600'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 565'627'243'199'690LL);
+    EXPECT_EQ(stats->ts_event.ns, 1'791'706'610'254ULL * 1'000'000ULL);
     // holdingAmount is in the coin; its padding past nine decimals truncates
-    EXPECT_EQ(stats->open_interest.raw, 38'904'907'000'000LL);
+    EXPECT_EQ(stats->open_interest.raw, 33'917'198'300'000LL);
 
     // an unknown instrument has no cell to write
     auto unknown = *wire;
@@ -789,10 +914,10 @@ TEST(BitgetWs, IncompleteSubscriptionsAreRefusedRatherThanSent) {
     EXPECT_FALSE(protocol.subscribe_frame({}).has_value());
 }
 
-TEST(BitgetWs, OneChannelServesThreeSubscriptionKinds) {
-    EXPECT_EQ(channel_for(exec::SubKind::Bbo), "ticker");
-    EXPECT_EQ(channel_for(exec::SubKind::Funding), "ticker");
-    EXPECT_EQ(channel_for(exec::SubKind::MarkPrice), "ticker");
+TEST(BitgetWs, TheQuoteRidesBooksOneAndFundingIsPolled) {
+    EXPECT_EQ(channel_for(exec::SubKind::Bbo), "books1");
+    EXPECT_TRUE(channel_for(exec::SubKind::Funding).empty());
+    EXPECT_TRUE(channel_for(exec::SubKind::MarkPrice).empty());
     EXPECT_EQ(channel_for(exec::SubKind::Trades), "trade");
     EXPECT_EQ(channel_for(exec::SubKind::Depth), "books15");
     EXPECT_TRUE(channel_for(exec::SubKind::Kline).empty());
@@ -816,6 +941,11 @@ TEST(BitgetRest, EveryMixTargetCarriesProductType) {
     EXPECT_EQ(builder.contracts(product_type(false)).target, "/api/v2/mix/market/contracts?productType=USDT-FUTURES");
     EXPECT_EQ(builder.ticker("BTCUSDT", product_type(false)).target,
               "/api/v2/mix/market/ticker?symbol=BTCUSDT&productType=USDT-FUTURES");
+    EXPECT_EQ(builder.tickers(MarketType::Perp, product_type(false)).target,
+              "/api/v2/mix/market/tickers?productType=USDT-FUTURES");
+    EXPECT_EQ(builder.tickers(MarketType::Spot, product_type(false)).target, "/api/v2/spot/market/tickers");
+    EXPECT_EQ(builder.current_fund_rates(product_type(false)).target,
+              "/api/v2/mix/market/current-fund-rate?productType=USDT-FUTURES");
     EXPECT_EQ(builder.current_fund_rate("BTCUSDT", product_type(false)).target,
               "/api/v2/mix/market/current-fund-rate?symbol=BTCUSDT&productType=USDT-FUTURES");
     EXPECT_EQ(builder.orderbook("BTCUSDT", product_type(false), 5).target,

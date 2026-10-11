@@ -9,8 +9,8 @@ using wire::guarded;
 using wire::session;
 
 EventKind kind_from_channel(std::string_view channel) noexcept {
-    if (channel == "ticker") {
-        return EventKind::Ticker;
+    if (channel == "books1") {
+        return EventKind::Top;
     }
     if (channel == "trade") {
         return EventKind::Trade;
@@ -52,6 +52,11 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                                             : EventKind::SubscribeAck;
             return info;
         }
+        // read before arg: the parser cannot step back out of it
+        const auto action = wire::opt_str(*root, "action");
+        if (!action.has_value()) {
+            return std::unexpected(action.error());
+        }
         auto arg = wire::req_object(*root, "arg");
         if (!arg.has_value()) {
             return std::unexpected(arg.error());
@@ -61,6 +66,9 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return std::unexpected(channel.error());
         }
         info.kind = kind_from_channel(*channel);
+        if (info.kind == EventKind::Trade && *action == "snapshot") {
+            info.kind = EventKind::TradeSnapshot;
+        }
         const auto inst_id = wire::opt_str(*arg, "instId");
         if (!inst_id.has_value()) {
             return std::unexpected(inst_id.error());

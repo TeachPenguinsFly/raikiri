@@ -80,6 +80,8 @@ One session per subscription type, each read for 12–20 s. Keepalive is
 | `ws_bbo.json` | first `bbo` push on `BTC` |
 | `ws_trades.json` | a `trades` push carrying one print |
 | `ws_trades_batch.json` | a `trades` push carrying two |
+| `ws_trades_subscribe_ack.json`, `ws_trades_snapshot.json`, `ws_trades_after_snapshot.json` | 2026-10-10: a `trades` subscribe on `BTC`, its acknowledgement, the unflagged backfill of 30 prints reaching a minute back, and the first live push (13 prints of one block) |
+| `ws_trades_snapshot_empty.json` | 2026-10-10: the backfill of `@200`, a spot pair with no prints; empty and naming no coin |
 | `ws_l2book_snapshot.json`, `ws_l2book_next.json` | consecutive `l2Book` frames off one socket |
 | `ws_active_asset_ctx.json` | first `activeAssetCtx` push on `BTC` |
 | `ws_error.json` | the reply to a subscription of `{"type":"nosuchchannel"}`; the venue closes the socket after it |

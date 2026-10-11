@@ -138,4 +138,8 @@ struct WireTrades {
 
 [[nodiscard]] std::expected<WireTrades, WireError> parse_trades(std::string_view frame, PrintBuffer& storage);
 
+// a subscription opens with the last prints, unflagged and without ids, pushed within a second;
+// a symbol that never traded sends none, so a first push long after is live
+[[nodiscard]] bool is_backfill(const WireTrades& trades, std::uint64_t subscribed_ms) noexcept;
+
 } // namespace raikiri::venues::bitunix

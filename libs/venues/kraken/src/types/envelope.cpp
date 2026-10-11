@@ -21,8 +21,11 @@ EventKind kind_from_feed(std::string_view feed) noexcept {
     if (feed == "ticker_lite") {
         return EventKind::TickerLite;
     }
-    if (feed == "trade" || feed == "trade_snapshot") {
+    if (feed == "trade") {
         return EventKind::Trade;
+    }
+    if (feed == "trade_snapshot") {
+        return EventKind::TradeSnapshot;
     }
     if (feed == "book" || feed == "book_snapshot") {
         return EventKind::Book;

@@ -972,6 +972,28 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .max_client_order_id_len = 36,
         .headline_order_rate_per_s = 0,
     };
+    table[static_cast<std::size_t>(VenueId::Nado)] = {
+        .venue = VenueId::Nado,
+        .markets = {.perp = true},
+        // market data only; orders need an eip-712 signer over the ink clearinghouse
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // archive /v2/contracts: base and quote 24h volume and open interest
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 0,
+    };
     return table;
 }();
 

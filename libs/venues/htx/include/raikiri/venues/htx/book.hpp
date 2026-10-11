@@ -11,7 +11,8 @@
 
 namespace raikiri::venues::htx {
 
-// bid/ask are [price, contracts]; tick.ts is engine time and the root ts is send time
+// swap: bid/ask are [price, contracts]; spot: bid/ask are prices beside bidSize/askSize in base
+// tick.ts (spot quoteTime) is engine time and the root ts is send time; spot's seqId lands in version
 struct WireBbo {
     std::string_view contract_code;
     std::string_view bid_price;
@@ -36,7 +37,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// full snapshot every frame; version is epoch seconds, so only mrid orders frames
+// full snapshot every frame; swap's version is epoch seconds, so mrid orders frames; spot has no mrid and its version is a sequence
 struct WireDepth {
     std::string_view contract_code;
     std::uint64_t ts_ms{0};

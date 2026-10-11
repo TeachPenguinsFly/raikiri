@@ -225,6 +225,23 @@ TEST(BitunixStream, PrintsTakeTheEnvelopeMillisecond) {
     EXPECT_EQ(trade->ts_event.ns, 1'790'964'212'024'000'000ULL);
 }
 
+TEST(BitunixStream, TheFirstPushAfterASubscriptionIsItsBackfill) {
+    // the socket's connect stamp stands in for the moment the subscription went out
+    constexpr std::uint64_t k_subscribed_ms = 1'791'665'028'169ULL;
+    PrintBuffer storage;
+    const auto backfill_body = fixture("ws_trade_backfill.json");
+    const auto backfill = parse_trades(backfill_body, storage);
+    ASSERT_TRUE(backfill.has_value());
+    EXPECT_EQ(backfill->prints.size(), 2U) << "the last two prints, stamped with the push's millisecond";
+    EXPECT_TRUE(is_backfill(*backfill, k_subscribed_ms));
+
+    // only the first push is checked; a symbol that never traded sends no backfill
+    const auto live_body = fixture("ws_trade_after_backfill.json");
+    const auto live = parse_trades(live_body, storage);
+    ASSERT_TRUE(live.has_value());
+    EXPECT_FALSE(is_backfill(*live, live->ts_ms - 10'000));
+}
+
 TEST(BitunixCaps, ServesPerpAndSpotMarketDataAndPerpOrdersOverRest) {
     const auto& caps = exec::caps_of(VenueId::Bitunix);
     EXPECT_EQ(caps.venue, VenueId::Bitunix);

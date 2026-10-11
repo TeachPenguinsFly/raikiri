@@ -275,6 +275,53 @@ TEST(HyperliquidWire, OneFrameCanCarrySeveralPrints) {
     EXPECT_EQ((*trades)[0].ts_ms, (*trades)[1].ts_ms);
 }
 
+TEST(HyperliquidWire, ATradesAckNamesTheCoinItsBackfillBelongsTo) {
+    const auto trades_frame = fixture("ws_trades_subscribe_ack.json");
+    const auto trades = parse_subscribe_ack(trades_frame);
+    ASSERT_TRUE(trades.has_value());
+    EXPECT_EQ(trades->type, "trades");
+    EXPECT_EQ(trades->coin, "BTC");
+    const auto book_frame = fixture("ws_subscribe_ack.json");
+    const auto book = parse_subscribe_ack(book_frame);
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->type, "l2Book");
+}
+
+TEST(HyperliquidWire, TheBackfillASubscriptionOpensWithIsDroppedAndTheNextBlockKept) {
+    // the ack of this capture landed about 0.6 s after the first live block's stamp
+    constexpr std::uint64_t k_ack_ms = 1'791'664'737'000ULL;
+    auto storage = std::make_unique<TradeBuffer>();
+    const auto backfill_frame = fixture("ws_trades_snapshot.json");
+    const auto backfill = parse_trades(backfill_frame, *storage);
+    ASSERT_TRUE(backfill.has_value());
+    ASSERT_EQ(backfill->size(), 30U);
+    EXPECT_LT(k_ack_ms - backfill->front().ts_ms, 60'000U) << "a minute of BTC history";
+    EXPECT_TRUE(is_backfill(*backfill, k_ack_ms));
+
+    const auto live_frame = fixture("ws_trades_after_snapshot.json");
+    const auto live = parse_trades(live_frame, *storage);
+    ASSERT_TRUE(live.has_value());
+    ASSERT_EQ(live->size(), 13U);
+    EXPECT_LT(live->front().ts_ms, k_ack_ms) << "a block is stamped before it reaches us";
+    EXPECT_FALSE(is_backfill(*live, k_ack_ms));
+}
+
+TEST(HyperliquidWire, AOneBlockBackfillIsKnownByItsAge) {
+    // a backfill of one print, as on a thin coin; a coin that never traded gets an empty one
+    auto storage = std::make_unique<TradeBuffer>();
+    const auto old_frame = fixture("ws_trades.json");
+    const auto old = parse_trades(old_frame, *storage);
+    ASSERT_TRUE(old.has_value());
+    EXPECT_TRUE(is_backfill(*old, old->front().ts_ms + 2'001));
+    EXPECT_FALSE(is_backfill(*old, old->front().ts_ms + 2'000));
+    const auto old_ms = old->front().ts_ms;
+    const auto empty_frame = fixture("ws_trades_snapshot_empty.json");
+    const auto empty = parse_trades(empty_frame, *storage);
+    ASSERT_TRUE(empty.has_value());
+    EXPECT_TRUE(empty->empty());
+    EXPECT_FALSE(is_backfill(*empty, old_ms));
+}
+
 TEST(HyperliquidWire, L2BookIsSnapshotOnlyWithNoContinuityChain) {
     // consecutive frames carry no sequence ids, so the newest frame replaces the book
     auto storage = std::make_unique<LevelBuffer>();

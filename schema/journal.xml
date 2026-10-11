@@ -88,6 +88,7 @@
       <validValue name="Upbit">42</validValue>
       <validValue name="Bithumb">43</validValue>
       <validValue name="Bitstamp">44</validValue>
+      <validValue name="Nado">45</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

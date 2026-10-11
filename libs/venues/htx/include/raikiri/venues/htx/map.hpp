@@ -45,6 +45,17 @@ map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNan
 map_ticker_stats(const WireDetail& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // venue_seq takes tick.mrid, the only field that orders frames
+// a tickers row restates a spot top the bbo channel has had no change to push
+[[nodiscard]] std::optional<Bbo> map_spot_ticker_bbo(const WireSpotTicker& wire,
+                                                     std::uint64_t ts_ms,
+                                                     const exec::InstrumentTable& table,
+                                                     UnixNanos ts_init);
+
+[[nodiscard]] std::optional<TickerStats> map_spot_ticker_stats(const WireSpotTicker& wire,
+                                                               std::uint64_t ts_ms,
+                                                               const exec::InstrumentTable& table,
+                                                               UnixNanos ts_init);
+
 [[nodiscard]] std::optional<BookSnapshot>
 map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 

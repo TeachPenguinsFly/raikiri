@@ -89,17 +89,22 @@ std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
                 return std::unexpected(wire::map_error(ec));
             }
+            const auto base = wire::opt_str(obj, "base-currency");
+            const auto quote = wire::opt_str(obj, "quote-currency");
             const auto symbol = wire::req_str(obj, "symbol");
             const auto state = wire::opt_str(obj, "state");
             const auto trading = wire::opt_str(obj, "api-trading");
             const auto price_precision = wire::opt_u64(obj, "price-precision");
             const auto amount_precision = wire::opt_u64(obj, "amount-precision");
             const auto min_value = num_of(obj, "min-order-value");
-            if (!symbol.has_value() || !state.has_value() || !trading.has_value() || !price_precision.has_value() ||
+            if (!base.has_value() || !quote.has_value() || !symbol.has_value() || !state.has_value() ||
+                !trading.has_value() || !price_precision.has_value() ||
                 !amount_precision.has_value() || !min_value.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
             storage.symbols[count] = {.symbol = *symbol,
+                                      .base_currency = *base,
+                                      .quote_currency = *quote,
                                       .state = *state,
                                       .api_trading = *trading,
                                       .min_order_value = *min_value,

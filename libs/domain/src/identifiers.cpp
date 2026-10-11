@@ -13,6 +13,7 @@ constexpr std::array<std::string_view, k_venue_count> k_venue_names{
     "weex",    "aster",   "grvt",        "lighter",  "backpack",  "cryptocom",       "blofin", "apex",    "edgex",
     "dydx",    "phemex",  "extended",    "pacifica", "lbank",     "bitunix",         "toobit", "derive",  "arcus",
     "ostium",  "paradex", "vest",        "bullish",  "ondoperps", "polymarketperps", "upbit",  "bithumb", "bitstamp",
+    "nado",
 };
 
 } // namespace

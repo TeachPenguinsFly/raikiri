@@ -203,7 +203,7 @@ TEST(CoinbaseVenue, MarketsTheCapsRowDeniesAreRefusedAtBuild) {
 TEST(CoinbaseWire, EventDispatchResolvesKindAndProduct) {
     for (const auto& [file, kind] : {std::pair{"ws_ticker.json", EventKind::Ticker},
                                      std::pair{"ws_match.json", EventKind::Match},
-                                     std::pair{"ws_last_match.json", EventKind::Match},
+                                     std::pair{"ws_last_match.json", EventKind::LastMatch},
                                      std::pair{"ws_subscriptions.json", EventKind::Subscriptions},
                                      std::pair{"ws_error.json", EventKind::Error},
                                      std::pair{"ws_l2_snapshot.json", EventKind::Snapshot},
@@ -270,7 +270,7 @@ TEST(CoinbaseWire, MatchSideIsTheMakers) {
 }
 
 TEST(CoinbaseWire, LastMatchParsesAsAMatch) {
-    // the subscribe replay is a real print
+    // the subscribe replay has a match's shape; only its type keeps it off the tape
     const auto frame = fixture("ws_last_match.json");
     const auto wire = parse_match(frame);
     ASSERT_TRUE(wire.has_value());

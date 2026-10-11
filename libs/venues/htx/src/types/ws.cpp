@@ -169,6 +169,10 @@ std::string_view spot_private_path() noexcept {
     return ep::k_ws_spot_private;
 }
 
+std::string_view spot_market_path() noexcept {
+    return ep::k_ws_spot_market;
+}
+
 std::string_view Protocol::last_auth_message() const noexcept {
     return {auth_msg_.data(), auth_msg_len_};
 }

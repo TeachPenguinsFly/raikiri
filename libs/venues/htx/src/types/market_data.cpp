@@ -62,6 +62,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             std::expected<std::string_view, WireError> price{std::string_view{}};
             std::expected<std::uint64_t, WireError> ts{0};
             std::expected<std::uint64_t, WireError> id{0};
+            std::expected<std::uint64_t, WireError> trade_id{std::unexpected(WireError::MissingField)};
             std::expected<std::string_view, WireError> direction{std::unexpected(WireError::MissingField)};
             const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
                 if (key == "amount") {
@@ -74,12 +75,18 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
                     ts = wire::u64_of(value);
                 } else if (key == "id") {
                     id = wire::u64_of(value);
+                } else if (key == "tradeId") {
+                    trade_id = wire::u64_of(value);
                 } else if (key == "direction") {
                     direction = wire::str_of(value);
                 }
             });
             if (!walked.has_value()) {
                 return std::unexpected(walked.error());
+            }
+            // spot's id runs past 64 bits; its tradeId is the venue's sequence
+            if (trade_id.has_value()) {
+                id = *trade_id;
             }
             if (!amount.has_value() || !quantity.has_value() || !ts.has_value() || !id.has_value() ||
                 !price.has_value() || !direction.has_value() || direction->empty()) {
@@ -144,6 +151,62 @@ std::expected<std::span<const WireOpenInterest>, WireError> parse_open_interest(
 std::expected<std::span<const WireOpenInterest>, WireError> parse_swap_index(std::string_view body,
                                                                              OpenInterestBuffer& storage) {
     return read_coin_rows(body, "index_price", storage);
+}
+
+std::expected<WireSpotTickers, WireError> parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<WireSpotTickers, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireSpotTicker out{};
+            std::expected<std::string_view, WireError> symbol{std::unexpected(WireError::MissingField)};
+            const auto walked = wire::for_each_field(obj, [&](std::string_view key, wire::ondemand::value& value) {
+                if (key == "symbol") {
+                    symbol = wire::str_of(value);
+                    return;
+                }
+                std::string_view* field = key == "bid"       ? &out.bid
+                                          : key == "bidSize" ? &out.bid_qty
+                                          : key == "ask"     ? &out.ask
+                                          : key == "askSize" ? &out.ask_qty
+                                          : key == "amount"  ? &out.amount
+                                          : key == "vol"     ? &out.vol
+                                                             : nullptr;
+                if (field != nullptr) {
+                    if (const auto raw = wire::raw_of(value); raw.has_value()) {
+                        *field = *raw;
+                    }
+                }
+            });
+            if (!walked.has_value()) {
+                return std::unexpected(walked.error());
+            }
+            if (!symbol.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.symbol = *symbol;
+            storage.rows[count++] = out;
+        }
+        const auto ts = wire::opt_u64(*root, "ts");
+        if (!ts.has_value()) {
+            return std::unexpected(ts.error());
+        }
+        return WireSpotTickers{.rows = {storage.rows.data(), count}, .ts_ms = *ts};
+    });
 }
 
 std::expected<WireDetail, WireError> parse_detail(std::string_view frame) {

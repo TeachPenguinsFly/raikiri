@@ -32,6 +32,9 @@ struct EventInfo {
     std::string_view contract_code; // empty on control frames and keepalives
 
     std::string_view keepalive_ts;
+
+    // a trade.detail ack's stamp; the last trade pushed right after it is older
+    std::uint64_t trade_ack_ms{0};
 };
 
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);

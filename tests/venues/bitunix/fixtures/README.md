@@ -16,6 +16,7 @@ Rows are kept verbatim; long lists are cut to the rows a test names.
 | `ws_pong.json` | the answer to `{"op":"ping","ping":<unix s>}` |
 | `ws_depth_book1.json`, `ws_depth_book15.json` | `depth_book1` and `depth_book15`, BTCUSDT |
 | `ws_trade.json` | `trade`, BTCUSDT |
+| `ws_trade_backfill.json`, `ws_trade_after_backfill.json` | 2026-10-10: the first `trade` push after subscribing BTCUSDT (the last two prints, older than the subscription; the socket's `connect` was stamped 1791665028169) and the next one |
 
 The `doc_*` files are the response examples printed in the official API docs,
 copied verbatim on 2026-10-02: no key has reached the private endpoints, so no

@@ -43,6 +43,7 @@ CUSTODY = {
     "deribit": "CEX",
     "derive": "DEX",
     "bitstamp": "CEX",
+    "nado": "DEX",
     "bithumb": "CEX",
     "upbit": "CEX",
     "edgex": "DEX",

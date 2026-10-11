@@ -16,7 +16,8 @@ namespace raikiri::venues::coinbase {
 
 enum class EventKind : std::uint8_t {
     Ticker,        // ticker: best bid/ask, republished on every match
-    Match,         // match, and the last_match replay sent on subscribe
+    Match,         // a live print
+    LastMatch,     // the print a matches subscription opens with, already history
     Snapshot,      // level2_batch's opening book, whole
     L2Update,      // level2_batch's changes
     Subscriptions, // the subscribe confirmation

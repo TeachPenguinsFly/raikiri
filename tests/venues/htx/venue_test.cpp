@@ -254,6 +254,37 @@ TEST(HtxWire, SeparatesAnAcknowledgementFromARefusal) {
     EXPECT_EQ(notify_err->msg, "Contract doesn't exist.");
 }
 
+TEST(HtxWire, TheTradePushedRightAfterAnAckIsOlderThanTheAck) {
+    const auto ack_frame = load("ws_trade_subbed.json");
+    const auto ack = parse_event(ack_frame);
+    ASSERT_TRUE(ack.has_value());
+    EXPECT_EQ(ack->kind, EventKind::SubscribeAck);
+    EXPECT_EQ(ack->contract_code, "ETH-USDT");
+    EXPECT_EQ(ack->trade_ack_ms, 1'791'665'388'961ULL);
+
+    TradeBuffer storage;
+    const auto backfill_frame = load("ws_trade_backfill.json");
+    const auto backfill = parse_trades(backfill_frame, storage);
+    ASSERT_TRUE(backfill.has_value());
+    ASSERT_FALSE(backfill->empty());
+    for (const auto& print : *backfill) {
+        EXPECT_LT(print.ts_ms, ack->trade_ack_ms) << "history, dropped";
+    }
+    const auto live_frame = load("ws_trade_after_ack.json");
+    const auto live = parse_trades(live_frame, storage);
+    ASSERT_TRUE(live.has_value());
+    ASSERT_FALSE(live->empty());
+    for (const auto& print : *live) {
+        EXPECT_GE(print.ts_ms, ack->trade_ack_ms) << "live, kept";
+    }
+
+    // other acks carry no trade stamp
+    const auto book_ack_frame = load("ws_subscribe_ack.json");
+    const auto book_ack = parse_event(book_ack_frame);
+    ASSERT_TRUE(book_ack.has_value());
+    EXPECT_EQ(book_ack->trade_ack_ms, 0U);
+}
+
 TEST(HtxWire, ParsesBbo) {
     const auto frame = load("ws_bbo.json");
     const auto wire = parse_bbo(frame);
@@ -966,6 +997,172 @@ TEST(HtxIndex, OneCallCarriesEveryPerpsIndex) {
     ASSERT_TRUE(index.has_value());
     // truncated past nine decimals
     EXPECT_EQ(index->second.raw, 86'338'181'428'571LL);
+}
+
+exec::InstrumentTable spot_catalogue() {
+    static thread_local SpotSymbolBuffer storage;
+    const auto body = load("rest_spot_symbols.json");
+    const auto rows = parse_spot_symbols(body, storage);
+    EXPECT_TRUE(rows.has_value());
+    exec::InstrumentTable table;
+    for (const auto& row : *rows) {
+        if (const auto instrument = map_spot_symbol(row); instrument.has_value()) {
+            EXPECT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+    return table;
+}
+
+TEST(HtxSpot, LoadsOnlineApiTradablePairsUnderCanonicalNames) {
+    static thread_local SpotSymbolBuffer storage;
+    const auto body = load("rest_spot_symbols.json");
+    const auto rows = parse_spot_symbols(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 6U);
+    EXPECT_EQ((*rows)[2].base_currency, "btc");
+    EXPECT_EQ((*rows)[2].quote_currency, "usdt");
+
+    const auto table = spot_catalogue();
+    // offline, suspended and api-disabled rows stay out
+    EXPECT_EQ(table.find("gorkusdt"), nullptr);
+    EXPECT_EQ(table.find("wlfiusdt"), nullptr);
+    EXPECT_EQ(table.find("nuusdt"), nullptr);
+    const auto& btc = base_for(table, "btcusdt");
+    EXPECT_EQ(btc.id.market(), MarketType::Spot);
+    EXPECT_EQ(btc.local_symbol.view(), "BTC/USDT");
+    EXPECT_EQ(btc.tick_size.raw, 10'000'000LL);
+    EXPECT_EQ(btc.lot_size.raw, 1'000LL);
+    EXPECT_EQ(base_for(table, "ethbtc").local_symbol.view(), "ETH/BTC");
+}
+
+TEST(HtxSpot, ReadsTheSpotBboWhosePricesAndSizesAreSeparateFields) {
+    const auto frame = load("ws_spot_bbo.json");
+    const auto wire = parse_bbo(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->contract_code, "btcusdt");
+    EXPECT_EQ(wire->bid_price, "83043.29");
+    EXPECT_EQ(wire->bid_qty, "1.316155");
+    EXPECT_EQ(wire->ask_price, "83043.3");
+    EXPECT_EQ(wire->ask_qty, "0.018789");
+    EXPECT_EQ(wire->ts_ms, 1791713188697ULL);  // quoteTime
+    EXPECT_EQ(wire->version, 194369456628ULL); // seqId
+
+    const auto table = spot_catalogue();
+    const auto bbo = map_bbo(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid.raw, 8'304'329);
+    EXPECT_EQ(bbo->ask.raw, 8'304'330);
+    EXPECT_EQ(bbo->bid_qty.raw, 1'316'155);
+    EXPECT_EQ(bbo->ask_qty.raw, 18'789);
+}
+
+TEST(HtxSpot, TakesTheTradeIdBecauseTheRowIdOverflowsSixtyFourBits) {
+    TradeBuffer storage;
+    const auto frame = load("ws_spot_trade.json");
+    const auto wire = parse_trades(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 1U);
+    EXPECT_EQ((*wire)[0].contract_code, "btcusdt");
+    EXPECT_EQ((*wire)[0].trade_id, 103644634205ULL);
+    EXPECT_EQ((*wire)[0].amount, "0.021401");
+    EXPECT_EQ((*wire)[0].ts_ms, 1791713188674ULL);
+    EXPECT_TRUE((*wire)[0].aggressor_bought);
+
+    const auto table = spot_catalogue();
+    const auto trade = map_trade((*wire)[0], table, UnixNanos{1});
+    ASSERT_TRUE(trade.has_value());
+    EXPECT_EQ(trade->price.raw, 8'304'080);
+    EXPECT_EQ(trade->qty.raw, 21'401);
+
+    // sizes below 1e-4 come in scientific notation
+    const auto tiny_frame = load("ws_spot_trade_exponent.json");
+    const auto tiny = parse_trades(tiny_frame, storage);
+    ASSERT_TRUE(tiny.has_value());
+    EXPECT_EQ((*tiny)[0].amount, "1.3E-5");
+    const auto tiny_trade = map_trade((*tiny)[0], table, UnixNanos{1});
+    ASSERT_TRUE(tiny_trade.has_value());
+    EXPECT_EQ(tiny_trade->qty.raw, 13);
+}
+
+TEST(HtxSpot, TheSpotBookIsWholeAndSequencedByVersion) {
+    LevelBuffer storage;
+    const auto frame = load("ws_spot_depth_step0_full.json");
+    const auto wire = parse_depth(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->bids.size(), 150U);
+    EXPECT_EQ(wire->asks.size(), 150U);
+    EXPECT_EQ(wire->mrid, 0U);
+    EXPECT_EQ(wire->version, 194369455879ULL);
+
+    const auto table = spot_catalogue();
+    const auto book = map_depth(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->venue_seq, 194369455879ULL);
+    EXPECT_EQ(book->bids[0].price.raw, 8'303'989);
+    EXPECT_EQ(book->asks[0].price.raw, 8'303'990);
+    EXPECT_EQ(book->bids[0].qty.raw, 2'461'522);
+}
+
+TEST(HtxSpot, TheSpotSocketSpeaksTheSwapMarketDialect) {
+    const auto ack_frame = load("ws_spot_subscribe_ack.json");
+    const auto ack = parse_event(ack_frame);
+    ASSERT_TRUE(ack.has_value());
+    EXPECT_EQ(ack->kind, EventKind::SubscribeAck);
+    EXPECT_EQ(ack->contract_code, "btcusdt");
+    EXPECT_EQ(ack->trade_ack_ms, 1791713188698ULL);
+
+    const auto refusal = parse_event(load("ws_spot_error.json"));
+    ASSERT_TRUE(refusal.has_value());
+    EXPECT_EQ(refusal->kind, EventKind::Error);
+
+    const auto ping_frame = load("ws_spot_ping.json");
+    const auto ping = parse_event(ping_frame);
+    ASSERT_TRUE(ping.has_value());
+    EXPECT_EQ(ping->kind, EventKind::MarketPing);
+    EXPECT_EQ(ping->keepalive_ts, "1791713188689");
+
+    const auto bbo = parse_event(load("ws_spot_bbo.json"));
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->kind, EventKind::Bbo);
+    EXPECT_EQ(spot_stream_host(), "api-aws.huobi.pro");
+    EXPECT_EQ(spot_market_path(), "/ws");
+}
+
+TEST(HtxSpot, ATickersRowSeedsATopTheBboChannelNeverPushed) {
+    const auto body = load("rest_spot_tickers.json");
+    const auto storage = std::make_unique<SpotTickerBuffer>();
+    const auto tickers = parse_spot_tickers(body, *storage);
+    ASSERT_TRUE(tickers.has_value());
+    ASSERT_EQ(tickers->rows.size(), 3U);
+    EXPECT_EQ(tickers->ts_ms, 1791713617336ULL); // the root stamp, after the rows
+
+    const auto table = spot_catalogue();
+    // funusdt is not in the catalogue fixture
+    EXPECT_FALSE(map_spot_ticker_bbo(tickers->rows[0], tickers->ts_ms, table, UnixNanos{1}).has_value());
+
+    const auto& btc = tickers->rows[2];
+    EXPECT_EQ(btc.symbol, "btcusdt");
+    EXPECT_EQ(btc.bid_qty, "1.02E-4");
+    const auto bbo = map_spot_ticker_bbo(btc, tickers->ts_ms, table, UnixNanos{1});
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid.raw, 8'301'370);
+    EXPECT_EQ(bbo->ask.raw, 8'301'371);
+    EXPECT_EQ(bbo->bid_qty.raw, 102);
+    EXPECT_EQ(bbo->ts_event.ns, 1791713617336ULL * 1'000'000ULL);
+
+    // tornusdt's bidSize on the same call, put on a 1e-6 lot: the size floors, an off-grid price still drops
+    auto off_grid = btc;
+    off_grid.bid_qty = "0.025997995991983963";
+    const auto floored = map_spot_ticker_bbo(off_grid, tickers->ts_ms, table, UnixNanos{1});
+    ASSERT_TRUE(floored.has_value());
+    EXPECT_EQ(floored->bid_qty.raw, 25'997);
+    off_grid.bid = "83013.705";
+    EXPECT_FALSE(map_spot_ticker_bbo(off_grid, tickers->ts_ms, table, UnixNanos{1}).has_value());
+
+    const auto stats = map_spot_ticker_stats(btc, tickers->ts_ms, table, UnixNanos{1});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 2'256'253'293'033LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 187'191'479'574'829LL);
 }
 
 } // namespace

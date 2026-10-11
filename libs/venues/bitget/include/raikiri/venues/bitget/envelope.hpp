@@ -16,11 +16,12 @@
 namespace raikiri::venues::bitget {
 
 enum class EventKind : std::uint8_t {
-    Ticker, // bid/ask, mark, index and funding on one frame
+    Top, // books1: a one-level snapshot, the quote
     Trade,
-    Books,    // books5/books15/books share one shape
-    Orders,   // private: lifecycle and fills on one channel
-    LoginAck, // the private handshake's answer, distinct from a subscribe ack
+    TradeSnapshot, // the backfill a subscription opens with
+    Books,         // books5/books15/books share books1's shape
+    Orders,        // private: lifecycle and fills on one channel
+    LoginAck,      // the private handshake's answer, distinct from a subscribe ack
     SubscribeAck,
     Error,
     Unknown,

@@ -131,6 +131,10 @@ private:
         if (!found.has_value()) {
             return;
         }
+        if (const auto since = std::exchange(found->market->trade_subscribed_ms, 0);
+            since != 0 && is_backfill(*wire, since)) {
+            return;
+        }
         for (const auto& print : wire->prints) {
             if (const auto trade = map_trade(print, wire->ts_ms, *found->base, received); trade.has_value()) {
                 state_->sink->on_trade(*trade);
@@ -151,7 +155,7 @@ public:
               net::WsConfig{.host = std::string{ep::k_perp_host}, .port = "443", .target = std::string{ep::k_ws_path}},
               handler_,
               net::WsPoolConfig{},
-              [](std::span<const std::string> keys) { return build_frames(keys); }},
+              [this](std::span<const std::string> keys) { return build_frames(keys); }},
           rest_{state_->io, net::RestConfig{.host = std::string{state_->rest_host()}}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
@@ -240,7 +244,8 @@ public:
     }
 
 private:
-    [[nodiscard]] static std::vector<std::string> build_frames(std::span<const std::string> keys) {
+    [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        mark_trade_subscriptions(keys);
         const auto limit = net::process_ws_limits().subscriptions_per_frame;
         const auto per_frame = limit == 0 ? k_default_args_per_frame : limit;
         std::vector<std::string> ordered{keys.begin(), keys.end()};
@@ -265,6 +270,24 @@ private:
             frames.push_back(std::move(frame));
         }
         return frames;
+    }
+
+    // a (re)subscribed symbol's next trade push is its backfill
+    void mark_trade_subscriptions(std::span<const std::string> keys) {
+        const auto now_ms = state_->clock->wall().ns / 1'000'000;
+        for (const std::string_view key : keys) {
+            const auto cut = key.find(k_key_sep);
+            if (cut == std::string_view::npos || key.substr(0, cut) != channel_of(exec::SubKind::Trades)) {
+                continue;
+            }
+            const auto* instrument = state_->instruments.find(key.substr(cut + 1));
+            if (instrument == nullptr) {
+                continue;
+            }
+            if (auto* market = state_->market_of(base_of(*instrument).id); market != nullptr) {
+                market->trade_subscribed_ms = now_ms;
+            }
+        }
     }
 
     [[nodiscard]] bool wants_funding() const noexcept {

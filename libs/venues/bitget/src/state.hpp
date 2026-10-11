@@ -4,6 +4,7 @@
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -19,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::bitget::internal {
@@ -50,6 +52,11 @@ struct VenueState {
     config::Secret passphrase;
 
     std::vector<OwnedSubscription> desired;
+
+    exec::RateBudget* budget{nullptr};
+    std::unordered_map<InstrumentId, FundingClock> funding_clocks;
+    // venue ms of each quoted instrument's last books1 push; 0 until the first
+    std::unordered_map<InstrumentId, std::uint64_t> quoted_ms;
 
     std::uint64_t next_app_ping_ns{0};
 

@@ -68,6 +68,9 @@ struct VenueState {
 
     std::uint64_t subscribe_refusals{0};
 
+    // instrument to the ms its trades ack arrived, until the coin's first push settles the backfill
+    std::unordered_map<std::uint64_t, std::uint64_t> trade_ack_ms;
+
     // false when already asked, since funding and mark price share activeAssetCtx
     [[nodiscard]] bool add_subscription(std::string_view channel, std::string_view coin) {
         for (const auto& existing : desired) {

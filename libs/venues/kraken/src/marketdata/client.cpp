@@ -84,6 +84,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
+    case EventKind::TradeSnapshot:
+        break; // up to 100 prints, some of them days old: history, not trades
     case EventKind::Book:
         handle_book(state, frame, received);
         break;

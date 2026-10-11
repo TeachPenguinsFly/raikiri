@@ -413,6 +413,14 @@ venues:
       - { name: ws_messages, kind: ws_messages, scope: ip, window_ms: 60000, max: 90 }
       - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 2 }
 
+  nado:
+    limits:
+      # 2400 weight a minute and 400 per 10 s per ip, stated; a book snapshot is one query
+      - { name: requests, window_ms: 10000, max: 360, reserve: 36 }
+      - { name: ws_streams, kind: ws_streams, max: 200 }
+      - { name: ws_sockets, kind: ws_sockets, max: 8 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 20, max: 1 }
+
   bithumb:
     limits:
       - { name: requests, window_ms: 1000, max: 20, reserve: 2 }

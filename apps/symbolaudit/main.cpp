@@ -15,6 +15,7 @@
 #include <raikiri/venues/bitget/bitget_venue.hpp>
 #include <raikiri/venues/bithumb/bithumb_venue.hpp>
 #include <raikiri/venues/bitstamp/bitstamp_venue.hpp>
+#include <raikiri/venues/nado/nado_venue.hpp>
 #include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
@@ -108,6 +109,7 @@ void register_all() {
     venues::upbit::register_adapter();
     venues::bithumb::register_adapter();
     venues::bitstamp::register_adapter();
+    venues::nado::register_adapter();
 }
 
 bool dump(std::string_view name, const std::string& feed, const Clock& clock) {

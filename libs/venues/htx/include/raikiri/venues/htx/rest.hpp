@@ -77,6 +77,8 @@ public:
     [[nodiscard]] static net::RestRequest open_interest() noexcept;
 
     [[nodiscard]] static net::RestRequest index_prices() noexcept;
+    // spot host
+    [[nodiscard]] static net::RestRequest spot_tickers() noexcept;
 };
 
 class SignedRequestBuilder {

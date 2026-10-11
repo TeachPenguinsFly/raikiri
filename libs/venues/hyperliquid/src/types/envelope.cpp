@@ -64,6 +64,29 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
     });
 }
 
+std::expected<SubscribeAck, WireError> parse_subscribe_ack(std::string_view frame) {
+    return guarded([&]() -> std::expected<SubscribeAck, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto data = wire::req_object(*root, "data");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        auto subscription = wire::req_object(*data, "subscription");
+        if (!subscription.has_value()) {
+            return std::unexpected(subscription.error());
+        }
+        const auto type = wire::req_str(*subscription, "type");
+        const auto coin = wire::opt_str(*subscription, "coin");
+        if (!type.has_value() || !coin.has_value()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        return SubscribeAck{.type = *type, .coin = *coin};
+    });
+}
+
 std::expected<std::uint64_t, WireError> opt_number_ms(wire::ondemand::object& obj, std::string_view key) {
     const auto text = wire::opt_raw(obj, key);
     if (!text.has_value()) {

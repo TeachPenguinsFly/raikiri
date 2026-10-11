@@ -20,12 +20,22 @@ namespace raikiri::venues::bitget {
 // a zero or absent venue time falls back to local ingest time
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
-// both read the same ticker frame
+// books1 is the live quote; a tickers row restates it for a book that has not moved
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 [[nodiscard]] std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// nullopt when the frame quotes no rate
+// the settlement clock from current-fund-rate; the tickers row has no next funding time
+struct FundingClock {
+    std::uint64_t next_ms{0};
+    std::uint32_t interval_s{0};
+};
+
+// nullopt for a row with no settlement time or an interval that is not whole hours
+[[nodiscard]] std::optional<FundingClock> funding_clock_of(const WireFundingRate& wire);
+
+// nullopt when the row quotes no rate; a clock already passed rolls forward by its interval
 [[nodiscard]] std::optional<FundingUpdate>
-map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+map_funding(const WireTicker& wire, const FundingClock& clock, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // usdtVolume is not read; base and quote come from baseVolume and quoteVolume
 [[nodiscard]] std::optional<TickerStats>

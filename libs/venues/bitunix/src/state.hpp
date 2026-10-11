@@ -20,6 +20,8 @@ struct Market {
     bool priced{false};
     bool traded{false};
     bool funded{false};
+    // when the trade subscription last went out; the first push after it is a backfill
+    std::uint64_t trade_subscribed_ms{0};
 };
 
 struct VenueState {

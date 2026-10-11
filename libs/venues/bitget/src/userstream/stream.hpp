@@ -69,8 +69,9 @@ public:
             break;
         }
         case EventKind::SubscribeAck:
-        case EventKind::Ticker:
+        case EventKind::Top:
         case EventKind::Trade:
+        case EventKind::TradeSnapshot:
         case EventKind::Books:
         case EventKind::Unknown:
             break;

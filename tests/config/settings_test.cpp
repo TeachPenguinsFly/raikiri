@@ -118,7 +118,7 @@ TEST(Settings, EveryPooledVenueSizesItsSocketsFromTheTable) {
                              "coinbase", "pacifica", "okx",     "mexc",    "hyperliquid", "deribit",
                              "lighter",  "lbank",    "bitunix", "toobit",  "derive",      "arcus",
                              "ostium",   "paradex",  "vest",    "bullish", "ondoperps",   "polymarketperps",
-                             "upbit",    "bithumb",  "bitstamp"}) {
+                             "upbit",    "bithumb",  "bitstamp", "nado"}) {
         ASSERT_TRUE(file->venues.contains(name)) << name;
         const auto& venue = file->venues.at(name);
         EXPECT_NE(find_limit(venue, "ws_streams"), nullptr) << name;

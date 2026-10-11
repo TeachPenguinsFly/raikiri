@@ -32,6 +32,7 @@
 #include <raikiri/venues/bitget/bitget_venue.hpp>
 #include <raikiri/venues/bithumb/bithumb_venue.hpp>
 #include <raikiri/venues/bitstamp/bitstamp_venue.hpp>
+#include <raikiri/venues/nado/nado_venue.hpp>
 #include <raikiri/venues/bitunix/bitunix_venue.hpp>
 #include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bullish/bullish_venue.hpp>
@@ -1022,6 +1023,7 @@ int main(int argc, char** argv) {
     venues::upbit::register_adapter();
     venues::bithumb::register_adapter();
     venues::bitstamp::register_adapter();
+    venues::nado::register_adapter();
     // one budget shared with the account poller; a venue missing from the file is unlimited
     std::optional<exec::RateBudget> budget;
     // an absent venue still gets the default answer timeout; zero would never report an unanswered order

@@ -92,6 +92,7 @@ public:
         case EventKind::Ticker:
         case EventKind::TickerLite:
         case EventKind::Trade:
+        case EventKind::TradeSnapshot:
         case EventKind::Book:
         case EventKind::Unknown:
             // public feeds are listed so a new feed is a compile error

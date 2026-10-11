@@ -12,8 +12,11 @@ EventKind kind_from_type(std::string_view type) noexcept {
     if (type == "ticker") {
         return EventKind::Ticker;
     }
-    if (type == "match" || type == "last_match") {
+    if (type == "match") {
         return EventKind::Match;
+    }
+    if (type == "last_match") {
+        return EventKind::LastMatch;
     }
     if (type == "snapshot") {
         return EventKind::Snapshot;

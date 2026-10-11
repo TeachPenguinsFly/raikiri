@@ -89,12 +89,31 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
                 if (key == "bid" || key == "ask") {
                     const bool is_bid = key == "bid";
                     (is_bid ? bid : ask) = true;
-                    return is_bid ? read_pair(value, out.bid_price, out.bid_qty, session())
-                                  : read_pair(value, out.ask_price, out.ask_qty, session());
+                    auto& price = is_bid ? out.bid_price : out.ask_price;
+                    wire::ondemand::json_type type{};
+                    if (const auto ec = value.type().get(type); ec != simdjson::SUCCESS) {
+                        return std::unexpected(wire::map_error(ec));
+                    }
+                    if (type != wire::ondemand::json_type::array) {
+                        // spot sends the price alone and the size under bidSize/askSize
+                        const auto raw = wire::raw_of(value);
+                        if (!raw.has_value()) {
+                            return std::unexpected(raw.error());
+                        }
+                        price = *raw;
+                        return {};
+                    }
+                    return read_pair(value, price, is_bid ? out.bid_qty : out.ask_qty, session());
                 }
-                if (key == "ts") {
+                if (key == "bidSize" || key == "askSize") {
+                    const auto raw = wire::raw_of(value);
+                    if (!raw.has_value()) {
+                        return std::unexpected(raw.error());
+                    }
+                    (key == "bidSize" ? out.bid_qty : out.ask_qty) = *raw;
+                } else if (key == "ts" || key == "quoteTime") {
                     ts = wire::u64_of(value);
-                } else if (key == "version") {
+                } else if (key == "version" || key == "seqId") {
                     version = wire::u64_of(value);
                 }
                 return {};
@@ -102,7 +121,7 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
         if (!walked.has_value()) {
             return std::unexpected(walked.error());
         }
-        if (!bid || !ask) {
+        if (!bid || !ask || out.bid_qty.empty() || out.ask_qty.empty()) {
             return std::unexpected(WireError::MissingField);
         }
         if (!ts.has_value() || !version.has_value()) {

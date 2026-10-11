@@ -345,6 +345,12 @@ std::expected<WireBook, WireError> parse_spot_depth(std::string_view body, Level
     });
 }
 
+bool is_backfill(const WireTrades& trades, std::uint64_t subscribed_ms) noexcept {
+    // the pool paces its subscribe frames, so the window covers a few of them
+    constexpr std::uint64_t k_backfill_window_ms = 10'000;
+    return trades.ts_ms < subscribed_ms + k_backfill_window_ms;
+}
+
 std::expected<WireTrades, WireError> parse_trades(std::string_view frame, PrintBuffer& storage) {
     return wire::guarded([&]() -> std::expected<WireTrades, WireError> {
         auto root = wire::session().open_object(frame);

@@ -76,6 +76,32 @@ TEST(Malformed, Htx) {
                     (void)parse_rest_envelope(f);
                     (void)parse_contracts(f, storage);
                 }},
+               {"ws_spot_bbo.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    (void)parse_bbo(f);
+                }},
+               {"ws_spot_depth*",
+                [](std::string_view f) {
+                    static LevelBuffer levels;
+                    (void)parse_depth(f, levels);
+                }},
+               {"ws_spot_trade*",
+                [](std::string_view f) {
+                    static TradeBuffer trades;
+                    (void)parse_trades(f, trades);
+                }},
+               {"rest_spot_symbols.json",
+                [](std::string_view f) {
+                    static SpotSymbolBuffer storage;
+                    (void)parse_rest_envelope(f);
+                    (void)parse_spot_symbols(f, storage);
+                }},
+               {"rest_spot_tickers.json",
+                [](std::string_view f) {
+                    static SpotTickerBuffer storage;
+                    (void)parse_spot_tickers(f, storage);
+                }},
                {"rest_error_*", [](std::string_view f) { (void)parse_rest_envelope(f); }},
                {"rest_server_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
                {"rest_swap_financial_record.json",

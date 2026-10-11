@@ -234,6 +234,19 @@ std::optional<FixedE9> rate_e9(std::string_view token) {
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/false) : std::nullopt;
 }
 
+namespace {
+
+// spot states some top sizes off the lot grid (0.025997995991983963 on a 1e-4 lot); the size is floored, never the price
+std::optional<QtyLots> floor_lots(std::string_view text, const InstrumentBase& base) {
+    const auto value = rate_e9(text);
+    if (!value.has_value() || value->raw < 0 || base.lot_size.raw <= 0) {
+        return std::nullopt;
+    }
+    return QtyLots::from_raw(value->raw / base.lot_size.raw);
+}
+
+} // namespace
+
 std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.contract_code);
     if (instrument == nullptr) {
@@ -242,8 +255,10 @@ std::optional<Bbo> map_bbo(const WireBbo& wire, const exec::InstrumentTable& tab
     const auto& base = base_of(*instrument);
     const auto bid = to_ticks(wire.bid_price, base);
     const auto ask = to_ticks(wire.ask_price, base);
-    const auto bid_qty = to_lots(wire.bid_qty, base);
-    const auto ask_qty = to_lots(wire.ask_qty, base);
+    // a swap size is whole contracts, so a fraction there is a wrong frame
+    const bool spot = base.id.market() == MarketType::Spot;
+    const auto bid_qty = spot ? floor_lots(wire.bid_qty, base) : to_lots(wire.bid_qty, base);
+    const auto ask_qty = spot ? floor_lots(wire.ask_qty, base) : to_lots(wire.ask_qty, base);
     if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
         return std::nullopt;
     }
@@ -336,6 +351,30 @@ map_ticker_stats(const WireDetail& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
+std::optional<Bbo> map_spot_ticker_bbo(const WireSpotTicker& wire,
+                                       std::uint64_t ts_ms,
+                                       const exec::InstrumentTable& table,
+                                       UnixNanos ts_init) {
+    return map_bbo(WireBbo{.contract_code = wire.symbol,
+                           .bid_price = wire.bid,
+                           .bid_qty = wire.bid_qty,
+                           .ask_price = wire.ask,
+                           .ask_qty = wire.ask_qty,
+                           .ts_ms = ts_ms},
+                   table,
+                   ts_init);
+}
+
+std::optional<TickerStats> map_spot_ticker_stats(const WireSpotTicker& wire,
+                                                 std::uint64_t ts_ms,
+                                                 const exec::InstrumentTable& table,
+                                                 UnixNanos ts_init) {
+    return map_ticker_stats(
+        WireDetail{.contract_code = wire.symbol, .amount = wire.amount, .trade_turnover = wire.vol, .ts_ms = ts_ms},
+        table,
+        ts_init);
+}
+
 std::optional<BookSnapshot> map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.contract_code);
     if (instrument == nullptr) {
@@ -368,7 +407,7 @@ std::optional<BookSnapshot> map_depth(const WireDepth& wire, const exec::Instrum
     out.instrument = base.id;
     out.ts_event = ms_to_unix(wire.ts_ms, UnixNanos{});
     out.ts_init = ts_init;
-    out.venue_seq = wire.mrid;
+    out.venue_seq = wire.mrid != 0 ? wire.mrid : wire.version;
     out.bid_count = fill(wire.bids, out.bids);
     out.ask_count = fill(wire.asks, out.asks);
     if (out.bid_count == 0 || out.ask_count == 0) {
@@ -456,7 +495,8 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Htx, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    const auto local = canonical_symbol(wire.base_currency, wire.quote_currency);
+    base.local_symbol = local.value_or(*symbol);
     base.asset_class = AssetClass::Crypto;
     base.tick_size = FixedE9::from_raw(power_of_ten(wire.price_precision));
     base.lot_size = FixedE9::from_raw(power_of_ten(wire.amount_precision));

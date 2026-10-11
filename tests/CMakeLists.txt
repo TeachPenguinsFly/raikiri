@@ -45,7 +45,7 @@ set(malformed_libs raikiri::wire raikiri::wire_malformed)
 foreach(venue IN ITEMS apex aster backpack binance bingx bitfinex bitget blofin bybit coinbase
     cryptocom deribit dydx edgex extended gate grvt htx hyperliquid kraken kucoin lighter mexc
     lbank okx pacifica phemex weex xt bitunix toobit derive arcus ostium paradex vest bullish
-    ondoperps polymarketperps upbit bithumb bitstamp)
+    ondoperps polymarketperps upbit bithumb bitstamp nado)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wire/malformed/${venue}.cpp)
     list(APPEND malformed_srcs wire/malformed/${venue}.cpp)
     list(APPEND malformed_libs raikiri::venue_${venue})
@@ -119,6 +119,7 @@ raikiri_add_test(bullish_venue_test SRCS venues/bullish/venue_test.cpp LIBS raik
 raikiri_add_test(upbit_venue_test SRCS venues/upbit/venue_test.cpp LIBS raikiri::venue_upbit raikiri::exec)
 raikiri_add_test(bithumb_venue_test SRCS venues/bithumb/venue_test.cpp LIBS raikiri::venue_bithumb raikiri::exec raikiri::venue_upbit)
 raikiri_add_test(bitstamp_venue_test SRCS venues/bitstamp/venue_test.cpp LIBS raikiri::venue_bitstamp raikiri::exec)
+raikiri_add_test(nado_venue_test SRCS venues/nado/venue_test.cpp LIBS raikiri::venue_nado raikiri::exec)
 raikiri_add_test(derive_venue_test SRCS venues/derive/venue_test.cpp LIBS raikiri::venue_derive raikiri::options raikiri::exec)
 raikiri_add_test(ostium_venue_test SRCS venues/ostium/venue_test.cpp LIBS raikiri::venue_ostium raikiri::exec)
 raikiri_add_test(vest_venue_test SRCS venues/vest/venue_test.cpp LIBS raikiri::venue_vest raikiri::exec)

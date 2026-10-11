@@ -15,6 +15,7 @@ inline constexpr std::string_view k_stream_spot = "api-aws.huobi.pro";
 // funding_rate is served only on the notification socket
 inline constexpr std::string_view k_ws_market = "/linear-swap-ws";
 inline constexpr std::string_view k_ws_notify = "/linear-swap-notification";
+inline constexpr std::string_view k_ws_spot_market = "/ws";
 inline constexpr std::string_view k_ws_spot_private = "/ws/v2";
 
 // cross-margin family; isolated drops the _cross infix and needs rest.hpp and ws.hpp changed with it
@@ -42,6 +43,7 @@ inline constexpr std::string_view k_swap_contract_info = "/linear-swap-api/v1/sw
 inline constexpr std::string_view k_swap_index = "/linear-swap-api/v1/swap_index";
 inline constexpr std::string_view k_swap_open_interest = "/linear-swap-api/v1/swap_open_interest?business_type=swap";
 inline constexpr std::string_view k_spot_symbols = "/v1/common/symbols";
+inline constexpr std::string_view k_spot_tickers = "/market/tickers";
 inline constexpr std::string_view k_server_time = "/api/v1/timestamp";
 
 } // namespace raikiri::venues::htx::ep

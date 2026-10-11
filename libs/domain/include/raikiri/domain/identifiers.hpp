@@ -56,9 +56,10 @@ enum class VenueId : std::uint8_t {
     Upbit = 42,
     Bithumb = 43,
     Bitstamp = 44,
+    Nado = 45,
 };
 
-inline constexpr std::size_t k_venue_count = 45; // including Invalid and the retired
+inline constexpr std::size_t k_venue_count = 46; // including Invalid and the retired
 
 [[nodiscard]] constexpr bool is_retired(VenueId venue) noexcept {
     return venue == VenueId::RetiredBitmex;

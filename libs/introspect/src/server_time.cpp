@@ -50,6 +50,9 @@ std::optional<OffsetSample> RestServerTime::read() {
     request.method = query.body.empty() ? net::HttpMethod::Get : net::HttpMethod::Post;
     request.target = query.target;
     request.body = query.body;
+    for (const auto& [name, value] : query.headers) {
+        request.headers.push_back({.name = name, .value = value});
+    }
     const auto response = net::await_response(
         impl_->io, *impl_->clock, impl_->rest, request, impl_->rest.max_wait_ms() + 1'000);
     if (!response.has_value() || response->status != 200 || query.parse == nullptr) {

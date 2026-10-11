@@ -42,6 +42,8 @@ struct ContractBuffer {
 // precisions are digit counts (step 10^-n); api-trading gates key access apart from state
 struct WireSpotSymbol {
     std::string_view symbol;
+    std::string_view base_currency;
+    std::string_view quote_currency;
     std::string_view state;       // online, offline, suspend, pre-online, transfer-board
     std::string_view api_trading; // "enabled" / "disabled"
     std::string_view min_order_value;

@@ -134,7 +134,7 @@ TEST(KrakenVenue, TestnetIsRefusedRatherThanRedirectedToProduction) {
 TEST(KrakenWire, EventDispatchResolvesKindAndProduct) {
     for (const auto& [file, kind] : {std::pair{"ws_ticker_pf.json", EventKind::Ticker},
                                      std::pair{"ws_trade.json", EventKind::Trade},
-                                     std::pair{"ws_trade_snapshot.json", EventKind::Trade},
+                                     std::pair{"ws_trade_snapshot.json", EventKind::TradeSnapshot},
                                      std::pair{"ws_book_snapshot.json", EventKind::Book},
                                      std::pair{"ws_book_delta.json", EventKind::Book}}) {
         const auto frame = fixture(file);
@@ -234,6 +234,30 @@ TEST(KrakenWire, SnapshotAndLiveTradeShareOneParser) {
     ASSERT_TRUE(trades.has_value());
     EXPECT_EQ(trades->size(), 100U);
     EXPECT_EQ(trades->front().product_id, "PF_XBTUSD");
+}
+
+TEST(KrakenWire, TheTradeSnapshotIsHistoryOlderThanTheLiveTradeAfterIt) {
+    static TradeBuffer storage;
+    const auto live = fixture("ws_trade.json");
+    const auto live_event = parse_event(live);
+    ASSERT_TRUE(live_event.has_value());
+    EXPECT_EQ(live_event->kind, EventKind::Trade);
+    const auto live_trades = parse_trades(live, storage);
+    ASSERT_TRUE(live_trades.has_value());
+    const auto live_seq = live_trades->front().seq;
+    const auto live_ms = live_trades->front().time_ms;
+
+    const auto snapshot = fixture("ws_trade_snapshot.json");
+    const auto event = parse_event(snapshot);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::TradeSnapshot);
+    EXPECT_EQ(event->product_id, "PF_XBTUSD");
+    const auto history = parse_trades(snapshot, storage);
+    ASSERT_TRUE(history.has_value());
+    for (const auto& print : *history) {
+        EXPECT_LT(print.seq, live_seq);
+        EXPECT_LE(print.time_ms, live_ms);
+    }
 }
 
 TEST(KrakenWire, BookSnapshotIsWholeAndDeltasChainBySeq) {
@@ -1300,7 +1324,6 @@ TEST(KrakenErrors, TheOrderVerdictVocabularyIsNotTheErrorVocabulary) {
     EXPECT_FALSE(is_edit_accepted("orderForEditNotFound"));
     EXPECT_FALSE(is_edit_accepted(""));
 }
-
 
 TEST(KrakenCatalogue, InversePerpsKeepASymbolAndMarketOfTheirOwn) {
     static thread_local InstrumentBuffer storage;

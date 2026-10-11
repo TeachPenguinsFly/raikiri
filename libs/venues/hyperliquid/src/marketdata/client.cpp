@@ -67,8 +67,18 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     case EventKind::Trade: {
         static thread_local TradeBuffer trades;
         const auto wire = parse_trades(frame, trades);
-        if (!wire.has_value()) {
-            return;
+        if (!wire.has_value() || wire->empty()) {
+            return; // an empty push is the backfill of a coin that never traded
+        }
+        if (const auto* instrument = state.instruments.find(wire->front().coin); instrument != nullptr) {
+            if (const auto ack = state.trade_ack_ms.find(base_of(*instrument).id.packed);
+                ack != state.trade_ack_ms.end()) {
+                const auto ack_ms = ack->second;
+                state.trade_ack_ms.erase(ack);
+                if (is_backfill(*wire, ack_ms)) {
+                    return;
+                }
+            }
         }
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
@@ -112,7 +122,16 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
-    case EventKind::SubscribeAck:
+    case EventKind::SubscribeAck: {
+        const auto ack = parse_subscribe_ack(frame);
+        if (!ack.has_value() || ack->type != "trades") {
+            return;
+        }
+        if (const auto* instrument = state.instruments.find(ack->coin); instrument != nullptr) {
+            state.trade_ack_ms[base_of(*instrument).id.packed] = received.ns / 1'000'000;
+        }
+        break;
+    }
     case EventKind::Pong:
     case EventKind::Unknown:
         break;

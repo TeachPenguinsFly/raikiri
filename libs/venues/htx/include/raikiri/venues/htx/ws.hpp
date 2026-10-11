@@ -29,6 +29,8 @@ enum class WsBuildError : std::uint8_t {
 // spot's private socket is another host, and the host is part of the signature
 [[nodiscard]] std::string_view spot_stream_host() noexcept;
 [[nodiscard]] std::string_view spot_private_path() noexcept;
+// spot's public socket speaks the swap market socket's dialect: sub/subbed, {"ping":n}, gzip
+[[nodiscard]] std::string_view spot_market_path() noexcept;
 
 // the _cross suffix matches k_margin_mode in rest.hpp
 inline constexpr std::string_view k_swap_orders_topic = "orders_cross.*";

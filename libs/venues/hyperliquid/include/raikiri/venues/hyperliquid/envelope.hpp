@@ -31,6 +31,14 @@ struct StreamError {
 
 [[nodiscard]] std::expected<StreamError, WireError> parse_stream_error(std::string_view frame);
 
+// what a subscriptionResponse confirms; `coin` is empty on channels without one
+struct SubscribeAck {
+    std::string_view type;
+    std::string_view coin;
+};
+
+[[nodiscard]] std::expected<SubscribeAck, WireError> parse_subscribe_ack(std::string_view frame);
+
 // reads a json number, unlike wire::opt_ms which reads a digit string; absent yields 0
 [[nodiscard]] std::expected<std::uint64_t, WireError> opt_number_ms(wire::ondemand::object& obj, std::string_view key);
 

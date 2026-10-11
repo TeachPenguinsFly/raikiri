@@ -19,7 +19,7 @@ TEST(Malformed, Bitunix) {
                     (void)parse_head(f);
                     (void)parse_book(f, levels);
                 }},
-               {"ws_trade.json",
+               {"ws_trade*",
                 [](std::string_view f) {
                     static PrintBuffer prints;
                     (void)parse_head(f);

@@ -27,15 +27,24 @@ namespace raikiri::venues::htx::internal {
 
 namespace {
 
-void handle_frame(VenueState& state, EventKind kind, std::string_view frame, UnixNanos received) {
-    switch (kind) {
+// bbo pushes only on a change and sends nothing on subscribe, so a tickers row seeds or restates a quiet spot top
+constexpr std::uint64_t k_spot_tickers_interval_ns = 15'000'000'000ULL;
+constexpr std::uint64_t k_quiet_quote_ms = 30'000;
+
+void handle_frame(VenueState& state, const EventInfo& event, std::string_view frame, UnixNanos received) {
+    switch (event.kind) {
     case EventKind::Bbo: {
         const auto wire = parse_bbo(frame);
         if (!wire.has_value()) {
             return;
         }
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
-            state.sink->on_bbo(*bbo);
+            // a tickers row may already have restated a later top
+            auto& last = state.quoted_ms[bbo->instrument];
+            if (wire->ts_ms >= last) {
+                last = wire->ts_ms;
+                state.sink->on_bbo(*bbo);
+            }
         }
         break;
     }
@@ -45,7 +54,18 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
+        std::uint64_t ack_ms = 0;
+        if (const auto* instrument = state.instruments.find(event.contract_code); instrument != nullptr) {
+            if (const auto ack = state.trade_ack_ms.find(base_of(*instrument).id.packed);
+                ack != state.trade_ack_ms.end()) {
+                ack_ms = ack->second;
+                state.trade_ack_ms.erase(ack);
+            }
+        }
         for (const auto& entry : *wire) {
+            if (entry.ts_ms < ack_ms) {
+                continue;
+            }
             if (const auto trade = map_trade(entry, state.instruments, received); trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
@@ -106,9 +126,16 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
     case EventKind::PrivateOrder:
     case EventKind::PrivateMatch:
     case EventKind::PrivatePosition:
-    case EventKind::SubscribeAck:
     case EventKind::Unknown:
         break; // private kinds belong to the exec sockets
+    case EventKind::SubscribeAck:
+        if (event.trade_ack_ms == 0) {
+            break;
+        }
+        if (const auto* instrument = state.instruments.find(event.contract_code); instrument != nullptr) {
+            state.trade_ack_ms[base_of(*instrument).id.packed] = event.trade_ack_ms;
+        }
+        break;
     }
 }
 
@@ -140,7 +167,7 @@ public:
                 }
                 return;
             }
-            handle_frame(*state_, event->kind, *frame, received);
+            handle_frame(*state_, *event, *frame, received);
         } catch (...) {
             ++state_->inflate_failures;
         }
@@ -185,7 +212,7 @@ public:
                 }
                 return;
             }
-            handle_frame(*state_, event->kind, *frame, received);
+            handle_frame(*state_, *event, *frame, received);
         } catch (...) {
             ++state_->inflate_failures;
         }
@@ -205,6 +232,15 @@ net::WsConfig socket_config(std::string_view path) {
     return {.host = std::string{stream_host()}, .port = std::string{stream_port()}, .target = std::string{path}};
 }
 
+net::WsConfig market_socket_config(MarketType market) {
+    if (market == MarketType::Spot) {
+        return {.host = std::string{spot_stream_host()},
+                .port = std::string{stream_port()},
+                .target = std::string{spot_market_path()}};
+    }
+    return socket_config(market_path());
+}
+
 // split on the first dot: suffixes contain dots, contract codes do not
 std::string market_key(std::string_view code, std::string_view suffix) {
     return std::string{code} + "." + std::string{suffix};
@@ -212,10 +248,10 @@ std::string market_key(std::string_view code, std::string_view suffix) {
 
 class HtxData final : public exec::DataClient {
 public:
-    explicit HtxData(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)}, market_handler_{*state_},
+    HtxData(std::shared_ptr<VenueState> state, MarketType market)
+        : state_{std::move(state)}, spot_{market == MarketType::Spot}, market_handler_{*state_},
           market_{state_->io,
-                  socket_config(market_path()),
+                  market_socket_config(market),
                   market_handler_,
                   net::WsPoolConfig{},
                   [this](std::span<const std::string> keys) { return market_frames(keys); }},
@@ -224,7 +260,9 @@ public:
                                             notify_handler_,
                                             net::WsPoolConfig{},
                                             [this](std::span<const std::string> keys) { return notify_frames(keys); }},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{spot_ ? spot_rest_host() : rest_host()}, .port = "443"}},
+          spot_tickers_{k_spot_tickers_interval_ns} {
         market_handler_.attach(market_);
         notify_handler_.attach(notify_);
     }
@@ -249,15 +287,15 @@ public:
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override { return state_->subscribe_refusals; }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind, InstrumentId instrument) override {
-        if (instrument.market() != MarketType::Perp) {
-            // no public spot market data is wired; a spot code here would be refused after counting as subscribed
-            return std::unexpected{exec::not_implemented("htx spot market data")};
+        if (instrument.market() != (spot_ ? MarketType::Spot : MarketType::Perp)) {
+            // the market socket serves one tree; a code from the other would be refused after counting as subscribed
+            return std::unexpected{exec::not_implemented("htx market data for another market")};
         }
         const auto code = state_->instruments.exchange_symbol(instrument);
         if (code.empty()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        if (kind == exec::SubKind::Funding) {
+        if (kind == exec::SubKind::Funding && !spot_) {
             // turnover comes on market.{code}.detail, so a funding subscription asks for it too
             if (const auto detail = place(code, k_detail_topic); !detail.has_value()) {
                 return detail; // a full pool refuses
@@ -283,6 +321,9 @@ public:
         if (suffix.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
+        if (spot_ && kind == exec::SubKind::Bbo) {
+            spot_tickers_.want(instrument);
+        }
         return place(code, suffix);
     }
 
@@ -306,9 +347,45 @@ public:
             return rest_.send(RequestBuilder::index_prices(),
                               [this](const net::RestResponse& response) { on_index(response); });
         });
+        spot_tickers_.poll(now, [this] {
+            return rest_.send(RequestBuilder::spot_tickers(),
+                              [this](const net::RestResponse& response) { on_spot_tickers(response); });
+        });
     }
 
 private:
+    void on_spot_tickers(const net::RestResponse& response) noexcept {
+        spot_tickers_.answered();
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickerBuffer>();
+        const auto tickers = parse_spot_tickers(response.body, *storage);
+        if (!tickers.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : tickers->rows) {
+            const auto* instrument = state_->instruments.find(row.symbol);
+            if (instrument == nullptr || !spot_tickers_.wanted(base_of(*instrument).id)) {
+                continue;
+            }
+            if (const auto stats = map_spot_ticker_stats(row, tickers->ts_ms, state_->instruments, received);
+                stats.has_value()) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+            auto& last = state_->quoted_ms[base_of(*instrument).id];
+            if (last != 0 && tickers->ts_ms < last + k_quiet_quote_ms) {
+                continue;
+            }
+            if (const auto bbo = map_spot_ticker_bbo(row, tickers->ts_ms, state_->instruments, received);
+                bbo.has_value()) {
+                last = tickers->ts_ms;
+                state_->sink->on_bbo(*bbo);
+            }
+        }
+    }
+
     void on_index(const net::RestResponse& response) noexcept {
         index_.answered();
         if (response.transport_failed() || response.status != 200) {
@@ -390,6 +467,7 @@ private:
     }
 
     std::shared_ptr<VenueState> state_;
+    bool spot_;
     MarketHandler market_handler_;
     net::WsPool market_;
     NotifyHandler notify_handler_;
@@ -397,13 +475,14 @@ private:
     net::RestClient rest_;
     exec::TickerPoll open_interest_;
     exec::TickerPoll index_;
+    exec::TickerPoll spot_tickers_;
     bool started_{false};
 };
 
 } // namespace
 
-std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state) {
-    return std::make_unique<HtxData>(std::move(state));
+std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state, MarketType market) {
+    return std::make_unique<HtxData>(std::move(state), market);
 }
 
 } // namespace raikiri::venues::htx::internal

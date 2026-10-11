@@ -48,10 +48,15 @@ struct VenueState {
     std::unordered_map<InstrumentId, FixedE9> open_interest;
     // from the swap_index poll, stamped into funding
     std::unordered_map<InstrumentId, FixedE9> index_prices;
+    // venue stamp of the last top published, so a tickers row never restates an older one
+    std::unordered_map<InstrumentId, std::uint64_t> quoted_ms;
 
     std::int64_t clock_offset_ns{0};
 
     std::uint64_t subscribe_refusals{0};
+
+    // instrument to its trade.detail ack's stamp, until the first trade push settles the backfill
+    std::unordered_map<std::uint64_t, std::uint64_t> trade_ack_ms;
     std::string last_error_code;
 
     std::uint64_t inflate_failures{0};
