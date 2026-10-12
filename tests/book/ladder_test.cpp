@@ -125,8 +125,8 @@ TEST(Ladders, AOneSidedBookPublishesNothing) {
 TEST(Ladders, SnapshotCarriesAtMostTheDomainDepth) {
     Ladders book;
     for (std::size_t i = 0; i < k_book_levels + 20; ++i) {
-        book.bids().upsert(lvl(static_cast<std::int64_t>(1000 - i), 1));
-        book.asks().upsert(lvl(static_cast<std::int64_t>(2000 + i), 1));
+        book.bids().upsert(lvl(1000 - static_cast<std::int64_t>(i), 1));
+        book.asks().upsert(lvl(2000 + static_cast<std::int64_t>(i), 1));
     }
     const auto out = book.snapshot(k_instrument, 42, UnixNanos{7}, UnixNanos{9});
     ASSERT_TRUE(out.has_value());

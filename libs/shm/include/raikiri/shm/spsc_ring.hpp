@@ -18,6 +18,8 @@ enum class RingError : std::uint8_t { Full };
 
 template <typename T, std::size_t N>
     requires(std::has_single_bit(N) && std::is_trivially_copyable_v<T>)
+// slots live in shared memory and are written before they are read
+// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 struct SpscRing {
     static constexpr std::size_t k_capacity = N;
     static constexpr std::uint64_t k_mask = N - 1;

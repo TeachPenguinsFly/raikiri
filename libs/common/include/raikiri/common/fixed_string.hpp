@@ -25,7 +25,10 @@ template <std::size_t N> struct FixedString {
             return std::unexpected{StrError::TooLong};
         }
         FixedString out{};
-        std::memcpy(out.data.data(), sv.data(), sv.size());
+        // an empty view may hold a null pointer, which memcpy may not be handed even for zero bytes
+        if (!sv.empty()) {
+            std::memcpy(out.data.data(), sv.data(), sv.size());
+        }
         out.len = static_cast<std::uint8_t>(sv.size());
         return out;
     }

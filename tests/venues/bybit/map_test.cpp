@@ -481,7 +481,8 @@ TEST(BybitMapIds, OversizedIdentifiersAreRefusedNotTruncated) {
     wire.side = "Buy";
     wire.exec_price = "16618.20";
     wire.exec_qty = "0.012";
-    wire.exec_id = std::string(64, 'x'); // ExecId holds 40
+    const std::string long_id(64, 'x'); // ExecId holds 40
+    wire.exec_id = long_id;
     EXPECT_FALSE(map_execution(wire, table, k_ingest).has_value());
 }
 

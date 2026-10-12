@@ -29,7 +29,7 @@ protected:
 
     [[nodiscard]] std::string dir() const { return dir_.string(); }
 
-    static GatewayStats stats(std::string account, std::uint64_t taken_ns) {
+    static GatewayStats stats(const std::string& account, std::uint64_t taken_ns) {
         GatewayStats out{};
         out.account = account;
         out.venue = account;

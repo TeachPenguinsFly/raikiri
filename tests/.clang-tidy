@@ -1,0 +1,6 @@
+# assertions guard the optionals here, which tidy does not follow; vectors and loops are small
+InheritParentConfig: true
+Checks: >
+  -bugprone-unchecked-optional-access,
+  -performance-inefficient-vector-operation,
+  -clang-analyzer-security.FloatLoopCounter

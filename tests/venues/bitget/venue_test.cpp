@@ -91,7 +91,10 @@ TEST(BitgetWire, TheTradeBackfillASubscriptionOpensWithIsKeptApartFromLiveTrades
     // the spot pair's next push: every backfill print is older than it
     const auto backfill = fixture("ws_trades_spot_snapshot.json");
     std::uint64_t newest_backfill_ms = 0;
-    for (const auto& print : *parse_trades(backfill, storage)) {
+    // bound first: a range-for over *parse_trades(...) outlives the expected it dereferences
+    const auto backfill_prints = parse_trades(backfill, storage);
+    ASSERT_TRUE(backfill_prints.has_value());
+    for (const auto& print : *backfill_prints) {
         newest_backfill_ms = std::max(newest_backfill_ms, print.ts_ms);
     }
     const auto live = fixture("ws_trades_spot_update.json");

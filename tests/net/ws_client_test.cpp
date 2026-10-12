@@ -402,7 +402,7 @@ TEST(WsClient, ABurstThatQueuedWhileNoReadWasPendingArrivesWhole) {
 
 [[nodiscard]] std::string compressible_payload() {
     std::string out{"["};
-    while (out.size() < 64 * 1024) {
+    while (out.size() < std::size_t{64} * 1024) {
         out += std::format("{{\"p\":\"{}.5\",\"q\":\"0.001\"}},", 60'000 + out.size() % 97);
     }
     out.back() = ']';

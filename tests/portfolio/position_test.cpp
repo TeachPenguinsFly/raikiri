@@ -101,7 +101,7 @@ TEST(Position, PartialCloseDoesNotMoveTheAverageEntry) {
     p.apply_fill(base, Side::Sell, QtyLots::from_raw(400), at("55000"), FixedE9::from_raw(0), UnixNanos{3});
     EXPECT_EQ(p.qty().raw, 600);
     EXPECT_EQ(p.avg_entry_price(base).raw, before.raw);
-    EXPECT_EQ(p.realized().raw, 400 * 5 * k_e9); // 0.4 BTC through a 5000 move
+    EXPECT_EQ(p.realized().raw, std::int64_t{400} * 5 * k_e9); // 0.4 BTC through a 5000 move
 }
 
 TEST(Position, FlipSplitsIntoACloseAndAnOpen) {

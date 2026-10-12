@@ -186,7 +186,7 @@ public:
     }
 
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType) override {
-        const auto body = get(std::string{ep::k_active_orders} + "?account_index=" + account(), true);
+        const auto body = get(std::format("{}?account_index={}", ep::k_active_orders, account()), true);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -206,9 +206,10 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id,
                                                                          MarketType) override {
-        const auto body = get(std::string{ep::k_account_orders} + "?account_index=" + account() +
-                                  "&client_order_indexes=" + std::to_string(client_order_index(id)),
-                              true);
+        const auto body = get(
+            std::format(
+                "{}?account_index={}&client_order_indexes={}", ep::k_account_orders, account(), client_order_index(id)),
+            true);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -227,7 +228,8 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType, UnixNanos since) override {
         const auto body = get(
-            std::string{ep::k_trades} + "?sort_by=timestamp&sort_dir=desc&limit=100&account_index=" + account(), true);
+            std::format("{}?sort_by=timestamp&sort_dir=desc&limit=100&account_index={}", ep::k_trades, account()),
+            true);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -452,8 +454,8 @@ private:
             return;
         }
         resyncing_ = true;
-        nonce_target_ = std::string{ep::k_next_nonce} + "?account_index=" + account() +
-                        "&api_key_index=" + std::to_string(state_->api_key_index);
+        nonce_target_ = std::format(
+            "{}?account_index={}&api_key_index={}", ep::k_next_nonce, account(), state_->api_key_index);
         const net::RestRequest request{.method = net::HttpMethod::Get, .target = nonce_target_};
         if (!rest_.send(request, [this](net::RestResponse&& response) {
                 resyncing_ = false;
@@ -474,9 +476,9 @@ private:
     }
 
     [[nodiscard]] std::expected<void, exec::VenueError> resync_blocking() {
-        const auto body = get(std::string{ep::k_next_nonce} + "?account_index=" + account() +
-                                  "&api_key_index=" + std::to_string(state_->api_key_index),
-                              false);
+        const auto body = get(
+            std::format("{}?account_index={}&api_key_index={}", ep::k_next_nonce, account(), state_->api_key_index),
+            false);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -530,7 +532,7 @@ private:
     }
 
     [[nodiscard]] std::expected<void, exec::VenueError> account_row(WireAccount& row) {
-        const auto body = get(std::string{ep::k_account} + "?by=index&value=" + account(), false);
+        const auto body = get(std::format("{}?by=index&value={}", ep::k_account, account()), false);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }

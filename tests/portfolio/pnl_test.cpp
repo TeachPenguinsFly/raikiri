@@ -71,12 +71,12 @@ TEST(Pnl, InverseSettlesInBaseNotQuote) {
     const QtyLots hundred = *base.qty_to_lots(*parse_decimal_e9("100"));
 
     const auto entry = settlement_value(base, at(base, "50000"), hundred);
-    const auto exit_ = settlement_value(base, at(base, "60000"), hundred);
+    const auto exited = settlement_value(base, at(base, "60000"), hundred);
     EXPECT_EQ(entry.raw, 20'000'000); // 0.02 BTC
 
     const int128_t closed_form = (static_cast<int128_t>(1000) * k_e9 * k_e9) / 50'000 / k_e9 -
                                  (static_cast<int128_t>(1000) * k_e9 * k_e9) / 60'000 / k_e9;
-    const auto realized_long = entry.raw - exit_.raw;
+    const auto realized_long = entry.raw - exited.raw;
     EXPECT_LE(std::abs(realized_long - static_cast<std::int64_t>(closed_form)), 1)
         << "realized " << realized_long << " vs closed form " << static_cast<std::int64_t>(closed_form);
     EXPECT_LE(std::abs(realized_long - 3'333'333), 1); // 0.003333... BTC
