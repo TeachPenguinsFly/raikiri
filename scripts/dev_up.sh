@@ -124,7 +124,7 @@ for venue in $VENUES; do
     echo "  gatewayd $venue → $RAIKIRI_DATA_DIR/$venue.log"
 done
 
-# UPSTREAM=boards=8790 forwards /v1/x/boards/ to an external service
+# UPSTREAM=name=port forwards /v1/x/name/ to an external service
 "$BIN/admind/admind" --port "$PORT" --stream-port "$STREAM_PORT" \
     ${UPSTREAM:+--upstream "$UPSTREAM"} \
     > "$RAIKIRI_DATA_DIR/admind.log" 2>&1 &

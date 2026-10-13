@@ -1,20 +1,19 @@
 {
-  "name": "raikiri-terminal",
+  "name": "raikiri-frontend",
   "private": true,
   "version": "0.1.0-beta.1",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "npm run types && tsc -b && vite build",
-    "preview": "vite preview",
-    "types": "openapi-typescript ../schema/admin-api.yaml -o src/api/types.ts",
+    "dev": "npm run dev -w raikiri-terminal --",
+    "build": "npm run types && tsc -b && npm run build -w raikiri-terminal",
+    "preview": "npm run preview -w raikiri-terminal --",
+    "types": "openapi-typescript ../schema/admin-api.yaml -o packages/terminal/src/api/types.ts",
     "typecheck": "tsc -b --noEmit",
     "test:e2e": "playwright test"
-  },
-  "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router": "^7.9.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

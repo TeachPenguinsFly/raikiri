@@ -17,10 +17,7 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "noEmit": true,
-
-    "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] }
+    "noEmit": true
   },
-  "include": ["src", "e2e", "vite.config.ts", "playwright.config.ts"]
+  "include": ["packages/*/src", "apps/*/src", "apps/*/vite.config.ts", "e2e", "playwright.config.ts"]
 }

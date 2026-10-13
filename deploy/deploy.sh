@@ -19,10 +19,10 @@ echo "==> the terminal, as static files"
 
 echo "==> source and units to $HOST"
 rsync -a --delete \
-    --exclude build/ --exclude .git/ --exclude frontend/node_modules/ \
+    --exclude build/ --exclude .git/ --exclude node_modules/ \
     --exclude raikiri-data/ --exclude tools/ --exclude docs/ \
     ./ "$HOST:$SRC_DIR/"
-rsync -a frontend/dist/ "$HOST:$SRC_DIR/web-dist/"
+rsync -a frontend/apps/terminal/dist/ "$HOST:$SRC_DIR/web-dist/"
 if [[ -n "$BINARIES" ]]; then
     rsync -a --delete "$BINARIES/" "$HOST:$SRC_DIR/prebuilt/"
 fi

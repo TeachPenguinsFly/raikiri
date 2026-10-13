@@ -1452,7 +1452,7 @@ components:
       type: object
       required: [name, answering]
       properties:
-        name: { type: string, examples: ["boards", "strategyd"] }
+        name: { type: string, examples: ["strategyd"] }
         answering:
           type: boolean
           description: |
@@ -1651,7 +1651,7 @@ components:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
             The same window in the quote currency, which for a coin-margined contract
-            is not dollars. Rank cross-venue boards on this column.
+            is not dollars. Rank venues against each other on this column.
         open_interest:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |

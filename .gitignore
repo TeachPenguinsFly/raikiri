@@ -9,8 +9,8 @@ crash-*
 leak-*
 timeout-*
 todo.md
-frontend/node_modules/
-frontend/dist/
+frontend/**/node_modules/
+frontend/apps/*/dist/
 frontend/tsconfig.tsbuildinfo
 scripts/credentials.env
 scripts/op.env

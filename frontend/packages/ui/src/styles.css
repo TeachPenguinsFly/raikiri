@@ -1,0 +1,200 @@
+@import 'tailwindcss';
+
+/* both packages are scanned from wherever they are installed; an app's own files are found by tailwind */
+@source './';
+@source '../../terminal/src';
+
+/* design tokens; green and red are reserved for direction */
+
+@theme {
+  /* one family; inter's tabular figures align columns */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 0.875rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.125rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-lg: 0.9375rem;
+  --text-lg--line-height: 1.375rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.625rem;
+
+  --color-canvas: #060910;
+  --color-panel: #0f141d;
+  --color-raised: #19212c;
+  --color-hover: #202a37;
+  --color-active: #2a3646;
+  --color-line: #1e2734;
+
+  --color-fg: #eef3fa;
+  --color-fg-mid: #93a3b8;
+  --color-fg-dim: #5b6a7d;
+
+  /* up and down matched in lightness */
+  --color-up: #2ecc8f;
+  --color-down: #f0566e;
+  --color-accent: #38bdf8;
+  --color-amber: #e0a541;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-canvas text-fg font-sans text-sm antialiased;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv05' 1;
+    overscroll-behavior: none;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 99px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 65%, transparent);
+    outline-offset: 1px;
+    border-radius: var(--radius-sm);
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-panel rounded-lg;
+  }
+
+  .panel-title {
+    @apply text-xs font-medium tracking-[-0.005em] text-fg-mid;
+  }
+
+  .col-head {
+    @apply text-[10px] leading-4 font-medium tracking-[0.06em] text-fg-dim uppercase;
+  }
+
+  .meta {
+    @apply text-xs text-fg-dim;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.006em;
+  }
+
+  .row {
+    @apply h-7 transition-colors duration-150;
+  }
+  .row:hover {
+    background: var(--color-hover);
+  }
+}
+
+@layer utilities {
+  .flash-up {
+    animation: flash-up 0.55s ease-out;
+  }
+  .flash-down {
+    animation: flash-down 0.55s ease-out;
+  }
+}
+
+@keyframes flash-up {
+  from {
+    background: color-mix(in srgb, var(--color-up) 14%, transparent);
+  }
+}
+@keyframes flash-down {
+  from {
+    background: color-mix(in srgb, var(--color-down) 14%, transparent);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+
+/* fill mode both keeps a delayed row hidden until it starts */
+.enter-fade-up {
+  animation: enter-fade-up 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+@keyframes enter-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* from-only: the arc grows to its own attribute values */
+@keyframes donut-grow {
+  from {
+    stroke-dasharray: 0 var(--circumference);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot,
+  .flash-up,
+  .flash-down {
+    animation: none;
+  }
+  .enter-fade-up {
+    animation: enter-fade 0.15s ease-out both;
+    animation-delay: 0ms;
+  }
+}

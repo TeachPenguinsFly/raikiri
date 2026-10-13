@@ -5,15 +5,59 @@ stream on `/v1/stream`, which it opens with a fresh token from `/v1/stream/token
 
     npm install
     npm run dev      # proxies /v1 to admind on :8787 and /v1/stream to :8788
-    npm run build    # regenerates the API types, typechecks, bundles
+    npm run build    # regenerates the API types, typechecks, bundles into apps/terminal/dist
     npm run test:e2e # see e2e/README.md
+
+## Layout
+
+npm workspaces, shipped as TypeScript source with no build step of their own:
+
+| path | package | what it holds |
+| --- | --- | --- |
+| `packages/ui` | `@raikiri/ui` | the theme (`styles.css`), the shell (`AppShell`, `SidebarNav`, `TopCommandBar`), shared components, charts, exchange icons, formatting |
+| `packages/terminal` | `@raikiri/terminal` | the admin API client and its generated types, queries and the stream, the screens as modules, `terminalModules` and `mountApp` |
+| `apps/terminal` | `raikiri-terminal` | the public terminal: `mountApp({ modules: terminalModules })` |
+
+A screen is an `AppModule`: `{ path, label, icon?, element, requires?, routes? }`. `requires` names an upstream that
+`/v1/health` must report answering before the screen is listed; a direct visit to a hidden screen goes to `/`.
+
+### Another app on the same packages
+
+A sibling checkout links both packages by path:
+
+    "@raikiri/ui": "file:../raikiri/frontend/packages/ui",
+    "@raikiri/terminal": "file:../raikiri/frontend/packages/terminal"
+
+and mounts its own screens beside the public ones:
+
+```tsx
+import { mountApp, terminalModules } from '@raikiri/terminal'
+import { PanelHeader, type AppModule } from '@raikiri/ui'
+import '@raikiri/ui/styles.css'
+
+function Desk() {
+  return <section className="panel"><PanelHeader title="Desk" /></section>
+}
+
+const desk: AppModule = { path: '/desk', label: 'Desk', element: <Desk />, requires: 'deskd' }
+
+mountApp({ modules: [...terminalModules, desk] })
+```
+
+It needs React 19, react-router 7, Vite with `@vitejs/plugin-react` and `@tailwindcss/vite`, and Tailwind 4. The
+stylesheet registers both packages with `@source`, so an app imports it once and its own files are scanned as usual.
+The packages resolve their imports from where they really live, so the app points them at its own copies:
+
+- `vite.config.ts`: `resolve: { dedupe: ['react', 'react-dom', 'react-router', '@raikiri/ui'] }`
+- `tsconfig.json`: `"preserveSymlinks": true`
+- `vite.config.ts`: `server: { fs: { allow: [searchForWorkspaceRoot(process.cwd()), '<path to raikiri>/frontend/packages'] } }`,
+  or the dev server answers 403 for package files it reaches outside the import graph
 
 ## Routes
 
 | route | what it shows | source |
 | --- | --- | --- |
 | `/` | market watch, chart, order book, ticket, blotter | `/v1/markets`, the stream, `/v1/orders`, `/v1/fills` |
-| `/scanner` | tables served by an upstream board service; in the nav only when `/v1/health` lists that upstream | `/v1/x/boards/` through `admind --upstream boards=<port>` |
 | `/execution` | parent orders worked across venues, their children, and a ticket to start one | `/v1/joe/parents` through `admind --upstream strategyd=<port>` |
 | `/strategies` | a note on what admind can and cannot say about strategies; in the nav only while strategyd answers | none yet |
 | `/treasury` | balances, positions and the ledger by exchange and over time | `/v1/balances`, `/v1/positions`, `/v1/pnl` |
@@ -25,8 +69,8 @@ arrives later on the order's events.
 
 ## Data rules
 
-- `src/api/types.ts` is generated from the schema by `npm run types`, which `npm run build` runs first. Change the
-  schema, never this file.
+- `packages/terminal/src/api/types.ts` is generated from the schema by `npm run types`, which `npm run build` runs
+  first. Change the schema, never this file.
 - Prices and sizes are shown as the decimal strings they arrived as. A string becomes a number only where it turns
   into a pixel or an axis domain.
 - There is no mock data. A screen that cannot reach admind shows the server's status and message. The order book
@@ -36,7 +80,7 @@ arrives later on the order's events.
 
 ## Charts
 
-`src/components/chart/` holds every plot. Nothing else in the app draws.
+`packages/ui/src/components/chart/` holds every plot. Nothing else in the app draws.
 
 | file | what it owns |
 | --- | --- |
@@ -55,4 +99,4 @@ a plot is not blank where the first `ResizeObserver` callback never comes.
 Runtime dependencies: `react`, `react-dom`, `react-router`. Everything else (tables, the ladder, charts, the store,
 icons) is written here. Development: Vite, TypeScript, Tailwind CSS, openapi-typescript and Playwright.
 
-The production bundle is about 335 kB of JavaScript, 119 kB gzipped.
+The production bundle is about 370 kB of JavaScript, 138 kB gzipped.
