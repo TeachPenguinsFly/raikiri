@@ -161,7 +161,7 @@ transport orders take; *market data only* means the adapter sends none yet. The
 <!-- venues:begin -->
 | venue | custody | markets | order entry | WS | FIX | private stream | funding ledger |
 | :-- | :-: | :-- | :-- | :-: | :-: | :-- | :-: |
-| <img src="frontend/packages/ui/src/assets/exchanges/apex.png" height="18" align="absmiddle" alt="">&nbsp;`apex` | DEX | perp | **market data only** | – | – | – | – |
+| <img src="frontend/packages/ui/src/assets/exchanges/apex.png" height="18" align="absmiddle" alt="">&nbsp;`apex` | DEX | perp | REST | – | – | AuthSubscribe | – |
 | <img src="frontend/packages/ui/src/assets/exchanges/arcus.png" height="18" align="absmiddle" alt="">&nbsp;`arcus` | DEX | perp | **market data only** | – | – | – | – |
 | <img src="frontend/packages/ui/src/assets/exchanges/aster.png" height="18" align="absmiddle" alt="">&nbsp;`aster` | DEX | spot · perp | REST | – | – | ListenKey | ✓ |
 | <img src="frontend/packages/ui/src/assets/exchanges/backpack.png" height="18" align="absmiddle" alt="">&nbsp;`backpack` | CEX | spot · perp | **market data only** | – | – | – | – |

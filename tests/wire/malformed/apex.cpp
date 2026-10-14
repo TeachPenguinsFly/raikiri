@@ -1,3 +1,4 @@
+#include <raikiri/venues/apex/trade.hpp>
 #include <raikiri/venues/apex/wire.hpp>
 
 #include <gtest/gtest.h>
@@ -68,6 +69,33 @@ TEST(Malformed, Apex) {
                     (void)parse_topic(f);
                     (void)parse_ping(f);
                 }},
+               {"rest_symbols_signing.json", [](std::string_view f) { (void)parse_signing_meta(f); }},
+               {"rest_account.json",
+                [](std::string_view f) {
+                    static PrivateBuffer storage;
+                    (void)parse_account(f, storage);
+                }},
+               {"rest_*order*",
+                [](std::string_view f) {
+                    static PrivateBuffer storage;
+                    (void)parse_reply(f);
+                    (void)parse_rest_rows(f, storage, false);
+                }},
+               {"rest_fills.json",
+                [](std::string_view f) {
+                    static PrivateBuffer storage;
+                    (void)parse_reply(f);
+                    (void)parse_rest_rows(f, storage, true);
+                }},
+               {"rest_error_*", [](std::string_view f) { (void)parse_reply(f); }},
+               {"ws_account_*",
+                [](std::string_view f) {
+                    static PrivateBuffer storage;
+                    (void)parse_private_kind(f);
+                    (void)parse_account_push(f, storage);
+                }},
+               {"ws_private_ping.json", [](std::string_view f) { (void)parse_private_kind(f); }},
+               {"ws_login_ack.json", [](std::string_view f) { (void)parse_private_kind(f); }},
            });
 }
 

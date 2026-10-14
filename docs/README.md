@@ -218,7 +218,7 @@ make bench                 # Release benchmarks
 
 ## Status
 
-Working today: market data on all 43 venues in the table, REST order entry on the 23 it
+Working today: market data on all 43 venues in the table, REST order entry on the 24 it
 marks, the shared-memory transport, the SBE journals and their Postgres copy, and the
 HTTP/WebSocket admin API in [`schema/admin-api.yaml`](../schema/admin-api.yaml).
 

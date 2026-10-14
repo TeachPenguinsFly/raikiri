@@ -3,10 +3,13 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/apex/endpoints.hpp>
 #include <raikiri/venues/apex/map.hpp>
+#include <raikiri/venues/apex/trade.hpp>
 #include <raikiri/venues/apex/wire.hpp>
 
 #include <memory>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "clients.hpp"
@@ -55,6 +58,14 @@ public:
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
+        auto meta = parse_signing_meta(response->body);
+        std::unordered_map<std::string_view, std::string_view> order_symbol;
+        if (meta.has_value()) {
+            for (const auto& [symbol, contract] : meta->contracts) {
+                order_symbol.emplace(contract.cross_symbol, symbol);
+            }
+        }
+
         std::vector<Instrument> loaded;
         loaded.reserve(wire->size());
         state_->instruments.reserve(wire->size());
@@ -73,6 +84,13 @@ public:
                 continue;
             }
             loaded.push_back(*state_->instruments.find(*id));
+            if (const auto symbol = order_symbol.find(row.cross_symbol); symbol != order_symbol.end()) {
+                state_->by_symbol.insert_or_assign(std::string{symbol->second}, *id);
+                state_->symbol_of.insert_or_assign(id->packed, std::string{symbol->second});
+            }
+        }
+        if (meta.has_value()) {
+            state_->signing.set_meta(std::move(*meta));
         }
         if (::raikiri::log::logger() != nullptr) {
             RLOG_INFO("apex: {} of {} listed perps loaded, {} disabled for trading and never "

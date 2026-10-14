@@ -8,6 +8,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/venues/apex/book.hpp>
 #include <raikiri/venues/apex/map.hpp>
+#include <raikiri/venues/apex/trade.hpp>
 #include <raikiri/venues/apex/ws.hpp>
 
 #include <cstdint>
@@ -25,10 +26,17 @@ struct VenueState {
     const Clock* clock;
     exec::RateBudget* budget{nullptr};
     bool testnet;
+    std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
+    // unloaded on a market-data-only gateway; the catalogue load fills its signing metadata
+    RequestBuilder signing;
+
+    // the order symbol (BTC-USDT) both ways; streams name the cross symbol instead
+    std::unordered_map<std::string, InstrumentId> by_symbol;
+    std::unordered_map<std::uint64_t, std::string> symbol_of; // InstrumentId::packed
 
     std::unordered_map<std::uint64_t, BookSync> books; // InstrumentId::packed
     std::unordered_map<std::uint64_t, FundingMemo> funding;
@@ -40,6 +48,11 @@ struct VenueState {
     std::unordered_set<std::uint64_t> funded;
     std::uint64_t subscribe_refusals{0};
     std::uint64_t resubscribes{0};
+
+    [[nodiscard]] const Instrument* instrument_of(std::string_view symbol) const {
+        const auto found = by_symbol.find(std::string{symbol});
+        return found == by_symbol.end() ? nullptr : instruments.find(found->second);
+    }
 };
 
 } // namespace raikiri::venues::apex::internal

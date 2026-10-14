@@ -107,6 +107,7 @@ raikiri_add_test(backpack_venue_test SRCS venues/backpack/venue_test.cpp LIBS ra
 raikiri_add_test(cryptocom_venue_test SRCS venues/cryptocom/venue_test.cpp LIBS raikiri::venue_cryptocom raikiri::exec)
 raikiri_add_test(blofin_venue_test SRCS venues/blofin/venue_test.cpp LIBS raikiri::venue_blofin raikiri::exec)
 raikiri_add_test(apex_venue_test SRCS venues/apex/venue_test.cpp LIBS raikiri::venue_apex raikiri::exec)
+raikiri_add_test(apex_trade_test SRCS venues/apex/trade_test.cpp LIBS raikiri::venue_apex raikiri::exec)
 raikiri_add_test(edgex_venue_test SRCS venues/edgex/venue_test.cpp LIBS raikiri::venue_edgex raikiri::exec)
 raikiri_add_test(edgex_trade_test SRCS venues/edgex/trade_test.cpp LIBS raikiri::venue_edgex raikiri::exec)
 raikiri_add_test(dydx_venue_test SRCS venues/dydx/venue_test.cpp LIBS raikiri::venue_dydx raikiri::exec)

@@ -235,15 +235,15 @@ TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
 }
 
 TEST_F(VenueContract, ARowThatCannotCarryTheUlidIsRefusedOnlyToATrader) {
-    const auto& caps = caps_of(VenueId::Apex);
+    const auto& caps = caps_of(VenueId::Vest);
     ASSERT_LT(caps.max_client_order_id_len, k_min_client_order_id_len);
     const auto trader = make_venue(
-        {.venue = VenueId::Apex, .market = MarketType::Perp, .api_key_env = "env:KEY", .api_secret_env = "env:SECRET"},
+        {.venue = VenueId::Vest, .market = MarketType::Perp, .api_key_env = "env:KEY", .api_secret_env = "env:SECRET"},
         sink,
         clock);
     ASSERT_FALSE(trader.has_value());
     EXPECT_EQ(trader.error(), MakeError::ClientOrderIdTooShort);
-    const auto reader = make_venue({.venue = VenueId::Apex, .market = MarketType::Perp}, sink, clock);
+    const auto reader = make_venue({.venue = VenueId::Vest, .market = MarketType::Perp}, sink, clock);
     ASSERT_FALSE(reader.has_value());
     EXPECT_EQ(reader.error(), MakeError::UnknownVenue);
 }
@@ -265,10 +265,10 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
     }
     std::ranges::sort(claiming);
     EXPECT_EQ(claiming,
-              (std::vector<std::string_view>{"aster",       "binance", "bingx",   "bitfinex", "bitget", "bitunix",
-                                             "blofin",      "bybit",   "deribit", "edgex",    "gate",   "htx",
-                                             "hyperliquid", "kraken",  "kucoin",  "lighter",  "mexc",   "okx",
-                                             "phemex",      "sim",     "toobit",  "weex",     "xt"}));
+              (std::vector<std::string_view>{"apex",    "aster",       "binance", "bingx",   "bitfinex", "bitget",
+                                             "bitunix", "blofin",      "bybit",   "deribit", "edgex",    "gate",
+                                             "htx",     "hyperliquid", "kraken",  "kucoin",  "lighter",  "mexc",
+                                             "okx",     "phemex",      "sim",     "toobit",  "weex",     "xt"}));
 }
 
 TEST_F(VenueContract, NoRowClaimsAPositionPullOnSpot) {

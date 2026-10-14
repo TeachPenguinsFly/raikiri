@@ -554,22 +554,26 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::Apex)] = {
         .venue = VenueId::Apex,
         .markets = {.spot = false, .perp = true},
+        // orders over rest, each carrying a zkLink l2 signature
         .ws_order_entry = false,
         .fix_order_entry = false,
-        .cancel_by_client_order_id = false,
+        .cancel_by_client_order_id = true,
         .batch_cancel = false,
         .amend_order = false,
-        .native_post_only = false,
+        .native_post_only = true,
         .book_checksum = false,
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
+        .position_pull = {.perp = true},
+        .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
         .balance_pull = {},
         .funding_charge = {},
         .ticker_stats = true,
-        .user_stream = UserStreamModel::None,
-        .max_client_order_id_len = 0,
-        .headline_order_rate_per_s = 0,
+        .needs_passphrase = true,
+        // login and subscribe frames on the socket
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 32, // unstated; the sdk mints up to 17 digits
+        // 300 private posts per minute per account
+        .headline_order_rate_per_s = 5,
     };
 
     table[static_cast<std::size_t>(VenueId::Edgex)] = {

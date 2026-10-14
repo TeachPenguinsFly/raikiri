@@ -321,15 +321,19 @@ TEST(ApexTime, OnlyWholeUtcSeconds) {
     EXPECT_FALSE(parse_utc("").has_value());
 }
 
-TEST(ApexCaps, PerpMarketDataOnly) {
+TEST(ApexCaps, PerpOrdersOverRest) {
     const auto& caps = exec::caps_of(VenueId::Apex);
     EXPECT_EQ(caps.venue, VenueId::Apex);
     EXPECT_TRUE(caps.markets.perp);
     EXPECT_FALSE(caps.markets.spot);
     EXPECT_FALSE(caps.ws_order_entry);
     EXPECT_FALSE(caps.book_checksum);
-    EXPECT_EQ(caps.user_stream, exec::UserStreamModel::None);
-    EXPECT_EQ(caps.max_client_order_id_len, 0U);
+    EXPECT_TRUE(caps.native_post_only);
+    EXPECT_TRUE(caps.cancel_by_client_order_id);
+    EXPECT_TRUE(caps.needs_passphrase);
+    EXPECT_TRUE(caps.order_pull.perp && caps.fill_pull.perp && caps.position_pull.perp);
+    EXPECT_EQ(caps.user_stream, exec::UserStreamModel::AuthSubscribe);
+    EXPECT_GE(caps.max_client_order_id_len, exec::k_min_client_order_id_len);
     EXPECT_EQ(to_string(VenueId::Apex), "apex");
     EXPECT_EQ(ep::k_ban_status, 403);
 }
