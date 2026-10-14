@@ -18,7 +18,7 @@ README = ROOT / "README.md"
 DOCS = ROOT / "docs/README.md"
 TESTS = ROOT / "tests"
 # the terminal's marks, one file per venue named after it
-ICONS = ROOT / "frontend/src/assets/exchanges"
+ICONS = ROOT / "frontend/packages/ui/src/assets/exchanges"
 
 CUSTODY = {
     "apex": "DEX",
