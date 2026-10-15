@@ -593,6 +593,9 @@ private:
 constexpr std::uint64_t k_snapshot_max_age_ns = 90ULL * 1'000'000'000ULL;
 
 constexpr std::uint64_t k_recon_read_interval_ns = 5ULL * 1'000'000'000ULL;
+// a pass with no order-path work sleeps this long, so market data is read in batches at most this late: venues move
+// in milliseconds, while a pass over every bbo cell costs tens of microseconds and back to back holds a whole core
+constexpr auto k_idle_sleep = std::chrono::microseconds{500};
 
 void journal_break(raikiri::journal::JournalWriter& journal,
                    raikiri::VenueId venue,
@@ -1249,9 +1252,11 @@ int main(int argc, char** argv) {
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
         // desk intents drain first, then verdicts on every gateway, then market data
+        bool order_work = false;
         OrderCmd intent{};
         for (auto& gw : gateways) {
             while (gw.intents.try_pop(intent)) {
+                order_work = true;
                 desk_intents += 1;
                 // intents may only use the manual desk's strategy id
                 if (intent.client_order_id.strategy_id() != k_manual_strategy_id) {
@@ -1308,6 +1313,7 @@ int main(int argc, char** argv) {
                 if (poll == shm::PollResult::Empty) {
                     break;
                 }
+                order_work = true;
                 if (poll == shm::PollResult::Overrun) {
                     ++funding_overruns; // a lost charge is lost money: worth counting
                     continue;
@@ -1382,6 +1388,7 @@ int main(int argc, char** argv) {
                 if (poll == shm::PollResult::Empty) {
                     break;
                 }
+                order_work = true;
                 if (poll == shm::PollResult::Overrun) {
                     ++fill_overruns; // a lost execution is money the book never takes
                     continue;
@@ -1420,6 +1427,7 @@ int main(int argc, char** argv) {
                 if (poll == shm::PollResult::Empty) {
                     break;
                 }
+                order_work = true;
                 if (poll == shm::PollResult::Overrun) {
                     ++exec_overruns;
                     // a dropped record may be a fill; stop adding risk on this gateway, cancels continue
@@ -1518,6 +1526,9 @@ int main(int argc, char** argv) {
                                 [](const Gateway& gw) { return gw.kernel.state() == oms::KernelState::Halted; })) {
             gateway_gone = gateways.empty() ? std::string{"none attached"} : gateways.front().name;
             break;
+        }
+        if (!order_work) {
+            std::this_thread::sleep_for(k_idle_sleep);
         }
     }
     shutdown.request_stop();
