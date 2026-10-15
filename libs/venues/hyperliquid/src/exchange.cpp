@@ -291,6 +291,58 @@ bool price_digits_ok(std::string_view text) noexcept {
     return significant <= 5;
 }
 
+std::string_view five_figures(std::string_view text, bool up, std::span<char> out) noexcept {
+    // a leading zero gives a carry out of the first digit somewhere to land
+    if (text.size() + 1 > out.size()) {
+        return {};
+    }
+    out[0] = '0';
+    std::memcpy(out.data() + 1, text.data(), text.size());
+    const std::size_t size = text.size() + 1;
+    std::size_t significant = 0;
+    std::size_t last_kept = 0;
+    bool started = false;
+    bool dropped = false;
+    for (std::size_t i = 1; i < size; ++i) {
+        if (out[i] == '.' || (!started && out[i] == '0')) {
+            continue;
+        }
+        started = true;
+        if (significant < 5) {
+            ++significant;
+            last_kept = i;
+            continue;
+        }
+        dropped = dropped || out[i] != '0';
+        out[i] = '0';
+    }
+    if (dropped && up) {
+        for (std::size_t i = last_kept;; --i) {
+            if (out[i] == '.') {
+                continue;
+            }
+            if (out[i] != '9') {
+                ++out[i];
+                break;
+            }
+            out[i] = '0';
+        }
+    }
+    std::string_view rounded{out.data(), size};
+    if (rounded.find('.') != std::string_view::npos) {
+        while (rounded.back() == '0') {
+            rounded.remove_suffix(1);
+        }
+        if (rounded.back() == '.') {
+            rounded.remove_suffix(1);
+        }
+    }
+    if (rounded.size() > 1 && rounded[0] == '0' && rounded[1] != '.') {
+        rounded.remove_prefix(1);
+    }
+    return rounded;
+}
+
 std::expected<net::RestRequest, BuildError> ExchangeBuilder::create_order(const OrderCmd& cmd,
                                                                           const exec::InstrumentTable& table,
                                                                           std::int64_t asset,
@@ -315,7 +367,7 @@ std::expected<net::RestRequest, BuildError> ExchangeBuilder::create_order(const 
 
     std::array<char, 32> price_buf{};
     std::array<char, 32> qty_buf{};
-    const auto price = render(base.ticks_to_price(cmd.price), price_buf);
+    auto price = render(base.ticks_to_price(cmd.price), price_buf);
     const auto qty = render(base.lots_to_qty(cmd.qty), qty_buf);
     if (price.empty() || cmd.price.raw <= 0) {
         return std::unexpected{BuildError::BadPrice};
@@ -323,8 +375,17 @@ std::expected<net::RestRequest, BuildError> ExchangeBuilder::create_order(const 
     if (qty.empty() || cmd.qty.raw <= 0) {
         return std::unexpected{BuildError::BadQuantity};
     }
+    std::array<char, 34> rounded_buf{};
     if (!price_digits_ok(price)) {
-        return std::unexpected{BuildError::TooManySignificantDigits};
+        // an ioc's limit only bounds its fill, so it moves to five figures on the passive side;
+        // a resting price is the strategy's quote and is refused instead
+        if (cmd.tif != TimeInForce::Ioc && cmd.order_type != OrderType::Market) {
+            return std::unexpected{BuildError::TooManySignificantDigits};
+        }
+        price = five_figures(price, cmd.side == Side::Sell, rounded_buf);
+        if (price.empty()) {
+            return std::unexpected{BuildError::BadPrice};
+        }
     }
     std::array<char, k_cloid_chars> cloid_buf{};
     const auto cloid = cloid_text(cmd.exchange_client_order_id, cloid_buf);

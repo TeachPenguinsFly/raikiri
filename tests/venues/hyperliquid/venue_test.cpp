@@ -1413,6 +1413,15 @@ TEST(HyperliquidRest, TheFundingReadCarriesTheCursorItWasAskedFor) {
     EXPECT_NE(std::string{from_zero.body}.find(R"("startTime":0)"), std::string::npos);
 }
 
+TEST(HyperliquidRest, AccountReadsNameAHip3DexOnlyWhenAsked) {
+    constexpr std::string_view address = "0x1719884eb866cb12b2287399b15f7db5e7d775ea";
+    UserRequestBuilder builder;
+    EXPECT_EQ(builder.clearinghouse_state(address).body,
+              R"({"type":"clearinghouseState","user":"0x1719884eb866cb12b2287399b15f7db5e7d775ea"})");
+    EXPECT_EQ(builder.frontend_open_orders(address, "xyz").body,
+              R"({"type":"frontendOpenOrders","user":"0x1719884eb866cb12b2287399b15f7db5e7d775ea","dex":"xyz"})");
+}
+
 TEST(HyperliquidMap, AUlidAndItsCloidAreTheSameNumber) {
     // a ulid is 128 bits, so this is a change of base
     UlidGen gen{11};
@@ -1577,6 +1586,16 @@ TEST(HyperliquidExchange, FiveSignificantFiguresIsCheckedBeforeTheVenueDoes) {
     // five significant figures regardless of tick
     EXPECT_TRUE(price_digits_ok("1234.5"));
     EXPECT_FALSE(price_digits_ok("1234.56"));
+
+    // an ioc's long limit moves toward the passive side: a sell up, a buy down
+    std::array<char, 34> out{};
+    EXPECT_EQ(five_figures("1.14345", true, out), "1.1435");
+    EXPECT_EQ(five_figures("1.14345", false, out), "1.1434");
+    EXPECT_EQ(five_figures("9.99995", true, out), "10");
+    EXPECT_EQ(five_figures("123456.7", false, out), "123450");
+    EXPECT_EQ(five_figures("123456.7", true, out), "123460");
+    EXPECT_EQ(five_figures("0.0012345678", true, out), "0.0012346");
+    EXPECT_EQ(five_figures("1.1435", true, out), "1.1435");
     EXPECT_TRUE(price_digits_ok("0.001234"));
     EXPECT_TRUE(price_digits_ok("0.0012345"));
     EXPECT_FALSE(price_digits_ok("0.00123456"));
@@ -1770,6 +1789,10 @@ TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
     // a late cancel is not a failure
     EXPECT_TRUE(is_benign_cancel_failure("Order was never placed, already canceled, or filled."));
     EXPECT_FALSE(is_benign_cancel_failure("Insufficient margin to place order."));
+
+    // a missed ioc expires rather than fails
+    EXPECT_TRUE(is_ioc_miss("Order could not immediately match against any resting orders. asset=72"));
+    EXPECT_FALSE(is_ioc_miss("Post only order would have immediately matched, bbo was 100"));
 }
 
 exec::InstrumentTable dex_table(std::string_view meta = "rest_meta_dex_xyz.json") {
@@ -1793,6 +1816,9 @@ TEST(HyperliquidHip3, PerpDexsSkipsTheMainDexNull) {
     ASSERT_TRUE(names.has_value());
     ASSERT_EQ(names->size(), 10U);
     EXPECT_EQ((*names)[0], "xyz");
+    // the null main dex still holds place 0, so xyz numbers its assets from 110000
+    EXPECT_EQ(storage.places[0], 1);
+    EXPECT_EQ(dex_asset_id(storage.places[0], 107), 110'107);
     EXPECT_NE(std::ranges::find(*names, "para"), names->end());
     EXPECT_EQ(std::ranges::find(*names, ""), names->end());
 }

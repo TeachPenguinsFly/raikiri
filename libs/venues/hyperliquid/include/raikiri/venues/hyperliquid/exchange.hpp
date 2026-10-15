@@ -50,6 +50,9 @@ private:
 // at most five significant figures unless the price is an integer
 [[nodiscard]] bool price_digits_ok(std::string_view text) noexcept;
 
+// the price cut to five significant figures, rounded up or down, written to out; empty if out is too small
+[[nodiscard]] std::string_view five_figures(std::string_view text, bool up, std::span<char> out) noexcept;
+
 // requests view scratch owned here and die when the next one is built
 class ExchangeBuilder {
 public:

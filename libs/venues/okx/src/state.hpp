@@ -37,6 +37,8 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     exec::RateBudget* budget{nullptr};
+    // set for an account poller: no sockets are opened
+    bool pulls_only{false};
     bool testnet;
     std::uint64_t order_answer_timeout_ns{0};
 

@@ -52,7 +52,7 @@ public:
     std::expected<void, exec::VenueError> start() override {
         api_.start();
         started_ = true;
-        if (!state_->signer.has_credentials() || state_->market_data_only()) {
+        if (!state_->signer.has_credentials() || state_->market_data_only() || state_->pulls_only) {
             return {};
         }
         open_trade_socket();

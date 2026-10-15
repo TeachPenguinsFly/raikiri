@@ -69,6 +69,8 @@ struct VenueState {
     const Clock* clock;
     // shared with the order path since kucoin meters one allowance per ip; null is unlimited
     exec::RateBudget* budget{nullptr};
+    // set for an account poller: no sockets are opened
+    bool pulls_only{false};
     std::uint64_t order_answer_timeout_ns{0};
 
     // the trees share subject names for different payloads, so the market is fixed per process

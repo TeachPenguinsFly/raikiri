@@ -72,4 +72,8 @@ bool is_benign_cancel_failure(std::string_view reason) noexcept {
            text.starts_with("TWAP was never placed, already canceled, or filled");
 }
 
+bool is_ioc_miss(std::string_view reason) noexcept {
+    return trim(reason).starts_with("Order could not immediately match against any resting orders");
+}
+
 } // namespace raikiri::venues::hyperliquid

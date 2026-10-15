@@ -40,6 +40,8 @@ struct VenueState {
     MarketType market;
     // binance counts one weight pool per ip, shared with the account poller
     exec::RateBudget* budget{nullptr};
+    // set for an account poller: no sockets are opened
+    bool pulls_only{false};
     std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;

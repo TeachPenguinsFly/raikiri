@@ -34,6 +34,7 @@ using internal::VenueState;
 exec::VenueAdapter make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
+    state->pulls_only = config.pulls_only;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     // an unpublished tier fails the whole subscribe frame; warn and keep the default
     if (config.book_depth != 0) {

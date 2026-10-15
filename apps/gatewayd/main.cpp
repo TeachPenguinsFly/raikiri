@@ -1337,7 +1337,10 @@ int main(int argc, char** argv) {
                                       .api_secret_env = api_secret_ref,
                                       .passphrase_env = passphrase_ref,
                                       .budget = budget.has_value() ? &*budget : nullptr,
-                                      .order_answer_timeout_ns = 0},
+                                      .order_answer_timeout_ns = 0,
+                                      // the feed picks the catalogue too, e.g. hyperliquid's hip-3 dexes
+                                      .market_data_feed = market_data_feed,
+                                      .pulls_only = true},
                                      poller_sink,
                                      clock);
         if (made.has_value()) {

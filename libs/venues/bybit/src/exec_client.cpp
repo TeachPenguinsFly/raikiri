@@ -28,8 +28,11 @@ public:
     explicit BybitExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
-        stream_.start();
         api_.start();
+        if (state_->pulls_only) {
+            return {};
+        }
+        stream_.start();
         if (state_->signer.has_credentials()) {
             open_trade_socket();
         }

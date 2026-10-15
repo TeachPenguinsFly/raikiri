@@ -57,6 +57,7 @@ std::vector<config::CredentialError> load_credentials(const exec::VenueConfig& c
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
     state->budget = config.budget;
+    state->pulls_only = config.pulls_only;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     // "uta" selects the obu feed; anything else keeps classic
     if (const std::string_view feed = config.market_data_feed; feed == "uta" || feed.starts_with("uta:")) {

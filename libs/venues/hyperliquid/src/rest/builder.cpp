@@ -108,14 +108,19 @@ net::RestRequest RequestBuilder::spot_meta() noexcept {
     return info(R"({"type":"spotMeta"})");
 }
 
-net::RestRequest UserRequestBuilder::simple(std::string_view type, std::string_view user) noexcept {
+net::RestRequest
+UserRequestBuilder::simple(std::string_view type, std::string_view user, std::string_view dex) noexcept {
     Appender body{body_};
-    body << R"({"type":")" << type << R"(","user":")" << user << R"("})";
+    body << R"({"type":")" << type << R"(","user":")" << user << R"(")";
+    if (!dex.empty()) {
+        body << R"(,"dex":")" << dex << R"(")";
+    }
+    body << "}";
     return info(body.view());
 }
 
-net::RestRequest UserRequestBuilder::clearinghouse_state(std::string_view user) noexcept {
-    return simple("clearinghouseState", user);
+net::RestRequest UserRequestBuilder::clearinghouse_state(std::string_view user, std::string_view dex) noexcept {
+    return simple("clearinghouseState", user, dex);
 }
 
 net::RestRequest UserRequestBuilder::spot_state(std::string_view user) noexcept {
@@ -126,8 +131,8 @@ net::RestRequest UserRequestBuilder::open_orders(std::string_view user) noexcept
     return simple("openOrders", user);
 }
 
-net::RestRequest UserRequestBuilder::frontend_open_orders(std::string_view user) noexcept {
-    return simple("frontendOpenOrders", user);
+net::RestRequest UserRequestBuilder::frontend_open_orders(std::string_view user, std::string_view dex) noexcept {
+    return simple("frontendOpenOrders", user, dex);
 }
 
 net::RestRequest UserRequestBuilder::user_fills(std::string_view user) noexcept {

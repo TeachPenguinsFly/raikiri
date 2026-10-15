@@ -59,6 +59,12 @@ inline constexpr std::int64_t k_spot_asset_offset = 10'000;
 
 [[nodiscard]] std::int64_t spot_asset_id(std::int64_t pair_index) noexcept;
 
+// a hip-3 dex's assets: 100000 + 10000 * its place in perpDexs + the row's position in its meta.universe
+inline constexpr std::int64_t k_dex_asset_offset = 100'000;
+inline constexpr std::int64_t k_dex_asset_stride = 10'000;
+
+[[nodiscard]] std::int64_t dex_asset_id(std::int64_t dex_place, std::int64_t index) noexcept;
+
 // "0x" + 32 lowercase hex.
 inline constexpr std::size_t k_cloid_chars = 34;
 

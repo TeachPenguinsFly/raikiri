@@ -116,9 +116,12 @@ public:
         if (const auto synced = resync_blocking(); !synced.has_value()) {
             return std::unexpected{synced.error()};
         }
+        started_ = true;
+        if (state_->pulls_only) {
+            return {};
+        }
         open_trade_socket();
         account_ws_.start();
-        started_ = true;
         return {};
     }
 

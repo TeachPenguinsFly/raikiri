@@ -37,8 +37,10 @@ struct AssetBuffer {
 // the first perpDexs entry is null for the main dex and is skipped
 inline constexpr std::size_t k_max_perp_dexs = 64;
 
+// a dex's place in perpDexs, null rows counted, numbers its assets: 100000 + 10000 * place + meta index
 struct PerpDexBuffer {
     std::array<std::string_view, k_max_perp_dexs> names{};
+    std::array<std::int64_t, k_max_perp_dexs> places{};
 };
 
 [[nodiscard]] std::expected<std::span<const std::string_view>, WireError> parse_perp_dexs(std::string_view body,

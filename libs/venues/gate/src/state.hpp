@@ -47,6 +47,8 @@ struct VenueState {
     bool testnet;
     // gate counts one request pool per ip, shared with the account poller and market data
     exec::RateBudget* budget{nullptr};
+    // set for an account poller: no sockets are opened
+    bool pulls_only{false};
     std::uint64_t order_answer_timeout_ns{0};
 
     // gate names a spot pair and its perp identically; this picks host, channels and frame shapes

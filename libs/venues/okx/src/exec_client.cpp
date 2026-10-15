@@ -35,7 +35,7 @@ public:
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();
-        if (!state_->credentialed()) {
+        if (!state_->credentialed() || state_->pulls_only) {
             return {};
         }
         stream_.start();

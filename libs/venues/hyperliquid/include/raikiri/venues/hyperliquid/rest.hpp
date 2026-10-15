@@ -47,7 +47,8 @@ public:
 // one body buffer; a request is invalid once the next is built
 class UserRequestBuilder {
 public:
-    [[nodiscard]] net::RestRequest clearinghouse_state(std::string_view user) noexcept;
+    // an empty dex is the main one; each hip-3 dex keeps its own positions and orders
+    [[nodiscard]] net::RestRequest clearinghouse_state(std::string_view user, std::string_view dex = {}) noexcept;
 
     [[nodiscard]] net::RestRequest spot_state(std::string_view user) noexcept;
 
@@ -55,7 +56,7 @@ public:
     [[nodiscard]] net::RestRequest open_orders(std::string_view user) noexcept;
 
     // the only read that says whether a resting order is post-only
-    [[nodiscard]] net::RestRequest frontend_open_orders(std::string_view user) noexcept;
+    [[nodiscard]] net::RestRequest frontend_open_orders(std::string_view user, std::string_view dex = {}) noexcept;
 
     // newest 2000 fills; `startTime` is inclusive, in ms
     [[nodiscard]] net::RestRequest user_fills(std::string_view user) noexcept;
@@ -68,7 +69,8 @@ public:
     [[nodiscard]] net::RestRequest order_status(std::string_view user, std::string_view cloid) noexcept;
 
 private:
-    [[nodiscard]] net::RestRequest simple(std::string_view type, std::string_view user) noexcept;
+    [[nodiscard]] net::RestRequest
+    simple(std::string_view type, std::string_view user, std::string_view dex = {}) noexcept;
 
     std::array<char, 256> body_{};
 };

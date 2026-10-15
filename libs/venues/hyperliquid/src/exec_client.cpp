@@ -56,7 +56,7 @@ public:
                 {.state = exec::ConnState::AuthFailed, .stream_id = k_exchange_stream_id, .ts = state_->clock->wall()});
         }
         api_.start();
-        if (state_->wallet.loaded()) {
+        if (state_->wallet.loaded() && !state_->pulls_only) {
             open_trade_socket();
         }
         started_ = true;
@@ -283,6 +283,12 @@ private:
             if (kind == Kind::Cancel && is_benign_cancel_failure(status.error)) {
                 // the cancel arrived late; the venue has already closed the order
                 emit(cmd, OrderEventType::Canceled, 0, QtyLots::from_raw(0));
+                return;
+            }
+            if (kind == Kind::Create && is_ioc_miss(status.error)) {
+                // taken in, then cancelled unfilled, as an ioc is elsewhere
+                emit(cmd, OrderEventType::Accepted, 0, cmd.qty);
+                emit(cmd, OrderEventType::Expired, 0, QtyLots::from_raw(0));
                 return;
             }
             refuse(cmd, kind, status.error);

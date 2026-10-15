@@ -448,6 +448,10 @@ std::int64_t spot_asset_id(std::int64_t pair_index) noexcept {
     return k_spot_asset_offset + pair_index;
 }
 
+std::int64_t dex_asset_id(std::int64_t dex_place, std::int64_t index) noexcept {
+    return k_dex_asset_offset + k_dex_asset_stride * dex_place + index;
+}
+
 std::string_view cloid_text(const ExchangeClientOrderId& id, std::span<char> out) noexcept {
     const auto text = id.view();
     if (text.size() != k_ulid_chars || out.size() < k_cloid_chars) {

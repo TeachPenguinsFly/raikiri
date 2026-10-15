@@ -22,4 +22,7 @@ using WireError = wire::Error;
 // the order was already gone, so the cancel only arrived late
 [[nodiscard]] bool is_benign_cancel_failure(std::string_view reason) noexcept;
 
+// an ioc that found nothing to cross: the venue's IocCancel, which other venues report as an expiry
+[[nodiscard]] bool is_ioc_miss(std::string_view reason) noexcept;
+
 } // namespace raikiri::venues::hyperliquid

@@ -119,7 +119,9 @@ std::expected<std::span<const std::string_view>, WireError> parse_perp_dexs(std:
             return std::unexpected(rows.error());
         }
         std::size_t count = 0;
+        std::int64_t place = -1;
         for (auto row : *rows) {
+            ++place;
             bool null_row = false;
             if (row.is_null().get(null_row) == simdjson::SUCCESS && null_row) {
                 continue;
@@ -135,6 +137,7 @@ std::expected<std::span<const std::string_view>, WireError> parse_perp_dexs(std:
             if (!name.has_value()) {
                 return std::unexpected(name.error());
             }
+            storage.places[count] = place;
             storage.names[count++] = *name;
         }
         return std::span<const std::string_view>{storage.names.data(), count};

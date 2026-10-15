@@ -44,6 +44,9 @@ public:
         }
         // rest first: only a signed post on this pool mints the private socket's token
         api_.start();
+        if (state_->pulls_only) {
+            return {};
+        }
         stream_.start();
         open_trade_socket();
         return {};

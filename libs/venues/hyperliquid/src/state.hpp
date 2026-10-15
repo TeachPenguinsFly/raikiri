@@ -40,6 +40,8 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     exec::RateBudget* budget{nullptr};
+    // set for an account poller: no sockets are opened
+    bool pulls_only{false};
     bool testnet;
     MarketType market{MarketType::Perp};
     std::uint64_t order_answer_timeout_ns{0};
@@ -56,6 +58,8 @@ struct VenueState {
 
     // hip-3 dexes loaded beside the main dex; "all" takes every one perpDexs lists
     std::vector<std::string> dexes;
+    // the hip-3 dexes the catalogue resolved; account reads ask each beside the main dex
+    std::vector<std::string> loaded_dexes;
 
     // absent on a market-data-only gateway
     Wallet wallet;

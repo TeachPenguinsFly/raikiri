@@ -41,6 +41,9 @@ public:
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();
+        if (state_->pulls_only) {
+            return {};
+        }
         stream_.start();
         if (state_->signer.has_credentials() && !state_->passphrase.empty()) {
             open_trade_socket();

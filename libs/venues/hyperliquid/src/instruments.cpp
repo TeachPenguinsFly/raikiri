@@ -84,22 +84,35 @@ private:
     }
 
     std::expected<void, exec::VenueError> load_dexes(std::vector<Instrument>& loaded) {
+        state_->loaded_dexes.clear();
+        if (state_->dexes.empty()) {
+            return {};
+        }
+        // read even for named dexes: a dex's place in the list numbers its assets
+        const auto listing = read_info(*state_, rest_, RequestBuilder::perp_dexs(), k_catalogue_timeout_ms);
+        if (!listing.has_value()) {
+            return std::unexpected{listing.error()};
+        }
+        PerpDexBuffer listed;
+        const auto wire_dexes = parse_perp_dexs(*listing, listed);
+        if (!wire_dexes.has_value()) {
+            return std::unexpected{unreadable(wire_dexes.error())};
+        }
+        const auto place_of = [&](std::string_view name) -> std::optional<std::int64_t> {
+            for (std::size_t i = 0; i < wire_dexes->size(); ++i) {
+                if ((*wire_dexes)[i] == name) {
+                    return listed.places[i];
+                }
+            }
+            return std::nullopt;
+        };
         std::vector<std::string> names;
         for (const auto& dex : state_->dexes) {
-            if (dex != "all") {
+            if (dex == "all") {
+                names.insert(names.end(), wire_dexes->begin(), wire_dexes->end());
+            } else {
                 names.push_back(dex);
-                continue;
             }
-            const auto body = read_info(*state_, rest_, RequestBuilder::perp_dexs(), k_catalogue_timeout_ms);
-            if (!body.has_value()) {
-                return std::unexpected{body.error()};
-            }
-            PerpDexBuffer listed;
-            const auto wire = parse_perp_dexs(*body, listed);
-            if (!wire.has_value()) {
-                return std::unexpected{unreadable(wire.error())};
-            }
-            names.insert(names.end(), wire->begin(), wire->end());
         }
 
         std::string categories_body;
@@ -119,6 +132,7 @@ private:
         auto storage = std::make_unique<AssetBuffer>();
         std::string request_body;
         for (const auto& dex : names) {
+            const auto place = place_of(dex);
             const auto body = read_info(
                 *state_, rest_, RequestBuilder::meta(dex, request_body), k_catalogue_timeout_ms);
             if (!body.has_value()) {
@@ -147,8 +161,14 @@ private:
                 if (auto instrument = map_dex_instrument(entry, collateral); instrument.has_value()) {
                     std::visit([&](auto& row) { row.base.asset_class = dex_asset_class(entry.name, categories); },
                                *instrument);
-                    keep(*instrument, std::nullopt, loaded);
+                    // a dex perpDexs no longer lists keeps its quotes but takes no orders
+                    keep(*instrument,
+                         place.has_value() ? std::optional{dex_asset_id(*place, entry.index)} : std::nullopt,
+                         loaded);
                 }
+            }
+            if (place.has_value()) {
+                state_->loaded_dexes.push_back(dex);
             }
         }
         return {};
@@ -180,7 +200,7 @@ private:
         return loaded;
     }
 
-    // hip-3 rows get no asset id, so the order path refuses them
+    // a row with no asset id is refused by the order path
     void keep(Instrument instrument, std::optional<std::int64_t> asset, std::vector<Instrument>& loaded) {
         const auto id = state_->instruments.add(instrument);
         if (!id.has_value()) {

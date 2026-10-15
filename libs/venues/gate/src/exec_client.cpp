@@ -53,6 +53,10 @@ public:
                     exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, "gate: futures account id unavailable")};
             }
         }
+        started_ = true;
+        if (state_->pulls_only) {
+            return {};
+        }
         if (perp_) {
             perp_->start();
         }
@@ -62,7 +66,6 @@ public:
         if (state_->signer.has_credentials() && (perp_ || spot_)) {
             open_trade_socket();
         }
-        started_ = true;
         return {};
     }
 

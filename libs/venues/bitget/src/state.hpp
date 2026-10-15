@@ -54,6 +54,10 @@ struct VenueState {
     std::vector<OwnedSubscription> desired;
 
     exec::RateBudget* budget{nullptr};
+
+    // set for an account poller: no sockets are opened
+
+    bool pulls_only{false};
     std::unordered_map<InstrumentId, FundingClock> funding_clocks;
     // venue ms of each quoted instrument's last books1 push; 0 until the first
     std::unordered_map<InstrumentId, std::uint64_t> quoted_ms;

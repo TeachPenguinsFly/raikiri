@@ -35,6 +35,8 @@ struct VenueState {
     bool testnet;
     // shared with the account poller; null means unlimited
     exec::RateBudget* budget{nullptr};
+    // set for an account poller: no sockets are opened
+    bool pulls_only{false};
     std::uint64_t order_answer_timeout_ns{0};
     // one of k_book_tiers; bybit names the tier in the topic
     std::uint32_t book_depth{k_book_depth};

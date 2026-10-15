@@ -44,6 +44,7 @@ std::vector<config::CredentialError> load_credentials(VenueState& state, const e
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
+    state->pulls_only = config.pulls_only;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     state->spot_enabled = config.market == MarketType::Spot;
     state->perp_enabled = config.market == MarketType::Perp;
