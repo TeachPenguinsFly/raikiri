@@ -231,6 +231,11 @@ void fill_position(WirePosition& row, std::string_view key, json::ondemand::valu
 
 [[nodiscard]] std::expected<void, WireError>
 read_group(std::string_view key, json::ondemand::value& value, PrivateBuffer& storage, TradeRows& out, bool fills) {
+    // an account with nothing open says null, not []
+    if (json::ondemand::json_type type{};
+        value.type().get(type) == simdjson::SUCCESS && type == json::ondemand::json_type::null) {
+        return {};
+    }
     std::expected<std::size_t, WireError> count{0};
     if (key == "orders" && !fills) {
         count = read_rows(value, storage.orders, fill_order);

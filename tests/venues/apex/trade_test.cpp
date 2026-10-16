@@ -464,6 +464,13 @@ TEST(ApexWire, ReadsSigningMetaAndAccount) {
     EXPECT_EQ(account->terms.maker_fee_rate, e9("0.0002"));
     EXPECT_TRUE(account->positions.empty());
     EXPECT_FALSE(parse_account(kept("rest_error_timestamp.json"), storage).has_value());
+
+    const auto fresh = parse_account(
+        R"({"data":{"id":"850000000000000001","contractAccount":{"takerFeeRate":"0.00050","makerFeeRate":"0.00020",)"
+        R"("subAccountInfo":null},"contractWallets":null,"positions":null}})",
+        storage);
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_TRUE(fresh->positions.empty());
 }
 
 TEST(ApexWire, ReadsRepliesAndClassifiesRefusals) {
