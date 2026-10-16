@@ -1746,6 +1746,9 @@ TEST(GateWirePrivate, RestBodiesAreTopLevelArraysWithNoEnvelope) {
     ASSERT_EQ(trades->size(), 2U);
     // rest create_time is fractional seconds; the socket sends integer milliseconds
     EXPECT_EQ(trades->front().ts_ms, 1'787'670'001'000ULL);
+    // the time-range endpoint names the id trade_id; without it a pull re-books every poll
+    EXPECT_EQ(trades->front().trade_id, "3335259");
+    EXPECT_EQ((*trades)[1].trade_id, "3335260");
 }
 
 TEST(GateWirePrivate, TheFuturesSocketsUserIdComesFromTheAccountBody) {

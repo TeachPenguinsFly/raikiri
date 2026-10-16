@@ -200,6 +200,9 @@ std::expected<void, WireError> read_user_trade(ondemand::object& obj, WireUserTr
         return std::unexpected{WireError::UnknownMessage};
     }
     out.trade_id = field(obj, "id");
+    if (out.trade_id.empty()) {
+        out.trade_id = field(obj, "trade_id"); // the my_trades_timerange name
+    }
     out.order_id = field(obj, "order_id");
     out.text = text_field(obj, "text");
     out.price = field(obj, "price");

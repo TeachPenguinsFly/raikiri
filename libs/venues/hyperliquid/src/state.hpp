@@ -66,6 +66,9 @@ struct VenueState {
 
     NonceSource nonces;
 
+    // read once at start; without them a fill from an /exchange answer books no fee
+    std::optional<FeeRates> fee_rates;
+
     std::vector<OwnedSubscription> desired;
 
     std::uint64_t next_app_ping_ns{0};

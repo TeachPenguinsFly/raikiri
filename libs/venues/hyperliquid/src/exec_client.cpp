@@ -57,6 +57,9 @@ public:
         }
         api_.start();
         if (state_->wallet.loaded() && !state_->pulls_only) {
+            if (const auto rates = api_.fee_rates(); rates.has_value()) {
+                state_->fee_rates = *rates;
+            }
             open_trade_socket();
         }
         started_ = true;
@@ -327,6 +330,11 @@ private:
         fill.qty = *filled;
         fill.leaves_qty = leaves;
         fill.liquidity = has_flag(cmd.flags, OrderFlags::PostOnly) ? Liquidity::Maker : Liquidity::Taker;
+        if (const auto rate = fee_rate(base, fill.liquidity); rate.has_value()) {
+            if (const auto fee = estimate_fee(status.avg_price, status.total_qty, *rate); fee.has_value()) {
+                fill.fee = *fee;
+            }
+        }
         fill.ts_event = state_->clock->wall();
         fill.ts_init = fill.ts_event;
         state_->sink->on_order_event(fill);
@@ -335,6 +343,19 @@ private:
         if (leaves.raw > 0 && (cmd.tif == TimeInForce::Ioc || cmd.order_type == OrderType::Market)) {
             emit(cmd, OrderEventType::Expired, status.oid, QtyLots::from_raw(0));
         }
+    }
+
+    [[nodiscard]] std::optional<FixedE9> fee_rate(const InstrumentBase& base, Liquidity liquidity) const noexcept {
+        const auto& rates = state_->fee_rates;
+        // a hip-3 coin is "dex:COIN", and its dex sets its own fees
+        if (!rates.has_value() || base.exchange_symbol.view().find(':') != std::string_view::npos) {
+            return std::nullopt;
+        }
+        const bool maker = liquidity == Liquidity::Maker;
+        if (base.id.market() == MarketType::Spot) {
+            return maker ? rates->spot_maker : rates->spot_taker;
+        }
+        return maker ? rates->maker : rates->taker;
     }
 
     [[nodiscard]] static OrderEventType accepted_type(Kind kind) noexcept {

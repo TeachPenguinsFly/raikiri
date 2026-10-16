@@ -61,4 +61,25 @@ std::expected<std::span<const WireFundingCharge>, WireError> parse_user_funding(
     });
 }
 
+std::expected<WireUserFees, WireError> parse_user_fees(std::string_view body) {
+    return guarded([&]() -> std::expected<WireUserFees, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto cross = wire::req_str(*root, "userCrossRate");
+        const auto add = wire::req_str(*root, "userAddRate");
+        const auto spot_cross = wire::req_str(*root, "userSpotCrossRate");
+        const auto spot_add = wire::req_str(*root, "userSpotAddRate");
+        if (!cross.has_value() || !add.has_value() || !spot_cross.has_value() || !spot_add.has_value()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        root->reset();
+        // null without a referrer
+        const auto referral = wire::opt_str(*root, "activeReferralDiscount").value_or(std::string_view{});
+        return WireUserFees{
+            .cross = *cross, .add = *add, .spot_cross = *spot_cross, .spot_add = *spot_add, .referral = referral};
+    });
+}
+
 } // namespace raikiri::venues::hyperliquid

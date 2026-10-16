@@ -1344,6 +1344,37 @@ TEST(HyperliquidMap, FillsKeepTheRebateSignAndTheLiquiditySide) {
     EXPECT_GT(mapped[1].fee.raw, 0);
 }
 
+TEST(HyperliquidMap, AnIocFilledInItsAnswerIsChargedTheAccountsNetTakerRate) {
+    // trimmed from a live userFees answer; the 4% referral discount is not in the tier rates
+    const auto wire = parse_user_fees(
+        R"({"dailyUserVlm":[],"userCrossRate":"0.00045","userAddRate":"0.00015","userSpotCrossRate":"0.0007",)"
+        R"("userSpotAddRate":"0.0004","activeReferralDiscount":"0.04","trial":null})");
+    ASSERT_TRUE(wire.has_value());
+    const auto rates = map_user_fees(*wire);
+    ASSERT_TRUE(rates.has_value());
+    EXPECT_EQ(rates->taker.raw, 432'000);
+    EXPECT_EQ(rates->maker.raw, 144'000);
+    EXPECT_EQ(rates->spot_taker.raw, 672'000);
+
+    // a live ZRO ioc answered {"filled":{"totalSz":"9.4","avgPx":"2.1183"}}; its userFills row said fee 0.008601
+    const auto fee = estimate_fee("2.1183", "9.4", rates->taker);
+    ASSERT_TRUE(fee.has_value());
+    EXPECT_EQ(fee->raw, 8'601'992);
+
+    EXPECT_FALSE(
+        map_user_fees(
+            {.cross = "0.00045", .add = "0.00015", .spot_cross = "0.0007", .spot_add = "0.0004", .referral = "1.5"})
+            .has_value());
+    const auto no_referrer = parse_user_fees(R"({"userCrossRate":"0.00045","userAddRate":"-0.00001",)"
+                                             R"("userSpotCrossRate":"0.0007","userSpotAddRate":"0.0004",)"
+                                             R"("activeReferralDiscount":null})");
+    ASSERT_TRUE(no_referrer.has_value());
+    const auto plain = map_user_fees(*no_referrer);
+    ASSERT_TRUE(plain.has_value());
+    EXPECT_EQ(plain->taker.raw, 450'000);
+    EXPECT_EQ(plain->maker.raw, -10'000) << "a rebate is never discounted";
+}
+
 TEST(HyperliquidWire, FundingRowsCarryTheMoneyUnderDeltaAndTheStampBesideIt) {
     auto storage = std::make_unique<FundingChargeBuffer>();
     const auto body = fixture("rest_user_funding.json");

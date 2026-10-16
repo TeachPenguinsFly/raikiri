@@ -139,6 +139,10 @@ net::RestRequest UserRequestBuilder::user_fills(std::string_view user) noexcept 
     return simple("userFills", user);
 }
 
+net::RestRequest UserRequestBuilder::user_fees(std::string_view user) noexcept {
+    return simple("userFees", user);
+}
+
 net::RestRequest UserRequestBuilder::user_fills_by_time(std::string_view user, std::uint64_t start_ms) noexcept {
     Appender body{body_};
     body << R"({"type":"userFillsByTime","user":")" << user << R"(","startTime":)" << start_ms << "}";

@@ -164,6 +164,26 @@ public:
         return reports;
     }
 
+    std::expected<FeeRates, exec::VenueError> fee_rates() {
+        if (state_->address.empty()) {
+            return std::unexpected{no_address()};
+        }
+        const auto body = read_info(*state_, rest_, requests_.user_fees(state_->address));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto wire = parse_user_fees(*body);
+        if (!wire.has_value()) {
+            return std::unexpected{unreadable(wire.error())};
+        }
+        const auto rates = map_user_fees(*wire);
+        if (!rates.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "hyperliquid: fee rates unreadable")};
+        }
+        return *rates;
+    }
+
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};

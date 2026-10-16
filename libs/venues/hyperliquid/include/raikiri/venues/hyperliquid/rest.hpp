@@ -62,6 +62,9 @@ public:
     [[nodiscard]] net::RestRequest user_fills(std::string_view user) noexcept;
     [[nodiscard]] net::RestRequest user_fills_by_time(std::string_view user, std::uint64_t start_ms) noexcept;
 
+    // the tier rates the account pays
+    [[nodiscard]] net::RestRequest user_fees(std::string_view user) noexcept;
+
     // `startTime` is required and the answer capped at 500 rows, so the caller walks forward
     [[nodiscard]] net::RestRequest user_funding(std::string_view user, std::uint64_t start_ms) noexcept;
 

@@ -599,6 +599,38 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     return out;
 }
 
+std::optional<FeeRates> map_user_fees(const WireUserFees& wire) {
+    const auto taker = parse_rate_e9(wire.cross);
+    const auto maker = parse_rate_e9(wire.add);
+    const auto spot_taker = parse_rate_e9(wire.spot_cross);
+    const auto spot_maker = parse_rate_e9(wire.spot_add);
+    const auto referral = wire.referral.empty() ? std::optional{FixedE9::from_raw(0)} : parse_rate_e9(wire.referral);
+    if (!taker.has_value() || !maker.has_value() || !spot_taker.has_value() || !spot_maker.has_value() ||
+        !referral.has_value() || referral->raw < 0 || referral->raw > k_e9) {
+        return std::nullopt;
+    }
+    // a maker rebate is negative and the discount only cuts a charge
+    const auto net = [&](FixedE9 rate) {
+        if (rate.raw <= 0) {
+            return rate;
+        }
+        return FixedE9::from_raw(
+            static_cast<std::int64_t>(static_cast<int128_t>(rate.raw) * (k_e9 - referral->raw) / k_e9));
+    };
+    return FeeRates{
+        .taker = net(*taker), .maker = net(*maker), .spot_taker = net(*spot_taker), .spot_maker = net(*spot_maker)};
+}
+
+std::optional<FixedE9> estimate_fee(std::string_view avg_price, std::string_view qty, FixedE9 rate) noexcept {
+    const auto price = parse_rate_e9(avg_price);
+    const auto size = parse_rate_e9(qty);
+    if (!price.has_value() || !size.has_value() || price->raw < 0 || size->raw < 0) {
+        return std::nullopt;
+    }
+    const auto fee = static_cast<int128_t>(price->raw) * size->raw / k_e9 * rate.raw / k_e9;
+    return FixedE9::from_raw(static_cast<std::int64_t>(fee));
+}
+
 std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table) {
     return read_order(wire, table);
 }

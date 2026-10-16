@@ -84,6 +84,20 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
 
 [[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::InstrumentTable& table);
 
+// what the account pays, referral discount taken off; hip-3 dexes set their own fees and are not covered
+struct FeeRates {
+    FixedE9 taker{};
+    FixedE9 maker{};
+    FixedE9 spot_taker{};
+    FixedE9 spot_maker{};
+};
+
+[[nodiscard]] std::optional<FeeRates> map_user_fees(const WireUserFees& wire);
+
+// an /exchange fill answer names no fee; this is price x size x rate, truncated
+[[nodiscard]] std::optional<FixedE9>
+estimate_fee(std::string_view avg_price, std::string_view qty, FixedE9 rate) noexcept;
+
 // `sz` is the remaining size and `origSz` the original
 [[nodiscard]] std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
                                                                     const exec::InstrumentTable& table);
