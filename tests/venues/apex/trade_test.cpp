@@ -598,5 +598,19 @@ TEST(ApexMap, MapsOrdersFillsAndPositions) {
     EXPECT_EQ(position->avg_entry.raw, 25'000);
 }
 
+TEST(ApexMap, AMakerFeePastNinePlacesIsTruncatedNotDropped) {
+    const auto base = eth_base();
+    const WireFill wire{.id = "898881747911966798",
+                        .side = "BUY",
+                        .size = "0.5",
+                        .price = "2500",
+                        .fee = "0.001899825200000000",
+                        .liquidity = "MAKER"};
+    const auto fill = map_fill(wire, base, QtyLots::from_raw(0), UnixNanos{1});
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->fee, e9("0.001899825"));
+    EXPECT_EQ(fill->liquidity, Liquidity::Maker);
+}
+
 } // namespace
 } // namespace raikiri::venues::apex

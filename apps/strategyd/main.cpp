@@ -150,6 +150,7 @@ public:
         cmd.exchange_client_order_id = ids_->next_exchange_client_id(clock_->wall());
         cmd.price = order.price;
         cmd.qty = order.qty;
+        cmd.priority_e8 = order.priority_e8;
         cmd.ts_created = clock_->wall();
 
         auto* gw = gateway_for(order.instrument);
@@ -309,6 +310,15 @@ public:
 
     std::unordered_map<std::uint64_t, std::uint64_t> inflight_; // coid -> submit mono ns
     observ::Histogram submit_hist;
+
+    // an order closed with lots unfilled, so a fill that raced its cancel still books to its strategy
+    struct ClosedOrder {
+        ClientOrderId id{};
+        QtyLots left{};
+        std::uint64_t at_ns{0};
+    };
+
+    std::unordered_map<std::string, ClosedOrder> closed_orders; // by exchange client order id
 
 private:
 public:
@@ -1221,6 +1231,7 @@ int main(int argc, char** argv) {
     std::uint64_t funding_charges = 0;
     std::uint64_t pulled_fills = 0;
     std::uint64_t duplicate_pushes = 0;
+    std::uint64_t late_fills = 0;
     std::uint64_t fill_overruns = 0;
     std::uint64_t fills = 0;
     std::uint64_t bad_transitions = 0;   // FSM refusals: must stay 0
@@ -1348,22 +1359,43 @@ int main(int argc, char** argv) {
             }
             // before apply_event, which moves the leaves; see oms/attribution.hpp
             const auto who = oms::attribute(event, store);
-            if (const auto applied = store.apply_event(event);
-                !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
+            // a fill after the order closed: the cancel and the fill crossed on the wire
+            const std::string late_key{event.exchange_client_order_id.view()};
+            auto late = who.order == nullptr && event.type == OrderEventType::Filled && !late_key.empty()
+                            ? ctx.closed_orders.find(late_key)
+                            : ctx.closed_orders.end();
+            if (late != ctx.closed_orders.end()) {
+                event.client_order_id = late->second.id;
+            }
+            const auto stored = store.apply_event(event);
+            if (!stored.has_value() && stored.error() == oms::ApplyError::BadTransition) {
                 ++bad_transitions;
+            }
+            if (stored.has_value() && (*stored)->is_terminal() && event.type != OrderEventType::Filled &&
+                !who.prev_leaves.is_undef() && who.prev_leaves.raw > 0) {
+                ctx.closed_orders[std::string{(*stored)->exchange_client_order_id().view()}] = {
+                    .id = (*stored)->client_order_id(), .left = who.prev_leaves, .at_ns = clock.wall().ns};
             }
             if (event.type == OrderEventType::Filled) {
                 ++fills;
-                if (who.order == nullptr) {
+                auto delta = oms::filled_delta(who, event);
+                if (late != ctx.closed_orders.end()) {
+                    const auto size = event.qty.is_undef() ? std::int64_t{0} : event.qty.raw;
+                    delta = QtyLots::from_raw(std::max<std::int64_t>(0, std::min(size, late->second.left.raw)));
+                    late->second.left = QtyLots::from_raw(late->second.left.raw - delta.raw);
+                    ++late_fills;
+                    RLOG_WARN("strategyd: late fill {} on a closed order books {} lots", late_key, delta.raw);
+                } else if (who.order == nullptr) {
                     ++unattributed_fills;
                     RLOG_ERROR("strategyd: FILL {} matched no order here", event.exchange_client_order_id.view());
                 }
-                const auto delta = oms::filled_delta(who, event);
                 if (who.order != nullptr) {
-                    RLOG_INFO("strategyd: {} fill {} exec {} qty {} leaves {} books {} lots",
+                    RLOG_INFO("strategyd: {} fill {} exec {} price {} fee {} qty {} leaves {} books {} lots",
                               pulled ? "pulled" : "pushed",
                               event.exchange_client_order_id.view(),
                               event.exec_id.view(),
+                              event.price.raw,
+                              event.fee.raw,
                               event.qty.raw,
                               event.leaves_qty.is_undef() ? -1 : event.leaves_qty.raw,
                               delta.raw);
@@ -1508,8 +1540,13 @@ int main(int argc, char** argv) {
         for (auto& gw : gateways) {
             // monotonic, the clock the heartbeat is stamped with
             if (!gw.client.owner_alive(now_ns)) {
-                // halts this gateway only
-                if (gw.kernel.on(oms::KernelEvent::GatewayLost, clock.wall())) {
+                // this gateway only; a stall degrades and clears on the next agreement, a dead owner halts
+                if (gw.client.owner_running()) {
+                    if (gw.kernel.on(oms::KernelEvent::GatewayStalled, clock.wall())) {
+                        RLOG_WARN("strategyd[{}]: gateway heartbeat stalled — no new orders until it agrees again",
+                                  gw.name);
+                    }
+                } else if (gw.kernel.on(oms::KernelEvent::GatewayLost, clock.wall())) {
                     RLOG_ERROR("strategyd[{}]: gateway stopped answering — halted", gw.name);
                 }
                 continue;
@@ -1518,6 +1555,11 @@ int main(int argc, char** argv) {
                 // seven days is the widest ledger and trade-history window any venue reaches back over
                 ctx.fees.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 ctx.seen_fills.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
+                // a pull window reaches back minutes, not hours
+                std::erase_if(ctx.closed_orders,
+                              [cutoff = clock.wall().ns - 15ULL * 60 * 1'000'000'000ULL](const auto& entry) {
+                                  return entry.second.at_ns < cutoff;
+                              });
                 reconcile_open_orders(ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
                 const auto sweep = reconcile_against_venue(
                     ctx, gw.account.venue, *gw.ch.catalogue, *gw.ch.positions, *journal_writer, clock.wall());
@@ -1590,7 +1632,10 @@ int main(int argc, char** argv) {
                pulled_fills,
                fill_overruns,
                ctx.seen_fills.size());
-    fmt::print("fills-unattributed={}  duplicate-pushes={}\n", unattributed_fills, duplicate_pushes);
+    fmt::print("fills-unattributed={}  duplicate-pushes={}  late-fills={}\n",
+               unattributed_fills,
+               duplicate_pushes,
+               late_fills);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
     fmt::print(
         "fees: agreed={}  disagreed={}  unmatched={}\n", ctx.fees_agreed, ctx.fees_disagreed, ctx.fees_unmatched);

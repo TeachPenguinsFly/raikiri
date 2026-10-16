@@ -194,5 +194,15 @@ TEST(Position, RealizedIsGrossAndFeesAreSeparate) {
     EXPECT_EQ(p.net_realized().raw, 1000 * k_e9 - parse_decimal_e9("20.2")->raw);
 }
 
+TEST(Position, AFillWithoutAFeeChargesNothing) {
+    const auto base = binance_btcusdt();
+    Position position{PositionKey{7, base.id}, UnixNanos{1}};
+    const auto price = *base.price_to_ticks(*parse_decimal_e9("100"));
+    (void)position.apply_fill(base, Side::Buy, QtyLots::from_raw(1'000), price, FixedE9::undef(), UnixNanos{2});
+    (void)position.apply_fill(base, Side::Sell, QtyLots::from_raw(1'000), price, FixedE9::undef(), UnixNanos{3});
+    EXPECT_EQ(position.fees().raw, 0);
+    EXPECT_EQ(position.net_realized().raw, 0);
+}
+
 } // namespace
 } // namespace raikiri::portfolio

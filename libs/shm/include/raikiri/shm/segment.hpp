@@ -171,6 +171,9 @@ public:
     // Owner liveness from this consumer's point of view.
     [[nodiscard]] bool owner_alive(std::uint64_t now_ns) const noexcept;
 
+    // the owner's process still runs, whatever its heartbeat says
+    [[nodiscard]] bool owner_running() const noexcept;
+
 private:
     SegmentClient() = default;
 

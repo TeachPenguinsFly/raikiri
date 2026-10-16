@@ -30,6 +30,10 @@ Position::Applied Position::apply_fill(
     if (delta.is_undef() || delta.raw <= 0) {
         return out; // a resent notification derives a zero delta; nothing happened
     }
+    // a venue that leaves the fee off a fill charged nothing we know of; undef would poison every sum after it
+    if (fee.is_undef()) {
+        fee = FixedE9::from_raw(0);
+    }
     out.open_fee = fee;
 
     const std::int64_t open_qty = qty_.raw;

@@ -23,8 +23,11 @@ enum class KernelEvent : std::uint8_t {
     // a record was dropped between the gateway and here
     ExecOverrun,
 
-    // the segment owner stopped answering
+    // the segment owner's process is gone, and its generation with it
     GatewayLost,
+
+    // the owner is alive but its heartbeat went stale; a long loop pass on a busy box
+    GatewayStalled,
 
     // The venue's position agrees with the book.
     ReconAgreed,
@@ -53,6 +56,9 @@ struct KernelStep {
     case GatewayLost:
         // a lost gateway took its generation with it
         return {.state = Halted, .recon_agreed = false};
+    case GatewayStalled:
+        // the same generation answers again, so the next agreeing reconciliation clears it
+        return {.state = from.state == Halted ? Halted : Degraded, .recon_agreed = false};
     case ExecOverrun:
         // never a promotion
         return {.state = from.state == Halted ? Halted : Degraded, .recon_agreed = false};
@@ -93,6 +99,8 @@ struct KernelStep {
         return "execution event dropped";
     case GatewayLost:
         return "gateway stopped answering";
+    case GatewayStalled:
+        return "gateway heartbeat stalled";
     case ReconAgreed:
         return "venue agreed with the book";
     case ReconFailed:

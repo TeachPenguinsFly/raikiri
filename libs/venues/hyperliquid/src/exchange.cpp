@@ -409,8 +409,14 @@ std::expected<net::RestRequest, BuildError> ExchangeBuilder::create_order(const 
     }
     action.end_map();
     action.end_array();
-    // always written; the reference sdk hashes it unconditionally
-    action.key("grouping").str("na");
+    // always written; the reference sdk hashes it unconditionally. a priority rate is honoured on ioc orders only
+    if (cmd.priority_e8 != 0 && tif_of(cmd) == "Ioc") {
+        action.key("grouping").map(1);
+        action.key("p").integer(cmd.priority_e8);
+        action.end_map();
+    } else {
+        action.key("grouping").str("na");
+    }
     action.end_map();
     if (!action.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -436,8 +442,9 @@ ExchangeBuilder::cancel_order(const OrderCmd& cmd, std::int64_t asset, std::uint
         return std::unexpected{BuildError::NoOrderTarget};
     }
 
+    // fast: cancels jump the mempool queue; only trigger orders refuse it, and we place none
     ActionWriter action{packed_, action_json_};
-    action.map(2);
+    action.map(3);
     if (oid != 0) {
         action.key("type").str("cancel");
         action.key("cancels").array(1).map(2);
@@ -449,7 +456,9 @@ ExchangeBuilder::cancel_order(const OrderCmd& cmd, std::int64_t asset, std::uint
         action.key("asset").integer(static_cast<std::uint64_t>(asset));
         action.key("cloid").str(cloid);
     }
-    action.end_map().end_array().end_map();
+    action.end_map().end_array();
+    action.key("f").boolean(true);
+    action.end_map();
     if (!action.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

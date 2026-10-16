@@ -210,7 +210,8 @@ void fill_fill(WireFill& row, std::string_view key, json::ondemand::value& value
         row.price = text_of(value);
     } else if (key == "fee") {
         row.fee = text_of(value);
-    } else if (key == "liquidity") {
+    } else if (key == "liquidity" || key == "direction") {
+        // the socket says liquidity, the rest fill page direction
         row.liquidity = text_of(value);
     } else if (key == "createdAt") {
         row.created_ms = u64_of(text_of(value));
@@ -980,7 +981,8 @@ map_fill(const WireFill& wire, const InstrumentBase& base, QtyLots leaves, UnixN
     out.price = *price;
     out.qty = *qty;
     out.leaves_qty = leaves;
-    if (const auto fee = decimal_e9(wire.fee); fee.has_value()) {
+    // a maker fee runs past nine places (0.0018998252); truncated, not refused, or the fill reads as free
+    if (const auto fee = parse_amount_e9(wire.fee); fee.has_value()) {
         out.fee = *fee;
     }
     out.ts_event = from_ms(wire.created_ms, ts_init);

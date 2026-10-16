@@ -1500,6 +1500,55 @@ TEST(HyperliquidExchange, ARealOrderReproducesThePublishedSignature) {
     EXPECT_NE(other->body, with_cloid->body);
 }
 
+TEST(HyperliquidExchange, APriorityIocAndAFastCancelSignAsTheSdkDoes) {
+    // vectors from the sdk's sign_l1_action over the same actions, mainnet
+    const auto table = loaded_table();
+    const auto& base = base_of(*table.find("ETH"));
+    Wallet wallet;
+    ASSERT_TRUE(wallet.load(k_test_key));
+    ExchangeBuilder builder{wallet, true};
+
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.side = Side::Buy;
+    cmd.tif = TimeInForce::Ioc;
+    cmd.instrument = base.id;
+    cmd.price = *base.price_to_ticks(*parse_decimal_e9("100"));
+    cmd.qty = *base.qty_to_lots(*parse_decimal_e9("100"));
+    cmd.priority_e8 = 80'000; // 8 bp
+    const auto ioc = builder.create_order(cmd, table, 1, 0);
+    ASSERT_TRUE(ioc.has_value()) << to_string(ioc.error());
+    EXPECT_NE(ioc->body.find(R"("grouping":{"p":80000}})"), std::string_view::npos);
+    EXPECT_NE(ioc->body.find(R"("r":"0xf4715383fdf2cd5289e220bb905a48e3d8dceeacea6e63e9d21acaf006371194")"),
+              std::string_view::npos);
+    EXPECT_NE(ioc->body.find(R"("s":"0x67bc08c4dffcb3b2a1a7f920ffbb8902f1849e14fe3332b34c0a6988a9ac3260","v":27)"),
+              std::string_view::npos);
+
+    // a resting order ignores the rate rather than send a grouping the venue refuses
+    cmd.tif = TimeInForce::Gtc;
+    const auto gtc = builder.create_order(cmd, table, 1, 0);
+    ASSERT_TRUE(gtc.has_value());
+    EXPECT_NE(gtc->body.find(R"("grouping":"na")"), std::string_view::npos);
+
+    OrderCmd cancel{};
+    cancel.kind = CmdKind::Cancel;
+    cancel.instrument = base.id;
+    cancel.target_exchange_order_id = *ExchangeOrderId::from("527278286739");
+    const auto by_oid = builder.cancel_order(cancel, 1, 2);
+    ASSERT_TRUE(by_oid.has_value());
+    EXPECT_NE(by_oid->body.find(R"("cancels":[{"a":1,"o":527278286739}],"f":true})"), std::string_view::npos);
+    EXPECT_NE(by_oid->body.find(R"("r":"0xc3a685ca20afef00e3f0f36324423afde3e90e5fb1a2cba7593ddc8cd7f20105")"),
+              std::string_view::npos);
+
+    cancel.target_exchange_order_id = {};
+    cancel.exchange_client_order_id = *ExchangeClientOrderId::from("00000000000000000000000001");
+    const auto by_cloid = builder.cancel_order(cancel, 1, 3);
+    ASSERT_TRUE(by_cloid.has_value());
+    EXPECT_NE(by_cloid->body.find(R"("r":"0xf19acdabc1d5f53922fcb4997b4191fa3d404e2e5306d535c8a85672f49b46c2")"),
+              std::string_view::npos);
+    EXPECT_NE(by_cloid->body.find(R"("v":28)"), std::string_view::npos);
+}
+
 TEST(HyperliquidExchange, SpotAndPerpBothBuildAndNameTheirOwnAsset) {
     const auto table = loaded_both();
     Wallet wallet;

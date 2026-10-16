@@ -342,4 +342,8 @@ bool SegmentClient::owner_alive(std::uint64_t now_ns) const noexcept {
     return header_owner_alive(*header_, now_ns);
 }
 
+bool SegmentClient::owner_running() const noexcept {
+    return platform::process_alive(header_->creator_pid);
+}
+
 } // namespace raikiri::shm

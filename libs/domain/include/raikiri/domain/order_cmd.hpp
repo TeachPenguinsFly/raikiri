@@ -30,7 +30,9 @@ struct OrderCmd {
     ExchangeClientOrderId exchange_client_order_id{}; // 27 B
     std::uint8_t pad2_[5]{};
     ExchangeOrderId target_exchange_order_id{}; // cancel/amend target; 41 B
-    std::uint8_t pad3_[7]{};
+    std::uint8_t pad3_[3]{};
+    // a taker's bid for an earlier place in the block, 1e-8 of filled notional; hyperliquid only, zero is none
+    std::uint32_t priority_e8{0};
     PriceTicks price{}; // amend: new price
     QtyLots qty{};      // amend: new qty
     UnixNanos ts_created{};

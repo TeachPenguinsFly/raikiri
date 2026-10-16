@@ -11,7 +11,7 @@ using enum KernelState;
 using enum KernelEvent;
 
 constexpr std::array k_states{Running, Degraded, Halted};
-constexpr std::array k_events{ExecOverrun, GatewayLost, ReconAgreed, ReconFailed, OperatorResume};
+constexpr std::array k_events{ExecOverrun, GatewayLost, GatewayStalled, ReconAgreed, ReconFailed, OperatorResume};
 
 TEST(KernelGate, CancelSurvivesEveryState) {
     for (const auto state : k_states) {
@@ -93,6 +93,18 @@ TEST(KernelGate, ALostGatewayHaltsFromAnywhereAndForgetsAnyPriorAgreement) {
         EXPECT_EQ(to.state, Halted) << to_string(state);
         EXPECT_FALSE(to.recon_agreed) << to_string(state);
     }
+}
+
+TEST(KernelGate, AStalledGatewayStopsNewOrdersUntilTheVenueAgreesAgain) {
+    KernelGate gate;
+    EXPECT_TRUE(gate.on(GatewayStalled, UnixNanos{10}));
+    EXPECT_EQ(gate.state(), Degraded);
+    EXPECT_FALSE(gate.may_open());
+    EXPECT_TRUE(gate.on(ReconAgreed, UnixNanos{20}));
+    EXPECT_TRUE(gate.may_open());
+
+    // a stall never lifts a halt
+    EXPECT_EQ(step({.state = Halted, .recon_agreed = true}, GatewayStalled).state, Halted);
 }
 
 TEST(KernelGate, TheReasonAndTheInstantSurviveForAScreenToShow) {

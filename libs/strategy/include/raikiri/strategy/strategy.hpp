@@ -22,6 +22,7 @@ struct NewOrder {
     OrderFlags flags{OrderFlags::None};
     PriceTicks price{}; // ignored for Market
     QtyLots qty{};
+    std::uint32_t priority_e8{0}; // see OrderCmd::priority_e8
 };
 
 enum class RejectReason : std::uint8_t {

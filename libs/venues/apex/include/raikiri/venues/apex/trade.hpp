@@ -202,7 +202,7 @@ struct WireFill {
     std::string_view size{};
     std::string_view price{};
     std::string_view fee{};
-    std::string_view liquidity{}; // MAKER or TAKER; blank on the rest page
+    std::string_view liquidity{}; // MAKER or TAKER; the rest page calls it direction
     std::uint64_t created_ms{0};
 };
 
