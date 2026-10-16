@@ -199,6 +199,7 @@ private:
         config.ws.host = std::string{private_host(state_->testnet, market_)};
         config.ws.port = std::string{stream_port()};
         config.ws.target = std::string{private_path(state_->testnet, market_)};
+        config.ws.headers_for_connect = [market = market_] { return handshake_headers(market); };
         config.request_timeout_ns = state_->order_answer_timeout_ns != 0 ? state_->order_answer_timeout_ns
                                                                          : k_default_ws_timeout_ns;
         trade_ = std::make_unique<net::WsRpc>(state_->io, *state_->clock, std::move(config), codec_);

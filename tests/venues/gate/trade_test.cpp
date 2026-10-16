@@ -137,7 +137,7 @@ TEST(GateTrade, CancelAndAmendNameTheOrderAndSpotAddsItsPair) {
     ASSERT_TRUE(amend_body.has_value());
     const auto amend = ws.request(19, MarketType::Perp, TradeOp::Amend, target, "BTC_USDT", amend_body->body, k_now_s);
     ASSERT_TRUE(amend.has_value());
-    EXPECT_NE(amend->find(R"("req_param":{"order_id":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ","size":10,"price":"64000")"),
+    EXPECT_NE(amend->find(R"("req_param":{"order_id":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ","size":"10","price":"64000")"),
               std::string_view::npos);
 
     const auto spot = ws.request(20, MarketType::Spot, TradeOp::Cancel, target, "BTC_USDT", {}, k_now_s);

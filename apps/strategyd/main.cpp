@@ -1220,6 +1220,7 @@ int main(int argc, char** argv) {
     std::uint64_t funding_overruns = 0;
     std::uint64_t funding_charges = 0;
     std::uint64_t pulled_fills = 0;
+    std::uint64_t duplicate_pushes = 0;
     std::uint64_t fill_overruns = 0;
     std::uint64_t fills = 0;
     std::uint64_t bad_transitions = 0;   // FSM refusals: must stay 0
@@ -1334,7 +1335,13 @@ int main(int argc, char** argv) {
         }
 
         // one path for pushed and pulled fills; by value because attribute writes our id onto it
-        const auto handle_exec_event = [&](OrderEvent event) {
+        const auto handle_exec_event = [&](OrderEvent event, bool pulled) {
+            // the pull admits before calling; a push whose execution a pull already booked is the same money
+            if (!pulled && event.type == OrderEventType::Filled &&
+                !ctx.seen_fills.admit(event.exec_id.view(), clock.wall())) {
+                ++duplicate_pushes;
+                return;
+            }
             if (const auto it = ctx.inflight_.find(event.client_order_id.raw); it != ctx.inflight_.end()) {
                 rt_hist.record(clock.mono().ns - it->second);
                 ctx.inflight_.erase(it);
@@ -1347,13 +1354,20 @@ int main(int argc, char** argv) {
             }
             if (event.type == OrderEventType::Filled) {
                 ++fills;
-                // remembered so the poller's copy of this execution is refused later
-                (void)ctx.seen_fills.admit(event.exec_id.view(), clock.wall());
                 if (who.order == nullptr) {
                     ++unattributed_fills;
                     RLOG_ERROR("strategyd: FILL {} matched no order here", event.exchange_client_order_id.view());
                 }
                 const auto delta = oms::filled_delta(who, event);
+                if (who.order != nullptr) {
+                    RLOG_INFO("strategyd: {} fill {} exec {} qty {} leaves {} books {} lots",
+                              pulled ? "pulled" : "pushed",
+                              event.exchange_client_order_id.view(),
+                              event.exec_id.view(),
+                              event.qty.raw,
+                              event.leaves_qty.is_undef() ? -1 : event.leaves_qty.raw,
+                              delta.raw);
+                }
                 const auto* listed = ctx.instrument(event.instrument);
                 if (listed != nullptr && delta.raw > 0) {
                     const auto& base = base_of(*listed);
@@ -1416,7 +1430,7 @@ int main(int argc, char** argv) {
                 event.exchange_client_order_id = fill.exchange_client_order_id;
                 event.ts_event = fill.ts_venue;
                 event.ts_init = clock.wall();
-                handle_exec_event(event);
+                handle_exec_event(event, true);
             }
         }
 
@@ -1438,7 +1452,7 @@ int main(int argc, char** argv) {
                     }
                     continue;
                 }
-                handle_exec_event(rec.event);
+                handle_exec_event(rec.event, false);
             }
         }
         shm::MdEvent md{};
@@ -1576,7 +1590,7 @@ int main(int argc, char** argv) {
                pulled_fills,
                fill_overruns,
                ctx.seen_fills.size());
-    fmt::print("fills-unattributed={}\n", unattributed_fills);
+    fmt::print("fills-unattributed={}  duplicate-pushes={}\n", unattributed_fills, duplicate_pushes);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
     fmt::print(
         "fees: agreed={}  disagreed={}  unmatched={}\n", ctx.fees_agreed, ctx.fees_disagreed, ctx.fees_unmatched);
@@ -1597,7 +1611,9 @@ int main(int argc, char** argv) {
             }
             const auto& base = base_of(*listed);
             auto mark = PriceTicks::from_raw(0);
-            if (const auto bbo = ctx.bbo(position.key().instrument); bbo.has_value()) {
+            // a one-sided book leaves a side undef, and a mid through it overflows the pnl into an abort
+            if (const auto bbo = ctx.bbo(position.key().instrument);
+                bbo.has_value() && !bbo->bid.is_undef() && !bbo->ask.is_undef()) {
                 mark = PriceTicks::from_raw((bbo->bid.raw + bbo->ask.raw) / 2);
             }
             const auto fixed = [&buf](FixedE9 v) -> std::string {

@@ -11,7 +11,10 @@
 #include <cstdint>
 #include <expected>
 #include <span>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace raikiri::venues::gate {
 
@@ -37,6 +40,9 @@ enum class WsBuildError : std::uint8_t {
 // the market-data socket: options stream from their own host, the rest share the private one
 [[nodiscard]] std::string_view public_host(bool testnet, MarketType market) noexcept;
 [[nodiscard]] std::string_view public_path(bool testnet, MarketType market) noexcept;
+
+// futures sockets ask for decimal sizes like rest does; spot and options send none
+[[nodiscard]] std::vector<std::pair<std::string, std::string>> handshake_headers(MarketType market);
 
 [[nodiscard]] std::string_view orders_channel(MarketType market) noexcept;
 [[nodiscard]] std::string_view user_trades_channel(MarketType market) noexcept;

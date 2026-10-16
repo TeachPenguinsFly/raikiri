@@ -273,7 +273,8 @@ public:
           pool_{state_->io,
                 net::WsConfig{.host = std::string{public_host(state_->testnet, state_->market)},
                               .port = std::string{stream_port()},
-                              .target = std::string{public_path(state_->testnet, state_->market)}},
+                              .target = std::string{public_path(state_->testnet, state_->market)},
+                              .headers_for_connect = [market = state_->market] { return handshake_headers(market); }},
                 handler_,
                 // gate caps a connection at 1024 channels; it drops a socket carrying every option
                 // underlying, so options take three channels a socket

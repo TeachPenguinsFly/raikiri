@@ -22,10 +22,13 @@ namespace raikiri::venues::gate {
 // gate keys the futures api on settle currency; widening it needs map_instrument to handle inverse contracts
 inline constexpr std::string_view k_settle_usdt = "usdt";
 
+// without it every futures size is an integer truncated toward zero, so a 0.9 fill reads as 0
+inline constexpr net::HttpHeader k_size_decimal_header{.name = "X-Gate-Size-Decimal", .value = "1"};
+
 class RequestBuilder {
 public:
-    [[nodiscard]] net::RestRequest contracts(std::string_view settle) noexcept;
-    [[nodiscard]] net::RestRequest tickers(std::string_view settle) noexcept;
+    [[nodiscard]] net::RestRequest contracts(std::string_view settle);
+    [[nodiscard]] net::RestRequest tickers(std::string_view settle);
     // GET /spot/tickers, every pair at once
     [[nodiscard]] net::RestRequest spot_tickers() noexcept;
 
@@ -37,8 +40,7 @@ public:
 
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
-    [[nodiscard]] net::RestRequest
-    order_book(std::string_view settle, std::string_view contract, std::uint32_t depth) noexcept;
+    [[nodiscard]] net::RestRequest order_book(std::string_view settle, std::string_view contract, std::uint32_t depth);
 
 private:
     std::array<char, 256> target_{};

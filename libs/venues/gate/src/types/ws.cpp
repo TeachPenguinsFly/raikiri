@@ -1,4 +1,5 @@
 #include <raikiri/venues/gate/endpoints.hpp>
+#include <raikiri/venues/gate/rest.hpp>
 #include <raikiri/venues/gate/ws.hpp>
 
 #include <algorithm>
@@ -105,6 +106,13 @@ std::string_view public_host(bool testnet, MarketType market) noexcept {
 
 std::string_view public_path(bool testnet, MarketType market) noexcept {
     return market == MarketType::Option ? ep::ws_option_path(testnet) : private_path(testnet, market);
+}
+
+std::vector<std::pair<std::string, std::string>> handshake_headers(MarketType market) {
+    if (market != MarketType::Perp) {
+        return {};
+    }
+    return {{std::string{k_size_decimal_header.name}, std::string{k_size_decimal_header.value}}};
 }
 
 std::string_view orders_channel(MarketType market) noexcept {

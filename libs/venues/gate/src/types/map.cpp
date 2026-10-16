@@ -234,6 +234,16 @@ std::optional<SymbolText> canonical_of(std::string_view symbol) {
     return AssetClass::Unknown;
 }
 
+// decimal contracts trade in steps of order_size_min (0.1); a minimum that does not divide one contract,
+// or one above it, is not a step, so the lot stays one contract
+[[nodiscard]] FixedE9 futures_lot(std::string_view order_size_min) noexcept {
+    const auto min = parse_decimal_e9(order_size_min);
+    if (min.has_value() && min->raw > 0 && min->raw < k_e9 && k_e9 % min->raw == 0) {
+        return *min;
+    }
+    return FixedE9::from_raw(k_e9);
+}
+
 } // namespace
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
@@ -264,7 +274,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.local_symbol = *canonical;
     base.asset_class = asset_class_of(wire.contract_type);
     base.tick_size = *tick;
-    base.lot_size = FixedE9::from_raw(k_e9);
+    base.lot_size = futures_lot(wire.order_size_min);
     const auto quanto = parse_decimal_e9(wire.quanto_multiplier);
     if (!quanto.has_value() || quanto->raw <= 0) {
         return std::nullopt;
@@ -569,7 +579,8 @@ std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
     const auto& base = base_of(*instrument);
     const auto price = to_ticks(wire.price, base);
     const auto qty = to_lots(wire.qty, base);
-    if (!price.has_value() || !qty.has_value()) {
+    // a zero size is a fraction truncated without the decimal header; booked, its leaves would read as a fill
+    if (!price.has_value() || !qty.has_value() || qty->raw == 0) {
         return std::nullopt;
     }
 

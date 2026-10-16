@@ -303,6 +303,19 @@ TEST(RiskGate, PerOrderNotionalRefusesOnlyAboveTheLimit) {
     EXPECT_EQ(describe(res.error()), "per-order notional limit 100, would reach 100.1, order notional 100.1");
 }
 
+TEST(RiskGate, AnExitPastThePerOrderCapStillPasses) {
+    const auto perp = linear_perp();
+    const RiskGate gate{RiskConfig{.max_order_notional = quote(100)}};
+    // the entry fitted under 100; its exit is priced higher and must still go out
+    auto exit = valid_limit(1'001, 1'000);
+    exit.side = Side::Sell;
+    const Exposure long_held{.position_lots = QtyLots::from_raw(1'001), .instrument = &perp};
+    EXPECT_TRUE(gate.check(exit, long_held).has_value());
+    // past the position it opens a short, so the cap applies again
+    const Exposure smaller{.position_lots = QtyLots::from_raw(500), .instrument = &perp};
+    EXPECT_EQ(gate.check(exit, smaller).error().why, RiskReject::OrderNotional);
+}
+
 TEST(RiskGate, InverseOrdersAreCountedInContractsNotPrice) {
     const auto inverse = inverse_perp();
     const RiskGate gate{RiskConfig{.max_order_notional = quote(1'000)}};

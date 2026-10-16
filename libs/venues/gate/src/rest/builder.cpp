@@ -119,13 +119,18 @@ private:
     return "gtc";
 }
 
-// futures size is an integer contract count; partial contracts are refused
-[[nodiscard]] std::optional<std::int64_t> whole_contracts(QtyLots lots, const InstrumentBase& base) noexcept {
+// the decimal header makes size a decimal string; the side is its sign
+[[nodiscard]] std::optional<FixedE9> signed_size(QtyLots lots, const InstrumentBase& base, Side side) noexcept {
     const auto qty = base.lots_to_qty(lots);
-    if (qty.is_undef() || qty.raw <= 0 || qty.raw % k_e9 != 0) {
+    if (qty.is_undef() || qty.raw <= 0) {
         return std::nullopt;
     }
-    return qty.raw / k_e9;
+    return side == Side::Sell ? FixedE9::from_raw(-qty.raw) : qty;
+}
+
+[[nodiscard]] net::RestRequest with_size_decimal(net::RestRequest request) {
+    request.headers.push_back(k_size_decimal_header);
+    return request;
 }
 
 } // namespace
@@ -183,20 +188,20 @@ std::string_view client_id_from_text(std::string_view text) noexcept {
 }
 
 // builders share one buffer: send each request before building the next
-net::RestRequest RequestBuilder::contracts(std::string_view settle) noexcept {
+net::RestRequest RequestBuilder::contracts(std::string_view settle) {
     TargetWriter writer{target_};
     writer.put(ep::k_futures_prefix);
     writer.put(settle);
     writer.put(ep::k_futures_contracts);
-    return writer.get();
+    return with_size_decimal(writer.get());
 }
 
-net::RestRequest RequestBuilder::tickers(std::string_view settle) noexcept {
+net::RestRequest RequestBuilder::tickers(std::string_view settle) {
     TargetWriter writer{target_};
     writer.put(ep::k_futures_prefix);
     writer.put(settle);
     writer.put(ep::k_futures_tickers);
-    return writer.get();
+    return with_size_decimal(writer.get());
 }
 
 net::RestRequest RequestBuilder::spot_tickers() noexcept {
@@ -223,8 +228,7 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
-net::RestRequest
-RequestBuilder::order_book(std::string_view settle, std::string_view contract, std::uint32_t depth) noexcept {
+net::RestRequest RequestBuilder::order_book(std::string_view settle, std::string_view contract, std::uint32_t depth) {
     TargetWriter writer{target_};
     writer.put(ep::k_futures_prefix);
     writer.put(settle);
@@ -235,7 +239,7 @@ RequestBuilder::order_book(std::string_view settle, std::string_view contract, s
     writer.put(depth);
     // with_id gives the seed its place in the update chain
     writer.put("&with_id=true");
-    return writer.get();
+    return with_size_decimal(writer.get());
 }
 
 std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
@@ -285,6 +289,9 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(
     request.target = target.view();
     request.body = body;
     request.headers = {{k_hdr_key, signer_->api_key()}, {k_hdr_timestamp, ts.view()}, {k_hdr_sign, signature}};
+    if (path.starts_with(ep::k_futures_prefix)) {
+        request.headers.push_back(k_size_decimal_header);
+    }
     return request;
 }
 
@@ -324,14 +331,11 @@ SignedRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTa
     Appender path{path_};
     switch (market) {
     case MarketType::Perp: {
-        const auto contracts = whole_contracts(cmd.qty, base);
-        if (!contracts.has_value()) {
+        const auto size = signed_size(cmd.qty, base, cmd.side);
+        if (!size.has_value()) {
             return std::unexpected{BuildError::BadQuantity};
         }
-        json.obj_begin()
-            .str("contract", base.exchange_symbol.view())
-            // the side is the sign of size
-            .num("size", cmd.side == Side::Sell ? -*contracts : *contracts);
+        json.obj_begin().str("contract", base.exchange_symbol.view()).decimal("size", *size);
         if (is_market) {
             // futures has no market type: price 0 with ioc is a market order
             json.str("price", "0").str("tif", "ioc");
@@ -454,12 +458,12 @@ SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTab
     case MarketType::Perp: {
         json.obj_begin();
         if (!cmd.qty.is_undef()) {
-            const auto contracts = whole_contracts(cmd.qty, base);
-            if (!contracts.has_value()) {
+            const auto size = signed_size(cmd.qty, base, cmd.side);
+            if (!size.has_value()) {
                 return std::unexpected{BuildError::BadQuantity};
             }
             // an amend restates the signed size
-            json.num("size", cmd.side == Side::Sell ? -*contracts : *contracts);
+            json.decimal("size", *size);
         }
         if (!cmd.price.is_undef()) {
             json.decimal("price", base.ticks_to_price(cmd.price));

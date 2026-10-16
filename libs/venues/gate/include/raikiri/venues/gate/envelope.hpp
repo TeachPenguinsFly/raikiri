@@ -57,7 +57,7 @@ struct RestError {
 // GET /spot/time in milliseconds; futures has no equivalent
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 
-// gate quotes prices and leaves sizes bare, so either encoding is accepted
+// gate quotes prices, and sizes only under X-Gate-Size-Decimal, so either encoding is accepted
 [[nodiscard]] std::expected<std::string_view, WireError> num_of(wire::ondemand::value value);
 
 [[nodiscard]] std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj, std::string_view key);

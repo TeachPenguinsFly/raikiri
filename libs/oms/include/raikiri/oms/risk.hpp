@@ -236,20 +236,21 @@ private:
             return std::unexpected{RiskRefusal{
                 .why = order.error() == NotionalError::NoPrice ? RiskReject::NoPrice : RiskReject::Unpriceable}};
         }
-        const auto order_e9 = to_e9(*order);
-        if (!config_.max_order_notional.is_undef() && order_e9 > config_.max_order_notional) {
-            return std::unexpected{RiskRefusal{.why = RiskReject::OrderNotional,
-                                               .limit = config_.max_order_notional.raw,
-                                               .value = order_e9.raw,
-                                               .order_notional = order_e9}};
-        }
-        // an order that does not grow the worst case is never held back, so a reduction always passes
+        // an order that does not grow the worst case is never held back, so a reduction always passes, even
+        // one whose exit price puts it past the per-order cap the entry fitted under
         const auto before = open_lots(exposure.position_lots, exposure.working_buy_lots, exposure.working_sell_lots);
         const auto after = open_lots(exposure.position_lots,
                                      buy ? exposure.working_buy_lots + cmd.qty : exposure.working_buy_lots,
                                      buy ? exposure.working_sell_lots : exposure.working_sell_lots + cmd.qty);
         if (after <= before) {
             return {};
+        }
+        const auto order_e9 = to_e9(*order);
+        if (!config_.max_order_notional.is_undef() && order_e9 > config_.max_order_notional) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::OrderNotional,
+                                               .limit = config_.max_order_notional.raw,
+                                               .value = order_e9.raw,
+                                               .order_notional = order_e9}};
         }
         // the instrument's whole worst case is valued at this order's price
         const auto held_e9 = to_e9(notional(*exposure.instrument, at, QtyLots::from_raw(after)).value_or(*order));

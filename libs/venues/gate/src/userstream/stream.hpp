@@ -142,11 +142,13 @@ private:
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, MarketType market)
-        : handler_{state, market}, ws_{state.io,
-                                       net::WsConfig{.host = std::string{private_host(state.testnet, market)},
-                                                     .port = std::string{stream_port()},
-                                                     .target = std::string{private_path(state.testnet, market)}},
-                                       handler_} {
+        : handler_{state, market},
+          ws_{state.io,
+              net::WsConfig{.host = std::string{private_host(state.testnet, market)},
+                            .port = std::string{stream_port()},
+                            .target = std::string{private_path(state.testnet, market)},
+                            .headers_for_connect = [market] { return handshake_headers(market); }},
+              handler_} {
         handler_.attach(ws_);
     }
 

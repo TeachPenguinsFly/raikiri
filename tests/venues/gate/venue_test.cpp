@@ -366,6 +366,23 @@ exec::InstrumentTable table_with_btc() {
     return table;
 }
 
+// eth_usdt as a decimal contract: 0.01 tick, 0.1-contract lots, 0.01 eth a contract
+exec::InstrumentTable table_with_eth() {
+    exec::InstrumentTable table;
+    table.reserve(1);
+    WireContract wire{};
+    wire.name = "ETH_USDT";
+    wire.status = "trading";
+    wire.order_price_round = "0.01";
+    wire.order_size_min = "0.1";
+    wire.quanto_multiplier = "0.01";
+    wire.funding_interval_s = 28'800;
+    const auto instrument = map_instrument(wire, MarketType::Perp);
+    EXPECT_TRUE(instrument.has_value());
+    EXPECT_TRUE(table.add(*instrument).has_value());
+    return table;
+}
+
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
 TEST(GateMap, BookTickerBecomesTopOfBook) {
@@ -1267,7 +1284,7 @@ TEST(GateSignedRest, PerpOrderCarriesTheSideInTheSignOfSize) {
     EXPECT_EQ(sell->target, "/api/v4/futures/usdt/orders");
     // post-only is a tif on gate
     EXPECT_EQ(sell->body,
-              R"({"contract":"BTC_USDT","size":-10,"price":"64000","tif":"poc",)"
+              R"({"contract":"BTC_USDT","size":"-10","price":"64000","tif":"poc",)"
               R"("text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ"})");
 
     const auto buy = builder.create_order(
@@ -1275,7 +1292,7 @@ TEST(GateSignedRest, PerpOrderCarriesTheSideInTheSignOfSize) {
         table,
         k_sign_now);
     ASSERT_TRUE(buy.has_value());
-    EXPECT_NE(buy->body.find(R"("size":10)"), std::string_view::npos) << buy->body;
+    EXPECT_NE(buy->body.find(R"("size":"10")"), std::string_view::npos) << buy->body;
     EXPECT_NE(buy->body.find(R"("tif":"gtc")"), std::string_view::npos) << buy->body;
 }
 
@@ -1293,7 +1310,7 @@ TEST(GateSignedRest, PerpMarketOrderIsPriceZeroWithIoc) {
     const auto request = builder.create_order(cmd, table, k_sign_now);
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(request->body,
-              R"({"contract":"BTC_USDT","size":3,"price":"0","tif":"ioc",)"
+              R"({"contract":"BTC_USDT","size":"3","price":"0","tif":"ioc",)"
               R"("text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ","reduce_only":true})");
 }
 
@@ -1336,28 +1353,78 @@ TEST(GateSignedRest, SpotMarketBuyIsRefusedRatherThanGuessed) {
     EXPECT_NE(sell->body.find(R"("time_in_force":"ioc")"), std::string_view::npos) << sell->body;
 }
 
-TEST(GateSignedRest, AFractionalContractCountIsRefusedNotRounded) {
+TEST(GateSignedRest, ADecimalContractSendsLotsTimesTheStepAsAString) {
     net::Signer signer;
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
-    exec::InstrumentTable table;
-    {
-        // a half-contract lot cannot render as an integer size
-        WireContract wire{};
-        wire.name = "BTC_USDT";
-        wire.status = "trading";
-        wire.order_price_round = "0.1";
-        wire.order_size_min = "1";
-        wire.quanto_multiplier = "0.0001";
-        auto instrument = map_instrument(wire, MarketType::Perp);
-        ASSERT_TRUE(instrument.has_value());
-        std::get<PerpInstrument>(*instrument).base.lot_size = FixedE9::from_raw(k_e9 / 2);
-        ASSERT_TRUE(table.add(*instrument).has_value());
-    }
-    const auto request = builder.create_order(
-        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(3)), table, k_sign_now);
-    ASSERT_FALSE(request.has_value());
-    EXPECT_EQ(request.error(), BuildError::BadQuantity);
+    const auto table = table_with_eth();
+
+    // one contract is ten 0.1 lots
+    const auto buy = builder.create_order(
+        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(200'000), QtyLots::from_raw(10)),
+        table,
+        k_sign_now);
+    ASSERT_TRUE(buy.has_value()) << to_string(buy.error());
+    EXPECT_NE(buy->body.find(R"("contract":"ETH_USDT","size":"1","price":"2000")"), std::string_view::npos)
+        << buy->body;
+
+    const auto sell = builder.create_order(
+        limit_cmd(MarketType::Perp, Side::Sell, PriceTicks::from_raw(200'000), QtyLots::from_raw(9)),
+        table,
+        k_sign_now);
+    ASSERT_TRUE(sell.has_value());
+    EXPECT_NE(sell->body.find(R"("size":"-0.9")"), std::string_view::npos) << sell->body;
+
+    auto amend = limit_cmd(MarketType::Perp, Side::Sell, PriceTicks::undef(), QtyLots::from_raw(3));
+    amend.kind = CmdKind::Amend;
+    const auto amended = builder.amend_order(amend, table, k_sign_now);
+    ASSERT_TRUE(amended.has_value());
+    EXPECT_EQ(amended->body, R"({"size":"-0.3"})");
+
+    const auto none = builder.create_order(
+        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(200'000), QtyLots::from_raw(0)), table, k_sign_now);
+    ASSERT_FALSE(none.has_value());
+    EXPECT_EQ(none.error(), BuildError::BadQuantity);
+}
+
+TEST(GateSignedRest, FuturesRequestsAskForDecimalSizesAndSpotDoesNot) {
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto perp = builder.create_order(
+        limit_cmd(MarketType::Perp, Side::Buy, PriceTicks::from_raw(640'000), QtyLots::from_raw(1)),
+        table_with_btc(),
+        k_sign_now);
+    ASSERT_TRUE(perp.has_value());
+    EXPECT_EQ(header_of(*perp, "X-Gate-Size-Decimal"), "1");
+    const auto trades = builder.my_trades(MarketType::Perp, UnixNanos{}, k_sign_now);
+    ASSERT_TRUE(trades.has_value());
+    EXPECT_EQ(header_of(*trades, "X-Gate-Size-Decimal"), "1");
+    const auto positions = builder.positions(MarketType::Perp, k_sign_now);
+    ASSERT_TRUE(positions.has_value());
+    EXPECT_EQ(header_of(*positions, "X-Gate-Size-Decimal"), "1");
+
+    const auto spot = builder.create_order(
+        limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000)),
+        spot_table_with_btc(),
+        k_sign_now);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_TRUE(header_of(*spot, "X-Gate-Size-Decimal").empty());
+
+    RequestBuilder public_rest;
+    EXPECT_EQ(header_of(public_rest.contracts(k_settle_usdt), "X-Gate-Size-Decimal"), "1");
+    EXPECT_EQ(header_of(public_rest.tickers(k_settle_usdt), "X-Gate-Size-Decimal"), "1");
+    EXPECT_EQ(header_of(public_rest.order_book(k_settle_usdt, "BTC_USDT", 100), "X-Gate-Size-Decimal"), "1");
+    EXPECT_TRUE(header_of(public_rest.currency_pairs(), "X-Gate-Size-Decimal").empty());
+
+    // the websocket dial carries it too, on futures only
+    const auto futures_ws = handshake_headers(MarketType::Perp);
+    ASSERT_EQ(futures_ws.size(), 1U);
+    EXPECT_EQ(futures_ws.front().first, "X-Gate-Size-Decimal");
+    EXPECT_EQ(futures_ws.front().second, "1");
+    EXPECT_TRUE(handshake_headers(MarketType::Spot).empty());
+    EXPECT_TRUE(handshake_headers(MarketType::Option).empty());
 }
 
 TEST(GateSignedRest, CancelPrefersTheVenueIdAndSpotAlsoNeedsThePair) {
@@ -1400,7 +1467,7 @@ TEST(GateSignedRest, AmendIsAPutOnFuturesAndAPatchOnSpot) {
     ASSERT_TRUE(perp.has_value());
     EXPECT_EQ(perp->method, net::HttpMethod::Put);
     // an amend restates the signed size
-    EXPECT_EQ(perp->body, R"({"size":-7,"price":"65000"})");
+    EXPECT_EQ(perp->body, R"({"size":"-7","price":"65000"})");
 
     auto spot_cmd = limit_cmd(MarketType::Spot, Side::Buy, PriceTicks::from_raw(640'001), QtyLots::from_raw(500'000));
     spot_cmd.kind = CmdKind::Amend;
@@ -2067,6 +2134,137 @@ TEST(GateMap, ContractTypeClassifiesTheUnderlying) {
     EXPECT_EQ(ndx.asset_class, AssetClass::Index);
     EXPECT_EQ(ndx.underlying.view(), "NDX");
     EXPECT_EQ(classified_contract("BOND_USDT", "bonds").asset_class, AssetClass::Unknown);
+}
+
+// with X-Gate-Size-Decimal: 1 every futures size is a quoted decimal; without it 0.9 arrives as 0
+TEST(GateDecimal, CatalogueMinimumSetsTheLot) {
+    const std::string
+        body = R"([{"name":"ETH_USDT","status":"trading","order_price_round":"0.01","order_size_min":"0.1",)"
+               R"("quanto_multiplier":"0.01","mark_price":"2000","funding_rate":"0.0001","funding_interval":28800,)"
+               R"("funding_next_apply":1787670000,"in_delisting":false,"enable_decimal":true},)"
+               R"({"name":"BTC_USDT","status":"trading","order_price_round":"0.1","order_size_min":"1",)"
+               R"("quanto_multiplier":"0.0001","mark_price":"64000","funding_rate":"0.0001","funding_interval":28800,)"
+               R"("funding_next_apply":1787670000,"in_delisting":false},)"
+               R"({"name":"SOL_USDT","status":"trading","order_price_round":"0.01","order_size_min":1,)"
+               R"("quanto_multiplier":"1","mark_price":"150","funding_rate":"0.0001","funding_interval":28800,)"
+               R"("funding_next_apply":1787670000,"in_delisting":false}])";
+    auto storage = std::make_unique<ContractBuffer>();
+    const auto rows = parse_contracts(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    const std::array<std::int64_t, 3> lots{k_e9 / 10, k_e9, k_e9};
+    for (std::size_t i = 0; i < rows->size(); ++i) {
+        const auto instrument = map_instrument((*rows)[i], MarketType::Perp);
+        ASSERT_TRUE(instrument.has_value()) << (*rows)[i].name;
+        EXPECT_EQ(base_of(*instrument).lot_size.raw, lots[i]) << (*rows)[i].name;
+    }
+
+    // a minimum that is not a step of one contract keeps the contract lot
+    for (const char* min : {"5", "0.3", "0", "", "-0.1"}) {
+        WireContract wire = (*rows)[0];
+        wire.order_size_min = min;
+        const auto instrument = map_instrument(wire, MarketType::Perp);
+        ASSERT_TRUE(instrument.has_value()) << min;
+        EXPECT_EQ(base_of(*instrument).lot_size.raw, k_e9) << min;
+    }
+}
+
+TEST(GateDecimal, AFractionalFillIsBookedInTenthLots) {
+    const auto table = table_with_eth();
+    UserTradeBuffer storage;
+    const std::string
+        rest_body = R"([{"id":51,"create_time":1787670001.456,"contract":"ETH_USDT","order_id":"777","size":"-0.9",)"
+                    R"("close_size":"0","price":"2000.12","role":"taker","text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ",)"
+                    R"("fee":"0.0009","point_fee":"0"},)"
+                    R"({"id":52,"create_time":1787670001.457,"contract":"ETH_USDT","order_id":"777","size":"-0.1",)"
+                    R"("close_size":"0","price":"2000.11","role":"taker","text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ",)"
+                    R"("fee":"0.0001","point_fee":"0"}])";
+    const auto rows = parse_rest_user_trades(rest_body, storage, MarketType::Perp);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    std::int64_t filled = 0;
+    for (const auto& row : *rows) {
+        const auto fill = map_user_trade(row, table, QtyLots::undef(), ExchangeClientOrderId{}, k_ingest);
+        ASSERT_TRUE(fill.has_value()) << row.qty;
+        EXPECT_EQ(fill->side, Side::Sell);
+        filled += fill->qty.raw;
+    }
+    EXPECT_EQ(filled, 10) << "one contract in two prints, none of it lost";
+
+    const std::string ws_frame =
+        R"({"time":1787670001,"channel":"futures.usertrades","event":"update","result":[{"id":"53",)"
+        R"("create_time":1787670001,"create_time_ms":1787670001500,"contract":"ETH_USDT","order_id":"778",)"
+        R"("size":"0.9","price":"2000.12","role":"maker","text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ","fee":"0.0001"}]})";
+    const auto pushed = parse_ws_user_trades(ws_frame, storage, MarketType::Perp);
+    ASSERT_TRUE(pushed.has_value());
+    ASSERT_EQ(pushed->size(), 1U);
+    const auto fill = map_user_trade(pushed->front(), table, QtyLots::undef(), ExchangeClientOrderId{}, k_ingest);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->side, Side::Buy);
+    EXPECT_EQ(fill->qty.raw, 9);
+}
+
+TEST(GateDecimal, OrdersAndPositionsReadQuotedSignedSizes) {
+    const auto table = table_with_eth();
+    OrderBuffer storage;
+    const std::string frame =
+        R"({"time":1787670001,"channel":"futures.orders","event":"update","result":[{"id":778,)"
+        R"("contract":"ETH_USDT","size":"-1.5","left":"-0.6","price":"2000","fill_price":"2000","status":"open",)"
+        R"("finish_as":"_new","tif":"gtc","text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ","create_time_ms":1787670001000,)"
+        R"("update_time":1787670001}]})";
+    const auto orders = parse_ws_orders(frame, storage, MarketType::Perp);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 1U);
+    EXPECT_TRUE(orders->front().sell);
+    EXPECT_EQ(orders->front().amount, "1.5");
+    EXPECT_EQ(orders->front().left, "0.6");
+    const auto event = map_order_event(orders->front(), table, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->qty.raw, 15);
+    EXPECT_EQ(event->leaves_qty.raw, 6);
+
+    const auto position = map_position({.contract = "ETH_USDT", .size = "-0.9", .entry_price = "2000"}, table);
+    ASSERT_TRUE(position.has_value());
+    EXPECT_EQ(position->net_qty.raw, -9);
+}
+
+TEST(GateDecimal, QuotedBookSizesParse) {
+    const auto table = table_with_eth();
+    const std::string
+        ticker = R"({"time":1786394633,"time_ms":1786394633461,"channel":"futures.book_ticker","event":"update",)"
+                 R"("result":{"t":1786394633457,"u":42,"s":"ETH_USDT","b":"2000","B":"12.5","a":"2000.01","A":"0.3"}})";
+    const auto wire = parse_book_ticker(ticker);
+    ASSERT_TRUE(wire.has_value());
+    const auto bbo = map_bbo(*wire, table, k_ingest);
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid_qty.raw, 125);
+    EXPECT_EQ(bbo->ask_qty.raw, 3);
+
+    BookFrame seed_frame;
+    seed_frame.text = R"({"id":100,"current":1786984119.025,"update":1786984119.023,)"
+                      R"("asks":[{"s":"1.5","p":"2000.1"}],"bids":[{"s":"0.3","p":"2000"}]})";
+    const auto seed = parse_order_book(seed_frame.text, *seed_frame.storage);
+    ASSERT_TRUE(seed.has_value());
+    BookFrame delta_frame;
+    delta_frame
+        .text = R"({"time":1786394640,"time_ms":1786394640954,"channel":"futures.order_book_update","event":"update",)"
+                R"("result":{"t":1786394640952,"U":100,"u":101,"s":"ETH_USDT","a":[{"p":"2000.2","s":"0.7"}],)"
+                R"("b":[{"p":"1999.9","s":"2"}],"l":"20"}})";
+    const auto delta = parse_book_update(delta_frame.text, *delta_frame.storage);
+    ASSERT_TRUE(delta.has_value());
+
+    const auto& base = base_of(*table.find("ETH_USDT"));
+    DepthBook book{base.id, base.tick_size, base.lot_size};
+    book.seed(*seed);
+    EXPECT_EQ(book.apply(*delta), BookResult::Applied);
+    const auto out = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(out.has_value());
+    ASSERT_EQ(out->bid_count, 2U);
+    ASSERT_EQ(out->ask_count, 2U);
+    EXPECT_EQ(out->bids[0].qty.raw, 3);
+    EXPECT_EQ(out->bids[1].qty.raw, 20);
+    EXPECT_EQ(out->asks[0].qty.raw, 15);
+    EXPECT_EQ(out->asks[1].qty.raw, 7);
 }
 
 } // namespace
