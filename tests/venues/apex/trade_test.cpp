@@ -473,6 +473,44 @@ TEST(ApexWire, ReadsSigningMetaAndAccount) {
     EXPECT_TRUE(fresh->positions.empty());
 }
 
+TEST(ApexMap, WalletsReportTheirBalanceAsTheTotal) {
+    PrivateBuffer storage;
+    const auto account = parse_account(kept("rest_account.json"), storage);
+    ASSERT_TRUE(account.has_value());
+    ASSERT_EQ(account->wallets.size(), 1U);
+    EXPECT_EQ(account->wallets[0].token, "USDT");
+    EXPECT_EQ(account->wallets[0].balance, "100.000000");
+
+    const auto ts = UnixNanos{1'000};
+    const auto usdt = map_balance(account->wallets[0], ts);
+    ASSERT_TRUE(usdt.has_value());
+    EXPECT_EQ(usdt->asset.view(), "USDT");
+    EXPECT_EQ(usdt->total, e9("100"));
+    // the account read states no free margin or open pnl
+    EXPECT_TRUE(usdt->available.is_undef());
+    EXPECT_TRUE(usdt->unrealized.is_undef());
+    EXPECT_EQ(usdt->ts_venue.ns, 1'000U);
+
+    const auto two = parse_account(
+        R"({"data":{"id":"850000000000000001","contractAccount":{"takerFeeRate":"0.00050","makerFeeRate":"0.00020"},)"
+        R"("contractWallets":[{"balance":"10.912345","token":"USDT","pendingWithdrawAmount":"0.000000"},)"
+        R"({"balance":"","token":"USDC"}],"positions":[]}})",
+        storage);
+    ASSERT_TRUE(two.has_value());
+    ASSERT_EQ(two->wallets.size(), 2U);
+    const auto small = map_balance(two->wallets[0], ts);
+    ASSERT_TRUE(small.has_value());
+    EXPECT_EQ(small->total, e9("10.912345"));
+    EXPECT_FALSE(map_balance(two->wallets[1], ts).has_value());
+
+    const auto none = parse_account(
+        R"({"data":{"id":"850000000000000001","contractAccount":{"takerFeeRate":"0.00050","makerFeeRate":"0.00020"},)"
+        R"("contractWallets":null,"positions":null}})",
+        storage);
+    ASSERT_TRUE(none.has_value());
+    EXPECT_TRUE(none->wallets.empty());
+}
+
 TEST(ApexWire, ReadsRepliesAndClassifiesRefusals) {
     const auto created = parse_reply(kept("rest_create_order.json"));
     ASSERT_TRUE(created.has_value());

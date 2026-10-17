@@ -134,8 +134,12 @@ namespace {
 // convert the monotonic heartbeat by its age; zero stays zero
 [[nodiscard]] std::uint64_t heartbeat_wall(const Gateway& gw, MonoNanos now, UnixNanos wall) {
     const auto beat = gw.client.last_heartbeat();
-    if (beat == 0 || beat > now.ns) {
-        return 0; // never stamped, or stamped ahead of us
+    if (beat == 0) {
+        return 0; // never stamped
+    }
+    // stamped after `now` was read for this request: as fresh as it gets, not unknown
+    if (beat > now.ns) {
+        return wall.ns;
     }
     const auto age = now.ns - beat;
     return age > wall.ns ? 0 : wall.ns - age;

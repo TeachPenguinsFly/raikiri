@@ -199,6 +199,21 @@ std::optional<shm::SegmentOwner> start_gateway(std::uint64_t generation, const s
     return std::optional<shm::SegmentOwner>{std::move(*owner)};
 }
 
+TEST(AdminReattach, AHeartbeatStampedAfterTheRequestReadItsClockIsFreshNotZero) {
+    const SegmentDir dir;
+    constexpr std::uint64_t k_beat = 5'000;
+    constexpr std::uint64_t k_wall_now = 1'788'000'000'000'000'000ULL;
+    const auto gateway = start_gateway(k_beat, {"AAA"});
+    ASSERT_TRUE(gateway.has_value());
+
+    Registry registry;
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    // the gateway beat between admind reading `now` and reading the segment
+    const auto rows = registry.accounts(MonoNanos{k_beat - 1}, UnixNanos{k_wall_now});
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows.front().gateway.last_heartbeat, digits(k_wall_now)) << "read as never stamped, 56 years ago";
+}
+
 TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     const SegmentDir dir;
     constexpr std::uint64_t k_first_run = 1'000;

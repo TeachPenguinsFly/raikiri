@@ -31,4 +31,9 @@ export const Icon = {
       <path d="m4 6.5 4 3.5 4-3.5" />
     </Glyph>
   ),
+  Filter: (p: Props) => (
+    <Glyph {...p}>
+      <path d="M2.75 3.5h10.5L9.25 8.25v4l-2.5 1.25V8.25z" />
+    </Glyph>
+  ),
 }

@@ -94,7 +94,7 @@ export const Blotter = memo(function Blotter() {
 
   return (
     <section className="panel flex min-h-0 flex-1 flex-col">
-      <div className="flex h-8 shrink-0 items-center gap-5 px-3">
+      <div data-drag-handle className="flex h-8 shrink-0 items-center gap-5 px-3">
         {k_tabs.map((t) => (
           <button
             key={t}

@@ -186,7 +186,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             std::int64_t sz_decimals{0};
             bool present{false};
         };
-        static thread_local std::array<Token, k_max_spot_assets> tokens{};
+        static thread_local std::array<Token, k_max_spot_token_index> tokens{};
         tokens.fill(Token{});
 
         auto token_rows = wire::req_array(*root, "tokens");
@@ -204,8 +204,9 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             if (!name.has_value() || !decimals.has_value() || !index.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
+            // a token past the table drops only the pairs that name it, not the catalogue
             if (*index < 0 || static_cast<std::size_t>(*index) >= tokens.size()) {
-                return std::unexpected(WireError::TooManyEntries);
+                continue;
             }
             tokens[static_cast<std::size_t>(*index)] = {.name = *name, .sz_decimals = *decimals, .present = true};
         }

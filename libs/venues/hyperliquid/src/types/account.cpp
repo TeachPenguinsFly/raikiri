@@ -82,4 +82,37 @@ std::expected<WireUserFees, WireError> parse_user_fees(std::string_view body) {
     });
 }
 
+std::expected<std::span<const WireSpotBalance>, WireError> parse_spot_balances(std::string_view body,
+                                                                               SpotBalanceBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireSpotBalance>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto rows = wire::req_array(*root, "balances");
+        if (!rows.has_value()) {
+            return std::unexpected(rows.error());
+        }
+        std::size_t count = 0;
+        for (auto row : *rows) {
+            if (count == k_max_spot_balances) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto coin = wire::req_str(obj, "coin");
+            const auto total = wire::req_str(obj, "total");
+            const auto hold = wire::opt_str(obj, "hold");
+            if (!coin.has_value() || !total.has_value() || !hold.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            storage.balances[count] = {.coin = *coin, .total = *total, .hold = *hold};
+            ++count;
+        }
+        return std::span<const WireSpotBalance>{storage.balances.data(), count};
+    });
+}
+
 } // namespace raikiri::venues::hyperliquid

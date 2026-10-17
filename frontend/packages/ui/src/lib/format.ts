@@ -10,17 +10,33 @@ export function num(decimal: string | null | undefined): number | null {
   return Number.isFinite(value) ? value : null
 }
 
-/** pads a wire decimal with zeros, to at least `atLeast` places, and never drops a digit */
-export function price(decimal: string, atLeast = 0): string {
-  const [whole = '0', fraction = ''] = decimal.split('.')
-  const magnitude = Math.abs(Number(whole))
-  const places = Math.max(atLeast, magnitude >= 1000 ? 1 : magnitude >= 1 ? 3 : 5)
-  return `${whole}.${fraction.padEnd(places, '0')}`
+// enough for any venue's tick; an oracle venue's computed price (ostium) carries more and is rounded to this
+const SIGNIFICANT_DIGITS = 7
+
+/** the places a wire decimal needs: trailing zeros of fixed nine-place strings do not count, and nothing past the
+ *  seventh significant digit */
+function significantPlaces(decimal: string): number {
+  const [whole = '0', fraction = ''] = decimal.replace('-', '').split('.')
+  const used = fraction.replace(/0+$/, '').length
+  const intDigits = whole.replace(/^0+/, '').length
+  const leadingZeros = intDigits > 0 ? 0 : fraction.length - fraction.replace(/^0+/, '').length
+  return Math.min(used, Math.max(0, SIGNIFICANT_DIGITS - intDigits) + leadingZeros)
 }
 
-/** the most places among the given decimals, so a column of them can line up */
+/** a wire decimal at at least `atLeast` places, rounded past its seventh significant digit */
+export function price(decimal: string, atLeast = 0): string {
+  const magnitude = Math.abs(Number(decimal))
+  const places = Math.max(atLeast, significantPlaces(decimal), magnitude >= 1000 ? 1 : magnitude >= 1 ? 3 : 5)
+  const fraction = decimal.split('.')[1] ?? ''
+  if (fraction.length <= places) {
+    return `${decimal.split('.')[0]}.${fraction.padEnd(places, '0')}`
+  }
+  return Number(decimal).toFixed(places)
+}
+
+/** the most significant places among the given decimals, so a column of them can line up */
 export function placesOf(decimals: Array<string | null>): number {
-  return Math.max(0, ...decimals.map((d) => d?.split('.')[1]?.length ?? 0))
+  return Math.max(0, ...decimals.map((d) => (d ? significantPlaces(d) : 0)))
 }
 
 /** the midpoint of two wire decimals, exact to one place past the finer of them */

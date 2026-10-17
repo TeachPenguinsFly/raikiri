@@ -213,12 +213,21 @@ struct WirePosition {
     std::string_view entry_price{};
 };
 
+// a contract wallet's balance leaves open pnl out
+struct WireWallet {
+    std::string_view token{};
+    std::string_view balance{};
+};
+
 inline constexpr std::size_t k_max_rows = 256;
+
+inline constexpr std::size_t k_max_wallets = 16;
 
 struct PrivateBuffer {
     std::array<WireOrder, k_max_rows> orders{};
     std::array<WireFill, k_max_rows> fills{};
     std::array<WirePosition, k_max_rows> positions{};
+    std::array<WireWallet, k_max_wallets> wallets{};
 };
 
 struct TradeRows {
@@ -227,10 +236,11 @@ struct TradeRows {
     std::span<const WirePosition> positions{};
 };
 
-// data.id, the fee rates and data.positions
+// data.id, the fee rates, data.positions and data.contractWallets
 struct AccountRows {
     AccountTerms terms{};
     std::span<const WirePosition> positions{};
+    std::span<const WireWallet> wallets{};
 };
 
 [[nodiscard]] std::expected<AccountRows, WireError> parse_account(std::string_view body, PrivateBuffer& storage);
@@ -268,5 +278,8 @@ struct PrivateFrame {
 map_fill(const WireFill& wire, const InstrumentBase& base, QtyLots leaves, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire, const InstrumentBase& base);
+
+// nullopt for an unreadable row
+[[nodiscard]] std::optional<BalanceReport> map_balance(const WireWallet& wire, UnixNanos now);
 
 } // namespace raikiri::venues::apex

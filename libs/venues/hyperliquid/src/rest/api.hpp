@@ -8,6 +8,7 @@
 #include <raikiri/venues/hyperliquid/positions.hpp>
 #include <raikiri/venues/hyperliquid/rest.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
@@ -256,7 +257,78 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (state_->address.empty()) {
+            return std::unexpected{no_address()};
+        }
+        if (market == MarketType::Spot) {
+            return spot_balance_reports();
+        }
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+
+        auto& storage = *storage_owner;
+        std::vector<BalanceReport> reports;
+        // each hip-3 dex margins in its own clearinghouse, so rows sharing a collateral are summed into one
+        for (std::size_t d = 0; d <= state_->loaded_dexes.size(); ++d) {
+            const std::string_view dex = d == 0 ? std::string_view{} : state_->loaded_dexes[d - 1];
+            const std::string_view collateral = d == 0 ? std::string_view{"USDC"}
+                                                       : state_->loaded_dex_collateral[d - 1];
+            const auto body = read_info(*state_, rest_, requests_.clearinghouse_state(state_->address, dex));
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            const auto positions = parse_positions(*body, storage);
+            if (!positions.has_value()) {
+                return std::unexpected{unreadable(positions.error())};
+            }
+            const auto ts = ms_to_unix(storage.ts_ms, state_->clock->wall());
+            const auto report = map_perp_balance(storage.margin, *positions, collateral, ts);
+            if (!report.has_value()) {
+                // a missing row would read as an empty account
+                return std::unexpected{unreadable(WireError::MissingField)};
+            }
+            const auto same = std::ranges::find_if(
+                reports, [&](const BalanceReport& row) { return row.asset == report->asset; });
+            if (same == reports.end()) {
+                reports.push_back(*report);
+                continue;
+            }
+            same->total = same->total + report->total;
+            same->available = same->available + report->available;
+            same->unrealized = same->unrealized + report->unrealized;
+            same->ts_venue = std::max(same->ts_venue, report->ts_venue);
+        }
+        return reports;
+    }
+
 private:
+    std::expected<std::vector<BalanceReport>, exec::VenueError> spot_balance_reports() {
+        const auto body = read_info(*state_, rest_, requests_.spot_state(state_->address));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local const auto storage_owner = std::make_unique<SpotBalanceBuffer>();
+
+        auto& storage = *storage_owner;
+        const auto rows = parse_spot_balances(*body, storage);
+        if (!rows.has_value()) {
+            return std::unexpected{unreadable(rows.error())};
+        }
+        // the answer has no timestamp, so rows take the read time
+        const auto ts = state_->clock->wall();
+        std::vector<BalanceReport> reports;
+        reports.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            if (const auto report = map_spot_balance(wire, ts); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
     VenueState* state_;
     net::RestClient rest_;
     UserRequestBuilder requests_;

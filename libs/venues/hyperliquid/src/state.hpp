@@ -60,6 +60,8 @@ struct VenueState {
     std::vector<std::string> dexes;
     // the hip-3 dexes the catalogue resolved; account reads ask each beside the main dex
     std::vector<std::string> loaded_dexes;
+    // each loaded dex's margin token, in the same order
+    std::vector<std::string> loaded_dex_collateral;
 
     // absent on a market-data-only gateway
     Wallet wallet;

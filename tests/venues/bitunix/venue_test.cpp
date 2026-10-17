@@ -57,6 +57,27 @@ InstrumentBase btc() {
     return base;
 }
 
+TEST(BitunixCatalogue, AThousandfoldContractKeepsItsMultiplierInTheLocalSymbol) {
+    // the venue answers base SHIB for 1000SHIBUSDT, which priced a thousand coins under SHIB/USDT
+    auto wire = pair("BTCUSDT");
+    wire.symbol = "1000SHIBUSDT";
+    wire.base = "SHIB";
+    const auto scaled = map_pair(wire, MarketType::Perp);
+    ASSERT_TRUE(scaled.has_value());
+    EXPECT_EQ(base_of(*scaled).local_symbol.view(), "1000SHIB/USDT");
+    EXPECT_EQ(base_of(*scaled).exchange_symbol.view(), "1000SHIBUSDT");
+
+    wire.symbol = "1MBABYDOGEUSDT";
+    wire.base = "BABYDOGE";
+    const auto million = map_pair(wire, MarketType::Perp);
+    ASSERT_TRUE(million.has_value());
+    EXPECT_EQ(base_of(*million).local_symbol.view(), "1MBABYDOGE/USDT");
+
+    const auto plain = map_pair(pair("BTCUSDT"), MarketType::Perp);
+    ASSERT_TRUE(plain.has_value());
+    EXPECT_EQ(base_of(*plain).local_symbol.view(), "BTC/USDT");
+}
+
 TEST(BitunixCatalogue, LoadsOnlyOpenLinearContractsTheApiTrades) {
     const auto body = fixture("rest_trading_pairs.json");
     const auto storage = std::make_unique<PairBuffer>();

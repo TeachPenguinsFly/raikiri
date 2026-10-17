@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { BrandMark } from '../shared/BrandMark'
 import { SidebarNav } from './SidebarNav'
 import { TopCommandBar } from './TopCommandBar'
+import { TopBarTools } from './Workspace'
 
 /** a screen of an app: its nav entry and its routes */
 export interface AppModule {
@@ -36,6 +37,7 @@ export function AppShell({
   down?: ReactNode | undefined
 }) {
   const { pathname } = useLocation()
+  const [tools, setTools] = useState<HTMLElement | null>(null)
   const off =
     settled && [...hidden].some((path) => pathname === path || pathname.startsWith(`${path}/`))
 
@@ -43,9 +45,11 @@ export function AppShell({
     <div className="flex h-screen w-screen overflow-hidden bg-canvas">
       <SidebarNav brand={brand} modules={modules.filter(({ path }) => !hidden.has(path))} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopCommandBar>{status}</TopCommandBar>
+        <TopCommandBar tools={setTools}>{status}</TopCommandBar>
         <main className="min-h-0 flex-1 overflow-hidden px-2 pb-2">
-          {down !== undefined && down !== null ? down : off ? <Navigate to="/" replace /> : <Outlet />}
+          <TopBarTools.Provider value={tools}>
+            {down !== undefined && down !== null ? down : off ? <Navigate to="/" replace /> : <Outlet />}
+          </TopBarTools.Provider>
         </main>
       </div>
     </div>

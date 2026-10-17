@@ -19,9 +19,7 @@ export RAIKIRI_DATA_DIR="${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}"
 # shellcheck source=../deploy/venue_args.sh
 source "$(dirname "$0")/../deploy/venue_args.sh" || exit 1
 # empty means every listing; set SYMBOLS_<venue> to narrow one
-declare -A SYMBOLS=(
-  [deribit]="BTC-PERPETUAL"
-)
+declare -A SYMBOLS=()
 
 [[ -x "$BIN/gatewayd/gatewayd" ]] || { echo "build first: make build PRESET=$PRESET"; exit 1; }
 

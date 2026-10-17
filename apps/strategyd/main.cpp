@@ -368,24 +368,49 @@ public:
     // journal a desk order the risk gate refused so /v1/orders/{id} can answer
     void journal_refusal(const OrderCmd& cmd, strategy::RejectReason why) noexcept {
         journal_cmd(cmd);
-        (void)schema::append_msg<msgs::OrderEventMsg>(*journal_, clock_->wall().ns, [&](auto m) {
-            namespace jt = raikiri_journal::types;
-            // denied, since the venue never saw it
-            m.eventType(static_cast<jt::orderEventTypeEnum>(OrderEventType::Denied));
-            m.side(static_cast<jt::sideEnum>(cmd.side));
-            m.orderType(static_cast<jt::orderTypeEnum>(cmd.order_type));
-            m.tif(static_cast<jt::tifEnum>(cmd.tif));
-            m.flags(static_cast<std::uint8_t>(cmd.flags));
-            m.instrument(jt::instrumentId{cmd.instrument.packed});
-            m.clientOrderIdField(jt::clientOrderId{cmd.client_order_id.raw});
-            m.exchangeClientOrderIdField().assign_range(cmd.exchange_client_order_id.view());
-            m.price(jt::priceTicks{cmd.price.raw});
-            m.qty(jt::qtyLots{cmd.qty.raw});
-            m.leavesQty(jt::qtyLots{0});
-            m.tsEvent(jt::timestampNs{clock_->wall().ns});
-            m.tsInit(jt::timestampNs{clock_->wall().ns});
-        });
+        OrderEvent event{};
+        // denied, since the venue never saw it
+        event.type = OrderEventType::Denied;
+        event.side = cmd.side;
+        event.order_type = cmd.order_type;
+        event.tif = cmd.tif;
+        event.flags = cmd.flags;
+        event.instrument = cmd.instrument;
+        event.client_order_id = cmd.client_order_id;
+        event.exchange_client_order_id = cmd.exchange_client_order_id;
+        event.price = cmd.price;
+        event.qty = cmd.qty;
+        event.leaves_qty = QtyLots::from_raw(0);
+        event.ts_event = clock_->wall();
+        event.ts_init = clock_->wall();
+        journal_event(event);
         (void)why;
+    }
+
+    // a gateway journals what the venue pushed, often without our id; this copy carries it once attributed
+    void journal_event(const OrderEvent& event) noexcept {
+        (void)schema::append_msg<msgs::OrderEventMsg>(*journal_, event.ts_init.ns, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            m.eventType(static_cast<jt::orderEventTypeEnum>(event.type));
+            m.side(static_cast<jt::sideEnum>(event.side));
+            m.orderType(static_cast<jt::orderTypeEnum>(event.order_type));
+            m.tif(static_cast<jt::tifEnum>(event.tif));
+            m.flags(static_cast<std::uint8_t>(event.flags));
+            m.liquidity(static_cast<jt::liquidityEnum>(event.liquidity));
+            m.instrument(jt::instrumentId{event.instrument.packed});
+            m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
+            m.exchangeClientOrderIdField().assign_range(event.exchange_client_order_id.view());
+            m.exchangeOrderIdField().assign_range(event.exchange_order_id.view());
+            m.execIdField().assign_range(event.exec_id.view());
+            m.price(jt::priceTicks{event.price.raw});
+            m.qty(jt::qtyLots{event.qty.raw});
+            m.leavesQty(jt::qtyLots{event.leaves_qty.raw});
+            m.fee(jt::fixedE9{event.fee.raw});
+            m.tsEvent(jt::timestampNs{event.ts_event.ns});
+            m.tsInit(jt::timestampNs{event.ts_init.ns});
+            m.rejectClass(static_cast<jt::errorClassEnum>(event.reject_class));
+            m.rejectCode(jt::venueCode{event.reject_code});
+        });
     }
 
 private:
@@ -1239,6 +1264,8 @@ int main(int argc, char** argv) {
     std::uint64_t funding_ticks = 0;
     std::uint64_t desk_intents = 0;  // hand-placed intents seen
     std::uint64_t desk_refusals = 0; // and how many never reached a venue
+    // admind puts one desk cancel on every gateway's ring, the same command each time
+    std::deque<std::pair<std::uint64_t, std::int64_t>> desk_cancels_seen;
 
     for (auto& gw : gateways) {
         gw.recon_due = clock.mono().ns; // once at start, then on the interval
@@ -1305,12 +1332,21 @@ int main(int argc, char** argv) {
                     }
                     break;
                 }
-                case CmdKind::Cancel:
+                case CmdKind::Cancel: {
+                    const std::pair key{intent.client_order_id.raw, static_cast<std::int64_t>(intent.ts_created.ns)};
+                    if (std::ranges::find(desk_cancels_seen, key) != desk_cancels_seen.end()) {
+                        break;
+                    }
+                    desk_cancels_seen.push_back(key);
+                    if (desk_cancels_seen.size() > 256) {
+                        desk_cancels_seen.pop_front();
+                    }
                     if (!ctx.cancel(intent.client_order_id)) {
                         desk_refusals += 1;
                         RLOG_WARN("strategyd: desk cancel {} refused — no such order here", intent.client_order_id.raw);
                     }
                     break;
+                }
                 case CmdKind::Amend:
                     desk_refusals += 1;
                     break;
@@ -1370,6 +1406,9 @@ int main(int argc, char** argv) {
             const auto stored = store.apply_event(event);
             if (!stored.has_value() && stored.error() == oms::ApplyError::BadTransition) {
                 ++bad_transitions;
+            }
+            if (event.client_order_id.raw != 0) {
+                ctx.journal_event(event);
             }
             if (stored.has_value() && (*stored)->is_terminal() && event.type != OrderEventType::Filled &&
                 !who.prev_leaves.is_undef() && who.prev_leaves.raw > 0) {

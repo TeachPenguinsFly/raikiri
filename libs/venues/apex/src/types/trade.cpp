@@ -230,6 +230,14 @@ void fill_position(WirePosition& row, std::string_view key, json::ondemand::valu
     }
 }
 
+void fill_wallet(WireWallet& row, std::string_view key, json::ondemand::value& value) {
+    if (key == "token") {
+        row.token = text_of(value);
+    } else if (key == "balance") {
+        row.balance = text_of(value);
+    }
+}
+
 [[nodiscard]] std::expected<void, WireError>
 read_group(std::string_view key, json::ondemand::value& value, PrivateBuffer& storage, TradeRows& out, bool fills) {
     // an account with nothing open says null, not []
@@ -730,6 +738,18 @@ std::expected<AccountRows, WireError> parse_account(std::string_view body, Priva
                 if (key == "positions") {
                     return read_group(key, value, storage, rows, false);
                 }
+                if (key == "contractWallets") {
+                    if (json::ondemand::json_type type{};
+                        value.type().get(type) == simdjson::SUCCESS && type == json::ondemand::json_type::null) {
+                        return {};
+                    }
+                    const auto count = read_rows(value, storage.wallets, fill_wallet);
+                    if (!count.has_value()) {
+                        return std::unexpected(count.error());
+                    }
+                    out.wallets = {storage.wallets.data(), *count};
+                    return {};
+                }
                 json::ondemand::object contract;
                 if (key != "contractAccount" || value.get_object().get(contract) != simdjson::SUCCESS) {
                     return {};
@@ -1001,6 +1021,19 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire, const
     if (const auto entry = ticks_of(wire.entry_price, base); entry.has_value()) {
         out.avg_entry = *entry;
     }
+    return out;
+}
+
+std::optional<BalanceReport> map_balance(const WireWallet& wire, UnixNanos now) {
+    const auto asset = to_asset_code(wire.token);
+    const auto total = wire.balance.empty() ? std::nullopt : parse_amount_e9(wire.balance);
+    if (!asset.has_value() || asset->empty() || !total.has_value()) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    out.total = *total;
+    out.ts_venue = now;
     return out;
 }
 

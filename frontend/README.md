@@ -58,10 +58,7 @@ The packages resolve their imports from where they really live, so the app point
 | route | what it shows | source |
 | --- | --- | --- |
 | `/` | market watch, chart, order book, ticket, blotter | `/v1/markets`, the stream, `/v1/orders`, `/v1/fills` |
-| `/execution` | parent orders worked across venues, their children, and a ticket to start one | `/v1/joe/parents` through `admind --upstream strategyd=<port>` |
-| `/strategies` | a note on what admind can and cannot say about strategies; in the nav only while strategyd answers | none yet |
-| `/treasury` | balances, positions and the ledger by exchange and over time | `/v1/balances`, `/v1/positions`, `/v1/pnl` |
-| `/settings` | the accounts admind knows | `/v1/accounts` |
+| `/settings` | each venue's gateways, their markets and heartbeats | `/v1/accounts` |
 | `/login` | a landing screen that leads into the terminal; the proxy in front asks for the password | |
 
 The ticket posts to `/v1/orders` with an `Idempotency-Key`. A 202 means the order was queued, and a risk refusal

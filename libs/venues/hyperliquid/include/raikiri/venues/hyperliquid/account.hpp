@@ -42,4 +42,20 @@ struct WireUserFees {
 
 [[nodiscard]] std::expected<WireUserFees, WireError> parse_user_fees(std::string_view body);
 
+// a spotClearinghouseState row; `hold` is what resting orders lock, and staked HYPE is not in it
+struct WireSpotBalance {
+    std::string_view coin;  // "USDC"
+    std::string_view total; // "14.625485"
+    std::string_view hold;  // "0.0"
+};
+
+inline constexpr std::size_t k_max_spot_balances = 256;
+
+struct SpotBalanceBuffer {
+    std::array<WireSpotBalance, k_max_spot_balances> balances{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireSpotBalance>, WireError>
+parse_spot_balances(std::string_view body, SpotBalanceBuffer& storage);
+
 } // namespace raikiri::venues::hyperliquid

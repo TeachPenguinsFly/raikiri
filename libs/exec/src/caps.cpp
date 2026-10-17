@@ -257,6 +257,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // one account-wide read each, filtered by market
         .order_pull = {.spot = true, .perp = true},
         .fill_pull = {.spot = true, .perp = true},
+        // perp from clearinghouseState, spot from spotClearinghouseState
+        .balance_pull = {.spot = true, .perp = true},
         // `userFunding` holds perpetual settlements only
         .funding_charge = {.perp = true},
         .ticker_stats = true, // activeAssetCtx dayBaseVlm / dayNtlVlm
@@ -565,7 +567,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = {.perp = true},
         .order_pull = {.perp = true},
         .fill_pull = {.perp = true},
-        .balance_pull = {},
+        // contractWallets on the same account read as positions
+        .balance_pull = {.perp = true},
         .funding_charge = {},
         .ticker_stats = true,
         .needs_passphrase = true,

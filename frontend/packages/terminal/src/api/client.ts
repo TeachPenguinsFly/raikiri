@@ -2,6 +2,7 @@ import type { components } from './types'
 
 type Schema<K extends keyof components['schemas']> = components['schemas'][K]
 
+export type Account = Schema<'Account'>
 export type AccountBalances = Schema<'AccountBalances'>
 export type Listing = Schema<'Listing'>
 export type Market = Schema<'Market'>
@@ -80,7 +81,7 @@ export const api = {
   health: () => get<Schema<'Health'>>('/v1/health'),
   /** checked once, at the upgrade, so each connect takes a fresh one */
   streamToken: () => get<Schema<'StreamToken'>>('/v1/stream/token'),
-  accounts: () => get<Schema<'Account'>[]>('/v1/accounts'),
+  accounts: () => get<Account[]>('/v1/accounts'),
   upstreamIndex: (name: string) => get<Schema<'UpstreamIndex'>>(`/v1/x/${name}/`),
   upstreamTable: (name: string, path: string, params: Record<string, string | undefined> = {}) =>
     get<Schema<'UpstreamTable'>>(`/v1/x/${name}/${path}`, params),

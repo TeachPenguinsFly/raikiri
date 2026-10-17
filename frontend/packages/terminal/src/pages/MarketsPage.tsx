@@ -7,14 +7,18 @@ import {
   FlashPrice,
   Icon,
   num,
+  Pane,
   PanelHeader,
   placesOf,
   Silent,
   type Sort,
   SortHead,
+  Split,
   spreadBp,
   useEntranceOnce,
   Venue,
+  venueLabel,
+  Workspace,
 } from '@raikiri/ui'
 import { api, type Market } from '../api/client'
 import type { components } from '../api/types'
@@ -43,6 +47,26 @@ const k_favorites = 'raikiri.favorites'
 const k_no_markets: Market[] = []
 
 const venueCount = (m: Market) => new Set(m.listings.map((l) => l.venue)).size
+
+const k_quote_order = ['/USDT', '/USDC', '/USD']
+
+const quoteRank = (symbol: string) => {
+  const rank = k_quote_order.findIndex((q) => symbol.endsWith(q))
+  return rank < 0 ? k_quote_order.length : rank
+}
+
+/** admind folds usdt, usdc and usd quotes into one `…/USD*` market for the scanner; a venue's
+ *  usdt and usdc books are different instruments, so here each quote is a market of its own */
+function byQuote(markets: Market[]): Market[] {
+  return markets.flatMap((m) => {
+    if (!m.key.endsWith('*')) return [m]
+    const quotes = new Map<string, Market['listings']>()
+    for (const l of m.listings) quotes.set(l.local_symbol, [...(quotes.get(l.local_symbol) ?? []), l])
+    return [...quotes]
+      .sort(([a], [b]) => quoteRank(a) - quoteRank(b) || a.localeCompare(b))
+      .map(([symbol, listings]) => ({ ...m, key: `${m.key}#${symbol}`, symbol, listings }))
+  })
+}
 
 /** a venue that has not quoted sorts last in either direction */
 const sortValue = (l: LiveListing, key: SortKey): number | string | null => {
@@ -104,7 +128,10 @@ export function MarketsPage() {
   const { favorites, toggle } = useFavorites()
 
   const catalogue = useQuery(() => api.markets(query || undefined), [query], k_catalogue_refresh_ms)
-  const found = catalogue.state === 'ready' ? catalogue.data : k_no_markets
+  const found = useMemo(
+    () => (catalogue.state === 'ready' ? byQuote(catalogue.data) : k_no_markets),
+    [catalogue],
+  )
   const markets = useMemo(() => {
     const kept = onlyFavorites ? found.filter((m) => favorites.has(m.key)) : found
     return [...kept].sort(
@@ -178,104 +205,120 @@ export function MarketsPage() {
   }, [])
 
   return (
-    <div className="flex h-full min-h-0 gap-2">
-      <MarketList
-        catalogue={catalogue}
-        markets={markets}
-        selected={selected?.key ?? null}
-        query={query}
-        entering={entering}
-        favorites={favorites}
-        total={found.length}
-        onFavorite={toggle}
-        onlyFavorites={onlyFavorites}
-        onOnlyFavorites={setOnlyFavorites}
-        onQuery={onQuery}
-        onPick={onPick}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <section className="panel flex min-h-0 flex-[3] flex-col">
-          <MarketHeader
-            symbol={selected?.symbol ?? '—'}
-            market={shownMarket}
-            counts={counts}
-            streamDown={streamDown}
-            onMarket={(m) => {
-              setMarket(m)
-              setVenue(null)
-            }}
+    <Workspace
+      page="markets"
+      panels={{
+        list: (
+          <MarketList
+            catalogue={catalogue}
+            markets={markets}
+            selected={selected?.key ?? null}
+            query={query}
+            entering={entering}
+            favorites={favorites}
+            total={found.length}
+            onFavorite={toggle}
+            onlyFavorites={onlyFavorites}
+            onOnlyFavorites={setOnlyFavorites}
+            onQuery={onQuery}
+            onPick={onPick}
           />
-          <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full border-collapse text-sm whitespace-nowrap">
-              <thead className="sticky top-0 z-10 bg-panel">
-                <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-                  <SortHead k="venue" sort={sort} onSort={setSort}>
-                    Venue
-                  </SortHead>
-                  <th className="col-head px-3 text-left">Symbol</th>
-                  <SortHead k="bid" sort={sort} onSort={setSort} right>
-                    Bid
-                  </SortHead>
-                  <SortHead k="ask" sort={sort} onSort={setSort} right>
-                    Ask
-                  </SortHead>
-                  <SortHead k="spread" sort={sort} onSort={setSort} right>
-                    Spread bp
-                  </SortHead>
-                  <SortHead k="volume" sort={sort} onSort={setSort} right>
-                    Volume 24h
-                  </SortHead>
-                  <SortHead k="funding" sort={sort} onSort={setSort} right>
-                    Funding
-                  </SortHead>
-                  <th className="col-head px-3 text-right">Every</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ordered.map((l, i) => (
-                  <VenueRow
-                    key={l.instrument_id}
-                    listing={l}
-                    places={places}
-                    selected={chosenVenue?.venue === l.venue}
-                    onSelect={() => setVenue(l.venue)}
-                    style={entering ? enterDelay(i) : undefined}
-                    entering={entering}
-                  />
-                ))}
-              </tbody>
-            </table>
-            {catalogue.state === 'failed' && (
-              <EmptyState title="Catalogue unavailable" hint={catalogue.title} />
-            )}
-          </div>
-        </section>
-
-        <div className="flex min-h-0 flex-[2] flex-col">
-          <Blotter />
-        </div>
-      </div>
-
-      <div className="flex w-64 shrink-0 flex-col gap-2">
-        <OrderTicket listings={live} venue={chosenVenue?.venue ?? null} onVenue={setVenue} />
-        <section className="panel flex min-h-0 flex-1 flex-col">
-          <PanelHeader
-            title="Order book"
-            right={
-              chosenVenue === null ? null : <span className="meta">{chosenVenue.venue}</span>
-            }
-          />
-          {book !== null ? (
-            <Ladder book={book} />
-          ) : (
-            <EmptyState
-              title={streamDown && chosenVenue !== null ? 'Stream unavailable' : 'No book yet'}
+        ),
+        venues: (
+          <section className="panel flex flex-col">
+            <MarketHeader
+              symbol={selected?.symbol ?? '—'}
+              market={shownMarket}
+              counts={counts}
+              streamDown={streamDown}
+              onMarket={(m) => {
+                setMarket(m)
+                setVenue(null)
+              }}
             />
-          )}
-        </section>
-      </div>
-    </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full border-collapse text-sm whitespace-nowrap">
+                <thead className="sticky top-0 z-10 bg-panel">
+                  <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
+                    <SortHead k="venue" sort={sort} onSort={setSort}>
+                      Venue
+                    </SortHead>
+                    <th className="col-head px-3 text-left">Symbol</th>
+                    <SortHead k="bid" sort={sort} onSort={setSort} right>
+                      Bid
+                    </SortHead>
+                    <SortHead k="ask" sort={sort} onSort={setSort} right>
+                      Ask
+                    </SortHead>
+                    <SortHead k="spread" sort={sort} onSort={setSort} right>
+                      Spread bp
+                    </SortHead>
+                    <SortHead k="volume" sort={sort} onSort={setSort} right>
+                      Volume 24h
+                    </SortHead>
+                    <SortHead k="funding" sort={sort} onSort={setSort} right>
+                      Funding
+                    </SortHead>
+                    <th className="col-head px-3 text-right">Every</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ordered.map((l, i) => (
+                    <VenueRow
+                      key={l.instrument_id}
+                      listing={l}
+                      places={places}
+                      selected={chosenVenue?.venue === l.venue}
+                      onSelect={() => setVenue(l.venue)}
+                      style={entering ? enterDelay(i) : undefined}
+                      entering={entering}
+                    />
+                  ))}
+                </tbody>
+              </table>
+              {catalogue.state === 'failed' && (
+                <EmptyState title="Catalogue unavailable" hint={catalogue.title} />
+              )}
+            </div>
+          </section>
+        ),
+        blotter: <Blotter />,
+        ticket: <OrderTicket listings={live} venue={chosenVenue?.venue ?? null} onVenue={setVenue} />,
+        book: (
+          <section className="panel flex flex-col">
+            <PanelHeader
+              title="Order book"
+              right={
+                chosenVenue === null ? null : <span className="meta">{venueLabel(chosenVenue.venue)}</span>
+              }
+            />
+            {book !== null ? (
+              <Ladder book={book} />
+            ) : (
+              <EmptyState
+                title={streamDown && chosenVenue !== null ? 'Stream unavailable' : 'No book yet'}
+              />
+            )}
+          </section>
+        ),
+      }}
+    >
+      <Split id="columns">
+        <Pane slot="list" size={18} min={10} />
+        <Pane size={64} min={30}>
+          <Split id="centre" vertical>
+            <Pane slot="venues" size={60} min={15} />
+            <Pane slot="blotter" size={40} min={15} />
+          </Split>
+        </Pane>
+        <Pane size={18} min={12}>
+          <Split id="side" vertical>
+            <Pane slot="ticket" size={50} min={20} />
+            <Pane slot="book" size={50} min={15} />
+          </Split>
+        </Pane>
+      </Split>
+    </Workspace>
   )
 }
 
@@ -305,7 +348,7 @@ function MarketHeader({
 }) {
   const offered = k_market_order.filter((m) => (counts.get(m) ?? 0) > 0)
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2.5 px-3">
+    <div data-drag-handle className="flex h-9 shrink-0 items-center gap-2.5 px-3">
       <span className="text-sm font-semibold tracking-[-0.01em] text-fg">{symbol}</span>
       <span className="text-2xs text-fg-dim uppercase">{market}</span>
       <div className="ml-auto flex items-center gap-4" role="tablist">
@@ -366,8 +409,8 @@ const MarketList = memo(function MarketList({
   onPick: (symbol: string) => void
 }) {
   return (
-    <section className="panel flex w-68 shrink-0 flex-col">
-      <div className="flex h-7 shrink-0 items-center gap-4 px-3">
+    <section className="panel flex flex-col">
+      <div data-drag-handle className="flex h-7 shrink-0 items-center gap-4 px-3">
         {([false, true] as const).map((only) => (
           <button
             key={String(only)}

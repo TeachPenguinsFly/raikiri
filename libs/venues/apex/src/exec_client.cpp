@@ -242,6 +242,28 @@ public:
         return out;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType) override {
+        auto body = read(k_account, {});
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local const auto storage = std::make_unique<PrivateBuffer>();
+        const auto account = parse_account(*body, *storage);
+        if (!account.has_value()) {
+            return std::unexpected{refusal(ErrorClass::Terminal, 0, "apex: unreadable account")};
+        }
+        state_->signing.set_account(account->terms);
+        // the account read states no time or free margin
+        const auto now = state_->clock->wall();
+        std::vector<BalanceReport> out;
+        for (const auto& wire : account->wallets) {
+            if (auto report = map_balance(wire, now); report.has_value()) {
+                out.push_back(*report);
+            }
+        }
+        return out;
+    }
+
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 

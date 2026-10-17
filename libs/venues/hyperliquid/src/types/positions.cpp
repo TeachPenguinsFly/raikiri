@@ -18,6 +18,26 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
+        storage.margin = {};
+        wire::ondemand::value summary;
+        if (const auto ec = wire::find(*root, "marginSummary").get(summary); ec == simdjson::SUCCESS) {
+            wire::ondemand::object fields;
+            if (const auto bad = summary.get_object().get(fields); bad != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(bad));
+            }
+            const auto value = wire::opt_str(fields, "accountValue");
+            if (!value.has_value()) {
+                return std::unexpected(value.error());
+            }
+            storage.margin.account_value = *value;
+        } else if (ec != simdjson::NO_SUCH_FIELD) {
+            return std::unexpected(wire::map_error(ec));
+        }
+        const auto withdrawable = wire::opt_str(*root, "withdrawable");
+        if (!withdrawable.has_value()) {
+            return std::unexpected(withdrawable.error());
+        }
+        storage.margin.withdrawable = *withdrawable;
         auto rows = wire::req_array(*root, "assetPositions");
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
@@ -38,10 +58,11 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             const auto coin = wire::req_str(*position, "coin");
             const auto size = wire::req_str(*position, "szi");
             const auto entry = wire::req_str(*position, "entryPx");
-            if (!coin.has_value() || !size.has_value() || !entry.has_value()) {
+            const auto pnl = wire::opt_str(*position, "unrealizedPnl");
+            if (!coin.has_value() || !size.has_value() || !entry.has_value() || !pnl.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
-            storage.positions[count] = {.coin = *coin, .size = *size, .entry_px = *entry};
+            storage.positions[count] = {.coin = *coin, .size = *size, .entry_px = *entry, .unrealized_pnl = *pnl};
             ++count;
         }
         // `time` trails assetPositions, and on-demand cannot go back

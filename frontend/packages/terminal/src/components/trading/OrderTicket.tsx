@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { cn, ExchangeIcon, fixed, Icon, price, spreadBp, useDismiss } from '@raikiri/ui'
+import { cn, ExchangeIcon, fixed, Icon, price, spreadBp, useDismiss, venueLabel } from '@raikiri/ui'
 import { api, type AccountBalances, placeOrder } from '../../api/client'
 import type { LiveListing } from '../../lib/live'
 import { useQuery } from '../../lib/query'
@@ -52,7 +52,7 @@ export function OrderTicket({
   if (listing === null) {
     return (
       <section className="panel flex flex-col overflow-visible">
-        <div className="flex h-7 items-center px-3">
+        <div data-drag-handle className="flex h-7 items-center px-3">
           <span className="panel-title">Ticket</span>
         </div>
         <p className="px-3 pb-3 text-xs text-fg-dim">Pick a market to write an order against.</p>
@@ -97,7 +97,7 @@ export function OrderTicket({
 
   return (
     <section className="panel flex flex-col overflow-visible">
-      <div className="flex h-7 items-center justify-between px-3">
+      <div data-drag-handle className="flex h-7 items-center justify-between px-3">
         <span className="panel-title">Ticket</span>
         <span className="text-2xs text-fg-dim">{listing.exchange_symbol}</span>
       </div>
@@ -244,7 +244,7 @@ function VenuePicker({
         )}
       >
         <ExchangeIcon venue={chosen.venue} className="size-[18px]" />
-        <span className="text-sm text-fg">{chosen.venue}</span>
+        <span className="text-sm text-fg">{venueLabel(chosen.venue)}</span>
         <span className="num ml-auto text-xs text-fg-dim">
           {chosen.bid === null ? '—' : price(chosen.bid)}
         </span>
@@ -271,7 +271,7 @@ function VenuePicker({
             >
               <ExchangeIcon venue={l.venue} className="size-4" />
               <span className={cn('text-sm', l.venue === chosen.venue ? 'text-fg' : 'text-fg-mid')}>
-                {l.venue}
+                {venueLabel(l.venue)}
               </span>
               <span className="num ml-auto text-xs text-up">
                 {l.bid === null ? '—' : price(l.bid)}

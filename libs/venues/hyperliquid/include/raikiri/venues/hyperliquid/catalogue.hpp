@@ -76,6 +76,8 @@ struct WireSpotAsset {
 };
 
 inline constexpr std::size_t k_max_spot_assets = 1024;
+// token indices are sparse: 506 tokens reached index 1255 by 2026-10
+inline constexpr std::size_t k_max_spot_token_index = 4096;
 
 struct SpotAssetBuffer {
     std::array<WireSpotAsset, k_max_spot_assets> assets{};

@@ -1018,6 +1018,24 @@ TEST(HyperliquidMap, SpotPairsLoadFromTheirBaseTokenPrecision) {
     EXPECT_EQ(base_of(*purr).tick_size.raw, parse_decimal_e9("0.00000001")->raw);
 }
 
+TEST(HyperliquidMap, ASparseTokenIndexLoadsAndOnePastTheTableDropsOnlyItsPairs) {
+    auto storage = std::make_unique<SpotAssetBuffer>();
+    // the live body reached token index 1255 with 506 tokens, which once failed the whole catalogue
+    const std::string body = R"({"tokens":[{"name":"USDC","szDecimals":8,"index":0},)"
+                             R"({"name":"LZCC","szDecimals":0,"index":1255},)"
+                             R"({"name":"FAR","szDecimals":1,"index":)" +
+                             std::to_string(k_max_spot_token_index) +
+                             R"(}],"universe":[{"name":"@1060","tokens":[1255,0],"index":1060},)"
+                             R"({"name":"@1061","tokens":[)" +
+                             std::to_string(k_max_spot_token_index) + R"(,0],"index":1061}]})";
+    const auto pairs = parse_spot_meta(body, *storage);
+    ASSERT_TRUE(pairs.has_value());
+    ASSERT_EQ(pairs->size(), 1U);
+    EXPECT_EQ((*pairs)[0].name, "@1060");
+    EXPECT_EQ((*pairs)[0].base, "LZCC");
+    EXPECT_EQ((*pairs)[0].quote, "USDC");
+}
+
 TEST(HyperliquidMap, SpotPairsAreNamedByBothTokensAndNotByTheBaseAlone) {
     // hype lists against four quote tokens, four separate books
     auto storage = std::make_unique<SpotAssetBuffer>();
@@ -1142,6 +1160,74 @@ TEST(HyperliquidMap, PositionsKeepTheirSignAndDropWhatIsNotLoaded) {
     EXPECT_EQ(reports[0].ts_venue.ns, 1787746850812ULL * 1'000'000ULL);
 }
 
+TEST(HyperliquidMap, PerpBalanceIsAccountValueLessOpenPnl) {
+    auto storage = std::make_unique<PositionBuffer>();
+    const auto body = fixture("rest_clearinghouse_state.json");
+    const auto positions = parse_positions(body, *storage);
+    ASSERT_TRUE(positions.has_value());
+    EXPECT_EQ(storage->margin.account_value, "38667493.7360979989");
+    EXPECT_EQ(storage->margin.withdrawable, "23679074.2440580018");
+    EXPECT_EQ((*positions)[0].unrealized_pnl, "-1179245.535465");
+
+    const auto ts = ms_to_unix(storage->ts_ms, UnixNanos{});
+    const auto report = map_perp_balance(storage->margin, *positions, "USDC", ts);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->asset.view(), "USDC");
+    // the four positions' unrealizedPnl, every figure truncated at 1e-9
+    EXPECT_EQ(report->unrealized.raw, -13'441'635'760'690'000);
+    EXPECT_EQ(report->total.raw, 52'109'129'496'787'998);
+    EXPECT_EQ(report->available.raw, 23'679'074'244'058'001);
+    EXPECT_EQ(report->ts_venue.ns, 1787746850812ULL * 1'000'000ULL);
+
+    const auto flat = parse_positions(
+        R"({"marginSummary":{"accountValue":"10.8123","totalNtlPos":"0.0","totalRawUsd":"10.8123","totalMarginUsed":"0.0"},)"
+        R"("crossMarginSummary":{"accountValue":"10.8123","totalNtlPos":"0.0","totalRawUsd":"10.8123","totalMarginUsed":"0.0"},)"
+        R"("crossMaintenanceMarginUsed":"0.0","withdrawable":"10.8123","assetPositions":[],"time":1787746850812})",
+        *storage);
+    ASSERT_TRUE(flat.has_value());
+    const auto idle = map_perp_balance(storage->margin, *flat, "USDC", ts);
+    ASSERT_TRUE(idle.has_value());
+    EXPECT_EQ(idle->total.raw, 10'812'300'000);
+    EXPECT_EQ(idle->available.raw, 10'812'300'000);
+    EXPECT_EQ(idle->unrealized.raw, 0);
+
+    // positions still read without the summary, but no balance is made up from it
+    const auto bare = parse_positions(R"({"assetPositions":[],"time":1787746850812})", *storage);
+    ASSERT_TRUE(bare.has_value());
+    EXPECT_FALSE(map_perp_balance(storage->margin, *bare, "USDC", ts).has_value());
+}
+
+TEST(HyperliquidMap, SpotBalancesFreeWhatOrdersDoNotHold) {
+    auto storage = std::make_unique<SpotBalanceBuffer>();
+    const auto body = fixture("rest_spot_clearinghouse_state.json");
+    const auto rows = parse_spot_balances(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    EXPECT_EQ((*rows)[0].coin, "USDC");
+    EXPECT_EQ((*rows)[0].hold, "1051.53088");
+
+    const auto ts = UnixNanos{1'000};
+    std::vector<BalanceReport> reports;
+    for (const auto& wire : *rows) {
+        if (const auto report = map_spot_balance(wire, ts); report.has_value()) {
+            reports.push_back(*report);
+        }
+    }
+    ASSERT_EQ(reports.size(), 4U);
+    EXPECT_EQ(reports[0].asset.view(), "USDC");
+    EXPECT_EQ(reports[0].total.raw, 1'051'536'466'120);
+    EXPECT_EQ(reports[0].available.raw, 5'586'120);
+    EXPECT_TRUE(reports[0].unrealized.is_undef());
+    EXPECT_EQ(reports[2].asset.view(), "HYPE");
+    EXPECT_EQ(reports[2].total.raw, 394'396'110);
+    EXPECT_EQ(reports[2].available.raw, 394'396'110);
+    EXPECT_EQ(reports[2].ts_venue.ns, 1'000U);
+
+    // a sold-out token stays listed at zero
+    const auto zero = WireSpotBalance{.coin = "PURR", .total = "0.0", .hold = "0.0"};
+    EXPECT_FALSE(map_spot_balance(zero, ts).has_value());
+}
+
 TEST(HyperliquidMap, PositionSizesSurviveTheVenuesFloatSerialiser) {
     // `szi` is float-serialised; digits past 1e-9 drop, off-step sizes are still refused
     const auto table = loaded_table();
@@ -1149,12 +1235,15 @@ TEST(HyperliquidMap, PositionSizesSurviveTheVenuesFloatSerialiser) {
     ASSERT_NE(eth, nullptr);
     const auto ts = UnixNanos{7};
 
-    const auto noisy = map_position({.coin = "ETH", .size = "-24856.6978000000004", .entry_px = "1981.64"}, table, ts);
+    const auto noisy = map_position(
+        {.coin = "ETH", .size = "-24856.6978000000004", .entry_px = "1981.64", .unrealized_pnl = ""}, table, ts);
     ASSERT_TRUE(noisy.has_value());
     EXPECT_EQ(noisy->net_qty.raw, -248'566'978);
 
     // half a lot is refused; eth steps by 1e-4
-    EXPECT_FALSE(map_position({.coin = "ETH", .size = "1.00005", .entry_px = "1981.64"}, table, ts).has_value());
+    EXPECT_FALSE(
+        map_position({.coin = "ETH", .size = "1.00005", .entry_px = "1981.64", .unrealized_pnl = ""}, table, ts)
+            .has_value());
 }
 
 TEST(HyperliquidWire, OpenOrdersCarryBothMarketsInOneAnswer) {

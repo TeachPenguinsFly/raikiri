@@ -85,6 +85,7 @@ private:
 
     std::expected<void, exec::VenueError> load_dexes(std::vector<Instrument>& loaded) {
         state_->loaded_dexes.clear();
+        state_->loaded_dex_collateral.clear();
         if (state_->dexes.empty()) {
             return {};
         }
@@ -169,6 +170,7 @@ private:
             }
             if (place.has_value()) {
                 state_->loaded_dexes.push_back(dex);
+                state_->loaded_dex_collateral.emplace_back(collateral);
             }
         }
         return {};

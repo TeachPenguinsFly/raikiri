@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { cn, useDismiss } from '@raikiri/ui'
+import { cn, useDismiss, venueLabel } from '@raikiri/ui'
 import type { components } from '../../api/types'
 import type { Query } from '../../lib/query'
 
@@ -74,7 +74,10 @@ export function GatewayStatus({ health }: { health: Health }) {
                       g.gateway.alive ? 'bg-up' : 'bg-down',
                     )}
                   />
-                  <span className="text-fg">{g.account}</span>
+                  <span className="text-fg" title={g.account}>
+                    {venueLabel(g.venue)}
+                    {g.market !== 'perp' && <span className="ml-1.5 text-fg-dim">{g.market}</span>}
+                  </span>
                   <span className="num ml-auto text-xs text-fg-dim">
                     {g.gateway.alive ? g.gateway.instruments.toLocaleString() : '—'}
                   </span>

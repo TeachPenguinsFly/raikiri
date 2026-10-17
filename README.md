@@ -61,10 +61,7 @@ stay closed source.
 The web terminal in [`frontend/`](frontend/README.md) runs on the admin API:
 
 - **Markets**: market watch, chart, order book, an order ticket and the blotter.
-- **Execution**: parent orders worked by `joe`, their child orders, and a ticket to start one.
-- **Treasury**: balances, positions and P&L split into realised, fees and funding, by venue and over
-  time.
-- **Settings**: the accounts admind knows.
+- **Settings**: each venue's gateways, their markets and heartbeats.
 
 `make up` starts gateways, admind and the terminal locally.
 

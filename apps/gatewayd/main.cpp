@@ -598,9 +598,12 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         return;
     }
 
-    if (answered != reports->size()) {
-        answered = reports->size();
-        RLOG_INFO("gatewayd[{}]: venue answered its positions — {} open", who, reports->size());
+    // binance lists a symbol that only has a resting order as a flat row
+    const auto open = static_cast<std::size_t>(std::ranges::count_if(
+        *reports, [](const auto& report) { return !report.net_qty.is_undef() && report.net_qty.raw != 0; }));
+    if (answered != open) {
+        answered = open;
+        RLOG_INFO("gatewayd[{}]: venue answered its positions — {} open", who, open);
     }
 
     std::unordered_map<std::uint64_t, raikiri::exec::PositionReport> by_instrument;

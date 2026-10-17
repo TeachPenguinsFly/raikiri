@@ -330,10 +330,17 @@ TEST_F(VenueContract, EveryPerpPullTheAdaptersHadIsStillClaimed) {
         EXPECT_TRUE(caps_of(id).position_pull.has(MarketType::Perp)) << to_string(id);
         EXPECT_TRUE(caps_of(id).order_pull.has(MarketType::Perp)) << to_string(id);
     }
-    for (const auto id :
-         {VenueId::Binance, VenueId::Okx, VenueId::Gate, VenueId::Kucoin, VenueId::Bingx, VenueId::Xt}) {
+    for (const auto id : {VenueId::Binance,
+                          VenueId::Okx,
+                          VenueId::Gate,
+                          VenueId::Kucoin,
+                          VenueId::Bingx,
+                          VenueId::Xt,
+                          VenueId::Hyperliquid,
+                          VenueId::Apex}) {
         EXPECT_TRUE(caps_of(id).balance_pull.has(MarketType::Perp)) << to_string(id);
     }
+    EXPECT_TRUE(caps_of(VenueId::Hyperliquid).balance_pull.has(MarketType::Spot));
     // these share one wallet across spot and perp
     EXPECT_TRUE(caps_of(VenueId::Bybit).balance_pull.has(MarketType::Spot));
     EXPECT_TRUE(caps_of(VenueId::Okx).balance_pull.has(MarketType::Spot));

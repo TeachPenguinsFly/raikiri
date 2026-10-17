@@ -1,6 +1,6 @@
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Route, Routes } from 'react-router'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { AppShell, ServiceDown, type AppModule } from '@raikiri/ui'
 import { api } from './api/client'
 import { GatewayStatus } from './components/layout/GatewayStatus'
@@ -58,6 +58,8 @@ export function App({ modules, brand }: AppOptions) {
             <Route key={m.path} path={m.path} element={m.element} />,
             ...(m.routes ?? []).map((r) => <Route key={r.path} path={r.path} element={r.element} />),
           ])}
+          {/* a screen this app does not carry, e.g. a bookmark from the desk */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

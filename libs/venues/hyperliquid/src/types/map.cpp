@@ -599,6 +599,49 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     return out;
 }
 
+std::optional<BalanceReport> map_perp_balance(const WireMarginSummary& margin,
+                                              std::span<const WirePosition> positions,
+                                              std::string_view collateral,
+                                              UnixNanos ts_venue) {
+    const auto asset = to_asset_code(collateral);
+    const auto value = to_amount_e9(margin.account_value);
+    const auto withdrawable = to_amount_e9(margin.withdrawable);
+    if (!asset.has_value() || asset->empty() || !value.has_value() || !withdrawable.has_value()) {
+        return std::nullopt;
+    }
+    auto unrealized = FixedE9::from_raw(0);
+    for (const auto& position : positions) {
+        const auto pnl = to_amount_e9(position.unrealized_pnl);
+        if (!pnl.has_value()) {
+            return std::nullopt;
+        }
+        unrealized = unrealized + *pnl;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    out.total = *value - unrealized;
+    out.available = *withdrawable;
+    out.unrealized = unrealized;
+    out.ts_venue = ts_venue;
+    return out;
+}
+
+std::optional<BalanceReport> map_spot_balance(const WireSpotBalance& wire, UnixNanos ts_venue) {
+    const auto asset = to_asset_code(wire.coin);
+    const auto total = to_amount_e9(wire.total);
+    if (!asset.has_value() || asset->empty() || !total.has_value() || total->raw == 0) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    out.total = *total;
+    if (const auto hold = to_amount_e9(wire.hold.empty() ? std::string_view{"0"} : wire.hold); hold.has_value()) {
+        out.available = *total - *hold;
+    }
+    out.ts_venue = ts_venue;
+    return out;
+}
+
 std::optional<FeeRates> map_user_fees(const WireUserFees& wire) {
     const auto taker = parse_rate_e9(wire.cross);
     const auto maker = parse_rate_e9(wire.add);

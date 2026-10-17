@@ -15,9 +15,17 @@ function Clock() {
   )
 }
 
-export function TopCommandBar({ children }: { children?: ReactNode }) {
+export function TopCommandBar({
+  tools,
+  children,
+}: {
+  /** receives the element a screen portals its own controls into */
+  tools?: ((host: HTMLElement | null) => void) | undefined
+  children?: ReactNode
+}) {
   return (
     <header className="flex h-10 shrink-0 items-center justify-end gap-3 px-3">
+      <div ref={tools} className="flex items-center gap-2 empty:hidden" />
       {children !== undefined && children !== null && (
         <>
           {children}

@@ -3,6 +3,7 @@
 #include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/bitunix/map.hpp>
 
+#include <algorithm>
 #include <cctype>
 #include <string>
 
@@ -72,7 +73,19 @@ std::optional<Instrument> map_pair(const WirePair& wire, MarketType market) {
         c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     }
     const auto symbol = SymbolText::from(upper);
-    const auto local = canonical_symbol(wire.base, wire.quote);
+    // 1000SHIBUSDT says base SHIB but prices a thousand of it, 1MBABYDOGEUSDT a million; the symbol's multiplier
+    // prefix belongs to the base
+    std::string_view coin = wire.base;
+    if (const auto at = std::string_view{upper}.find(coin); at != std::string_view::npos && at > 0) {
+        const auto prefix = std::string_view{upper}.substr(0, at);
+        const auto digits = prefix.back() == 'M' ? prefix.substr(0, prefix.size() - 1) : prefix;
+        if (!digits.empty() && std::all_of(digits.begin(), digits.end(), [](char c) {
+                return std::isdigit(static_cast<unsigned char>(c)) != 0;
+            })) {
+            coin = std::string_view{upper}.substr(0, at + coin.size());
+        }
+    }
+    const auto local = canonical_symbol(coin, wire.quote);
     if (!tick.has_value() || !lot.has_value() || !symbol.has_value() || !local.has_value()) {
         return std::nullopt;
     }

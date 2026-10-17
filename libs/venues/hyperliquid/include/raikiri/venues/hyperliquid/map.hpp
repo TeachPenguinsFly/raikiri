@@ -1,5 +1,6 @@
 #pragma once
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/execution_client.hpp>
@@ -81,6 +82,15 @@ inline constexpr std::size_t k_cloid_chars = 34;
 // `szi` is signed; nullopt when the coin is not in the table
 [[nodiscard]] std::optional<exec::PositionReport>
 map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixNanos ts_venue);
+
+// total is accountValue less the positions' open pnl; nullopt when either is unreadable
+[[nodiscard]] std::optional<BalanceReport> map_perp_balance(const WireMarginSummary& margin,
+                                                            std::span<const WirePosition> positions,
+                                                            std::string_view collateral,
+                                                            UnixNanos ts_venue);
+
+// nullopt for a zero row or an unreadable one
+[[nodiscard]] std::optional<BalanceReport> map_spot_balance(const WireSpotBalance& wire, UnixNanos ts_venue);
 
 [[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::InstrumentTable& table);
 
