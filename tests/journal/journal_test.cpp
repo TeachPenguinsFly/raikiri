@@ -271,9 +271,11 @@ TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
     EXPECT_EQ(result, ReadResult::Empty) << "no corruption below the watermark";
     EXPECT_GT(expect, 100U) << "child should have committed a meaningful number of frames";
 
+    // a kill between a frame's crc and the watermark leaves one whole frame the reader was not shown; recovery keeps it
     auto writer = JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
-    EXPECT_EQ(writer->next_seq(), expect);
+    EXPECT_GE(writer->next_seq(), expect);
+    EXPECT_LE(writer->next_seq(), expect + 1);
 }
 
 TEST(Journal, ASegmentCreatedButNeverHeaderedIsAdoptedRatherThanRefused) {

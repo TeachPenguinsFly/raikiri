@@ -129,7 +129,7 @@ private:
             }
         }
 
-        std::optional<std::string> spot_meta;
+        std::string spot_meta;
         auto storage = std::make_unique<AssetBuffer>();
         std::string request_body;
         for (const auto& dex : names) {
@@ -145,14 +145,14 @@ private:
             }
             std::string_view collateral{"USDC"};
             if (storage->collateral_token != 0) {
-                if (!spot_meta.has_value()) {
+                if (spot_meta.empty()) {
                     auto spot = read_info(*state_, rest_, RequestBuilder::spot_meta(), k_catalogue_timeout_ms);
                     if (!spot.has_value()) {
                         return std::unexpected{spot.error()};
                     }
                     spot_meta = std::string{*spot};
                 }
-                const auto token = parse_token_name(*spot_meta, storage->collateral_token);
+                const auto token = parse_token_name(spot_meta, storage->collateral_token);
                 if (!token.has_value()) {
                     continue;
                 }
