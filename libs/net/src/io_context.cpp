@@ -2,6 +2,7 @@
 
 #include <boost/asio/io_context.hpp>
 #include <chrono>
+#include <thread>
 
 namespace raikiri::net {
 
@@ -56,7 +57,13 @@ std::size_t IoContext::run_for(std::size_t timeout_ms) noexcept {
     }
     const Pumping guard{impl_->pumping};
     try {
-        return impl_->ioc.run_for(std::chrono::milliseconds{static_cast<std::chrono::milliseconds::rep>(timeout_ms)});
+        const std::chrono::milliseconds timeout{static_cast<std::chrono::milliseconds::rep>(timeout_ms)};
+        const auto ran = impl_->ioc.run_for(timeout);
+        // asio returns at once when nothing is pending, which spins a loop that polls rest without a socket open
+        if (ran == 0 && impl_->ioc.stopped()) {
+            std::this_thread::sleep_for(timeout);
+        }
+        return ran;
     } catch (...) {
         return 0;
     }
