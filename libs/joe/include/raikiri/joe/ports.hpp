@@ -1,5 +1,7 @@
 #pragma once
 
+#include <raikiri/domain/origin.hpp>
+#include <raikiri/joe/parent.hpp>
 #include <raikiri/joe/schedule.hpp>
 #include <raikiri/joe/sor.hpp>
 
@@ -39,6 +41,10 @@ struct ChildOrder {
     std::int64_t lots{0};
     FixedE9 limit{};
     ChildTif tif{ChildTif::Ioc};
+    std::uint16_t book{0};
+    OrderOrigin origin{};
+    // parent and child ordinal, so identical slices are not taken for a resend of one
+    std::uint64_t repeat_key{0};
 };
 
 enum class SinkError : std::uint8_t { NotRunning, Risk, Refused };
@@ -67,6 +73,36 @@ public:
 
 protected:
     ~OrderSink() = default;
+};
+
+// what a restart must not forget about a parent; its fills come back from the order events
+struct ParentRecord {
+    enum class Kind : std::uint8_t { Created, Started, ChildSent, StatusChanged };
+
+    Kind kind{Kind::Created};
+    std::uint64_t parent{0};
+    UnixNanos ts{};
+    ParentSpec spec{};
+    FixedE9 qty{FixedE9::undef()};
+    FixedE9 arrival{FixedE9::undef()};
+    std::vector<UnixNanos> times{};
+    std::vector<std::uint64_t> weights{};
+    std::uint64_t random{0};
+    Child child{};
+    Status status{Status::Pending};
+    std::string reason{};
+};
+
+class ParentLog {
+public:
+    ParentLog() = default;
+    ParentLog(const ParentLog&) = delete;
+    ParentLog& operator=(const ParentLog&) = delete;
+
+    virtual void record(const ParentRecord& record) noexcept = 0;
+
+protected:
+    ~ParentLog() = default;
 };
 
 class VolumeProfile {

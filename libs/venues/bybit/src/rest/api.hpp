@@ -244,6 +244,23 @@ public:
         return charges;
     }
 
+    std::expected<std::string, exec::VenueError> option_account_mode() {
+        const auto request = builder_.account_info(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+        }
+        std::string body;
+        const auto envelope = fetch(*request, body);
+        if (!envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        const auto mode = parse_margin_mode(envelope->result);
+        if (!mode.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(mode.error()))};
+        }
+        return std::string{*mode};
+    }
+
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
         // one unified wallet backs both markets
         (void)market;
@@ -271,6 +288,7 @@ public:
                 reports.push_back(*report);
             }
         }
+        apply_account_available(reports, storage.total_available, ts);
         return reports;
     }
 

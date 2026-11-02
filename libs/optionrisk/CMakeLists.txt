@@ -3,6 +3,7 @@
 add_library(raikiri_optionrisk STATIC
   src/risk.cpp
   src/queries.cpp
+  src/short_book.cpp
 )
 add_library(raikiri::optionrisk ALIAS raikiri_optionrisk)
 target_include_directories(raikiri_optionrisk PUBLIC
@@ -16,7 +17,7 @@ target_link_libraries(raikiri_optionrisk_infra
   PUBLIC raikiri::optionrisk raikiri::admin
   PRIVATE glaze::glaze raikiri::log raikiri::warnings)
 
-add_library(raikiri_optionrisk_http STATIC src/routes.cpp)
+add_library(raikiri_optionrisk_http STATIC src/routes.cpp src/short_book_routes.cpp)
 add_library(raikiri::optionrisk_http ALIAS raikiri_optionrisk_http)
 target_link_libraries(raikiri_optionrisk_http
   PUBLIC raikiri::optionrisk raikiri::http

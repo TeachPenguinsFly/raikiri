@@ -4,6 +4,12 @@ defaults:
   max_order_notional: 20
   max_instrument_notional: 20
   max_strategy_notional: 100
+  max_orders_in_window: 100
+  order_window_ms: 1000
+  max_repeat_entries: 120
+  repeat_window_ms: 60000
+  max_quote_age_ms: 10000
 strategies:
   # make demo quotes one sim lot, $50 of btc; demo-maker trades only the sim venue
-  demo-maker: { max_order_notional: 100, max_instrument_notional: 200, max_strategy_notional: 400 }
+  # a maker quotes the same price again after a fill, so it opts out of the duplicate check
+  demo-maker: { max_order_notional: 100, max_instrument_notional: 200, max_strategy_notional: 400, max_repeat_entries: 0, duplicate_window_ms: 0 }

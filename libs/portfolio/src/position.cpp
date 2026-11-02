@@ -69,7 +69,8 @@ Position::Applied Position::apply_fill(
                                                : detail::checked_sub(open_qty, delta.raw));
     fees_ = FixedE9::from_raw(detail::checked_add(fees_.raw, fee.raw));
     ++fill_count_;
-    ts_updated_ = ts;
+    // a late fill has an older stamp; readers and the persisted row order on this, so it never goes back
+    ts_updated_ = UnixNanos{std::max(ts_updated_.ns, ts.ns)};
     out.closed = qty_.raw == 0;
     if (out.closed) {
         cost_ = FixedE9::from_raw(0);

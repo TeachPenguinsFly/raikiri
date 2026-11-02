@@ -86,6 +86,8 @@ std::string_view to_string(SpecError error) noexcept {
         return "pov needs a participation rate between 1 and 5000 bp";
     case SpecError::TagTooLong:
         return "a client tag is at most 64 characters";
+    case SpecError::RefTooLong:
+        return "an external reference is at most 40 characters";
     case SpecError::NoChildCap:
         return "max_child_notional must be positive";
     case SpecError::BadExpiry:
@@ -179,6 +181,9 @@ std::expected<void, SpecError> validate(const ParentSpec& spec) noexcept {
     }
     if (spec.client_tag.size() > 64) {
         return std::unexpected{SpecError::TagTooLong};
+    }
+    if (spec.external_ref.size() > k_external_ref_len) {
+        return std::unexpected{SpecError::RefTooLong};
     }
     if (spec.algo == Algo::Sor) {
         return {};

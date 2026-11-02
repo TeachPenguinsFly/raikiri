@@ -32,6 +32,14 @@ struct Scales {
 // fallback to the attached gateways' catalogue when no raikiri.instruments window holds the row
 using ScaleLookup = std::function<Scales(InstrumentId)>;
 
+struct BookLabel {
+    std::string kind;
+    std::string name;
+};
+
+// the registry's view of a book, empty for an id it has no record of
+using BookLookup = std::function<std::optional<BookLabel>(std::uint16_t)>;
+
 // keyset pagination; a page resumes strictly after the last row emitted
 struct Cursor {
     std::uint64_t ts{0}; // the ordering timestamp of the last row emitted
@@ -45,6 +53,8 @@ struct Cursor {
     friend bool operator==(const Cursor&, const Cursor&) = default;
 };
 
+// book_id is the strategy half of the client order id. book_kind and book read off the registry where the journal
+// did not say; an order older than the registry has a number and may have no name
 struct Order {
     std::string client_order_id;
     std::optional<std::string> exchange_client_order_id;
@@ -66,6 +76,13 @@ struct Order {
     std::optional<std::int64_t> reject_code;
     std::string ts_created;
     std::string ts_updated;
+    std::int64_t book_id{0};
+    std::string book_kind;
+    std::optional<std::string> book;
+    std::optional<std::string> parent_id;
+    std::optional<std::string> external_ref;
+    // moves with every change; of two answers about one order the higher is newer
+    std::string version{};
 };
 
 struct OrderEvent {
@@ -92,6 +109,12 @@ struct Fill {
     std::optional<std::string> fee;
     std::string liquidity;
     std::string ts_event;
+    // absent with the client order id: a fill matched to no order of ours has no book
+    std::optional<std::int64_t> book_id;
+    std::optional<std::string> book_kind;
+    std::optional<std::string> book;
+    std::optional<std::string> parent_id;
+    std::optional<std::string> external_ref;
 };
 
 struct PnlIncrement {
@@ -102,6 +125,9 @@ struct PnlIncrement {
     std::int64_t strategy_id{0};
     std::string amount; // signed; positive is money gained
     std::string ts_event;
+    std::string book_kind;
+    std::optional<std::string> book;
+    std::optional<std::string> parent_id;
 };
 
 // absent fields mean the venue did not publish them
@@ -153,6 +179,8 @@ struct PageQuery {
     std::optional<UnixNanos> since{}; // inclusive lower bound on the row's time
     std::optional<Cursor> cursor{};
     std::size_t limit{k_default_page};
+    std::optional<std::uint16_t> book{};
+    std::optional<std::uint64_t> parent{};
 };
 
 enum class PnlKind : std::uint8_t { Realized, Fee, Funding };
@@ -173,6 +201,7 @@ public:
     [[nodiscard]] DatabaseHealth health() const;
 
     void set_catalogue(ScaleLookup lookup);
+    void set_books(BookLookup lookup);
 
     // newest first; an unreachable database yields an empty page and reconnects on the next call
     [[nodiscard]] OrderPage orders(const PageQuery& query, std::optional<bool> open) const;
@@ -183,9 +212,11 @@ public:
 
     [[nodiscard]] FillPage fills(const PageQuery& query) const;
 
-    // not paged: one row per (strategy, venue, symbol) that has traded
+    // not paged: one row per (strategy, venue, symbol) that has traded. with a parent, what that parent's own fills
+    // add up to on each instrument, since a book's position nets every parent and hand order in it
     [[nodiscard]] std::vector<Position> positions(std::optional<AccountId> account,
-                                                  std::optional<std::uint16_t> strategy) const;
+                                                  std::optional<std::uint16_t> strategy,
+                                                  std::optional<std::uint64_t> parent = std::nullopt) const;
 
     [[nodiscard]] PnlPage pnl(const PageQuery& query, std::optional<PnlKind> kind) const;
     [[nodiscard]] FundingPage funding(const PageQuery& query) const;

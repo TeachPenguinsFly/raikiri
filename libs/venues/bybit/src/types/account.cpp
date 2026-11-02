@@ -45,6 +45,16 @@ std::expected<std::span<const WireLedgerEntry>, WireError> parse_funding_charges
     });
 }
 
+std::expected<std::string_view, WireError> parse_margin_mode(std::string_view result) {
+    return guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = wire::session().open_object(result);
+        if (!root.has_value()) {
+            return std::unexpected{root.error()};
+        }
+        return wire::req_str(*root, "marginMode");
+    });
+}
+
 std::expected<std::span<const WireCoinBalance>, WireError> parse_wallet_balance(std::string_view result,
                                                                                 CoinBalanceBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCoinBalance>, WireError> {
@@ -61,11 +71,14 @@ std::expected<std::span<const WireCoinBalance>, WireError> parse_wallet_balance(
         }
 
         std::size_t count = 0;
+        storage.total_available = {};
         for (auto row : *list) {
             ondemand::object account;
             if (row.get_object().get(account) != simdjson::SUCCESS) {
                 return std::unexpected{WireError::WrongType};
             }
+            storage.total_available = wire::opt_str(account, "totalAvailableBalance").value_or(std::string_view{});
+            account.reset();
             auto coins = wire::req_array(account, "coin");
             if (!coins.has_value()) {
                 return std::unexpected{coins.error()};

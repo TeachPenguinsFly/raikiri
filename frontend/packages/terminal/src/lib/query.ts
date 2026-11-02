@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
+import { LatestOnly } from './latest'
 
 export type Query<T> =
   | { state: 'loading' }
@@ -21,21 +22,34 @@ const failure = (err: unknown): Query<never> =>
         detail: err instanceof Error ? err.message : String(err),
       }
 
-/** a null run stays loading; an answer to superseded deps is dropped */
+/** a null run stays loading; an answer to superseded deps is dropped, and so is one that lands after a later poll's.
+ *  `merge` sees the answer on top of what is held, for rows that carry a version */
 export function useQuery<T>(
   run: (() => Promise<T>) | null,
   deps: unknown[],
   refreshMs?: number,
+  merge?: (held: T, next: T) => T,
 ): Query<T> {
   const [result, setResult] = useState<Query<T>>({ state: 'loading' })
 
   useEffect(() => {
     if (run === null) return
     let live = true
+    const polls = new LatestOnly()
     const fetchOnce = () => {
+      const ticket = polls.begin()
       run().then(
-        (data) => live && setResult({ state: 'ready', data }),
-        (err: unknown) => live && setResult(failure(err)),
+        (data) => {
+          if (!live || !polls.accept(ticket)) return
+          setResult((held) =>
+            held.state === 'ready' && merge !== undefined
+              ? { state: 'ready', data: merge(held.data, data) }
+              : { state: 'ready', data },
+          )
+        },
+        (err: unknown) => {
+          if (live && polls.accept(ticket)) setResult(failure(err))
+        },
       )
     }
     fetchOnce()

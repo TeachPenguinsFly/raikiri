@@ -43,6 +43,11 @@ struct VenueSettings {
     // binance options: "margin" reads /eapi/v1/marginAccount; empty or "account" reads /eapi/v1/account
     std::string option_account;
 
+    // the account mode the venue must report before options trade on it; empty compares nothing. okx: spot,
+    // futures, multi_currency, portfolio. bybit: REGULAR_MARGIN and the like. deribit: standard, portfolio.
+    // binance: account, margin. gate: margin_mode's number
+    std::string option_account_mode;
+
     std::vector<RateLimitSettings> limits;
     std::vector<RateCostSettings> costs;
     std::uint32_t default_cost{1};

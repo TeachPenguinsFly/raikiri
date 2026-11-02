@@ -1,4 +1,5 @@
 #include <raikiri/audit/file_sink.hpp>
+#include <raikiri/audit/verify.hpp>
 #include <raikiri/log/log.hpp>
 
 #include <fmt/format.h>
@@ -14,6 +15,7 @@ namespace internal {
 constexpr std::size_t k_batch_entries = 512;
 constexpr std::uint64_t k_warn_every_ns = 1'000'000'000ULL;
 constexpr int k_close_attempts = 5;
+constexpr std::uint64_t k_retain_every_ns = 3600ULL * 1'000'000'000ULL;
 
 } // namespace internal
 
@@ -25,13 +27,14 @@ FileSink::open(const std::string& stream_dir, const SinkOptions& options, const 
     }
     std::unique_ptr<FileSink> sink{new FileSink{std::move(*writer), options, clock}};
     sink->stream_ = std::filesystem::path{stream_dir}.filename().string();
+    sink->stream_dir_ = stream_dir;
     sink->thread_ = std::thread{[raw = sink.get()] { raw->run(); }};
     return sink;
 }
 
 FileSink::FileSink(FileWriter writer, const SinkOptions& options, const Clock& clock)
     : writer_{std::move(writer)}, queue_{options.queue_slots, options.slot_bytes}, clock_{&clock},
-      idle_wait_{options.idle_wait} {}
+      idle_wait_{options.idle_wait}, retain_days_{options.retain_days} {}
 
 FileSink::~FileSink() {
     stop_.store(true, std::memory_order_release);
@@ -98,6 +101,32 @@ void FileSink::report_overflow() {
     }
 }
 
+void FileSink::retain() {
+    const auto now = clock_->mono().ns;
+    if (retain_days_ == 0 || now < retain_due_ns_) {
+        return;
+    }
+    retain_due_ns_ = now + internal::k_retain_every_ns;
+    const auto today = day_of(clock_->wall());
+    for (const auto day : days_past(stream_dir_, retain_days_, today)) {
+        const auto tail = internal::tail_of(day_path(stream_dir_, day));
+        const auto detail = fmt::format(R"({{"removed":"{}","last_seq":{},"last_hash":"{}"}})",
+                                        day_name(day),
+                                        tail.has_value() ? tail->seq : 0,
+                                        tail.has_value() ? to_hex(tail->hash) : std::string{});
+        // the record goes first: a day that left no record was tampered with
+        if (!writer_.append({.ts = clock_->wall(),
+                             .actor = "audit",
+                             .action = k_action_retention,
+                             .subject = stream_,
+                             .detail_json = detail}) ||
+            !writer_.flush()) {
+            return;
+        }
+        remove_day(stream_dir_, day);
+    }
+}
+
 // true when it wrote something; lines a failed flush kept hold the queue back, so a dead disk ends in counted drops
 bool FileSink::drain() {
     bool flushed = taken_unflushed_ == 0 && overflow_unflushed_ == 0;
@@ -134,6 +163,7 @@ void FileSink::run() {
     int failures = 0;
     while (true) {
         const auto failures_before = writer_.stats().write_failures;
+        retain();
         const bool busy = drain();
         if (writer_.stats().write_failures != failures_before) {
             ++failures;

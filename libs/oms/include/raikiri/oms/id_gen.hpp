@@ -6,6 +6,7 @@
 #include <raikiri/common/ulid.hpp>
 #include <raikiri/domain/identifiers.hpp>
 
+#include <algorithm>
 #include <cstdint>
 
 namespace raikiri::oms {
@@ -21,9 +22,20 @@ public:
 
     [[nodiscard]] ClientOrderId next_client_id() noexcept { return ClientOrderId::make(strategy_id_, ++seq_); }
 
+    // an executor's child: it books to `book` and comes back to the executor
+    [[nodiscard]] ClientOrderId next_child_id(std::uint16_t book) noexcept {
+        return ClientOrderId::make_child(book, ++seq_);
+    }
+
+    // a restart must not mint an id an earlier process used, since postgres keys orders on it
+    void start_after(std::uint64_t seq) noexcept { seq_ = seq; }
+
     [[nodiscard]] ExchangeClientOrderId next_exchange_client_id(UnixNanos wall) noexcept {
         return ulid_gen_.next(wall);
     }
+
+    // a restart picks up past what the journal holds, or a new order takes an old order's id
+    void resume_after(std::uint64_t seq) noexcept { seq_ = std::max(seq_, seq); }
 
     [[nodiscard]] std::uint16_t strategy_id() const noexcept { return strategy_id_; }
 

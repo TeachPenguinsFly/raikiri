@@ -33,7 +33,8 @@ enum class CreateError : std::uint8_t {
     IdReserved, // 0 is the no-order sentinel; k_manual_strategy_id is a person's
     NoContext,  // the kernel would not open a window for this id
     Full,
-    Refused, // the constructor read the config and said no; its words are in `detail`
+    Refused,   // the constructor read the config and said no; its words are in `detail`
+    BookTaken, // the book registry holds this id under another name
 };
 
 struct CreateFailure {
@@ -84,6 +85,9 @@ struct Kernel {
     std::function<std::size_t(std::uint16_t strategy_id)> cancel_working;
 
     std::function<UnixNanos()> wall;
+
+    // asked before anything is built; a refusal's words land in `detail`. absent admits everything
+    std::function<std::expected<void, std::string>(const Spec&)> admit{};
 };
 
 class Registry {
@@ -112,8 +116,11 @@ public:
     void on_trade(const TradeTick& trade);
     void on_funding(const FundingUpdate& funding);
 
-    // an order event reaches only the strategy its client order id names; unowned ids are dropped
+    // an order event reaches only the strategy its client order id names, or the executor for a child, whichever book
+    // the child is on; unowned ids are dropped
     void on_order_event(const OrderEvent& event);
+
+    void set_executor(std::uint16_t strategy_id) noexcept { executor_ = strategy_id; }
 
     void on_timer(std::uint16_t strategy_id, std::uint32_t timer_id);
 
@@ -125,6 +132,8 @@ public:
     [[nodiscard]] std::size_t running() const noexcept;
 
 private:
+    std::uint16_t executor_{0};
+
     struct Instance {
         Spec spec;
         std::unique_ptr<Strategy> strategy;

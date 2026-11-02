@@ -13,3 +13,7 @@ target_link_libraries(ladder_prune
 add_executable(option_board option_board.cpp)
 target_link_libraries(option_board
   PRIVATE benchmark::benchmark raikiri::optiondata raikiri::optiondata_http raikiri::warnings)
+
+add_executable(order_trail order_trail.cpp)
+target_link_libraries(order_trail
+  PRIVATE fmt::fmt raikiri::audit_file raikiri::log raikiri::oms_trail raikiri::warnings)

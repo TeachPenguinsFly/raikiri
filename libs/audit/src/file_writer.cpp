@@ -85,22 +85,25 @@ FileWriter::FileWriter(std::string stream_dir, FsyncPolicy fsync) noexcept
 
 FileWriter::FileWriter(FileWriter&& other) noexcept
     : stream_dir_{std::move(other.stream_dir_)}, fsync_{other.fsync_}, lock_fd_{std::exchange(other.lock_fd_, -1)},
-      head_fd_{std::exchange(other.head_fd_, -1)}, day_fd_{std::exchange(other.day_fd_, -1)}, day_{other.day_},
-      file_bytes_{other.file_bytes_}, pending_{std::move(other.pending_)}, next_seq_{other.next_seq_},
+      head_fd_{std::exchange(other.head_fd_, -1)}, day_fd_{std::exchange(other.day_fd_, -1)},
+      index_fd_{std::exchange(other.index_fd_, -1)}, block_{other.block_}, sealed_{std::move(other.sealed_)},
+      day_{other.day_}, file_bytes_{other.file_bytes_}, pending_{std::move(other.pending_)}, next_seq_{other.next_seq_},
       prev_{other.prev_}, stats_{other.stats_} {}
 
 FileWriter::~FileWriter() {
     if (day_fd_ >= 0) {
+        seal_block();
         if (!flush()) {
             RLOG_ERROR("audit: {} lost {} bytes at close", stream_dir_, pending_.size());
         }
+        write_index();
         sync();
     }
     close_all();
 }
 
 void FileWriter::close_all() noexcept {
-    for (int* fd : {&day_fd_, &head_fd_, &lock_fd_}) {
+    for (int* fd : {&day_fd_, &index_fd_, &head_fd_, &lock_fd_}) {
         if (*fd >= 0) {
             ::close(*fd);
             *fd = -1;
@@ -191,11 +194,33 @@ bool FileWriter::recover(const Clock& clock) {
            flush();
 }
 
+void FileWriter::seal_block() {
+    if (block_.lines != 0) {
+        sealed_.push_back(block_);
+        block_ = IndexBlock{};
+    }
+}
+
+// an index that cannot be written costs its readers time, not the truth
+void FileWriter::write_index() noexcept {
+    if (index_fd_ < 0 || sealed_.empty()) {
+        sealed_.clear();
+        return;
+    }
+    const auto bytes = sealed_.size() * sizeof(IndexBlock);
+    if (::write(index_fd_, sealed_.data(), bytes) != static_cast<ssize_t>(bytes)) {
+        RLOG_WARN("audit: {} index short", stream_dir_);
+    }
+    sealed_.clear();
+}
+
 bool FileWriter::roll_to(std::uint32_t day) {
     if (day_fd_ >= 0) {
+        seal_block();
         if (!flush()) {
             return false;
         }
+        write_index();
         sync();
     }
     const auto path = day_path(stream_dir_, day);
@@ -217,6 +242,10 @@ bool FileWriter::roll_to(std::uint32_t day) {
         ::close(day_fd_);
         ++stats_.rotations;
     }
+    if (index_fd_ >= 0) {
+        ::close(index_fd_);
+    }
+    index_fd_ = ::open(index_path(stream_dir_, day).c_str(), O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0640);
     day_fd_ = fd;
     day_ = day;
     file_bytes_ = static_cast<std::uint64_t>(info.st_size);
@@ -235,6 +264,10 @@ bool FileWriter::append(const Entry& entry) {
     }
     prev_ = sha256(std::string_view{pending_}.substr(start));
     pending_.push_back('\n');
+    block_.add(entry, file_bytes_ + start, pending_.size() - start);
+    if (block_.full()) {
+        seal_block();
+    }
     ++next_seq_;
     ++stats_.lines;
     if (fsync_ == FsyncPolicy::EveryEntry || pending_.size() >= internal::k_flush_bytes) {
@@ -265,6 +298,7 @@ bool FileWriter::flush() {
     }
     file_bytes_ += pending_.size();
     pending_.clear();
+    write_index();
     if (fsync_ != FsyncPolicy::Never) {
         sync();
     }

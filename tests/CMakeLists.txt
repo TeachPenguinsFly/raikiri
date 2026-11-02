@@ -29,6 +29,7 @@ raikiri_add_test(symbol_test SRCS domain/symbol_test.cpp LIBS raikiri::domain)
 raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::domain)
 
 raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journal raikiri::schema raikiri::domain)
+raikiri_add_test(audit_index_test SRCS audit/index_test.cpp LIBS raikiri::audit_file raikiri::log)
 raikiri_add_test(audit_test SRCS audit/audit_test.cpp audit/routes_test.cpp
   LIBS raikiri::audit_file raikiri::audit_http raikiri::log glaze::glaze)
 target_include_directories(audit_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/strategyd)
@@ -206,7 +207,16 @@ raikiri_add_test(recon_test SRCS oms/recon_test.cpp LIBS raikiri::oms)
 raikiri_add_test(kernel_gate_test SRCS oms/kernel_gate_test.cpp LIBS raikiri::oms)
 raikiri_add_test(fee_ledger_test SRCS oms/fee_ledger_test.cpp LIBS raikiri::oms)
 raikiri_add_test(order_store_test SRCS oms/order_store_test.cpp LIBS raikiri::oms)
+raikiri_add_test(order_shuffle_test SRCS oms/order_shuffle_test.cpp LIBS raikiri::oms)
+raikiri_add_test(exec_path_test SRCS oms/exec_path_test.cpp LIBS raikiri::oms)
+raikiri_add_test(order_replay_test SRCS oms/order_replay_test.cpp LIBS raikiri::oms_journal)
+raikiri_add_test(order_trail_test SRCS oms/order_trail_test.cpp
+  LIBS raikiri::oms_trail raikiri::audit_file raikiri::log glaze::glaze)
 raikiri_add_test(oms_risk_test SRCS oms/risk_test.cpp LIBS raikiri::oms)
+raikiri_add_test(bookrisk_test SRCS bookrisk/gate_test.cpp bookrisk/desk_test.cpp bookrisk/routes_test.cpp bookrisk/infra_test.cpp
+  LIBS raikiri::bookrisk raikiri::bookrisk_infra raikiri::bookrisk_http)
+raikiri_add_test(oms_short_option_test SRCS oms/short_option_test.cpp LIBS raikiri::oms)
+raikiri_add_test(option_account_mode_test SRCS venues/option_account_mode_test.cpp LIBS raikiri::venue_okx raikiri::venue_bybit raikiri::venue_deribit raikiri::venue_gate raikiri::exec)
 
 raikiri_add_test(pnl_test SRCS portfolio/pnl_test.cpp LIBS raikiri::portfolio)
 raikiri_add_test(position_test SRCS portfolio/position_test.cpp LIBS raikiri::portfolio)
@@ -226,6 +236,7 @@ raikiri_add_test(segment_test SRCS shm/segment_test.cpp LIBS raikiri::shm)
 raikiri_add_test(lease_test SRCS shm/lease_test.cpp LIBS raikiri::shm)
 raikiri_add_test(balances_test SRCS shm/balances_test.cpp LIBS raikiri::shm)
 raikiri_add_test(positions_test SRCS shm/positions_test.cpp LIBS raikiri::shm)
+raikiri_add_test(open_orders_test SRCS shm/open_orders_test.cpp LIBS raikiri::shm)
 raikiri_add_test(catalogue_test SRCS shm/catalogue_test.cpp LIBS raikiri::shm)
 
 raikiri_add_test(sim_book_test SRCS simcore/book_test.cpp LIBS raikiri::simcore)
@@ -256,13 +267,15 @@ raikiri_add_test(introspect_latency_test SRCS introspect/latency_test.cpp
 raikiri_add_test(optiondata_test SRCS optiondata/optiondata_test.cpp
   LIBS raikiri::optiondata raikiri::optiondata_http)
 raikiri_add_test(optiondata_shm_test SRCS optiondata/shm_market_test.cpp LIBS raikiri::optiondata_shm)
-raikiri_add_test(optionrisk_test SRCS optionrisk/risk_test.cpp optionrisk/queries_test.cpp
+raikiri_add_test(optionrisk_test SRCS optionrisk/risk_test.cpp optionrisk/queries_test.cpp optionrisk/short_book_test.cpp
   LIBS raikiri::optionrisk raikiri::optionrisk_infra raikiri::optionrisk_http raikiri::log)
 
+raikiri_add_test(books_test SRCS books/books_test.cpp LIBS raikiri::books raikiri::books_file raikiri::books_http)
 raikiri_add_test(joe_domain_test SRCS joe/domain_test.cpp LIBS raikiri::joe)
 raikiri_add_test(joe_trace_test SRCS joe/trace_test.cpp LIBS raikiri::joe raikiri::joe_http)
 raikiri_add_test(joe_resting_test SRCS joe/resting_test.cpp LIBS raikiri::joe raikiri::joe_http)
-raikiri_add_test(joe_runner_test SRCS joe/runner_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::oms)
+raikiri_add_test(joe_runner_test SRCS joe/runner_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::joe_http raikiri::oms raikiri::portfolio)
+raikiri_add_test(joe_restart_test SRCS joe/restart_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::oms_journal raikiri::log)
 
 raikiri_add_test(reference_mid_test SRCS reference/mid_test.cpp LIBS raikiri::reference)
 raikiri_add_test(reference_segment_test SRCS reference/segment_test.cpp

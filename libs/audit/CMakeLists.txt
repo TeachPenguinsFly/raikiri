@@ -11,6 +11,7 @@ target_include_directories(raikiri_audit PUBLIC
 target_link_libraries(raikiri_audit PUBLIC raikiri::common PRIVATE OpenSSL::Crypto raikiri::warnings)
 
 add_library(raikiri_audit_file STATIC
+  src/day_index.cpp
   src/file_sink.cpp
   src/file_store.cpp
   src/file_writer.cpp

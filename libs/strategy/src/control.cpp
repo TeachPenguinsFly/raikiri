@@ -136,6 +136,7 @@ template <typename T> http::Response json(const T& value, int status = 200) {
         // the request will fail again, so not a 5xx
         return 422;
     case CreateError::IdTaken:
+    case CreateError::BookTaken:
         return 409;
     case CreateError::NoContext:
     case CreateError::Full:

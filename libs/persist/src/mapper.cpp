@@ -1,6 +1,7 @@
 #include <raikiri/domain/asset_class.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/domain/origin.hpp>
 #include <raikiri/persist/mapper.hpp>
 #include <raikiri/schema/codec.hpp>
 
@@ -106,6 +107,26 @@ std::string status_for(raikiri_journal::types::orderEventTypeEnum type, std::int
     return {};
 }
 
+void map_order_cmd(const journal::FrameView& frame, RowBatch& batch) {
+    // records before version 7 are shorter
+    if (frame.schema_version < 7) {
+        return;
+    }
+    const auto m = schema::view_msg<msgs::OrderCmdMsg>(frame.payload);
+    if (m.kind() != raikiri_journal::types::cmdKindEnum::Create) {
+        return;
+    }
+    const ClientOrderId id{m.clientOrderIdField().value()};
+    batch.order_origins.push_back({
+        .client_order_id = id.raw,
+        .book_id = id.strategy_id(),
+        .book_kind = std::string{to_string(static_cast<BookKind>(m.bookKind().value()))},
+        .parent_id = m.parentId().value(),
+        .external_ref = trim_fixed(m.externalRef()),
+        .ts_created = m.tsCreated().value(),
+    });
+}
+
 void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
     const auto m = schema::view_msg<msgs::OrderEventMsg>(frame.payload);
     const auto type_name = enum_name(m.eventType(), +[](std::uint8_t v) { return event_name(v); });
@@ -163,6 +184,8 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
         .reject_class = reject_class,
         .reject_code = reject_code,
         .has_reason = has_reason,
+        .reprices = m.eventType() == raikiri_journal::types::orderEventTypeEnum::Updated &&
+                    m.price().value() != k_undef_raw,
     });
 
     if (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Filled) {
@@ -193,6 +216,8 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
 void map_frame(const journal::FrameView& frame, RowBatch& batch) {
     if (frame.schema_id == schema::message_id<msgs::OrderEventMsg>()) {
         map_order_event(frame, batch);
+    } else if (frame.schema_id == schema::message_id<msgs::OrderCmdMsg>()) {
+        map_order_cmd(frame, batch);
     } else if (frame.schema_id == schema::message_id<msgs::PnlIncrementMsg>()) {
         const auto m = schema::view_msg<msgs::PnlIncrementMsg>(frame.payload);
         const auto venue = venue_of(m.instrument().value());

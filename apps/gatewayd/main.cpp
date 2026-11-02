@@ -9,6 +9,7 @@
 #include <raikiri/domain/asset_class.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/option_account_mode.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/introspect/clock_probe.hpp>
 #include <raikiri/introspect/files.hpp>
@@ -454,26 +455,23 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
         RLOG_WARN("gatewayd[{}]: open-order pull failed — {}", who, reports.error().message.view());
         return;
     }
-    if (reports->size() > raikiri::shm::k_open_order_cells) {
+    if (reports->size() > raikiri::shm::k_open_order_rows) {
         RLOG_ERROR("gatewayd[{}]: venue reports {} open orders, table holds {} — not published",
                    who,
                    reports->size(),
-                   raikiri::shm::k_open_order_cells);
+                   raikiri::shm::k_open_order_rows);
         return;
     }
-    std::size_t slot = 0;
+    std::vector<raikiri::shm::OpenOrderCell> rows;
+    rows.reserve(reports->size());
     for (const auto& report : *reports) {
-        raikiri::shm::OpenOrderCell cell{};
-        cell.exchange_client_order_id = report.exchange_client_order_id;
-        cell.instrument = report.instrument;
-        cell.leaves = report.leaves;
-        cell.ts_venue = report.ts_venue;
-        cell.ts_pulled = now;
-        table.write(slot++, cell);
+        rows.push_back({.exchange_client_order_id = report.exchange_client_order_id,
+                        .instrument = report.instrument,
+                        .leaves = report.leaves,
+                        .ts_venue = report.ts_venue,
+                        .ts_pulled = now});
     }
-    for (; slot < raikiri::shm::k_open_order_cells; ++slot) {
-        table.write(slot, raikiri::shm::OpenOrderCell{});
-    }
+    raikiri::shm::publish_open_orders(table, rows, now);
     static std::size_t said = std::numeric_limits<std::size_t>::max();
     if (said != reports->size()) {
         said = reports->size();
@@ -1047,6 +1045,7 @@ int main(int argc, char** argv) {
     std::uint32_t book_depth = 0; // the adapter's own tier until a file says otherwise
     std::string market_data_feed; // and the adapter's own feed
     std::string option_account;
+    std::string option_account_mode;
     const auto venues_path = config::config_dir() + "/venues.yaml";
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
         if (const auto it = settings->venues.find(std::string{venue_name}); it != settings->venues.end()) {
@@ -1058,6 +1057,7 @@ int main(int argc, char** argv) {
             book_depth = it->second.book_depth;
             market_data_feed = it->second.market_data_feed;
             option_account = it->second.option_account;
+            option_account_mode = it->second.option_account_mode;
         } else {
             RLOG_INFO("gatewayd[{}]: no rate budget configured — running unlimited", account_name);
         }
@@ -1325,6 +1325,8 @@ int main(int argc, char** argv) {
     stats.limits(net::process_ws_limits());
 
     shm::SpscConsumer creates{channels->cmd_create};
+    // refused from the start, so nothing trades before the account has been read
+    std::atomic<bool> option_mode_refused{market == MarketType::Option && !option_account_mode.empty()};
     shm::SpscConsumer cancels{channels->cmd_cancel};
 
     // the poller gets its own adapter because adapters are single-threaded
@@ -1378,11 +1380,23 @@ int main(int argc, char** argv) {
         if (poller_adapter != nullptr) {
             poller = std::thread([&] {
                 auto* channels_ptr = &*channels;
+                bool option_mode_read = market != MarketType::Option || option_account_mode.empty();
                 while (!g_stop.load(std::memory_order_relaxed)) {
                     if (poller_adapter->clock.has_value()) {
                         const std::lock_guard lock{clock_mu};
                         if (clock_state.estimate.method == introspect::ClockMethod::RestProbe) {
                             poller_adapter->clock->use_offset(clock_state.estimate.offset_ns);
+                        }
+                    }
+                    if (!option_mode_read) {
+                        const auto reading = poller_adapter->execution->option_account_mode();
+                        const auto verdict = exec::check_option_mode(option_account_mode, reading);
+                        option_mode_refused.store(!verdict.may_trade, std::memory_order_relaxed);
+                        option_mode_read = reading.has_value();
+                        if (verdict.may_trade) {
+                            RLOG_INFO("gatewayd[{}]: option account mode {} agrees", account_name, *reading);
+                        } else {
+                            RLOG_ERROR("gatewayd[{}]: options will not trade here — {}", account_name, verdict.why);
                         }
                     }
                     publish_positions(
@@ -1459,6 +1473,15 @@ int main(int argc, char** argv) {
             if (!can_trade) {
                 sink.reject(cmd, "venue is running market-data only");
                 continue;
+            }
+            if (option_mode_refused.load(std::memory_order_relaxed) && cmd.instrument.market() == MarketType::Option) {
+                raikiri::shm::PositionCell held{};
+                const auto idx = cmd.instrument.symbol().raw;
+                const bool read = idx < raikiri::shm::k_position_cells && channels->positions->read(idx, held) != 0;
+                if (!read || !raikiri::exec::closes_position(held.report.net_qty, cmd.side, cmd.qty)) {
+                    sink.reject(cmd, "option account mode differs from config");
+                    continue;
+                }
             }
             switch (cmd.kind) {
             case CmdKind::Create:

@@ -3,11 +3,19 @@
 
 #include <raikiri/audit/audited.hpp>
 #include <raikiri/audit/file_sink.hpp>
+#include <raikiri/bookrisk/desk.hpp>
+#include <raikiri/bookrisk/file_store.hpp>
+#include <raikiri/bookrisk/notifiers.hpp>
+#include <raikiri/bookrisk/routes.hpp>
+#include <raikiri/bookrisk/shm_balances.hpp>
+#include <raikiri/bookrisk/value.hpp>
+#include <raikiri/books/file_store.hpp>
 #include <raikiri/common/version.hpp>
 #include <raikiri/config/risk.hpp>
 #include <raikiri/config/settings.hpp>
 #include <raikiri/http/server.hpp>
 #include <raikiri/joe/desk.hpp>
+#include <raikiri/joe/parent_journal.hpp>
 #include <raikiri/joe/routes.hpp>
 #include <raikiri/joe/runner.hpp>
 #include <raikiri/joe/shm_market.hpp>
@@ -17,14 +25,22 @@
 #include <raikiri/log/log.hpp>
 #include <raikiri/observ/histogram.hpp>
 #include <raikiri/oms/attribution.hpp>
+#include <raikiri/oms/exec_path.hpp>
 #include <raikiri/oms/fee_ledger.hpp>
 #include <raikiri/oms/funding_identity.hpp>
 #include <raikiri/oms/funding_split.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/kernel_gate.hpp>
+#include <raikiri/oms/order_commands.hpp>
 #include <raikiri/oms/order_store.hpp>
+#include <raikiri/oms/order_trail.hpp>
 #include <raikiri/oms/recon.hpp>
+#include <raikiri/oms/repeat_guard.hpp>
+#include <raikiri/oms/replay.hpp>
 #include <raikiri/oms/risk.hpp>
+#include <raikiri/oms/short_option.hpp>
+#include <raikiri/optionrisk/short_book.hpp>
+#include <raikiri/optionrisk/short_book_routes.hpp>
 #include <raikiri/portfolio/position_book.hpp>
 #include <raikiri/portfolio/reconcile.hpp>
 #include <raikiri/portfolio/target.hpp>
@@ -99,6 +115,8 @@ struct Gateway {
     std::vector<std::uint32_t> bbo_seen;
     std::vector<std::uint32_t> funding_seen;
     std::uint64_t recon_due{0};
+    // came back holding what the journal said, and the venue has not been heard since
+    bool restored{false};
     // one kernel gate per gateway so a break on one does not stop another
     oms::KernelGate kernel;
 
@@ -126,8 +144,15 @@ public:
                   journal::JournalWriter& journal,
                   audit::Sink& audit,
                   const Clock& clock)
-        : gateways_{&gateways}, store_{&store}, risk_file_{std::move(risk)}, ids_{&ids}, journal_{&journal},
-          audit_{&audit}, clock_{&clock} {}
+        : exec{store}, trail{audit}, gateways_{&gateways}, store_{&store}, risk_file_{std::move(risk)}, ids_{&ids},
+          journal_{&journal}, audit_{&audit}, clock_{&clock} {}
+
+    oms::ExecPath exec;
+    oms::OrderTrail trail;
+    oms::RepeatGuard repeats;
+    std::uint64_t duplicates_refused{0};
+    // the highest order seq each strategy reached before this process
+    std::map<std::uint16_t, std::uint64_t> last_seq;
 
     void audit_event(std::string_view actor,
                      std::string_view action,
@@ -148,8 +173,8 @@ public:
     }
 
     /** place an order under a client order id the desk already minted */
-    std::expected<ClientOrderId, strategy::RejectReason> submit_as(const strategy::NewOrder& order,
-                                                                   ClientOrderId id) noexcept {
+    std::expected<ClientOrderId, strategy::RejectReason>
+    submit_as(const strategy::NewOrder& order, ClientOrderId id, const OrderOrigin& origin = {}) noexcept {
         const auto t0 = clock_->mono();
 
         OrderCmd cmd{};
@@ -171,10 +196,23 @@ public:
             audit_refused(cmd, {}, oms::RiskRefusal{}, "no_gateway");
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
-        const auto& gate = gate_for(id.strategy_id());
+        const auto& gate = book_risk->gate(id.strategy_id());
+        const oms::OrderShape shape{.book = id.strategy_id(),
+                                    .instrument = order.instrument,
+                                    .side = order.side,
+                                    .price = order.price,
+                                    .qty = order.qty,
+                                    .repeat_key = order.repeat_key};
+        if (const auto earlier = repeats.held(shape, cmd.ts_created, gate.config().duplicate_window_ns);
+            earlier.has_value()) {
+            ++duplicates_refused;
+            audit_refused(
+                cmd, {}, oms::RiskRefusal{.value = static_cast<std::int64_t>(earlier->raw)}, "duplicate_order");
+            return std::unexpected{strategy::RejectReason::Duplicate};
+        }
         const auto held = held_by(id.strategy_id());
         oms::Exposure exposure{.reconciliation_break = recon_gate.halted(order.instrument) || !gw->kernel.may_open(),
-                               .open_orders = store_->open_count(),
+                               .open_orders = open_count_of(id.strategy_id()),
                                .instrument = instrument(order.instrument)};
         if (const auto it = held.find(order.instrument.packed); it != held.end()) {
             exposure.position_lots = it->second.position;
@@ -186,11 +224,14 @@ public:
             exposure.reference_price = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
             exposure.bid = quote->bid;
             exposure.ask = quote->ask;
+            exposure.quote_ts = quote->ts_init;
         }
         exposure.underlying_price = underlying_price(order.instrument);
+        fill_short_option(exposure, order.instrument, held, id.strategy_id());
         if (!gate.config().max_strategy_notional.is_undef()) {
-            exposure.strategy_open_notional = open_notional_besides(held, order.instrument);
+            exposure.strategy_open_notional = open_notional_besides(held, order.instrument, cmd.ts_created, gate);
         }
+        book_risk->admit(id.strategy_id(), cmd, exposure);
         if (const auto allowed = gate.check(cmd, exposure); !allowed.has_value()) {
             RLOG_WARN("strategyd: risk refused coid={} on {} — {}",
                       cmd.client_order_id.raw,
@@ -201,18 +242,26 @@ public:
                                                          : std::string_view{},
                           allowed.error(),
                           oms::to_string(allowed.error().why));
+            book_risk->refused(id.strategy_id(), allowed.error());
             return std::unexpected{strategy::RejectReason::Risk};
         }
-        if (!store_->create(cmd, cmd.exchange_client_order_id).has_value()) {
-            audit_refused(cmd, {}, oms::RiskRefusal{}, "order_store_full");
-            return std::unexpected{strategy::RejectReason::Capacity};
+        if (const auto created = store_->create(cmd, cmd.exchange_client_order_id); !created.has_value()) {
+            const bool same_id = created.error() == oms::StoreError::Duplicate;
+            audit_refused(cmd, {}, oms::RiskRefusal{}, same_id ? "duplicate_order_id" : "order_store_full");
+            return std::unexpected{same_id ? strategy::RejectReason::Duplicate : strategy::RejectReason::Capacity};
         }
+        trail.command("order.created", cmd, cmd.ts_created);
         // journal the intent before the wire
-        journal_cmd(cmd);
+        journal_cmd(cmd, origin);
         if (!gw->creates.try_push(cmd).has_value()) {
+            // it never left: held open it would count as working until a recon, and a restart would bring it back
+            const auto never_sent = denied_of(cmd);
+            (void)store_->apply_event(never_sent);
+            journal_event(never_sent);
             audit_refused(cmd, {}, oms::RiskRefusal{}, "ring_full");
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
+        book_risk->sent(id.strategy_id(), cmd, exposure);
         // apply the local submitted transition; the fsm has no accepted arm from initialized
         OrderEvent submitted{};
         submitted.type = OrderEventType::Submitted;
@@ -228,6 +277,8 @@ public:
         submitted.price = cmd.price;
         submitted.ts_init = cmd.ts_created;
         (void)store_->apply_event(submitted);
+        trail.command("order.sent", cmd, cmd.ts_created);
+        repeats.sent(shape, id, cmd.ts_created);
 
         inflight_[cmd.client_order_id.raw] = t0.ns;
         submit_hist.record(clock_->mono().ns - t0.ns);
@@ -237,7 +288,12 @@ public:
     bool cancel(ClientOrderId id) noexcept {
         const auto* order = store_->find(id);
         if (order == nullptr) {
-            return false;
+            // the close beat this cancel, which is what it wanted
+            return exec.closed().holds(id);
+        }
+        const auto now = clock_->wall();
+        if (oms::cancel_effect(*order, now) == oms::CommandEffect::NoOp) {
+            return true;
         }
         OrderCmd cmd{};
         cmd.kind = CmdKind::Cancel;
@@ -245,19 +301,40 @@ public:
         cmd.client_order_id = id;
         cmd.exchange_client_order_id = order->exchange_client_order_id();
         cmd.target_exchange_order_id = order->exchange_order_id();
-        cmd.ts_created = clock_->wall();
+        cmd.ts_created = now;
         auto* gw = gateway_for(cmd.instrument);
         if (gw == nullptr) {
             return false;
         }
         journal_cmd(cmd);
-        return gw->cancels.try_push(cmd).has_value();
+        if (!gw->cancels.try_push(cmd).has_value()) {
+            return false;
+        }
+        OrderEvent pending{};
+        pending.type = OrderEventType::PendingCancel;
+        pending.side = order->side();
+        pending.instrument = cmd.instrument;
+        pending.client_order_id = id;
+        pending.exchange_client_order_id = cmd.exchange_client_order_id;
+        pending.exchange_order_id = cmd.target_exchange_order_id;
+        pending.qty = order->qty();
+        pending.leaves_qty = order->leaves();
+        pending.price = order->price();
+        pending.ts_init = now;
+        const auto applied = store_->apply_event(pending);
+        trail.event(pending, applied.has_value() ? *applied : nullptr, now);
+        // asked to stop, so an order of the same shape from here on is a new decision
+        repeats.withdrawn(id);
+        return true;
     }
 
     bool amend(ClientOrderId id, PriceTicks price) noexcept {
         const auto* order = store_->find(id);
         if (order == nullptr || order->is_terminal()) {
             return false;
+        }
+        if (oms::amend_effect(*order, price) == oms::CommandEffect::NoOp) {
+            return true;
         }
         auto* gw = gateway_for(order->instrument());
         if (gw == nullptr) {
@@ -279,7 +356,7 @@ public:
         // the order's own size is already working, so it is not counted twice
         const auto held = held_by(id.strategy_id());
         oms::Exposure exposure{.reconciliation_break = recon_gate.halted(cmd.instrument) || !gw->kernel.may_open(),
-                               .open_orders = store_->open_count() - 1,
+                               .open_orders = open_count_of(id.strategy_id()) - 1,
                                .instrument = instrument(cmd.instrument)};
         if (const auto it = held.find(cmd.instrument.packed); it != held.end()) {
             exposure.position_lots = it->second.position;
@@ -293,20 +370,25 @@ public:
             exposure.reference_price = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
             exposure.bid = quote->bid;
             exposure.ask = quote->ask;
+            exposure.quote_ts = quote->ts_init;
         }
         exposure.underlying_price = underlying_price(cmd.instrument);
-        const auto& gate = gate_for(id.strategy_id());
+        fill_short_option(exposure, cmd.instrument, held, id.strategy_id());
+        const auto& gate = book_risk->gate(id.strategy_id());
         if (!gate.config().max_strategy_notional.is_undef()) {
-            exposure.strategy_open_notional = open_notional_besides(held, cmd.instrument);
+            exposure.strategy_open_notional = open_notional_besides(held, cmd.instrument, cmd.ts_created, gate);
         }
+        book_risk->admit(id.strategy_id(), cmd, exposure);
         if (const auto allowed = gate.check(cmd, exposure); !allowed.has_value()) {
             RLOG_WARN("strategyd: risk refused amend coid={} — {}", id.raw, oms::describe(allowed.error()));
+            book_risk->refused(id.strategy_id(), allowed.error());
             return false;
         }
         journal_cmd(cmd);
         if (!gw->creates.try_push(cmd).has_value()) {
             return false;
         }
+        book_risk->sent(id.strategy_id(), cmd, exposure);
         OrderEvent pending{};
         pending.type = OrderEventType::PendingUpdate;
         pending.side = cmd.side;
@@ -320,7 +402,8 @@ public:
         pending.leaves_qty = order->leaves();
         pending.price = cmd.price;
         pending.ts_init = cmd.ts_created;
-        (void)store_->apply_event(pending);
+        const auto applied = store_->apply_event(pending);
+        trail.event(pending, applied.has_value() ? *applied : nullptr, cmd.ts_created);
         return true;
     }
 
@@ -357,10 +440,149 @@ public:
         return greeks.underlying_price;
     }
 
+    // reprices every option a book holds, so it runs on a timer and not on the order path
+    void check_short_greeks(UnixNanos now) {
+        std::unordered_map<std::uint16_t, std::vector<optionrisk::PositionRisk>> by_book;
+        for (const auto& position : positions.all()) {
+            const auto id = position.key().instrument;
+            const auto* option = id.market() == MarketType::Option ? option_of(id) : nullptr;
+            if (option == nullptr || position.qty().raw == 0) {
+                continue;
+            }
+            const auto holding = optionrisk::holding_of(*option, position.qty(), now);
+            const auto greeks = greeks_of(id);
+            auto& book = by_book[position.key().strategy_id];
+            book.push_back(holding.has_value() ? optionrisk::assess(*holding,
+                                                                    greeks.has_value() ? optionrisk::market_of(*greeks)
+                                                                                       : optionrisk::MarketState{},
+                                                                    FixedE9::undef(),
+                                                                    now,
+                                                                    optionrisk::Staleness{})
+                                               : optionrisk::PositionRisk{});
+        }
+        for (auto& [strategy_id, state] : short_greeks_) {
+            state.greeks = {};
+            if (!by_book.contains(strategy_id) && state.breached) {
+                state.breached = false;
+                RLOG_INFO("strategyd: book {} holds no options now, so it may sell again", strategy_id);
+            }
+        }
+        for (const auto& [strategy_id, book] : by_book) {
+            auto& state = short_greeks_[strategy_id];
+            state.greeks = optionrisk::book_greeks(book);
+            const auto& limits = book_risk->gate(strategy_id).config();
+            const bool breached = optionrisk::past_short_limits(
+                state.greeks, limits.max_short_vega, limits.max_short_gamma);
+            if (breached != state.breached) {
+                state.breached = breached;
+                RLOG_WARN("strategyd: book {} {} its short vega or gamma limit, net vega {} gamma {}, {} unvalued",
+                          strategy_id,
+                          breached ? "is past" : "is back inside",
+                          state.greeks.vega_usd.raw / k_e9,
+                          state.greeks.gamma_usd_1pct.raw / k_e9,
+                          state.greeks.incomplete);
+                if (breached) {
+                    book_risk->reduce_book(strategy_id, "past its short vega or gamma limit");
+                }
+            }
+        }
+    }
+
+    // a row per book, venue and settlement asset it has sold in
+    [[nodiscard]] std::vector<optionrisk::ShortBookRow> short_book_rows(UnixNanos now) {
+        std::set<std::uint16_t> sold_books;
+        for (const auto& position : positions.all()) {
+            if (position.key().instrument.market() == MarketType::Option && position.qty().raw < 0) {
+                sold_books.insert(position.key().strategy_id);
+            }
+        }
+        store_->for_each_open([&](const oms::Order& open) {
+            if (open.instrument().market() == MarketType::Option && open.side() == Side::Sell) {
+                sold_books.insert(open.client_order_id().strategy_id());
+            }
+        });
+        std::vector<optionrisk::ShortBookRow> out;
+        for (const auto strategy_id : sold_books) {
+            const auto first = out.size();
+            FixedE9 book_naked = FixedE9::from_raw(0);
+            for (const auto& [packed, lots] : held_by(strategy_id)) {
+                const InstrumentId id{packed};
+                const auto* option = id.market() == MarketType::Option ? option_of(id) : nullptr;
+                if (option == nullptr) {
+                    continue;
+                }
+                const auto figures = oms::short_figures(short_line(*option, lots), short_rates(*option));
+                if (figures.held.raw == 0 && figures.working.raw == 0) {
+                    continue;
+                }
+                const auto asset = oms::settlement_asset(*option);
+                const auto venue = to_string(id.venue());
+                auto row = std::find_if(out.begin() + static_cast<std::ptrdiff_t>(first),
+                                        out.end(),
+                                        [&](const auto& r) { return r.venue == venue && r.asset == asset; });
+                if (row == out.end()) {
+                    const auto greeks = greeks_of(id);
+                    out.push_back({.book_id = strategy_id,
+                                   .book = strategy_name ? strategy_name(strategy_id) : std::to_string(strategy_id),
+                                   .venue = std::string{venue},
+                                   .asset = std::string{asset},
+                                   .naked_usd = FixedE9::from_raw(0),
+                                   .margin_held = FixedE9::from_raw(0),
+                                   .margin_working = FixedE9::from_raw(0),
+                                   .margin_available = available_margin(id, asset, now),
+                                   .asset_usd = option->premium == OptionUnit::Quote ? FixedE9::from_raw(k_e9)
+                                                : greeks.has_value()                 ? greeks->index_price
+                                                                                     : FixedE9::undef()});
+                    row = std::prev(out.end());
+                }
+                row->short_lots += figures.held.raw;
+                row->working_lots += figures.working.raw;
+                row->naked_usd = plus(row->naked_usd, figures.naked_usd);
+                row->margin_held = plus(row->margin_held, figures.margin_held);
+                row->margin_working = plus(row->margin_working, figures.margin_working);
+                book_naked = plus(book_naked, figures.naked_usd);
+            }
+            const auto& limits = book_risk->gate(strategy_id).config();
+            const auto state = short_greeks_.find(strategy_id);
+            for (auto row = out.begin() + static_cast<std::ptrdiff_t>(first); row != out.end(); ++row) {
+                row->book_naked_usd = book_naked;
+                row->max_naked_short = limits.max_naked_short;
+                row->max_short_vega = limits.max_short_vega;
+                row->max_short_gamma = limits.max_short_gamma;
+                if (state != short_greeks_.end()) {
+                    row->vega_usd = state->second.greeks.vega_usd;
+                    row->gamma_usd_1pct = state->second.greeks.gamma_usd_1pct;
+                    row->reducing = state->second.breached;
+                }
+            }
+        }
+        return out;
+    }
+
     [[nodiscard]] const Clock& clock() const noexcept { return *clock_; }
 
     // set once the registry exists, since the risk file may key a strategy by name
     std::function<std::string(std::uint16_t)> strategy_name;
+    books::Registry* books{nullptr};
+    // the one instance that may submit into another book; zero is none
+    std::uint16_t executor{0};
+
+    // set before anything can place an order
+    bookrisk::RiskDesk* book_risk{nullptr};
+
+    [[nodiscard]] oms::RiskConfig base_config(std::uint16_t strategy_id) const {
+        const auto name = strategy_name ? strategy_name(strategy_id) : std::string{};
+        return config::to_risk_config(config::risk_for(risk_file_, name, strategy_id));
+    }
+
+    [[nodiscard]] oms::RiskConfig base_defaults() const { return config::to_risk_config(risk_file_.defaults); }
+
+    [[nodiscard]] std::size_t open_count_of(std::uint16_t strategy_id) const noexcept {
+        std::size_t out = 0;
+        store_->for_each_open(
+            [&](const oms::Order& open) { out += open.client_order_id().strategy_id() == strategy_id ? 1U : 0U; });
+        return out;
+    }
 
     portfolio::PositionBook positions;
     // cleared only by a restart
@@ -404,8 +626,6 @@ public:
 
     [[nodiscard]] oms::OrderStore& orders() noexcept { return *store_; }
 
-    oms::SeenFills seen_fills;
-
     std::uint64_t recon_unknown{0};
     std::uint64_t recon_broken{0};
 
@@ -418,15 +638,6 @@ public:
 
     std::unordered_map<std::uint64_t, std::uint64_t> inflight_; // coid -> submit mono ns
     observ::Histogram submit_hist;
-
-    // an order closed with lots unfilled, so a fill that raced its cancel still books to its strategy
-    struct ClosedOrder {
-        ClientOrderId id{};
-        QtyLots left{};
-        std::uint64_t at_ns{0};
-    };
-
-    std::unordered_map<std::string, ClosedOrder> closed_orders; // by exchange client order id
 
 private:
 public:
@@ -513,9 +724,7 @@ public:
                     {detail.data(), std::min(wrote.size, detail.size())});
     }
 
-    // journal a desk order the risk gate refused so /v1/orders/{id} can answer
-    void journal_refusal(const OrderCmd& cmd, strategy::RejectReason why) noexcept {
-        journal_cmd(cmd);
+    [[nodiscard]] OrderEvent denied_of(const OrderCmd& cmd) const noexcept {
         OrderEvent event{};
         // denied, since the venue never saw it
         event.type = OrderEventType::Denied;
@@ -531,54 +740,23 @@ public:
         event.leaves_qty = QtyLots::from_raw(0);
         event.ts_event = clock_->wall();
         event.ts_init = clock_->wall();
-        journal_event(event);
+        return event;
+    }
+
+    // journal a desk order the risk gate refused so /v1/orders/{id} can answer
+    void journal_refusal(const OrderCmd& cmd, strategy::RejectReason why, const OrderOrigin& origin) noexcept {
+        journal_cmd(cmd, origin);
+        journal_event(denied_of(cmd));
         (void)why;
     }
 
     // a gateway journals what the venue pushed, often without our id; this copy carries it once attributed
-    void journal_event(const OrderEvent& event) noexcept {
-        (void)schema::append_msg<msgs::OrderEventMsg>(*journal_, event.ts_init.ns, [&](auto m) {
-            namespace jt = raikiri_journal::types;
-            m.eventType(static_cast<jt::orderEventTypeEnum>(event.type));
-            m.side(static_cast<jt::sideEnum>(event.side));
-            m.orderType(static_cast<jt::orderTypeEnum>(event.order_type));
-            m.tif(static_cast<jt::tifEnum>(event.tif));
-            m.flags(static_cast<std::uint8_t>(event.flags));
-            m.liquidity(static_cast<jt::liquidityEnum>(event.liquidity));
-            m.instrument(jt::instrumentId{event.instrument.packed});
-            m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
-            m.exchangeClientOrderIdField().assign_range(event.exchange_client_order_id.view());
-            m.exchangeOrderIdField().assign_range(event.exchange_order_id.view());
-            m.execIdField().assign_range(event.exec_id.view());
-            m.price(jt::priceTicks{event.price.raw});
-            m.qty(jt::qtyLots{event.qty.raw});
-            m.leavesQty(jt::qtyLots{event.leaves_qty.raw});
-            m.fee(jt::fixedE9{event.fee.raw});
-            m.tsEvent(jt::timestampNs{event.ts_event.ns});
-            m.tsInit(jt::timestampNs{event.ts_init.ns});
-            m.rejectClass(static_cast<jt::errorClassEnum>(event.reject_class));
-            m.rejectCode(jt::venueCode{event.reject_code});
-            m.feeAsset().assign_range(event.fee_asset.view());
-        });
-    }
+    void journal_event(const OrderEvent& event) noexcept { oms::append_order_event(*journal_, event); }
 
 private:
-    void journal_cmd(const OrderCmd& cmd) noexcept {
-        (void)schema::append_msg<msgs::OrderCmdMsg>(*journal_, cmd.ts_created.ns, [&](auto m) {
-            namespace jt = raikiri_journal::types;
-            m.kind(static_cast<jt::cmdKindEnum>(cmd.kind));
-            m.side(static_cast<jt::sideEnum>(cmd.side));
-            m.orderType(static_cast<jt::orderTypeEnum>(cmd.order_type));
-            m.tif(static_cast<jt::tifEnum>(cmd.tif));
-            m.flags(static_cast<std::uint8_t>(cmd.flags));
-            m.instrument(jt::instrumentId{cmd.instrument.packed});
-            m.clientOrderIdField(jt::clientOrderId{cmd.client_order_id.raw});
-            m.exchangeClientOrderIdField().assign_range(cmd.exchange_client_order_id.view());
-            m.exchangeOrderIdField().assign_range(cmd.target_exchange_order_id.view());
-            m.price(jt::priceTicks{cmd.price.raw});
-            m.qty(jt::qtyLots{cmd.qty.raw});
-            m.tsCreated(jt::timestampNs{cmd.ts_created.ns});
-        });
+    void journal_cmd(const OrderCmd& cmd, const OrderOrigin& origin = {}) noexcept {
+        const auto kind = books != nullptr ? books->kind_of(cmd.client_order_id.strategy_id()) : BookKind::Unknown;
+        oms::append_order_cmd(*journal_, cmd, origin, kind);
     }
 
     struct Held {
@@ -587,14 +765,105 @@ private:
         QtyLots sell{QtyLots::from_raw(0)};
     };
 
-    // read from the risk file once per strategy, under its name or id
-    const oms::RiskGate& gate_for(std::uint16_t strategy_id) {
-        if (const auto it = gates_.find(strategy_id); it != gates_.end()) {
-            return it->second;
+    struct ShortGreeksState {
+        optionrisk::BookGreeks greeks{};
+        bool breached{false};
+    };
+
+    [[nodiscard]] const OptionInstrument* option_of(InstrumentId id) const noexcept {
+        const auto* listed = instrument(id);
+        return listed != nullptr ? std::get_if<OptionInstrument>(listed) : nullptr;
+    }
+
+    [[nodiscard]] std::optional<OptionGreeks> greeks_of(InstrumentId id) const noexcept {
+        const auto idx = id.symbol().raw;
+        const auto* gw = gateway_for(id);
+        if (gw == nullptr || gw->ch.greeks == nullptr || idx >= shm::k_greeks_cells) {
+            return std::nullopt;
         }
-        const auto name = strategy_name ? strategy_name(strategy_id) : std::string{};
-        const oms::RiskGate gate{config::to_risk_config(config::risk_for(risk_file_, name, strategy_id))};
-        return gates_.emplace(strategy_id, gate).first->second;
+        OptionGreeks greeks{};
+        if (gw->ch.greeks->read(idx, greeks) == 0 || greeks.instrument != id) {
+            return std::nullopt;
+        }
+        return greeks;
+    }
+
+    [[nodiscard]] static FixedE9 plus(FixedE9 a, FixedE9 b) noexcept {
+        return a.is_undef() || b.is_undef() ? FixedE9::undef() : a + b;
+    }
+
+    [[nodiscard]] static oms::ShortMarginRates short_rates(const OptionInstrument& option) noexcept {
+        return oms::short_margin_rates(option.base.id.venue(), option.base.underlying.view());
+    }
+
+    // the venue's mark, else the book's mid
+    [[nodiscard]] FixedE9 mark_of(const OptionInstrument& option, const std::optional<OptionGreeks>& greeks) const {
+        if (greeks.has_value() && !greeks->mark_price.is_undef() && greeks->mark_price.raw > 0) {
+            return greeks->mark_price;
+        }
+        const auto quote = bbo(option.base.id);
+        if (!quote.has_value() || quote->bid.is_undef() || quote->ask.is_undef()) {
+            return FixedE9::undef();
+        }
+        return option.base.ticks_to_price(PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2));
+    }
+
+    [[nodiscard]] FixedE9 available_margin(InstrumentId id, std::string_view asset, UnixNanos now) const {
+        const auto* gw = gateway_for(id);
+        if (gw == nullptr || gw->ch.balances == nullptr) {
+            return FixedE9::undef();
+        }
+        shm::BalanceSnapshot snapshot{};
+        if (gw->ch.balances->read(0, snapshot) == 0) {
+            return FixedE9::undef();
+        }
+        return oms::margin_available(
+            std::span{snapshot.rows}.first(snapshot.count), asset, snapshot.ts_pulled, now, k_margin_read_max_age_ns);
+    }
+
+    [[nodiscard]] oms::ShortLine short_line(const OptionInstrument& option, const Held& lots) const {
+        const auto greeks = greeks_of(option.base.id);
+        return {.option = &option,
+                .position = lots.position,
+                .working_sell = lots.sell,
+                .index = greeks.has_value() ? greeks->index_price : FixedE9::undef(),
+                .forward = greeks.has_value() ? greeks->underlying_price : FixedE9::undef(),
+                .mark = mark_of(option, greeks)};
+    }
+
+    void fill_short_option(oms::Exposure& exposure,
+                           InstrumentId id,
+                           const std::unordered_map<std::uint64_t, Held>& held,
+                           std::uint16_t strategy_id) const {
+        const auto* option = id.market() == MarketType::Option ? option_of(id) : nullptr;
+        if (option == nullptr) {
+            return;
+        }
+        const auto line = short_line(*option, Held{});
+        const auto asset = oms::settlement_asset(*option);
+        auto& inputs = exposure.short_option;
+        inputs.rates = short_rates(*option);
+        inputs.index = line.index;
+        inputs.forward = line.forward;
+        inputs.mark = line.mark;
+        inputs.margin_available = available_margin(id, asset, clock_->wall());
+        if (const auto state = short_greeks_.find(strategy_id); state != short_greeks_.end()) {
+            inputs.greeks_breached = state->second.breached;
+        }
+        for (const auto& [packed, lots] : held) {
+            const InstrumentId other{packed};
+            const auto* sold = other.market() == MarketType::Option ? option_of(other) : nullptr;
+            if (sold == nullptr) {
+                continue;
+            }
+            const auto figures = oms::short_figures(short_line(*sold, lots), short_rates(*sold));
+            if (packed != id.packed) {
+                inputs.naked_besides = plus(inputs.naked_besides, figures.naked_usd);
+            }
+            if (other.venue() == id.venue() && oms::settlement_asset(*sold) == asset) {
+                inputs.margin_working = plus(inputs.margin_working, figures.margin_working);
+            }
+        }
     }
 
     [[nodiscard]] std::unordered_map<std::uint64_t, Held> held_by(std::uint16_t strategy_id) const {
@@ -615,9 +884,12 @@ private:
         return out;
     }
 
-    // each instrument valued at its mid; undef when one has no quote or cannot be valued
+    // each instrument valued at its mid; undef when one has no quote, an old one or cannot be valued
     [[nodiscard]] FixedE9 open_notional_besides(const std::unordered_map<std::uint64_t, Held>& held,
-                                                InstrumentId skip) const {
+                                                InstrumentId skip,
+                                                UnixNanos now,
+                                                const oms::RiskGate& gate) const {
+        const auto max_age = gate.config().max_quote_age_ns;
         Notional128 total{};
         for (const auto& [packed, lots] : held) {
             const auto open = oms::open_lots(lots.position, lots.buy, lots.sell);
@@ -628,6 +900,9 @@ private:
             const auto* listed = instrument(id);
             const auto quote = bbo(id);
             if (listed == nullptr || !quote.has_value() || quote->bid.is_undef() || quote->ask.is_undef()) {
+                return FixedE9::undef();
+            }
+            if (max_age > 0 && now.ns > quote->ts_init.ns && now.ns - quote->ts_init.ns > max_age) {
                 return FixedE9::undef();
             }
             const auto mid = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
@@ -643,7 +918,9 @@ private:
     std::vector<Gateway>* gateways_;
     oms::OrderStore* store_;
     config::RiskFile risk_file_;
-    std::unordered_map<std::uint16_t, oms::RiskGate> gates_;
+    std::unordered_map<std::uint16_t, ShortGreeksState> short_greeks_;
+    // a poll is about a minute apart at most, so two missed ones refuse a short opening
+    static constexpr std::uint64_t k_margin_read_max_age_ns = 180'000'000'000ULL;
     oms::IdGen* ids_;
     journal::JournalWriter* journal_;
     audit::Sink* audit_;
@@ -667,8 +944,13 @@ working_lots_of(const oms::OrderStore& store, std::uint16_t strategy_id, Instrum
 // one strategy's view of the kernel; it sees and cancels only its own orders
 class InstanceContext final : public strategy::Context {
 public:
-    InstanceContext(KernelContext& kernel, std::uint16_t strategy_id, std::uint64_t ulid_seed)
-        : kernel_{&kernel}, ids_{strategy_id, ulid_seed} {}
+    InstanceContext(KernelContext& kernel, std::uint16_t strategy_id, std::uint64_t ulid_seed, std::uint64_t first_seq)
+        : kernel_{&kernel}, ids_{strategy_id, ulid_seed} {
+        ids_.start_after(first_seq);
+        if (const auto it = kernel.last_seq.find(strategy_id); it != kernel.last_seq.end()) {
+            ids_.resume_after(it->second);
+        }
+    }
 
     [[nodiscard]] std::uint16_t strategy_id() const noexcept { return ids_.strategy_id(); }
 
@@ -676,11 +958,17 @@ public:
         return kernel_->submit_as(order, ids_.next_client_id());
     }
 
-    bool cancel(ClientOrderId id) noexcept override { return id.strategy_id() == strategy_id() && kernel_->cancel(id); }
-
-    bool amend(ClientOrderId id, PriceTicks price) noexcept override {
-        return id.strategy_id() == strategy_id() && kernel_->amend(id, price);
+    std::expected<ClientOrderId, strategy::RejectReason>
+    submit_child(const strategy::NewOrder& order, std::uint16_t book, const OrderOrigin& origin) noexcept override {
+        if (strategy_id() != kernel_->executor) {
+            return std::unexpected{strategy::RejectReason::Risk};
+        }
+        return kernel_->submit_as(order, ids_.next_child_id(book != 0 ? book : strategy_id()), origin);
     }
+
+    bool cancel(ClientOrderId id) noexcept override { return mine(id) && kernel_->cancel(id); }
+
+    bool amend(ClientOrderId id, PriceTicks price) noexcept override { return mine(id) && kernel_->amend(id, price); }
 
     void cancel_all(InstrumentId instrument) noexcept override { (void)pull(&instrument); }
 
@@ -753,6 +1041,10 @@ private:
         std::uint64_t deadline_ns{0};
     };
 
+    [[nodiscard]] bool mine(ClientOrderId id) const noexcept {
+        return id.strategy_id() == strategy_id() || (id.is_child() && strategy_id() == kernel_->executor);
+    }
+
     // collect before cancelling; cancel writes the journal and a ring
     std::size_t pull(const InstrumentId* only) noexcept {
         std::vector<ClientOrderId> mine;
@@ -775,6 +1067,97 @@ private:
     KernelContext* kernel_;
     oms::IdGen ids_;
     std::vector<Timer> timers_;
+};
+
+// the book risk desk's view of this process
+class KernelBooks final : public bookrisk::BookKernel {
+public:
+    KernelBooks(KernelContext& kernel, const std::vector<Gateway>& gateways, const strategy::Registry& live)
+        : kernel_{&kernel}, gateways_{&gateways}, live_{&live} {}
+
+    [[nodiscard]] oms::RiskConfig base_config(bookrisk::BookId book) const override {
+        return kernel_->base_config(book);
+    }
+
+    [[nodiscard]] oms::RiskConfig base_defaults() const override { return kernel_->base_defaults(); }
+
+    [[nodiscard]] std::string name_of(bookrisk::BookId book) const override {
+        auto name = kernel_->strategy_name ? kernel_->strategy_name(book) : std::string{};
+        if (name.empty()) {
+            return book == k_manual_strategy_id ? std::string{"manual"} : "book " + std::to_string(book);
+        }
+        return name;
+    }
+
+    void known_books(std::vector<bookrisk::BookId>& out) const override {
+        out.push_back(k_manual_strategy_id);
+        for (const auto& view : live_->list()) {
+            out.push_back(view.strategy_id);
+        }
+        for (const auto& position : kernel_->positions.all()) {
+            out.push_back(position.key().strategy_id);
+        }
+        kernel_->orders().for_each_open(
+            [&out](const oms::Order& open) { out.push_back(open.client_order_id().strategy_id()); });
+    }
+
+    std::size_t cancel_open(std::optional<bookrisk::BookId> book) override {
+        std::vector<ClientOrderId> ids;
+        kernel_->orders().for_each_open([&](const oms::Order& open) {
+            if (!open.is_terminal() && (!book.has_value() || open.client_order_id().strategy_id() == *book)) {
+                ids.push_back(open.client_order_id());
+            }
+        });
+        std::size_t sent = 0;
+        for (const auto id : ids) {
+            sent += kernel_->cancel(id) ? 1U : 0U;
+        }
+        return sent;
+    }
+
+    [[nodiscard]] std::size_t open_orders(std::optional<bookrisk::BookId> book) const override {
+        return book.has_value() ? kernel_->open_count_of(*book) : kernel_->orders().open_count();
+    }
+
+    [[nodiscard]] bookrisk::PnlReading pnl(bookrisk::BookId book) const override {
+        bookrisk::PnlReading out{};
+        const auto max_age = kernel_->book_risk->gate(book).config().max_quote_age_ns;
+        const auto now = kernel_->clock().wall();
+        for (const auto& position : kernel_->positions.all()) {
+            if (position.key().strategy_id != book) {
+                continue;
+            }
+            const auto id = position.key().instrument;
+            const auto* listed = kernel_->instrument(id);
+            if (listed == nullptr) {
+                ++out.unvalued;
+                continue;
+            }
+            bookrisk::Mark mark{.underlying = kernel_->underlying_price(id)};
+            // a quote past the book's age limit marks nothing, as it would price nothing at the gate
+            if (const auto quote = kernel_->bbo(id); quote.has_value() && !quote->bid.is_undef() &&
+                                                     !quote->ask.is_undef() &&
+                                                     (max_age == 0 || now.ns <= quote->ts_init.ns + max_age)) {
+                mark.mid = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
+            }
+            bookrisk::add_position(out, *listed, position, mark);
+        }
+        return out;
+    }
+
+    [[nodiscard]] bookrisk::BalanceReading balances() const override {
+        std::vector<bookrisk::AccountChannels> accounts;
+        accounts.reserve(gateways_->size());
+        for (const auto& gw : *gateways_) {
+            accounts.push_back({.venue = gw.account.venue, .channels = &gw.ch});
+        }
+        return bookrisk::read_balances(accounts);
+    }
+
+private:
+    KernelContext* kernel_;
+    const std::vector<Gateway>* gateways_;
+    const strategy::Registry* live_;
 };
 
 } // namespace
@@ -805,70 +1188,49 @@ void journal_break(raikiri::journal::JournalWriter& journal,
     });
 }
 
-// a stale table closes nothing, and orders newer than the pull are not judged
+// a stale or half-written pull closes nothing, and orders newer than the pull are not judged
 // the closes it made, for the strategies that own those orders
 [[nodiscard]] std::vector<raikiri::OrderEvent> reconcile_open_orders(KernelContext& ctx,
-                                                                     raikiri::VenueId venue,
+                                                                     raikiri::AccountId account,
                                                                      const raikiri::shm::OpenOrderTable& table,
-                                                                     raikiri::journal::JournalWriter& journal,
                                                                      raikiri::UnixNanos now) {
     using namespace raikiri;
 
-    // owned strings: `cell` is rebuilt each iteration
-    std::unordered_set<std::string> at_venue;
-    UnixNanos pulled{};
-    for (std::size_t idx = 0; idx < shm::k_open_order_cells; ++idx) {
-        shm::OpenOrderCell cell{};
-        if (table.read(idx, cell) == 0 || cell.ts_pulled.ns == 0) {
-            continue;
-        }
-        if (now.ns - cell.ts_pulled.ns > k_snapshot_max_age_ns) {
-            continue; // last pass has aged out
-        }
-        pulled = UnixNanos{std::max(pulled.ns, cell.ts_pulled.ns)};
-        at_venue.emplace(cell.exchange_client_order_id.view());
-    }
     std::vector<OrderEvent> closed_events;
-    if (pulled.ns == 0) {
-        return closed_events; // the venue said nothing recent; this is Unknown, not empty
+    const auto pull = shm::read_open_orders(table);
+    if (!pull.has_value() || now.ns - pull->pulled.ns > k_snapshot_max_age_ns) {
+        return closed_events;
     }
-
-    std::vector<const oms::Order*> closed;
-    ctx.orders().for_each_open([&](const oms::Order& order) {
-        if (order.is_terminal() || order.instrument().venue() != venue) {
-            return;
-        }
-        if (at_venue.contains(std::string{order.exchange_client_order_id().view()})) {
-            return;
-        }
-        if (order.ts_created().ns == 0 || order.ts_created().ns > pulled.ns) {
-            return;
-        }
-        closed.push_back(&order);
-    });
-
-    for (const auto* order : closed) {
+    std::vector<ExchangeClientOrderId> at_venue;
+    at_venue.reserve(pull->rows.size());
+    for (const auto& row : pull->rows) {
+        at_venue.push_back(row.exchange_client_order_id);
+    }
+    for (const auto* order : oms::orders_gone(ctx.orders(), account, at_venue, pull->pulled)) {
         ++ctx.orders_closed_by_recon;
         RLOG_WARN("strategyd: RECON order {} is open here and gone at {} — closing",
                   order->exchange_client_order_id().view(),
-                  to_string(venue));
+                  to_string(account.venue));
         OrderEvent event{};
         event.type = OrderEventType::ReconClosed;
         event.instrument = order->instrument();
         event.side = order->side();
         event.client_order_id = order->client_order_id();
         event.exchange_client_order_id = order->exchange_client_order_id();
+        event.exchange_order_id = order->exchange_order_id();
         event.qty = order->qty();
         event.leaves_qty = QtyLots::from_raw(0);
         event.ts_event = now;
         event.ts_init = now;
         // gone may mean filled: without this a fill pulled later matches no order and reaches nobody
-        if (const auto left = order->leaves(); !left.is_undef() && left.raw > 0) {
-            ctx.closed_orders[std::string{order->exchange_client_order_id().view()}] = {
-                .id = order->client_order_id(), .left = left, .at_ns = now.ns};
+        ctx.exec.closed().note(*order, order->leaves(), now);
+        if (order->filled().raw == 0) {
+            ctx.repeats.withdrawn(order->client_order_id());
         }
-        (void)ctx.orders().apply_event(event);
-        (void)journal;
+        const auto applied = ctx.orders().apply_event(event);
+        // a restart must not bring it back
+        ctx.journal_event(event);
+        ctx.trail.event(event, applied.has_value() ? *applied : nullptr, now);
         closed_events.push_back(event);
     }
     return closed_events;
@@ -877,6 +1239,10 @@ void journal_break(raikiri::journal::JournalWriter& journal,
 struct ReconSweep {
     bool confirmed_break{false};
     bool any_agreement{false};
+    // a first disagreement: not a halt, but nothing yet to reopen on
+    bool any_break{false};
+    // the venue has reported positions at some point; one that never does can never agree
+    bool any_written{false};
 };
 
 ReconSweep reconcile_against_venue(KernelContext& ctx,
@@ -884,6 +1250,7 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
                                    const raikiri::shm::CatalogueTable& catalogue,
                                    const raikiri::shm::PositionTable& table,
                                    raikiri::journal::JournalWriter& journal,
+                                   const raikiri::oms::KernelGate& gate,
                                    raikiri::UnixNanos now) {
     using namespace raikiri;
 
@@ -904,6 +1271,7 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
         }
         shm::PositionCell cell{};
         const bool written = table.read(idx, cell) != 0;
+        sweep.any_written = sweep.any_written || (written && cell.ts_pulled.ns != 0);
         // rewind fills the venue had not seen at the snapshot, using venue timestamps
         const auto boundary = cell.report.ts_venue.ns != 0 ? cell.report.ts_venue.ns : cell.ts_pulled.ns;
         auto local_raw = book.contains(id.packed) ? book[id.packed] : 0;
@@ -937,9 +1305,10 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
         if (result.verdict == portfolio::ReconVerdict::Break) {
             confirmed = ctx.recon_gate.on_break(id, boundary);
             sweep.confirmed_break = sweep.confirmed_break || confirmed;
+            sweep.any_break = true;
         } else if (result.verdict == portfolio::ReconVerdict::Agree) {
             ctx.recon_gate.on_agree(id);
-            sweep.any_agreement = true;
+            sweep.any_agreement = sweep.any_agreement || gate.answers_doubt(cell.ts_pulled);
         }
         const auto seen = ctx.recon_seen.find(id.packed);
         const bool changed = seen == ctx.recon_seen.end() || seen->second != result.verdict;
@@ -1134,6 +1503,8 @@ struct Requested {
         return "order store full";
     case strategy::RejectReason::VenueDown:
         return "no gateway for this instrument, or its command ring is full";
+    case strategy::RejectReason::Duplicate:
+        return "repeats an order just sent";
     }
     return "unknown";
 }
@@ -1141,8 +1512,8 @@ struct Requested {
 
 constexpr std::string_view k_usage = R"(usage: strategyd [--gateway=<account>]... [--duration <sec>] [--strategy-id=<n>]
                  [--strategy <type>[:<id>[:<name>[:<config>]]]]... [--port <n>]
-                 [--risk <path>] [--joe <strategy id>]
-                 [--audit-fsync never|batch|entry]
+                 [--risk <path>] [--joe <strategy id>] [--seed-capital <dollars>]
+                 [--audit-fsync never|batch|entry] [--audit-retain-days <n>] [--restore-wait <sec>]
 )";
 
 int main(int argc, char** argv) {
@@ -1168,9 +1539,12 @@ int main(int argc, char** argv) {
     // zero serves no control surface
     std::uint16_t control_port = 0;
     std::string risk_path;
+    std::string seed_capital;
     // zero leaves joe off
     std::uint16_t joe_id = 0;
     audit::SinkOptions audit_options{};
+    // how long a restored book waits for a venue that has never reported a position before trading on it unconfirmed
+    std::uint64_t restore_wait_s = 120;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--duration" && i + 1 < argc) {
@@ -1187,8 +1561,14 @@ int main(int argc, char** argv) {
             control_port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (arg == "--risk" && i + 1 < argc) {
             risk_path = argv[++i];
+        } else if (arg == "--seed-capital" && i + 1 < argc) {
+            seed_capital = argv[++i];
         } else if (arg == "--joe" && i + 1 < argc) {
             joe_id = static_cast<std::uint16_t>(std::atoi(argv[++i]));
+        } else if (arg == "--audit-retain-days" && i + 1 < argc) {
+            audit_options.retain_days = static_cast<std::uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--restore-wait" && i + 1 < argc) {
+            restore_wait_s = static_cast<std::uint64_t>(std::atoll(argv[++i]));
         } else if (arg == "--audit-fsync" && i + 1 < argc) {
             const std::string_view policy{argv[++i]};
             if (policy != "never" && policy != "batch" && policy != "entry") {
@@ -1291,6 +1671,7 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "strategyd: {}\n", risk.error());
         return 2;
     }
+    const auto notify_webhook = risk->notify_webhook;
     // used only for the exchange-side id; client order ids are minted per instance
     oms::IdGen ids{strategy_id, /*ulid_seed=*/0x7A10ULL};
     KernelContext ctx{gateways, store, std::move(*risk), ids, *journal_writer, **audit_sink, clock};
@@ -1323,21 +1704,81 @@ int main(int argc, char** argv) {
                   accounts);
     }
 
+    // what was live before this process: open orders, executions already booked, ids already used. no window opens
+    // here: every gateway holding anything stays shut until the venue has answered since this moment
+    const std::string journal_dir = data_dir + "/journal/strategyd";
+    oms::OrderReplay replay{store, ctx.exec};
+    oms::replay_orders(journal_dir, "journal", replay);
+    ctx.last_seq = replay.last_seqs();
+    {
+        std::vector<OrderEvent> orphans;
+        store.for_each_open([&](const oms::Order& order) {
+            if (ctx.gateway_for(order.instrument()) == nullptr) {
+                OrderEvent gone{};
+                gone.type = OrderEventType::ReconClosed;
+                gone.client_order_id = order.client_order_id();
+                gone.ts_init = clock.wall();
+                orphans.push_back(gone);
+            }
+        });
+        // no attached gateway can answer for these, and held open they would count against the book's limit
+        for (const auto& gone : orphans) {
+            (void)store.apply_event(gone);
+        }
+    }
+    for (auto& gw : gateways) {
+        bool holds = std::ranges::any_of(ctx.positions.all(), [&gw](const portfolio::Position& held) {
+            const auto id = held.key().instrument;
+            return held.qty().raw != 0 && id.venue() == gw.account.venue && id.market() == gw.account.market;
+        });
+        store.for_each_open([&](const oms::Order& order) {
+            const auto id = order.instrument();
+            holds = holds || (id.venue() == gw.account.venue && id.market() == gw.account.market);
+        });
+        if (replay.commands() != 0) {
+            // what the venue said while nobody read; booked executions are refused by id
+            gw.exec.rewind();
+            gw.fills.rewind();
+        }
+        if (holds) {
+            gw.restored = true;
+            gw.kernel.on(oms::KernelEvent::Restored, clock.wall());
+            RLOG_WARN("strategyd[{}]: restored from the journal — no new orders until the venue agrees", gw.name);
+            ctx.audit_event("strategyd", "gateway.degraded", gw.name, R"({"why":"restored_from_journal"})");
+        }
+    }
+    RLOG_INFO("strategyd: journal replay: {} commands, {} events, {} orders open, {} executions known",
+              replay.commands(),
+              replay.events(),
+              store.open_count(),
+              ctx.exec.seen().size());
+    if (replay.dropped() != 0) {
+        RLOG_ERROR("strategyd: journal replay: {} orders did not fit the store", replay.dropped());
+    }
+
     // registered by a call; see raikiri/strategies/register.hpp
     (void)strategies::register_all();
     (void)strategy::register_type<Observer>("observer");
 
+    books::FileBookStore book_store{books::default_path()};
+    books::Registry book_registry{book_store, [&clock] { return clock.wall(); }};
+    if (const auto loaded = book_registry.load(); !loaded.has_value()) {
+        RLOG_ERROR("strategyd: {} — {}", books::default_path(), books::to_string(loaded.error()));
+        return 1;
+    }
+
     // deque so a strategy's context address stays stable
     std::deque<InstanceContext> contexts;
     std::stop_source shutdown;
-    strategy::Registry live{{.context_for = [&contexts, &ctx](std::uint16_t id) -> strategy::Context* {
+    strategy::Registry live{{.context_for = [&contexts, &ctx, &clock](std::uint16_t id) -> strategy::Context* {
                                  for (auto& window : contexts) {
                                      if (window.strategy_id() == id) {
                                          // reuse the window a refused create already minted
                                          return &window;
                                      }
                                  }
-                                 contexts.emplace_back(ctx, id, 0x7A10ULL + id);
+                                 // seq from the wall clock, because postgres keys orders on the id across restarts
+                                 contexts.emplace_back(ctx, id, 0x7A10ULL + id, clock.wall().ns / 1'000'000ULL);
                                  return &contexts.back();
                              },
                              .cancel_working = [&contexts](std::uint16_t id) -> std::size_t {
@@ -1348,11 +1789,60 @@ int main(int argc, char** argv) {
                                  }
                                  return 0;
                              },
-                             .wall = [&clock] { return clock.wall(); }}};
-    ctx.strategy_name = [&live](std::uint16_t id) {
-        const auto found = live.find(id);
-        return found.has_value() ? found->name : std::string{};
+                             .wall = [&clock] { return clock.wall(); },
+                             .admit = [&book_registry](const strategy::Spec& spec) -> std::expected<void, std::string> {
+                                 const auto booked = book_registry.register_strategy(spec.strategy_id, spec.name);
+                                 if (!booked.has_value()) {
+                                     return std::unexpected{std::string{books::to_string(booked.error())}};
+                                 }
+                                 return {};
+                             }}};
+    ctx.books = &book_registry;
+    ctx.strategy_name = [&live, &book_registry](std::uint16_t id) {
+        if (const auto found = live.find(id); found.has_value()) {
+            return found->name;
+        }
+        const auto* book = book_registry.find(id);
+        return book != nullptr ? book->name : std::string{};
     };
+
+    KernelBooks kernel_books{ctx, gateways, live};
+    bookrisk::FileSettingsStore risk_store{data_dir + "/risk/settings.json"};
+    bookrisk::LogNotifier log_notices;
+    bookrisk::FanOutNotifier notices;
+    notices.add(log_notices);
+    config::DefaultSecretProvider notify_secrets;
+    std::unique_ptr<bookrisk::WebhookNotifier> webhook;
+    if (notify_webhook.has_value()) {
+        auto made = bookrisk::make_webhook(*notify_webhook, notify_secrets, bookrisk::make_https_post());
+        if (!made.has_value()) {
+            fmt::print(stderr, "strategyd: {}\n", made.error());
+            return 2;
+        }
+        webhook = std::move(*made);
+        notices.add(*webhook);
+    }
+    bookrisk::RiskDesk risk_desk{kernel_books, risk_store, **audit_sink, notices, clock};
+    if (const auto loaded = risk_desk.load(); !loaded.has_value()) {
+        fmt::print(stderr, "strategyd: {}\n", loaded.error());
+        return 2;
+    }
+    // sim has no money to protect, so its demos need no person to declare any
+    const bool only_sim = !gateways.empty() && std::ranges::all_of(gateways, [](const Gateway& gw) {
+        return gw.account.venue == VenueId::Sim;
+    });
+    if (seed_capital.empty() && only_sim) {
+        seed_capital = "1000000";
+    }
+    if (!seed_capital.empty()) {
+        const auto seeded = parse_decimal_e9(seed_capital);
+        if (!seeded.has_value() || seeded->raw <= 0) {
+            fmt::print(stderr, "strategyd: --seed-capital takes dollars above zero\n");
+            return 2;
+        }
+        risk_desk.seed_capital(*seeded, "cli");
+    }
+    ctx.book_risk = &risk_desk;
 
     // demo-maker only against sim; live gateways are observed
     if (requested.empty()) {
@@ -1393,8 +1883,22 @@ int main(int argc, char** argv) {
     joe::ContextSink joe_sink;
     const joe::CurveProfile joe_curves;
     std::unique_ptr<joe::Desk> joe_desk;
+    joe::JournalParentLog joe_log{*journal_writer};
     if (joe_id != 0) {
-        joe_desk = std::make_unique<joe::Desk>(joe_market, joe_sink, clock, joe_curves);
+        joe_desk = std::make_unique<joe::Desk>(
+            joe_market,
+            joe_sink,
+            clock,
+            joe_curves,
+            joe::DeskConfig{.first_parent_id = joe::parent_id_seed(clock.wall()), .own_book = joe_id});
+        ctx.executor = joe_id;
+        live.set_executor(joe_id);
+        const auto parent_records = joe::restore_desk(*joe_desk, journal_dir, "journal", joe_id);
+        joe_desk->set_log(&joe_log);
+        if (parent_records != 0) {
+            RLOG_INFO(
+                "strategyd: joe restored {} parent(s) from {} records", joe_desk->parents().size(), parent_records);
+        }
         (void)strategy::factory().add("joe", [&joe_desk, &joe_sink](const strategy::Params&) -> strategy::MakeResult {
             return std::make_unique<joe::Runner>(*joe_desk, joe_sink);
         });
@@ -1432,10 +1936,18 @@ int main(int argc, char** argv) {
             "127.0.0.1",
             control_port,
             audit::audited(
-                [joe = joe::JoeRoutes{joe_desk.get()},
+                [joe = joe::JoeRoutes{joe_desk.get(), &book_registry},
+                 book_risk = bookrisk::RiskRoutes{risk_desk},
+                 short_books = optionrisk::ShortBookRoutes{[&] { return ctx.short_book_rows(clock.wall()); }},
                  control = strategy::make_control(live, strategy::factory(), ctx.positions, shutdown.get_token())](
                     const http::Request& req) {
                     if (auto answer = joe(req); answer.has_value()) {
+                        return std::move(*answer);
+                    }
+                    if (auto answer = book_risk(req); answer.has_value()) {
+                        return *answer;
+                    }
+                    if (auto answer = short_books(req); answer.has_value()) {
                         return std::move(*answer);
                     }
                     return control(req);
@@ -1454,6 +1966,8 @@ int main(int argc, char** argv) {
                   control->port());
     }
 
+    constexpr std::uint64_t k_short_check_ns = 5'000'000'000ULL;
+    UnixNanos last_short_check{};
     observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
     observ::Histogram rt_hist;   // submit -> first venue verdict
     std::uint64_t exec_overruns = 0;
@@ -1505,7 +2019,13 @@ int main(int argc, char** argv) {
     }
 
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
+    const auto restore_deadline_ns = clock.mono().ns + (restore_wait_s * 1'000'000'000ULL);
+    bool parents_resumed = false;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
+        if (const auto now = clock.wall(); now.ns - last_short_check.ns >= k_short_check_ns) {
+            last_short_check = now;
+            ctx.check_short_greeks(now);
+        }
         // desk intents drain first, then verdicts on every gateway, then market data
         bool order_work = false;
         OrderCmd intent{};
@@ -1513,10 +2033,10 @@ int main(int argc, char** argv) {
             while (gw.intents.try_pop(intent)) {
                 order_work = true;
                 desk_intents += 1;
-                // intents may only use the manual desk's strategy id
-                if (intent.client_order_id.strategy_id() != k_manual_strategy_id) {
+                // intents may only use a manual or a client book
+                if (!book_registry.takes_intents(intent.client_order_id)) {
                     desk_refusals += 1;
-                    audit_intent(intent, "not_the_desk_strategy_id");
+                    audit_intent(intent, "not_a_desk_book");
                     continue;
                 }
                 switch (intent.kind) {
@@ -1528,9 +2048,15 @@ int main(int argc, char** argv) {
                                                    .flags = intent.flags,
                                                    .price = intent.price,
                                                    .qty = intent.qty};
-                    const auto placed = ctx.submit_as(order, intent.client_order_id);
+                    const OrderOrigin origin{.external_ref = ExternalRef::from(intent.target_exchange_order_id.view())
+                                                                 .value_or(ExternalRef{})};
+                    const auto placed = ctx.submit_as(order, intent.client_order_id, origin);
+                    // an intent resent under the id of an order still live must not mark that order denied
+                    const bool still_live = store.find(intent.client_order_id) != nullptr;
                     if (!placed.has_value()) {
                         desk_refusals += 1;
+                    }
+                    if (!placed.has_value() && !still_live) {
                         // designated initializers in declaration order for gcc
                         ctx.journal_refusal(OrderCmd{.kind = CmdKind::Create,
                                                      .side = intent.side,
@@ -1542,7 +2068,10 @@ int main(int argc, char** argv) {
                                                      .price = intent.price,
                                                      .qty = intent.qty,
                                                      .ts_created = clock.wall()},
-                                            placed.error());
+                                            placed.error(),
+                                            origin);
+                    }
+                    if (!placed.has_value()) {
                         RLOG_WARN("strategyd: desk order {} refused — {}",
                                   intent.client_order_id.raw,
                                   reject_name(placed.error()));
@@ -1602,9 +2131,10 @@ int main(int argc, char** argv) {
 
         // one path for pushed and pulled fills; by value because attribute writes our id onto it
         const auto handle_exec_event = [&](OrderEvent event, bool pulled) {
+            const auto wall = clock.wall();
+            const auto done = ctx.exec.apply(event, pulled, wall);
             // the pull admits before calling; a push whose execution a pull already booked is the same money
-            if (!pulled && event.type == OrderEventType::Filled &&
-                !ctx.seen_fills.admit(event.exec_id.view(), clock.wall())) {
+            if (done.repeat) {
                 ++duplicate_pushes;
                 return;
             }
@@ -1612,42 +2142,27 @@ int main(int argc, char** argv) {
                 rt_hist.record(clock.mono().ns - it->second);
                 ctx.inflight_.erase(it);
             }
-            // before apply_event, which moves the leaves; see oms/attribution.hpp
-            const auto who = oms::attribute(event, store);
-            // a fill after the order closed: the cancel and the fill crossed on the wire
-            const std::string late_key{event.exchange_client_order_id.view()};
-            auto late = who.order == nullptr && event.type == OrderEventType::Filled && !late_key.empty()
-                            ? ctx.closed_orders.find(late_key)
-                            : ctx.closed_orders.end();
-            if (late != ctx.closed_orders.end()) {
-                event.client_order_id = late->second.id;
-            }
-            const auto stored = store.apply_event(event);
-            if (!stored.has_value() && stored.error() == oms::ApplyError::BadTransition) {
-                ++bad_transitions;
-            }
+            bad_transitions += done.refused ? 1U : 0U;
             if (event.client_order_id.raw != 0) {
                 ctx.journal_event(event);
             }
-            if (stored.has_value() && (*stored)->is_terminal() && event.type != OrderEventType::Filled &&
-                !who.prev_leaves.is_undef() && who.prev_leaves.raw > 0) {
-                ctx.closed_orders[std::string{(*stored)->exchange_client_order_id().view()}] = {
-                    .id = (*stored)->client_order_id(), .left = who.prev_leaves, .at_ns = clock.wall().ns};
+            ctx.trail.event(event, done.order, wall);
+            if (done.order != nullptr && done.order->is_terminal() && done.order->filled().raw == 0) {
+                ctx.repeats.withdrawn(done.order->client_order_id());
             }
             if (event.type == OrderEventType::Filled) {
                 ++fills;
-                auto delta = oms::filled_delta(who, event);
-                if (late != ctx.closed_orders.end()) {
-                    const auto size = event.qty.is_undef() ? std::int64_t{0} : event.qty.raw;
-                    delta = QtyLots::from_raw(std::max<std::int64_t>(0, std::min(size, late->second.left.raw)));
-                    late->second.left = QtyLots::from_raw(late->second.left.raw - delta.raw);
+                const auto delta = done.delta;
+                if (done.late) {
                     ++late_fills;
-                    RLOG_WARN("strategyd: late fill {} on a closed order books {} lots", late_key, delta.raw);
-                } else if (who.order == nullptr) {
+                    RLOG_WARN("strategyd: late fill {} on a closed order books {} lots",
+                              event.exchange_client_order_id.view(),
+                              delta.raw);
+                } else if (done.unmatched) {
                     ++unattributed_fills;
                     RLOG_ERROR("strategyd: FILL {} matched no order here", event.exchange_client_order_id.view());
                 }
-                if (who.order != nullptr) {
+                if (done.order != nullptr) {
                     RLOG_INFO("strategyd: {} fill {} exec {} price {} fee {} qty {} leaves {} books {} lots",
                               pulled ? "pulled" : "pushed",
                               event.exchange_client_order_id.view(),
@@ -1661,6 +2176,7 @@ int main(int argc, char** argv) {
                 const auto* listed = ctx.instrument(event.instrument);
                 if (listed != nullptr && delta.raw > 0) {
                     ctx.record_fill(event.instrument, event.side, delta, event.ts_event);
+                    risk_desk.filled(event.client_order_id.strategy_id(), event.instrument);
                     const auto applied = ctx.positions.on_fill(*listed, event, delta);
                     if (!applied.has_value()) {
                         ++position_refusals;
@@ -1708,7 +2224,7 @@ int main(int argc, char** argv) {
                 if (gw.ch.catalogue->find(fill.instrument) == nullptr) {
                     continue; // an id from a catalogue this process never read
                 }
-                if (!ctx.seen_fills.admit(fill.exec_id.view(), clock.wall())) {
+                if (!ctx.exec.seen().admit(fill.exec_id.view(), clock.wall())) {
                     continue; // the same execution, offered again
                 }
                 ++pulled_fills;
@@ -1793,6 +2309,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        risk_desk.tick();
         const auto now_ns = clock.mono().ns;
         for (auto& window : contexts) {
             window.fire_due_timers(now_ns, [&live, &window](std::uint32_t timer_id) {
@@ -1823,18 +2340,19 @@ int main(int argc, char** argv) {
             if (now_ns >= gw.recon_due) {
                 // seven days is the widest ledger and trade-history window any venue reaches back over
                 ctx.fees.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
-                ctx.seen_fills.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
+                ctx.exec.seen().prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 // a pull window reaches back minutes, not hours
-                std::erase_if(ctx.closed_orders,
-                              [cutoff = clock.wall().ns - 15ULL * 60 * 1'000'000'000ULL](const auto& entry) {
-                                  return entry.second.at_ns < cutoff;
-                              });
-                for (const auto& gone :
-                     reconcile_open_orders(ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall())) {
+                ctx.exec.closed().prune(clock.wall(), oms::k_closed_order_window_ns);
+                for (const auto& gone : reconcile_open_orders(ctx, gw.account, *gw.ch.open_orders, clock.wall())) {
                     live.on_order_event(gone);
                 }
-                const auto sweep = reconcile_against_venue(
-                    ctx, gw.account.venue, *gw.ch.catalogue, *gw.ch.positions, *journal_writer, clock.wall());
+                const auto sweep = reconcile_against_venue(ctx,
+                                                           gw.account.venue,
+                                                           *gw.ch.catalogue,
+                                                           *gw.ch.positions,
+                                                           *journal_writer,
+                                                           gw.kernel,
+                                                           clock.wall());
                 // a sweep that compared nothing neither halts nor clears
                 if (sweep.confirmed_break) {
                     if (gw.kernel.on(oms::KernelEvent::ReconFailed, clock.wall())) {
@@ -1843,13 +2361,27 @@ int main(int argc, char** argv) {
                                    gw.name);
                         audit_gateway(gw, "gateway.halted", R"({"why":"venue_disagreed"})");
                     }
-                } else if (sweep.any_agreement) {
+                } else if (sweep.any_agreement && !sweep.any_break) {
                     if (gw.kernel.on(oms::KernelEvent::ReconAgreed, clock.wall())) {
                         RLOG_INFO("strategyd[{}]: venue agrees — trading again", gw.name);
                         audit_gateway(gw, "gateway.running", R"({"why":"venue_agreed"})");
                     }
+                    gw.restored = false;
+                } else if (gw.restored && !sweep.any_written && now_ns >= restore_deadline_ns) {
+                    gw.restored = false;
+                    if (gw.kernel.on(oms::KernelEvent::ReconAgreed, clock.wall())) {
+                        RLOG_ERROR("strategyd[{}]: this venue has never reported a position — trading on the journal's",
+                                   gw.name);
+                        audit_gateway(gw, "gateway.running", R"({"why":"venue_never_reports_positions"})");
+                    }
                 }
                 gw.recon_due = now_ns + k_recon_read_interval_ns;
+            }
+        }
+        if (!parents_resumed && std::ranges::all_of(gateways, [](const Gateway& gw) { return gw.kernel.may_open(); })) {
+            parents_resumed = true;
+            if (joe_desk != nullptr) {
+                (void)joe_desk->resume_restored();
             }
         }
         if (std::ranges::all_of(gateways,
@@ -1909,11 +2441,12 @@ int main(int argc, char** argv) {
     fmt::print("pulled fills: applied={}  ring-overruns={}  remembered={}\n",
                pulled_fills,
                fill_overruns,
-               ctx.seen_fills.size());
-    fmt::print("fills-unattributed={}  duplicate-pushes={}  late-fills={}\n",
+               ctx.exec.seen().size());
+    fmt::print("fills-unattributed={}  duplicate-pushes={}  late-fills={}  duplicate-orders={}\n",
                unattributed_fills,
                duplicate_pushes,
-               late_fills);
+               late_fills,
+               ctx.duplicates_refused);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
     fmt::print("fees: agreed={}  disagreed={}  unmatched={}  unbooked={}\n",
                ctx.fees_agreed,

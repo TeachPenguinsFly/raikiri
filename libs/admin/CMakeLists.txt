@@ -13,5 +13,5 @@ target_include_directories(raikiri_admin PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 target_link_libraries(raikiri_admin
-  PUBLIC raikiri::domain raikiri::shm raikiri::http raikiri::config
+  PUBLIC raikiri::domain raikiri::shm raikiri::http raikiri::config raikiri::books
   PRIVATE Boost::headers raikiri::net OpenSSL::Crypto glaze::glaze libpqxx::pqxx raikiri::warnings)

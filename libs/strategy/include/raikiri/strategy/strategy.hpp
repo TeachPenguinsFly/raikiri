@@ -5,6 +5,7 @@
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/domain/origin.hpp>
 #include <raikiri/portfolio/position.hpp>
 #include <raikiri/portfolio/target.hpp>
 
@@ -23,12 +24,15 @@ struct NewOrder {
     PriceTicks price{}; // ignored for Market
     QtyLots qty{};
     std::uint32_t priority_e8{0}; // see OrderCmd::priority_e8
+    // makes an identical order a different one on purpose: a slicing algo's parent and child ordinal
+    std::uint64_t repeat_key{0};
 };
 
 enum class RejectReason : std::uint8_t {
     Risk,      // risk gate refused (details in the journal/logs)
     Capacity,  // order store full — a strategy leak, treat as a bug
     VenueDown, // command ring closed/full: gateway dead or halted
+    Duplicate, // repeats an order just sent; nothing went out and the earlier order stands
 };
 
 class Context {
@@ -38,6 +42,15 @@ public:
     Context& operator=(const Context&) = delete;
 
     [[nodiscard]] virtual std::expected<ClientOrderId, RejectReason> submit(const NewOrder& order) noexcept = 0;
+
+    // an executor's child: it books to `book` (zero is the executor's own) and its events come back here. a kernel with
+    // no books of its own treats it as a plain submit; the real one refuses every instance but the executor
+    [[nodiscard]] virtual std::expected<ClientOrderId, RejectReason>
+    submit_child(const NewOrder& order, std::uint16_t book, const OrderOrigin& origin) noexcept {
+        (void)book;
+        (void)origin;
+        return submit(order);
+    }
 
     virtual bool cancel(ClientOrderId id) noexcept = 0;
 

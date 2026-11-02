@@ -391,7 +391,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What is held, by strategy and instrument */
+        /**
+         * What is held, by book and instrument
+         * @description A book's position nets every parent and hand order in it. With `parent`
+         *     the rows are what that parent's own fills add up to.
+         */
         get: operations["listPositions"];
         put?: never;
         post?: never;
@@ -542,6 +546,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/books": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every book on record
+         * @description A book is who an order belongs to: a strategy, `manual:<login>`, the shared
+         *     `manual`, `client:<name>` or `hedge`. Its id is the strategy half of the
+         *     client order id, and an id is never handed out twice.
+         */
+        get: operations["listBooks"];
+        put?: never;
+        /**
+         * Open a client's book
+         * @description For the client edge. Opening one that exists answers it with a 200. The other
+         *     kinds are made by their own paths: a strategy when it starts, `manual:<login>`
+         *     on the operator's first order, `hedge` on first use.
+         */
+        post: operations["openBook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/joe/parents": {
         parameters: {
             query?: never;
@@ -553,7 +585,8 @@ export interface paths {
          * Parent orders joe is working or has worked, newest first
          * @description joe runs inside strategyd (`--joe <strategy id>`) and admind forwards
          *     `/v1/joe/` to the upstream named `strategyd`. Parents live in memory and a
-         *     restart forgets them; their children are ordinary orders in the journal.
+         *     restart forgets them; their children are ordinary orders in the journal, and
+         *     `GET /v1/orders?parent=<id>` still answers for them.
          */
         get: operations["listParentOrders"];
         put?: never;
@@ -608,6 +641,183 @@ export interface paths {
         get: operations["getParentTrace"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Desk capital, the defaults row and every book's limits, state and p&l
+         * @description Forwarded to strategyd's control port, so `--upstream strategyd=<port>` must be set. With no
+         *     capital declared, every new order is refused and cancels pass. A limit is set as a percent of
+         *     capital or in dollars and comes back both ways.
+         */
+        get: operations["getBookRisk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/capital": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Declare the desk's capital
+         * @description A raise, and so the first figure, needs `confirm`. Applies at once. Written to the audit trail.
+         */
+        post: operations["setBookRiskCapital"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change the row every book inherits from */
+        post: operations["setBookRiskDefaults"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/kill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Halt every book and cancel every open order
+         * @description Positions stay as they are. The halt survives a restart and only a person resumes.
+         */
+        post: operations["killAllBooks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lift the halt over everything
+         * @description A book halted on its own stays halted.
+         */
+        post: operations["resumeAllBooks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/books/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One book, by id or name
+         * @description A hedger reads `row.limits.order_notional.effective` here to size its children.
+         */
+        get: operations["getBookRiskBook"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/books/{id}/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change a book's own limits */
+        post: operations["setBookRiskLimits"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/books/{id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a book to reducing, or resume it
+         * @description `reducing` lets only orders that shrink the position out. Moving towards `active` needs
+         *     `confirm`. A halt goes through the kill route, which pulls the orders.
+         */
+        post: operations["setBookRiskState"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/books/{id}/kill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Halt one book and cancel its open orders
+         * @description The position stays as it is. The halt survives a restart and only a person resumes.
+         */
+        post: operations["killBook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -849,6 +1059,127 @@ export interface components {
         MarketType: "spot" | "perp" | "future" | "option";
         /** @enum {string} */
         Side: "buy" | "sell";
+        /** @enum {string} */
+        BookRiskState: "active" | "reducing" | "halted";
+        /** @enum {string} */
+        BookRiskLimitMode: "inherit" | "off" | "absolute" | "percent";
+        /** @enum {string} */
+        BookRiskLossAction: "off" | "reducing" | "halted";
+        BookRiskLimitSet: {
+            mode: components["schemas"]["BookRiskLimitMode"];
+            /** @description Dollars or a whole count for absolute, percent of capital for percent. */
+            value?: components["schemas"]["Decimal"];
+        };
+        BookRiskLimit: {
+            set: components["schemas"]["BookRiskLimitSet"];
+            /**
+             * @description The row that decided.
+             * @enum {string}
+             */
+            source: "file" | "defaults" | "book";
+            mode: components["schemas"]["BookRiskLimitMode"];
+            /** @description Dollars or the count; absent is off, or a percent with no capital to take it of. */
+            effective?: components["schemas"]["Decimal"];
+            /** @description The same limit as a percent of capital; money limits only. */
+            percent?: components["schemas"]["Decimal"];
+        };
+        BookRiskRow: {
+            /**
+             * @description order_notional, instrument_notional, book_notional, option_premium, loss_1m, loss_5m, loss_1h,
+             *     daily_loss, option_open_lots, open_orders, price_band_bp, orders_in_window, order_window_ms,
+             *     repeat_entries, repeat_window_ms, quote_age_ms.
+             */
+            limits: {
+                [key: string]: components["schemas"]["BookRiskLimit"];
+            };
+            daily_loss_action: components["schemas"]["BookRiskLossAction"];
+            daily_loss_action_set: boolean;
+        };
+        BookRiskWindow: {
+            change: components["schemas"]["Decimal"];
+            /** @description How far back the samples reached, short of the window after a start. */
+            covered_s: number;
+            past_level: boolean;
+        };
+        /** @description Realised less fees plus unrealised, in dollars. It informs and takes no action. */
+        BookRiskPnl: {
+            realized: components["schemas"]["Decimal"];
+            unrealized: components["schemas"]["Decimal"];
+            total: components["schemas"]["Decimal"];
+            change_1m: components["schemas"]["BookRiskWindow"];
+            change_5m: components["schemas"]["BookRiskWindow"];
+            change_1h: components["schemas"]["BookRiskWindow"];
+            day: components["schemas"]["Decimal"];
+            past_daily: boolean;
+            positions: number;
+            /** @description Positions with no quote. While any is unmarked the book takes no new sample. */
+            unmarked: number;
+            /** @description Positions not quoted in a dollar, left out of the sums. */
+            unvalued: number;
+        };
+        BookRiskBook: {
+            id: number;
+            name: string;
+            /** @description The stricter of the book's own state and the desk's. */
+            state: components["schemas"]["BookRiskState"];
+            own_state: components["schemas"]["BookRiskState"];
+            reason?: string;
+            /** @description Who set the state: a person, or strategyd when a check tripped. */
+            by?: string;
+            /** @description Nanoseconds as digits. */
+            since?: string;
+            open_orders: number;
+            row: components["schemas"]["BookRiskRow"];
+            pnl: components["schemas"]["BookRiskPnl"];
+        };
+        BookRiskDesk: {
+            /** @description Absent until a person declares it, and no new order passes until then. */
+            capital?: components["schemas"]["Decimal"];
+            capital_by?: string;
+            /** @description Nanoseconds as digits. */
+            capital_at?: string;
+            /** @description What the gateways' balance pulls come to in dollars; absent when none has reported. */
+            reported_balance?: components["schemas"]["Decimal"];
+            reported_accounts: number;
+            /** @description Assets reported with no dollar price here, which `reported_balance` leaves out. */
+            unvalued_assets: number;
+            /** @description Set when the declared capital is above what balances report. It refuses nothing. */
+            capital_warning?: string;
+            desk_state: components["schemas"]["BookRiskState"];
+            desk_reason?: string;
+            desk_by?: string;
+            /** @description Nanoseconds as digits. */
+            desk_since?: string;
+            defaults: components["schemas"]["BookRiskRow"];
+            books: components["schemas"]["BookRiskBook"][];
+        };
+        BookRiskChange: {
+            /** @description The person making the change; it goes to the audit trail. */
+            by: string;
+            reason?: string;
+            /** @description Says the person saw that this lets more through. */
+            confirm?: boolean;
+        };
+        BookRiskCapitalChange: components["schemas"]["BookRiskChange"] & {
+            capital: components["schemas"]["Decimal"];
+        };
+        BookRiskLimitsChange: components["schemas"]["BookRiskChange"] & {
+            limits?: {
+                [key: string]: components["schemas"]["BookRiskLimitSet"];
+            };
+            daily_loss_action?: components["schemas"]["BookRiskLossAction"];
+        };
+        BookRiskStateChange: components["schemas"]["BookRiskChange"] & {
+            state: components["schemas"]["BookRiskState"];
+        };
+        BookRiskKilled: {
+            /** @description Cancels sent for the open orders. */
+            cancelled: number;
+        };
+        BookRiskNeedsConfirm: components["schemas"]["Problem"] & {
+            /** @description What this change would let more through, by name. */
+            raises: string[];
+        };
         /** @description RFC 9457. One error shape everywhere. */
         Problem: {
             /** Format: uri */
@@ -1557,6 +1888,14 @@ export interface components {
              * @default false
              */
             post_only: boolean;
+            /**
+             * @description Whose the children, fills and position are. Absent is the operator's own
+             *     `manual:<login>` through admind, or joe's own book on strategyd's port. A client
+             *     book must already be open.
+             */
+            book?: string;
+            /** @description An rfq trade id or a client's order id; every child carries it. */
+            external_ref?: string;
             /** @description The caller's name for this order, so a retried POST finds the first parent. */
             client_tag?: string;
         };
@@ -1602,6 +1941,10 @@ export interface components {
             min_interval_ms: number;
         };
         ParentOrder: {
+            book_id?: number;
+            book_kind?: components["schemas"]["BookKind"];
+            book?: string;
+            external_ref?: string;
             id: components["schemas"]["ParentId"];
             client_tag?: string;
             symbol: string;
@@ -1656,6 +1999,11 @@ export interface components {
              * @enum {string}
              */
             hold?: "stale" | "crossed";
+            /**
+             * @description Moves with every change to this parent and never back, across a restart too.
+             *     Of two answers the higher is newer; digits, compare as numbers.
+             */
+            version?: string;
         };
         ChildOrder: {
             client_order_id: components["schemas"]["ClientOrderId"];
@@ -1749,6 +2097,19 @@ export interface components {
             ack_p90_ns?: components["schemas"]["Nanos"];
             ack_max_ns?: components["schemas"]["Nanos"];
         };
+        /** @enum {string} */
+        BookKind: "strategy" | "manual" | "client" | "hedge";
+        BookRecord: {
+            id: number;
+            kind: components["schemas"]["BookKind"];
+            /**
+             * @example manual:vova
+             * @example client:acme
+             * @example hedge
+             */
+            name: string;
+            created: components["schemas"]["Nanos"];
+        };
         NewOrder: {
             /**
              * @description Which gateway sends it, as `format_account` writes the name: `bybit`,
@@ -1778,6 +2139,14 @@ export interface components {
              * @default false
              */
             reduce_only: boolean;
+            /**
+             * @description Absent is the operator's own `manual:<login>`, or the shared `manual` when
+             *     the proxy in front named nobody. A `client:<name>` that is open may be named;
+             *     nothing else.
+             */
+            book?: string;
+            /** @description A client's own order id or an rfq trade id. */
+            external_ref?: string;
         };
         OrderAccepted: {
             /** @description Minted by the desk. Everything downstream keys on it. */
@@ -1788,9 +2157,21 @@ export interface components {
              * @enum {string}
              */
             status: "queued";
+            book_id?: number;
+            /** @description The book it landed on; `manual` says the operator was not known. */
+            book?: string;
         };
         Order: {
             client_order_id: components["schemas"]["ClientOrderId"];
+            /** @description The strategy half of the client order id; every order has one, however old. */
+            book_id: number;
+            book_kind: components["schemas"]["BookKind"];
+            /** @description The registry's name. Absent for a number with nothing on record. */
+            book?: string;
+            /** @description The joe parent this is a child of; stable across restarts. */
+            parent_id?: components["schemas"]["ParentId"];
+            /** @description An rfq trade id or a client's own order id. */
+            external_ref?: string;
             exchange_client_order_id?: string;
             exchange_order_id?: string;
             instrument_id: components["schemas"]["InstrumentId"];
@@ -1824,6 +2205,11 @@ export interface components {
             reject_code?: number;
             ts_created: components["schemas"]["Nanos"];
             ts_updated: components["schemas"]["Nanos"];
+            /**
+             * @description Moves with every change to this order. Of two answers about one order the
+             *     higher is newer, whichever arrived last; digits, compare as numbers.
+             */
+            version?: string;
         };
         /** @enum {string} */
         OrderStatus: "initialized" | "denied" | "submitted" | "accepted" | "partially_filled" | "filled" | "canceled" | "rejected" | "expired" | "triggered" | "pending_update" | "pending_cancel";
@@ -1841,6 +2227,15 @@ export interface components {
             ts_event: components["schemas"]["Nanos"];
         };
         Fill: {
+            /** @description The strategy half of the client order id; every order has one, however old. */
+            book_id?: number;
+            book_kind?: components["schemas"]["BookKind"];
+            /** @description The registry's name. Absent for a number with nothing on record. */
+            book?: string;
+            /** @description The joe parent this is a child of; stable across restarts. */
+            parent_id?: components["schemas"]["ParentId"];
+            /** @description An rfq trade id or a client's own order id. */
+            external_ref?: string;
             venue: string;
             /** @description The venue's own unique id; dedup keys on it together with the venue. */
             exec_id: string;
@@ -1857,7 +2252,10 @@ export interface components {
         };
         Position: {
             instrument_id: components["schemas"]["InstrumentId"];
+            /** @description The book's id. */
             strategy_id: number;
+            book_kind?: components["schemas"]["BookKind"];
+            book?: string;
             /** @description Signed; positive is long. */
             qty: components["schemas"]["Decimal"];
             /** @description Derived from this system's own cost basis, not the venue's average. */
@@ -1871,6 +2269,11 @@ export interface components {
             /** @description When that snapshot was taken. Null when there is none. */
             venue_reported_at?: string | null;
             ts_updated: components["schemas"]["Nanos"];
+            /**
+             * @description Of two answers about one position the higher is newer, whichever arrived
+             *     last; digits, compare as numbers.
+             */
+            version?: string;
         };
         Balance: {
             /** @example USDT */
@@ -1918,7 +2321,11 @@ export interface components {
             account: string;
             kind: components["schemas"]["PnlKind"];
             instrument_id?: components["schemas"]["InstrumentId"];
+            /** @description The book's id. */
             strategy_id?: number;
+            book_kind?: components["schemas"]["BookKind"];
+            book?: string;
+            parent_id?: components["schemas"]["ParentId"];
             /** @description Signed; positive is money gained. */
             amount: components["schemas"]["Decimal"];
             ts_event: components["schemas"]["Nanos"];
@@ -2461,6 +2868,42 @@ export interface components {
         StreamFrame: components["schemas"]["StreamAck"] | components["schemas"]["StreamQuotes"] | components["schemas"]["StreamBook"] | components["schemas"]["StreamGreeks"] | components["schemas"]["StreamFunding"] | components["schemas"]["StreamTicker"] | components["schemas"]["StreamPositions"] | components["schemas"]["StreamHealth"] | components["schemas"]["StreamEvent"] | components["schemas"]["StreamGap"] | components["schemas"]["StreamProblem"];
     };
     responses: {
+        /** @description The desk after the change */
+        BookRiskDesk: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["BookRiskDesk"];
+            };
+        };
+        /** @description Halted, and the cancels sent */
+        BookRiskKilled: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["BookRiskKilled"];
+            };
+        };
+        /** @description Refused, or strategyd is not answering; nothing changed unless the detail says so */
+        BookRiskProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description This lets more through and `confirm` was not sent */
+        BookRiskNeedsConfirm: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["BookRiskNeedsConfirm"];
+            };
+        };
         /** @description No such thing */
         NotFound: {
             headers: {
@@ -2475,6 +2918,10 @@ export interface components {
         /** @description An account name, as `GET /v1/accounts` returns it. */
         Account: string;
         InstrumentId: components["schemas"]["InstrumentId"];
+        /** @description A book's id or its name. */
+        BookFilter: string;
+        /** @description Only what this joe parent did. */
+        ParentFilter: components["schemas"]["ParentId"];
         ParentId: components["schemas"]["ParentId"];
         ClientOrderId: components["schemas"]["ClientOrderId"];
         /** @description Lower bound on `ts_event`, inclusive. */
@@ -2816,6 +3263,10 @@ export interface operations {
             query?: {
                 /** @description An account name, as `GET /v1/accounts` returns it. */
                 account?: components["parameters"]["Account"];
+                /** @description A book's id or its name. */
+                book?: components["parameters"]["BookFilter"];
+                /** @description Only what this joe parent did. */
+                parent?: components["parameters"]["ParentFilter"];
                 instrument_id?: components["schemas"]["InstrumentId"];
                 /** @description Restrict to orders that can still fill. */
                 open?: boolean;
@@ -2870,6 +3321,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrderAccepted"];
+                };
+            };
+            /** @description The body names a book this operator may not place in. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The body names a client book that has not been opened. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /**
@@ -2988,6 +3457,10 @@ export interface operations {
             query?: {
                 /** @description An account name, as `GET /v1/accounts` returns it. */
                 account?: components["parameters"]["Account"];
+                /** @description A book's id or its name. */
+                book?: components["parameters"]["BookFilter"];
+                /** @description Only what this joe parent did. */
+                parent?: components["parameters"]["ParentFilter"];
                 instrument_id?: components["schemas"]["InstrumentId"];
                 /** @description Lower bound on `ts_event`, inclusive. */
                 since?: components["parameters"]["Since"];
@@ -3044,6 +3517,10 @@ export interface operations {
                 /** @description An account name, as `GET /v1/accounts` returns it. */
                 account?: components["parameters"]["Account"];
                 strategy_id?: number;
+                /** @description A book's id or its name. */
+                book?: components["parameters"]["BookFilter"];
+                /** @description Only what this joe parent did. */
+                parent?: components["parameters"]["ParentFilter"];
             };
             header?: never;
             path?: never;
@@ -3067,6 +3544,10 @@ export interface operations {
             query?: {
                 /** @description An account name, as `GET /v1/accounts` returns it. */
                 account?: components["parameters"]["Account"];
+                /** @description A book's id or its name. */
+                book?: components["parameters"]["BookFilter"];
+                /** @description Only what this joe parent did. */
+                parent?: components["parameters"]["ParentFilter"];
                 kind?: components["schemas"]["PnlKind"];
                 /** @description Lower bound on `ts_event`, inclusive. */
                 since?: components["parameters"]["Since"];
@@ -3265,11 +3746,76 @@ export interface operations {
             };
         };
     };
+    listBooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookRecord"][];
+                };
+            };
+        };
+    };
+    openBook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example client:acme */
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Already open */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookRecord"];
+                };
+            };
+            /** @description Opened */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookRecord"];
+                };
+            };
+            /** @description Not a client's book name. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listParentOrders: {
         parameters: {
             query?: {
                 /** @description Only the parent started with this tag. */
                 client_tag?: string;
+                /** @description Only parents on this book, by name. */
+                book?: string;
             };
             header?: never;
             path?: never;
@@ -3452,6 +3998,199 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getBookRisk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookRiskDesk"];
+                };
+            };
+            /** @description strategyd is not answering, or admind has no such upstream */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setBookRiskCapital: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRiskCapitalChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["BookRiskDesk"];
+            400: components["responses"]["BookRiskProblem"];
+            409: components["responses"]["BookRiskNeedsConfirm"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    setBookRiskDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRiskLimitsChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["BookRiskDesk"];
+            400: components["responses"]["BookRiskProblem"];
+            409: components["responses"]["BookRiskNeedsConfirm"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    killAllBooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRiskChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["BookRiskKilled"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    resumeAllBooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRiskChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["BookRiskDesk"];
+            409: components["responses"]["BookRiskNeedsConfirm"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    getBookRiskBook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookRiskBook"];
+                };
+            };
+            404: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    setBookRiskLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRiskLimitsChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["BookRiskDesk"];
+            400: components["responses"]["BookRiskProblem"];
+            409: components["responses"]["BookRiskNeedsConfirm"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    setBookRiskState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRiskStateChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["BookRiskDesk"];
+            409: components["responses"]["BookRiskNeedsConfirm"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    killBook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRiskChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["BookRiskKilled"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
         };
     };
     listAudit: {

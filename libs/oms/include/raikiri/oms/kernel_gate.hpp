@@ -37,6 +37,9 @@ enum class KernelEvent : std::uint8_t {
 
     // a permission; it moves nothing on its own
     OperatorResume,
+
+    // this process came back holding what a journal said: approve nothing on it until the venue has agreed
+    Restored,
 };
 
 struct KernelVerdict {
@@ -68,6 +71,8 @@ struct KernelStep {
         // degraded clears itself; halted only records the agreement
         return from.state == Degraded ? KernelStep{.state = Running, .recon_agreed = true}
                                       : KernelStep{.state = from.state, .recon_agreed = true};
+    case Restored:
+        return {.state = from.state == Halted ? Halted : Degraded, .recon_agreed = false};
     case OperatorResume:
         // refused unless a reconciliation agreed since the halt
         return from.state == Halted && from.recon_agreed ? KernelStep{.state = Running, .recon_agreed = true} : from;
@@ -107,6 +112,8 @@ struct KernelStep {
         return "venue disagreed, confirmed";
     case OperatorResume:
         return "operator resumed";
+    case Restored:
+        return "restored from the journal, waiting for the venue";
     }
     return "?";
 }
@@ -123,6 +130,9 @@ public:
     bool on(KernelEvent event, UnixNanos at) noexcept {
         const auto next = step(now_, event);
         const bool moved = next.state != now_.state;
+        if (next.state != KernelState::Running && !next.recon_agreed) {
+            doubted_since_ = at;
+        }
         if (moved) {
             since_ = at;
             because_ = event;
@@ -135,12 +145,16 @@ public:
 
     [[nodiscard]] UnixNanos since() const noexcept { return since_; }
 
+    // a snapshot pulled before the last doubt says nothing about what happened since, so it cannot clear it
+    [[nodiscard]] bool answers_doubt(UnixNanos pulled) const noexcept { return pulled.ns >= doubted_since_.ns; }
+
     // true once the venue has agreed since the halt
     [[nodiscard]] bool resumable() const noexcept { return now_.state == KernelState::Halted && now_.recon_agreed; }
 
 private:
     KernelStep now_{};
     UnixNanos since_{};
+    UnixNanos doubted_since_{};
     KernelEvent because_{KernelEvent::ReconAgreed};
 };
 

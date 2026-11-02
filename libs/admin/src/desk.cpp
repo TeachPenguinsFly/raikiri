@@ -33,20 +33,22 @@ std::string_view describe(DeskError error) noexcept {
         return "the intent ring is full: strategyd is not draining";
     case DeskError::RingHeld:
         return "another admind writes this gateway's intents";
+    case DeskError::RefTooLong:
+        return "an external reference is at most 40 characters";
     }
     return "refused";
 }
 
-ManualDesk::ManualDesk(const Registry& registry) noexcept
-    : registry_{&registry},
+ManualDesk::ManualDesk(const Registry& registry, books::Registry* books) noexcept
+    : registry_{&registry}, books_{books},
       // seeded from epoch milliseconds so ids do not repeat across restarts
       seq_{static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                           std::chrono::system_clock::now().time_since_epoch())
                                           .count()) &
            0xFFFF'FFFF'FFFFULL} {}
 
-ClientOrderId ManualDesk::mint() noexcept {
-    return ClientOrderId::make(k_manual_strategy_id, ++seq_);
+ClientOrderId ManualDesk::mint(std::uint16_t book) noexcept {
+    return ClientOrderId::make(book, ++seq_);
 }
 
 std::expected<ClientOrderId, DeskError> ManualDesk::place(const DeskOrder& order, std::string_view key, UnixNanos now) {
@@ -108,7 +110,12 @@ std::expected<ClientOrderId, DeskError> ManualDesk::place(const DeskOrder& order
     }
     cmd.qty = *lots;
 
-    cmd.client_order_id = mint();
+    const auto ref = ExchangeOrderId::from(order.external_ref);
+    if (!ref.has_value()) {
+        return std::unexpected{DeskError::RefTooLong};
+    }
+    cmd.target_exchange_order_id = *ref;
+    cmd.client_order_id = mint(order.book);
 
     shm::CmdProducer producer{row->gateway->channels.order_intents};
     if (!producer.try_push(cmd).has_value()) {
@@ -127,7 +134,8 @@ std::expected<ClientOrderId, DeskError> ManualDesk::place(const DeskOrder& order
 }
 
 std::expected<void, DeskError> ManualDesk::cancel(ClientOrderId id, UnixNanos now) {
-    if (id.strategy_id() != k_manual_strategy_id) {
+    const bool shared = id.strategy_id() == k_manual_strategy_id && !id.is_child();
+    if (!shared && (books_ == nullptr || !books_->takes_intents(id))) {
         // not this desk's order
         return std::unexpected{DeskError::NoSuchOrder};
     }

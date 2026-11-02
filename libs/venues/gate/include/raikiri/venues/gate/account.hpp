@@ -21,6 +21,9 @@ struct WireFuturesAccount {
 
 [[nodiscard]] std::expected<WireFuturesAccount, WireError> parse_futures_account(std::string_view body);
 
+// /options/accounts' margin_mode, a bare number whose meanings the docs do not spell out
+[[nodiscard]] std::expected<std::uint64_t, WireError> parse_option_margin_mode(std::string_view body);
+
 // the private socket needs this user id first in every subscribe payload or streams nothing
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view body);
 

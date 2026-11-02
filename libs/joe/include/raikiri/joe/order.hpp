@@ -6,6 +6,7 @@
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/instrument.hpp>
+#include <raikiri/domain/origin.hpp>
 
 #include <cstdint>
 #include <expected>
@@ -86,6 +87,10 @@ struct ParentSpec {
     bool post_only{false};
     // the caller's own name for this order: a second start with a tag still held returns the first parent
     std::string client_tag{};
+    // whose the children and their fills are; zero is the executor's own book
+    std::uint16_t book{0};
+    // an rfq trade id or a client's order id, on every child
+    std::string external_ref{};
 };
 
 enum class SpecError : std::uint8_t {
@@ -108,6 +113,7 @@ enum class SpecError : std::uint8_t {
     BadInterval,
     PostOnlyCrosses,
     TagTooLong,
+    RefTooLong,
 };
 
 [[nodiscard]] std::string_view to_string(SpecError error) noexcept;

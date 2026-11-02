@@ -1,4 +1,5 @@
 #include <raikiri/domain/identifiers.hpp>
+#include <raikiri/domain/origin.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/oms/funding_identity.hpp>
@@ -10,11 +11,16 @@
 
 #include <unistd.h>
 
+#include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <pqxx/pqxx>
+#include <span>
 #include <string>
 #include <system_error>
+#include <tuple>
+#include <vector>
 
 namespace raikiri::persist {
 namespace {
@@ -175,6 +181,79 @@ TEST(Mapper, ACatalogueEntryRoundTripsWithItsGeneration) {
     EXPECT_EQ(row.valid_from, 1'000U);
 }
 
+TEST(Mapper, ACreateCommandCarriesItsOrigin) {
+    const FreshDir dir{"origin"};
+    const auto child = ClientOrderId::make_child(1030, 5);
+    {
+        auto writer = journal::JournalWriter::open(dir, "journal");
+        ASSERT_TRUE(writer.has_value());
+        (void)schema::append_msg<msgs::OrderCmdMsg>(*writer, 1, [&](auto m) {
+            m.kind(jt::cmdKindEnum::Create);
+            m.clientOrderIdField(jt::clientOrderId{child.raw});
+            m.tsCreated(jt::timestampNs{77});
+            m.bookKind(static_cast<std::uint8_t>(BookKind::Hedge));
+            m.parentId(jt::clientOrderId{9000});
+            m.externalRef().assign_range(std::string_view{"rfq-12"});
+        });
+        (void)schema::append_msg<msgs::OrderCmdMsg>(*writer, 2, [&](auto m) {
+            m.kind(jt::cmdKindEnum::Cancel);
+            m.clientOrderIdField(jt::clientOrderId{child.raw});
+            m.tsCreated(jt::timestampNs{78});
+        });
+    }
+    auto reader = journal::JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    RowBatch batch;
+    journal::FrameView frame{};
+    while (reader->next(frame) == journal::ReadResult::Item) {
+        map_frame(frame, batch);
+    }
+    ASSERT_EQ(batch.order_origins.size(), 1U) << "a cancel says nothing about whose the order is";
+    const auto& row = batch.order_origins[0];
+    EXPECT_EQ(row.client_order_id, child.raw);
+    EXPECT_EQ(row.book_id, 1030);
+    EXPECT_EQ(row.book_kind, "hedge");
+    EXPECT_EQ(row.parent_id, 9000U);
+    EXPECT_EQ(row.external_ref, "rfq-12");
+    EXPECT_EQ(row.ts_created, 77U);
+    EXPECT_EQ(batch.last_seq, 2U);
+}
+
+// journals written before schema version 7 stay on disk: such a record is shorter, and reading its origin would run off
+// the end. the frame sits in an exact heap block here, so asan catches any read past it
+TEST(Mapper, AnOldCommandRecordHasNoOriginAndIsNotReadPastItsEnd) {
+    constexpr std::size_t k_origin_bytes = 1 + 8 + 40;
+    using Msg = sbepp::message_traits<msgs::OrderCmdMsg>::value_type<std::byte>;
+    std::array<std::byte, 512> buf{};
+    Msg msg{buf.data(), buf.size()};
+    sbepp::fill_message_header(msg);
+    msg.kind(jt::cmdKindEnum::Create);
+    msg.clientOrderIdField(jt::clientOrderId{ClientOrderId::make(5, 1).raw});
+    msg.tsCreated(jt::timestampNs{1});
+    const auto used = static_cast<std::size_t>(sbepp::size_bytes(msg)) - k_origin_bytes;
+    std::vector<std::byte> shorter(buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(used));
+
+    const FreshDir dir{"old-origin"};
+    {
+        auto writer = journal::JournalWriter::open(dir, "journal");
+        ASSERT_TRUE(writer.has_value());
+        ASSERT_TRUE(writer->append(schema::message_id<msgs::OrderCmdMsg>(), 6, std::span<const std::byte>{shorter}, 1)
+                        .has_value());
+    }
+    auto reader = journal::JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    journal::FrameView frame{};
+    ASSERT_EQ(reader->next(frame), journal::ReadResult::Item);
+    EXPECT_EQ(frame.schema_version, 6U);
+    ASSERT_EQ(frame.payload.size(), used);
+
+    frame.payload = std::span<const std::byte>{shorter};
+    RowBatch batch;
+    map_frame(frame, batch);
+    EXPECT_TRUE(batch.order_origins.empty());
+    EXPECT_EQ(batch.last_seq, 1U) << "the record still advances the cursor";
+}
+
 TEST(Mapper, FillProducesEventUpsertAndExecution) {
     const FreshDir scratch{"fill"};
     const auto dir = build_journal(scratch);
@@ -300,7 +379,10 @@ void migrate(PgSink& sink) {
                                   "/migrations/0003_reject_reason.sql",
                                   "/migrations/0004_funding_accrual.sql",
                                   "/migrations/0005_instrument_generations.sql",
-                                  "/migrations/0006_instrument_asset_class.sql"}) {
+                                  "/migrations/0006_instrument_asset_class.sql",
+                                  "/migrations/0007_fee_asset.sql",
+                                  "/migrations/0008_order_origins.sql",
+                                  "/migrations/0009_order_version.sql"}) {
         sink.exec_file(std::string{RAIKIRI_SQL_DIR} + migration);
     }
 }
@@ -353,6 +435,92 @@ TEST(PersistIntegration, AGenerationClosesThePreviousWindowOnItsId) {
               "1:OLDUSD:1000-2000,2:NEWUSD:2000-");
     tx.commit();
     scrub();
+}
+
+// events race on the wire: every arrival order must leave the row the sent order leaves
+TEST(PersistIntegration, AnOrderRowConvergesInAnyArrivalOrder) {
+    const char* dsn = std::getenv("RAIKIRI_PG_DSN");
+    if (dsn == nullptr || *dsn == '\0') {
+        GTEST_SKIP() << "RAIKIRI_PG_DSN not set";
+    }
+    PgSink sink{dsn};
+    migrate(sink);
+    pqxx::connection conn{dsn};
+
+    const auto row = [](std::string status, std::int64_t leaves, std::uint64_t ts) {
+        OrderUpsert out{};
+        out.client_order_id = 0x0FFF'0000'0000'0000ULL;
+        out.instrument_id = 1;
+        out.side = "buy";
+        out.order_type = "limit";
+        out.tif = "gtc";
+        out.price_ticks = 100;
+        out.qty_lots = 10;
+        out.leaves_lots = leaves;
+        out.status = std::move(status);
+        out.ts_event = ts;
+        return out;
+    };
+    const auto read = [&] {
+        pqxx::read_transaction tx{conn};
+        const auto rows = tx.exec("SELECT status, leaves_lots, price_ticks, version FROM raikiri.orders"
+                                  " WHERE client_order_id = " +
+                                  std::to_string(static_cast<std::int64_t>(0x0FFF'0000'0000'0000ULL)));
+        const auto got = rows[0];
+        return std::tuple{
+            got[0].as<std::string>(), got[1].as<std::int64_t>(), got[2].as<std::int64_t>(), got[3].as<std::int64_t>()};
+    };
+    const auto play = [&](std::vector<OrderUpsert> rows) {
+        {
+            pqxx::work tx{conn};
+            tx.exec("DELETE FROM raikiri.orders WHERE client_order_id = " +
+                    std::to_string(static_cast<std::int64_t>(0x0FFF'0000'0000'0000ULL)));
+            tx.commit();
+        }
+        RowBatch batch{};
+        batch.order_upserts = std::move(rows);
+        sink.commit("order-race-test", batch);
+    };
+    auto amend = row("", 10, 30);
+    amend.price_ticks = 90;
+    amend.reprices = true;
+    constexpr std::int64_t k_undef = std::numeric_limits<std::int64_t>::min();
+
+    // a venue's rest ack stamped after the fill it raced
+    play({row("submitted", 10, 1), row("filled", 0, 50), row("accepted", 10, 60)});
+    EXPECT_EQ(std::get<0>(read()), "filled");
+    EXPECT_EQ(std::get<1>(read()), 0);
+
+    // a fill stamped before the cancel it raced, seen after it
+    play({row("submitted", 10, 1), row("canceled", 10, 60), row("partially_filled", 7, 50)});
+    EXPECT_EQ(std::get<0>(read()), "canceled");
+    EXPECT_EQ(std::get<1>(read()), 7);
+
+    // a fill that finishes an order someone had already cancelled
+    play({row("submitted", 10, 1), row("canceled", 10, 60), row("filled", 0, 50)});
+    EXPECT_EQ(std::get<0>(read()), "filled");
+
+    // fills overtaking each other, and a pulled fill with no leaves at all
+    play({row("submitted", 10, 1),
+          row("partially_filled", 3, 50),
+          row("partially_filled", 7, 40),
+          row("partially_filled", k_undef, 70)});
+    EXPECT_EQ(std::get<0>(read()), "partially_filled");
+    EXPECT_EQ(std::get<1>(read()), 3);
+
+    // an older working status stays out, an amend's price comes in, a fill's price does not
+    auto priced_fill = row("partially_filled", 8, 40);
+    priced_fill.price_ticks = 77;
+    play({row("accepted", 10, 20), amend, priced_fill, row("accepted", 8, 10)});
+    EXPECT_EQ(std::get<0>(read()), "partially_filled");
+    EXPECT_EQ(std::get<2>(read()), 90);
+    EXPECT_EQ(std::get<3>(read()), 3);
+    {
+        pqxx::work tx{conn};
+        tx.exec("DELETE FROM raikiri.orders WHERE client_order_id = " +
+                std::to_string(static_cast<std::int64_t>(0x0FFF'0000'0000'0000ULL)));
+        tx.commit();
+    }
 }
 
 // skipped unless RAIKIRI_PG_DSN is set

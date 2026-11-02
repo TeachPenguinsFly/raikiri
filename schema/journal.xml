@@ -12,7 +12,7 @@
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="raikiri.journal"
                    id="1"
-                   version="6"
+                   version="7"
                    semanticVersion="0.1.0"
                    description="raikiri journal records"
                    byteOrder="littleEndian">
@@ -227,6 +227,11 @@
     <field name="price" id="10" type="priceTicks"/>
     <field name="qty" id="11" type="qtyLots"/>
     <field name="tsCreated" id="12" type="timestampNs"/>
+    <!-- whose the order is and why it exists; the book's id is the strategy half of the client order id.
+         a record before version 7 is shorter and has none of these -->
+    <field name="bookKind" id="13" type="uint8" sinceVersion="7"/>
+    <field name="parentId" id="14" type="clientOrderId" sinceVersion="7" description="zero is no parent"/>
+    <field name="externalRef" id="15" type="venueText" sinceVersion="7"/>
   </sbe:message>
 
   <sbe:message name="BboMsg" id="3" description="Sampled/changed best bid-offer">

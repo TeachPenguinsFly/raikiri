@@ -4,6 +4,7 @@
 
 #include <raikiri/common/cacheline.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cstddef>
@@ -80,6 +81,13 @@ public:
 
     // Items skipped by the most recent overrun.
     [[nodiscard]] std::uint64_t gap() const noexcept { return gap_; }
+
+    // back over what was published while nobody read; half the ring, so the writer is not lapping the first read
+    void rewind() noexcept {
+        const auto head = ring_->published.load(std::memory_order_acquire);
+        const auto back = std::min<std::uint64_t>(head, N / 2);
+        next_ = head - back + 1;
+    }
 
     [[nodiscard]] std::uint64_t next_seq() const noexcept { return next_; }
 

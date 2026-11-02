@@ -3,11 +3,13 @@
 // appends to one stream's chain on the caller's thread; file_sink puts a queue in front of it
 
 #include <raikiri/audit/chain.hpp>
+#include <raikiri/audit/day_index.hpp>
 #include <raikiri/audit/log.hpp>
 
 #include <cstdint>
 #include <expected>
 #include <string>
+#include <vector>
 
 namespace raikiri::audit {
 
@@ -64,12 +66,17 @@ private:
     void sync() noexcept;
     void write_head() noexcept;
     void close_all() noexcept;
+    void seal_block();
+    void write_index() noexcept;
 
     std::string stream_dir_;
     FsyncPolicy fsync_;
     int lock_fd_{-1};
     int head_fd_{-1};
     int day_fd_{-1};
+    int index_fd_{-1};
+    IndexBlock block_{};
+    std::vector<IndexBlock> sealed_{};
     std::uint32_t day_{0};
     std::uint64_t file_bytes_{0};
     std::string pending_{};

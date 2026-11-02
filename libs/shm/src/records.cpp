@@ -1,7 +1,49 @@
 #include <raikiri/common/platform.hpp>
 #include <raikiri/shm/records.hpp>
 
+#include <algorithm>
+
 namespace raikiri::shm {
+
+void publish_open_orders(OpenOrderTable& table, std::span<const OpenOrderCell> rows, UnixNanos pulled) noexcept {
+    const auto marker = k_open_order_cells - 1;
+    table.write(marker, OpenOrderCell{});
+    std::size_t slot = 0;
+    for (const auto& row : rows.first(std::min(rows.size(), k_open_order_rows))) {
+        table.write(slot++, row);
+    }
+    for (; slot < marker; ++slot) {
+        table.write(slot, OpenOrderCell{});
+    }
+    OpenOrderCell done{};
+    done.leaves = QtyLots::from_raw(static_cast<std::int64_t>(std::min(rows.size(), k_open_order_rows)));
+    done.ts_venue = pulled;
+    table.write(marker, done);
+}
+
+std::optional<OpenOrders> read_open_orders(const OpenOrderTable& table) {
+    const auto marker = k_open_order_cells - 1;
+    OpenOrderCell before{};
+    const auto version = table.read(marker, before);
+    if (version == 0 || before.ts_venue.ns == 0) {
+        return std::nullopt;
+    }
+    OpenOrders out{.pulled = before.ts_venue};
+    const auto count = static_cast<std::size_t>(before.leaves.raw);
+    out.rows.reserve(count);
+    for (std::size_t slot = 0; slot < count && slot < marker; ++slot) {
+        OpenOrderCell cell{};
+        if (table.read(slot, cell) == 0 || cell.ts_pulled.ns != out.pulled.ns) {
+            return std::nullopt;
+        }
+        out.rows.push_back(cell);
+    }
+    OpenOrderCell after{};
+    if (table.read(marker, after) != version) {
+        return std::nullopt;
+    }
+    return out;
+}
 
 std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& owner) {
     GatewayChannels ch;

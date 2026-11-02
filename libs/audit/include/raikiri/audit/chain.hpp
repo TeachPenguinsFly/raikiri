@@ -20,6 +20,7 @@ inline constexpr Digest k_genesis{};
 
 inline constexpr std::string_view k_action_recovery = "audit.recovery";
 inline constexpr std::string_view k_action_overflow = "audit.overflow";
+inline constexpr std::string_view k_action_retention = "audit.retention";
 
 [[nodiscard]] Digest sha256(std::string_view bytes) noexcept;
 [[nodiscard]] std::string to_hex(const Digest& digest);

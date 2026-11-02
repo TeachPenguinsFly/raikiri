@@ -26,6 +26,15 @@ struct EntryView {
     std::string_view line{};
 };
 
+// what a store may use to skip lines; the caller still checks every line it is given
+struct ScanHint {
+    std::string_view actor{};
+    std::string_view action{};
+    std::string_view subject{};
+    std::optional<UnixNanos> since{};
+    std::optional<UnixNanos> until{};
+};
+
 class EntryStore {
 public:
     EntryStore() = default;
@@ -38,6 +47,11 @@ public:
     virtual void scan_day(const std::string& stream,
                           std::uint32_t day,
                           const std::function<void(const EntryView&)>& visit) const = 0;
+    // last line first, until `visit` says stop
+    virtual void scan_day_newest(const std::string& stream,
+                                 std::uint32_t day,
+                                 const ScanHint& hint,
+                                 const std::function<bool(const EntryView&)>& visit) const = 0;
     [[nodiscard]] virtual ChainReport verify(const std::string& stream, std::uint32_t day) const = 0;
 };
 

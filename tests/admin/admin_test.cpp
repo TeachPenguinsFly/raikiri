@@ -289,6 +289,120 @@ TEST(AdminDeskLease, ASecondAdmindIsRefusedTheIntentRingRatherThanSharingIt) {
     EXPECT_TRUE(desk.place(order, "", UnixNanos{2}).has_value());
 }
 
+// the login the proxy names decides the id every downstream row reads the book from
+TEST(AdminDeskBooks, ALoginPlacesInItsOwnBookAndNoLoginInTheSharedOne) {
+    const SegmentDir dir;
+    auto run = start_gateway(1'000, {"AAA"});
+    ASSERT_TRUE(run.has_value());
+    Registry registry;
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    raikiri::books::MemoryBookStore store;
+    raikiri::books::Registry names{store, [] { return UnixNanos{1}; }};
+    ASSERT_TRUE(names.load().has_value());
+    ManualDesk desk{registry, &names};
+    const auto router = make_router(
+        registry, nullptr, &desk, [] { return MonoNanos{1}; }, [] { return UnixNanos{1}; }, {}, &names);
+
+    const auto instrument = std::to_string(InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0}).packed);
+    const auto place = [&](std::string_view login, std::string key, std::string extra = {}) {
+        const auto body = R"({"account":"sim","instrument_id":")" + instrument +
+                          R"(","side":"buy","order_type":"limit","price":"1.00","qty":"0.001")" + extra + "}";
+        return router({.method = "POST", .path = "/v1/orders", .body = body, .idempotency_key = key, .login = login});
+    };
+    const auto id_of = [](const http::Response& answer) {
+        constexpr std::string_view k_field = R"("client_order_id":")";
+        const auto from = answer.body.find(k_field) + k_field.size();
+        return ClientOrderId{std::stoull(answer.body.substr(from, answer.body.find('"', from) - from))};
+    };
+
+    auto vova = place("vova", "k1");
+    ASSERT_EQ(vova.status, 202) << vova.body;
+    EXPECT_NE(vova.body.find(R"("book":"manual:vova")"), std::string::npos) << vova.body;
+    EXPECT_EQ(id_of(vova).strategy_id(), names.find("manual:vova")->id);
+
+    auto petya = place("petya", "k2");
+    ASSERT_EQ(petya.status, 202);
+    EXPECT_NE(id_of(petya).strategy_id(), id_of(vova).strategy_id());
+    EXPECT_EQ(id_of(place("vova", "k3")).strategy_id(), id_of(vova).strategy_id()) << "one operator, one book";
+
+    auto nobody = place("", "k4");
+    ASSERT_EQ(nobody.status, 202);
+    EXPECT_NE(nobody.body.find(R"("book":"manual")"), std::string::npos) << nobody.body;
+    EXPECT_EQ(id_of(nobody).strategy_id(), k_manual_strategy_id);
+    EXPECT_EQ(id_of(place("a&b", "k5")).strategy_id(), k_manual_strategy_id) << "not a usable login, so nobody";
+
+    EXPECT_EQ(place("vova", "k6", R"(,"book":"manual:petya")").status, 403);
+    EXPECT_EQ(place("vova", "k7", R"(,"book":"hedge")").status, 403);
+    EXPECT_EQ(place("vova", "k8", R"(,"book":"client:acme")").status, 404) << "not opened yet";
+
+    ASSERT_TRUE(names.open("client:acme").has_value());
+    auto client = place("vova", "k9", R"(,"book":"client:acme","external_ref":"their-77")");
+    ASSERT_EQ(client.status, 202) << client.body;
+    EXPECT_EQ(id_of(client).strategy_id(), names.find("client:acme")->id);
+
+    // the reference rides in the slot's unused target, for strategyd to journal; nothing else on the ring changes
+    shm::CmdConsumer intents{registry.find("sim")->channels.order_intents};
+    OrderCmd cmd{};
+    std::string last_ref;
+    while (intents.try_pop(cmd)) {
+        last_ref = std::string{cmd.target_exchange_order_id.view()};
+    }
+    EXPECT_EQ(last_ref, "their-77");
+    EXPECT_EQ(cmd.client_order_id, id_of(client));
+
+    EXPECT_EQ(place("vova", "k10", ",\"external_ref\":\"" + std::string(41, 'x') + "\"").status, 422);
+
+    // a person's desk cancels hand and client orders, never a strategy's or an executor's child
+    EXPECT_TRUE(desk.cancel(id_of(vova), UnixNanos{2}).has_value());
+    EXPECT_TRUE(desk.cancel(id_of(client), UnixNanos{2}).has_value());
+    EXPECT_TRUE(desk.cancel(id_of(nobody), UnixNanos{2}).has_value());
+    EXPECT_EQ(desk.cancel(ClientOrderId::make(7, 1), UnixNanos{2}).error(), DeskError::NoSuchOrder);
+    EXPECT_EQ(desk.cancel(ClientOrderId::make_child(id_of(vova).strategy_id(), 1), UnixNanos{2}).error(),
+              DeskError::NoSuchOrder);
+}
+
+TEST(AdminJoeForward, AParentByHandIsTheOperatorsUnlessItNamesAnotherBook) {
+    std::string asked;
+    http::Server upstream{"127.0.0.1", 0, [&asked](const http::Request& req) {
+                              asked = std::string{req.path} + "?" + std::string{req.query};
+                              return http::Response{.status = 201, .body = R"({"id":"1"})"};
+                          }};
+    ASSERT_TRUE(upstream.start());
+    std::atomic<bool> stop{false};
+    std::thread serving{[&] {
+        while (!stop.load()) {
+            (void)upstream.run_for(std::chrono::milliseconds{5});
+        }
+    }};
+    const Registry registry;
+    const auto router = make_router(
+        registry,
+        nullptr,
+        nullptr,
+        [] { return MonoNanos{1}; },
+        [] { return UnixNanos{1}; },
+        {{"strategyd", upstream.port()}});
+    const auto post = [&](std::string_view login, std::string_view body) {
+        return router({.method = "POST", .path = "/v1/joe/parents", .body = body, .login = login});
+    };
+
+    EXPECT_EQ(post("vova", R"({"symbol":"BTC/USDT"})").status, 201);
+    EXPECT_EQ(asked, "/joe/parents?default_book=manual:vova");
+    EXPECT_EQ(post("", R"({"symbol":"BTC/USDT"})").status, 201);
+    EXPECT_EQ(asked, "/joe/parents?default_book=manual") << "nobody named, so the shared book, and the row says so";
+    EXPECT_EQ(post("a&default_book=hedge", R"({})").status, 201);
+    EXPECT_EQ(asked, "/joe/parents?default_book=manual") << "a login cannot write into the query";
+
+    EXPECT_EQ(post("vova", R"({"book":"hedge"})").status, 201);
+    EXPECT_EQ(post("vova", R"({"book":"client:acme"})").status, 201);
+    EXPECT_EQ(post("vova", R"({"book":"manual:vova"})").status, 201);
+    EXPECT_EQ(post("vova", R"({"book":"manual:petya"})").status, 403);
+    EXPECT_EQ(post("vova", R"({"book":"manual"})").status, 403);
+
+    stop.store(true);
+    serving.join();
+}
+
 TEST(AdminReattach, AStoppedGatewayIsLetGoOnceItsFileIsGone) {
     const SegmentDir dir;
     auto run = start_gateway(1'000, {"AAA"});
@@ -441,6 +555,55 @@ TEST(AdminVenueMetrics, TheRouteReadsTheClockAndFeedEachGatewayPublished) {
     ASSERT_EQ(rows.front().channels.size(), 1U);
     EXPECT_FALSE(rows.front().channels.front().lag_p50_corrected_ns.has_value());
     EXPECT_EQ(rows.front().channels.front().lag_p50_ns, 12 * static_cast<std::int64_t>(k_ms));
+}
+
+TEST(RiskForward, TheRoutesReachStrategydsControlPortWithBodyAndStatus) {
+    Registry registry;
+    std::string seen;
+    http::Server upstream{"127.0.0.1", 0, [&seen](const http::Request& req) {
+                              seen = std::string{req.method} + " " + std::string{req.path} + " " +
+                                     std::string{req.body};
+                              if (req.path == "/risk/capital") {
+                                  return http::Response{.status = 409, .body = R"({"raises":["capital"]})"};
+                              }
+                              return http::Response{.status = 200, .body = R"({"desk_state":"active"})"};
+                          }};
+    ASSERT_TRUE(upstream.start());
+    std::jthread serve{[&upstream](const std::stop_token& stop) {
+        while (!stop.stop_requested()) {
+            (void)upstream.run_for(std::chrono::milliseconds{5});
+        }
+    }};
+    const auto router = make_router(
+        registry,
+        nullptr,
+        nullptr,
+        [] { return MonoNanos{1}; },
+        [] { return UnixNanos{1}; },
+        {{"strategyd", upstream.port()}});
+
+    const auto overview = router({.method = "GET", .path = "/v1/risk"});
+    EXPECT_EQ(overview.status, 200);
+    EXPECT_EQ(overview.body, R"({"desk_state":"active"})");
+    EXPECT_EQ(seen, "GET /risk ");
+
+    const auto raised = router({.method = "POST", .path = "/v1/risk/capital", .body = R"({"capital":"1"})"});
+    EXPECT_EQ(raised.status, 409);
+    EXPECT_EQ(raised.content_type, "application/problem+json");
+    EXPECT_EQ(seen, R"(POST /risk/capital {"capital":"1"})");
+
+    (void)router({.method = "POST", .path = "/v1/risk/books/7/kill", .body = "{}"});
+    EXPECT_EQ(seen, "POST /risk/books/7/kill {}");
+
+    EXPECT_EQ(router({.method = "DELETE", .path = "/v1/risk"}).status, 405);
+}
+
+TEST(RiskForward, WithoutTheUpstreamItSaysSo) {
+    Registry registry;
+    const auto router = make_router(
+        registry, nullptr, nullptr, [] { return MonoNanos{1}; }, [] { return UnixNanos{1}; });
+    EXPECT_EQ(router({.method = "GET", .path = "/v1/risk"}).status, 503);
+    EXPECT_EQ(router({.method = "GET", .path = "/v1/riskier"}).status, 404);
 }
 
 } // namespace

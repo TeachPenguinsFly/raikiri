@@ -174,6 +174,23 @@ public:
     }
 
     // one margin account per currency backs futures and options, read on the option gateway only so it counts once
+    // the flag is the account's, so one currency answers for it
+    std::expected<std::string, exec::VenueError> option_account_mode() {
+        const auto request = builder_.account_summary(k_currencies.front(), state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto regime = parse_margin_regime(*body);
+        if (!regime.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(regime.error()))};
+        }
+        return std::string{*regime};
+    }
+
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
         if (market != MarketType::Option) {
             return std::unexpected{exec::not_implemented("deribit balances are read on the option account")};

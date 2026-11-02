@@ -229,6 +229,16 @@ TEST(Settings, AMissingFileSaysSoRatherThanReadingAsEmpty) {
     EXPECT_FALSE(load_risk("config/there-is-no-such-file.yaml").has_value());
 }
 
+TEST(RiskSettings, ABookCanRepeatItselfOnPurpose) {
+    const auto file = load_risk(std::string{RAIKIRI_CONFIG_DIR} + "/risk.yaml");
+    ASSERT_TRUE(file.has_value()) << file.error();
+    EXPECT_EQ(to_risk_config(risk_for(*file, "anything", 7)).duplicate_window_ns, 1'000'000'000ULL);
+    EXPECT_EQ(to_risk_config(risk_for(*file, "demo-maker", 7)).duplicate_window_ns, 0U);
+    RiskSettings longer{};
+    longer.duplicate_window_ms = 2500;
+    EXPECT_EQ(to_risk_config(longer).duplicate_window_ns, 2'500'000'000ULL);
+}
+
 TEST(RiskSettings, TheCommittedFileLoadsWithNotionalLimitsAndNoLotCap) {
     const auto file = load_risk(std::string{RAIKIRI_CONFIG_DIR} + "/risk.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
@@ -240,6 +250,39 @@ TEST(RiskSettings, TheCommittedFileLoadsWithNotionalLimitsAndNoLotCap) {
     for (const auto market : {MarketType::Spot, MarketType::Perp, MarketType::Future, MarketType::Option}) {
         EXPECT_TRUE(config.max_lots.of(market).is_undef());
     }
+}
+
+TEST(RiskSettings, TheBookChecksAreOffUnlessAFileAsksForThem) {
+    const auto path = write_temp(R"(defaults:
+  max_orders_in_window: 50
+  order_window_ms: 2000
+  max_repeat_entries: 9
+  repeat_window_ms: 30000
+  max_quote_age_ms: 1500
+strategies:
+  quiet: { max_quote_age_ms: 0, max_repeat_entries: 0 }
+notify_webhook: env:RISK_HOOK
+)");
+    const auto file = load_risk(path);
+    std::remove(path.c_str());
+    ASSERT_TRUE(file.has_value()) << file.error();
+    EXPECT_EQ(file->notify_webhook, "env:RISK_HOOK");
+
+    const auto set = to_risk_config(risk_for(*file, "other", 3));
+    EXPECT_EQ(set.max_orders_in_window, 50U);
+    EXPECT_EQ(set.order_window_ns, 2'000'000'000U);
+    EXPECT_EQ(set.max_repeat_entries, 9U);
+    EXPECT_EQ(set.repeat_window_ns, 30'000'000'000U);
+    EXPECT_EQ(set.max_quote_age_ns, 1'500'000'000U);
+
+    const auto quiet = to_risk_config(risk_for(*file, "quiet", 3));
+    EXPECT_EQ(quiet.max_quote_age_ns, 0U);
+    EXPECT_EQ(quiet.max_repeat_entries, 0U);
+
+    const auto none = to_risk_config(RiskSettings{});
+    EXPECT_EQ(none.max_orders_in_window, 0U);
+    EXPECT_EQ(none.max_repeat_entries, 0U);
+    EXPECT_EQ(none.max_quote_age_ns, 0U);
 }
 
 TEST(RiskSettings, UnsetIsOffAndAStrategyEntryOverridesFieldByField) {
@@ -272,6 +315,21 @@ strategies:
     EXPECT_EQ(by_id.max_order_notional, FixedE9::from_raw(1'000 * k_e9));
     EXPECT_EQ(by_id.max_instrument_notional, FixedE9::from_raw(4'000 * k_e9));
     EXPECT_EQ(by_id.max_open_orders, 8U);
+}
+
+TEST(RiskSettings, ShortOptionLimitsReachTheGateAndTheBufferKeepsItsDefaultUnset) {
+    RiskSettings settings{};
+    EXPECT_EQ(to_risk_config(settings).short_margin_buffer_bp, 500);
+    EXPECT_TRUE(to_risk_config(settings).max_naked_short.is_undef());
+    settings.max_naked_short = 250'000;
+    settings.max_short_vega = 5'000;
+    settings.max_short_gamma = 10'000;
+    settings.short_margin_buffer_bp = 0;
+    const auto config = to_risk_config(settings);
+    EXPECT_EQ(config.max_naked_short.raw, 250'000 * k_e9);
+    EXPECT_EQ(config.max_short_vega.raw, 5'000 * k_e9);
+    EXPECT_EQ(config.max_short_gamma.raw, 10'000 * k_e9);
+    EXPECT_EQ(config.short_margin_buffer_bp, 0);
 }
 
 TEST(RiskSettings, ANonPositiveLimitOrAnUnknownKeyIsRefused) {

@@ -27,6 +27,7 @@ tags:
   - name: cache
   - name: execution
   - name: audit
+  - name: risk
 
 paths:
   /v1/health:
@@ -343,6 +344,8 @@ paths:
       operationId: listOrders
       parameters:
         - { $ref: "#/components/parameters/Account" }
+        - { $ref: "#/components/parameters/BookFilter" }
+        - { $ref: "#/components/parameters/ParentFilter" }
         - name: instrument_id
           in: query
           schema: { $ref: "#/components/schemas/InstrumentId" }
@@ -397,6 +400,16 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OrderAccepted" }
+        "403":
+          description: The body names a book this operator may not place in.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: The body names a client book that has not been opened.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "422":
           description: |
             Refused by the desk before anything was queued: an unknown instrument, a
@@ -480,6 +493,8 @@ paths:
       operationId: listFills
       parameters:
         - { $ref: "#/components/parameters/Account" }
+        - { $ref: "#/components/parameters/BookFilter" }
+        - { $ref: "#/components/parameters/ParentFilter" }
         - name: instrument_id
           in: query
           schema: { $ref: "#/components/schemas/InstrumentId" }
@@ -525,13 +540,18 @@ paths:
   /v1/positions:
     get:
       tags: [trading]
-      summary: What is held, by strategy and instrument
+      summary: What is held, by book and instrument
+      description: |
+        A book's position nets every parent and hand order in it. With `parent`
+        the rows are what that parent's own fills add up to.
       operationId: listPositions
       parameters:
         - { $ref: "#/components/parameters/Account" }
         - name: strategy_id
           in: query
           schema: { type: integer, minimum: 0, maximum: 65535 }
+        - { $ref: "#/components/parameters/BookFilter" }
+        - { $ref: "#/components/parameters/ParentFilter" }
       responses:
         "200":
           description: OK
@@ -551,6 +571,8 @@ paths:
       operationId: listPnl
       parameters:
         - { $ref: "#/components/parameters/Account" }
+        - { $ref: "#/components/parameters/BookFilter" }
+        - { $ref: "#/components/parameters/ParentFilter" }
         - name: kind
           in: query
           schema: { $ref: "#/components/schemas/PnlKind" }
@@ -712,6 +734,54 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/books:
+    get:
+      tags: [trading]
+      summary: Every book on record
+      description: |
+        A book is who an order belongs to: a strategy, `manual:<login>`, the shared
+        `manual`, `client:<name>` or `hedge`. Its id is the strategy half of the
+        client order id, and an id is never handed out twice.
+      operationId: listBooks
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BookRecord" }
+    post:
+      tags: [trading]
+      summary: Open a client's book
+      description: |
+        For the client edge. Opening one that exists answers it with a 200. The other
+        kinds are made by their own paths: a strategy when it starts, `manual:<login>`
+        on the operator's first order, `hedge` on first use.
+      operationId: openBook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, examples: ["client:acme"] }
+      responses:
+        "200":
+          description: Already open
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BookRecord" }
+        "201":
+          description: Opened
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BookRecord" }
+        "422":
+          description: Not a client's book name.
+
   /v1/joe/parents:
     get:
       tags: [execution]
@@ -719,7 +789,8 @@ paths:
       description: |
         joe runs inside strategyd (`--joe <strategy id>`) and admind forwards
         `/v1/joe/` to the upstream named `strategyd`. Parents live in memory and a
-        restart forgets them; their children are ordinary orders in the journal.
+        restart forgets them; their children are ordinary orders in the journal, and
+        `GET /v1/orders?parent=<id>` still answers for them.
       operationId: listParentOrders
       parameters:
         - name: client_tag
@@ -727,6 +798,11 @@ paths:
           required: false
           schema: { type: string }
           description: Only the parent started with this tag.
+        - name: book
+          in: query
+          required: false
+          schema: { type: string }
+          description: Only parents on this book, by name.
       responses:
         "200":
           description: OK
@@ -858,6 +934,170 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/risk:
+    get:
+      tags: [risk]
+      summary: Desk capital, the defaults row and every book's limits, state and p&l
+      description: |
+        Forwarded to strategyd's control port, so `--upstream strategyd=<port>` must be set. With no
+        capital declared, every new order is refused and cancels pass. A limit is set as a percent of
+        capital or in dollars and comes back both ways.
+      operationId: getBookRisk
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BookRiskDesk" }
+        "503":
+          description: strategyd is not answering, or admind has no such upstream
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/risk/capital:
+    post:
+      tags: [risk]
+      summary: Declare the desk's capital
+      description: A raise, and so the first figure, needs `confirm`. Applies at once. Written to the audit trail.
+      operationId: setBookRiskCapital
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRiskCapitalChange" }
+      responses:
+        "200": { $ref: "#/components/responses/BookRiskDesk" }
+        "400": { $ref: "#/components/responses/BookRiskProblem" }
+        "409": { $ref: "#/components/responses/BookRiskNeedsConfirm" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/defaults:
+    post:
+      tags: [risk]
+      summary: Change the row every book inherits from
+      operationId: setBookRiskDefaults
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRiskLimitsChange" }
+      responses:
+        "200": { $ref: "#/components/responses/BookRiskDesk" }
+        "400": { $ref: "#/components/responses/BookRiskProblem" }
+        "409": { $ref: "#/components/responses/BookRiskNeedsConfirm" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/kill:
+    post:
+      tags: [risk]
+      summary: Halt every book and cancel every open order
+      description: Positions stay as they are. The halt survives a restart and only a person resumes.
+      operationId: killAllBooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRiskChange" }
+      responses:
+        "200": { $ref: "#/components/responses/BookRiskKilled" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/resume:
+    post:
+      tags: [risk]
+      summary: Lift the halt over everything
+      description: A book halted on its own stays halted.
+      operationId: resumeAllBooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRiskChange" }
+      responses:
+        "200": { $ref: "#/components/responses/BookRiskDesk" }
+        "409": { $ref: "#/components/responses/BookRiskNeedsConfirm" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/books/{id}:
+    get:
+      tags: [risk]
+      summary: One book, by id or name
+      description: A hedger reads `row.limits.order_notional.effective` here to size its children.
+      operationId: getBookRiskBook
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BookRiskBook" }
+        "404": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/books/{id}/limits:
+    post:
+      tags: [risk]
+      summary: Change a book's own limits
+      operationId: setBookRiskLimits
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRiskLimitsChange" }
+      responses:
+        "200": { $ref: "#/components/responses/BookRiskDesk" }
+        "400": { $ref: "#/components/responses/BookRiskProblem" }
+        "409": { $ref: "#/components/responses/BookRiskNeedsConfirm" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/books/{id}/state:
+    post:
+      tags: [risk]
+      summary: Move a book to reducing, or resume it
+      description: |
+        `reducing` lets only orders that shrink the position out. Moving towards `active` needs
+        `confirm`. A halt goes through the kill route, which pulls the orders.
+      operationId: setBookRiskState
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRiskStateChange" }
+      responses:
+        "200": { $ref: "#/components/responses/BookRiskDesk" }
+        "409": { $ref: "#/components/responses/BookRiskNeedsConfirm" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/books/{id}/kill:
+    post:
+      tags: [risk]
+      summary: Halt one book and cancel its open orders
+      description: The position stays as it is. The halt survives a restart and only a person resumes.
+      operationId: killBook
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRiskChange" }
+      responses:
+        "200": { $ref: "#/components/responses/BookRiskKilled" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
 
   /v1/audit:
     get:
@@ -1129,6 +1369,16 @@ components:
       in: path
       required: true
       schema: { $ref: "#/components/schemas/InstrumentId" }
+    BookFilter:
+      name: book
+      in: query
+      description: A book's id or its name.
+      schema: { type: string, examples: ["manual:vova", "1024"] }
+    ParentFilter:
+      name: parent
+      in: query
+      description: Only what this joe parent did.
+      schema: { $ref: "#/components/schemas/ParentId" }
     ParentId:
       name: id
       in: path
@@ -1162,6 +1412,26 @@ components:
       schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
 
   responses:
+    BookRiskDesk:
+      description: The desk after the change
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/BookRiskDesk" }
+    BookRiskKilled:
+      description: Halted, and the cancels sent
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/BookRiskKilled" }
+    BookRiskProblem:
+      description: Refused, or strategyd is not answering; nothing changed unless the detail says so
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    BookRiskNeedsConfirm:
+      description: This lets more through and `confirm` was not sent
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/BookRiskNeedsConfirm" }
     NotFound:
       description: No such thing
       content:
@@ -1203,6 +1473,188 @@ components:
     Side:
       type: string
       enum: [buy, sell]
+
+    BookRiskState:
+      type: string
+      enum: [active, reducing, halted]
+
+    BookRiskLimitMode:
+      type: string
+      enum: [inherit, "off", absolute, percent]
+
+    BookRiskLossAction:
+      type: string
+      enum: ["off", reducing, halted]
+
+    BookRiskLimitSet:
+      type: object
+      required: [mode]
+      properties:
+        mode: { $ref: "#/components/schemas/BookRiskLimitMode" }
+        value:
+          $ref: "#/components/schemas/Decimal"
+          description: Dollars or a whole count for absolute, percent of capital for percent.
+
+    BookRiskLimit:
+      type: object
+      required: [set, source, mode]
+      properties:
+        set: { $ref: "#/components/schemas/BookRiskLimitSet" }
+        source:
+          type: string
+          enum: [file, defaults, book]
+          description: The row that decided.
+        mode: { $ref: "#/components/schemas/BookRiskLimitMode" }
+        effective:
+          $ref: "#/components/schemas/Decimal"
+          description: Dollars or the count; absent is off, or a percent with no capital to take it of.
+        percent:
+          $ref: "#/components/schemas/Decimal"
+          description: The same limit as a percent of capital; money limits only.
+
+    BookRiskRow:
+      type: object
+      required: [limits, daily_loss_action, daily_loss_action_set]
+      properties:
+        limits:
+          type: object
+          description: |
+            order_notional, instrument_notional, book_notional, option_premium, loss_1m, loss_5m, loss_1h,
+            daily_loss, option_open_lots, open_orders, price_band_bp, orders_in_window, order_window_ms,
+            repeat_entries, repeat_window_ms, quote_age_ms.
+          additionalProperties: { $ref: "#/components/schemas/BookRiskLimit" }
+        daily_loss_action: { $ref: "#/components/schemas/BookRiskLossAction" }
+        daily_loss_action_set: { type: boolean }
+
+    BookRiskWindow:
+      type: object
+      required: [change, covered_s, past_level]
+      properties:
+        change: { $ref: "#/components/schemas/Decimal" }
+        covered_s:
+          type: integer
+          description: How far back the samples reached, short of the window after a start.
+        past_level: { type: boolean }
+
+    BookRiskPnl:
+      type: object
+      description: Realised less fees plus unrealised, in dollars. It informs and takes no action.
+      required:
+        [realized, unrealized, total, change_1m, change_5m, change_1h, day, past_daily, positions, unmarked, unvalued]
+      properties:
+        realized: { $ref: "#/components/schemas/Decimal" }
+        unrealized: { $ref: "#/components/schemas/Decimal" }
+        total: { $ref: "#/components/schemas/Decimal" }
+        change_1m: { $ref: "#/components/schemas/BookRiskWindow" }
+        change_5m: { $ref: "#/components/schemas/BookRiskWindow" }
+        change_1h: { $ref: "#/components/schemas/BookRiskWindow" }
+        day: { $ref: "#/components/schemas/Decimal" }
+        past_daily: { type: boolean }
+        positions: { type: integer }
+        unmarked:
+          type: integer
+          description: Positions with no quote. While any is unmarked the book takes no new sample.
+        unvalued:
+          type: integer
+          description: Positions not quoted in a dollar, left out of the sums.
+
+    BookRiskBook:
+      type: object
+      required: [id, name, state, own_state, open_orders, row, pnl]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        state:
+          $ref: "#/components/schemas/BookRiskState"
+          description: The stricter of the book's own state and the desk's.
+        own_state: { $ref: "#/components/schemas/BookRiskState" }
+        reason: { type: string }
+        by: { type: string, description: "Who set the state: a person, or strategyd when a check tripped." }
+        since: { type: string, description: "Nanoseconds as digits." }
+        open_orders: { type: integer }
+        row: { $ref: "#/components/schemas/BookRiskRow" }
+        pnl: { $ref: "#/components/schemas/BookRiskPnl" }
+
+    BookRiskDesk:
+      type: object
+      required: [reported_accounts, unvalued_assets, desk_state, defaults, books]
+      properties:
+        capital:
+          $ref: "#/components/schemas/Decimal"
+          description: Absent until a person declares it, and no new order passes until then.
+        capital_by: { type: string }
+        capital_at: { type: string, description: "Nanoseconds as digits." }
+        reported_balance:
+          $ref: "#/components/schemas/Decimal"
+          description: What the gateways' balance pulls come to in dollars; absent when none has reported.
+        reported_accounts: { type: integer }
+        unvalued_assets:
+          type: integer
+          description: Assets reported with no dollar price here, which `reported_balance` leaves out.
+        capital_warning:
+          type: string
+          description: Set when the declared capital is above what balances report. It refuses nothing.
+        desk_state: { $ref: "#/components/schemas/BookRiskState" }
+        desk_reason: { type: string }
+        desk_by: { type: string }
+        desk_since: { type: string, description: "Nanoseconds as digits." }
+        defaults: { $ref: "#/components/schemas/BookRiskRow" }
+        books:
+          type: array
+          items: { $ref: "#/components/schemas/BookRiskBook" }
+
+    BookRiskChange:
+      type: object
+      required: [by]
+      properties:
+        by: { type: string, description: "The person making the change; it goes to the audit trail." }
+        reason: { type: string }
+        confirm:
+          type: boolean
+          description: Says the person saw that this lets more through.
+
+    BookRiskCapitalChange:
+      allOf:
+        - $ref: "#/components/schemas/BookRiskChange"
+        - type: object
+          required: [capital]
+          properties:
+            capital: { $ref: "#/components/schemas/Decimal" }
+
+    BookRiskLimitsChange:
+      allOf:
+        - $ref: "#/components/schemas/BookRiskChange"
+        - type: object
+          properties:
+            limits:
+              type: object
+              additionalProperties: { $ref: "#/components/schemas/BookRiskLimitSet" }
+            daily_loss_action: { $ref: "#/components/schemas/BookRiskLossAction" }
+
+    BookRiskStateChange:
+      allOf:
+        - $ref: "#/components/schemas/BookRiskChange"
+        - type: object
+          required: [state]
+          properties:
+            state: { $ref: "#/components/schemas/BookRiskState" }
+
+    BookRiskKilled:
+      type: object
+      required: [cancelled]
+      properties:
+        cancelled: { type: integer, description: "Cancels sent for the open orders." }
+
+    BookRiskNeedsConfirm:
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          required: [raises]
+          properties:
+            raises:
+              type: array
+              items: { type: string }
+              description: What this change would let more through, by name.
 
     Problem:
       description: RFC 9457. One error shape everywhere.
@@ -2099,6 +2551,16 @@ components:
           description: >-
             `iceberg` and `pegged` only. The child stays a tick short of the other side's touch, and one the
             venue turns away is retried from a fresh book after the minimum interval.
+        book:
+          type: string
+          description: |
+            Whose the children, fills and position are. Absent is the operator's own
+            `manual:<login>` through admind, or joe's own book on strategyd's port. A client
+            book must already be open.
+        external_ref:
+          type: string
+          maxLength: 40
+          description: An rfq trade id or a client's order id; every child carries it.
         client_tag:
           type: string
           maxLength: 64
@@ -2158,6 +2620,10 @@ components:
       required: [id, symbol, market, side, algo, profile, status, qty, filled, working, fees, horizon_s,
                  slices, slices_fired, pov_bp, created, child_count, children_retired, post_only]
       properties:
+        book_id: { type: integer }
+        book_kind: { $ref: "#/components/schemas/BookKind" }
+        book: { type: string }
+        external_ref: { type: string }
         id: { $ref: "#/components/schemas/ParentId" }
         client_tag: { type: string }
         symbol: { type: string }
@@ -2215,6 +2681,11 @@ components:
           type: string
           enum: [stale, crossed]
           description: Why a resting algo is waiting on its venue's book.
+        version:
+          type: string
+          description: |
+            Moves with every change to this parent and never back, across a restart too.
+            Of two answers the higher is newer; digits, compare as numbers.
 
     ChildOrder:
       type: object
@@ -2341,6 +2812,19 @@ components:
         ack_p90_ns: { $ref: "#/components/schemas/Nanos" }
         ack_max_ns: { $ref: "#/components/schemas/Nanos" }
 
+    BookKind:
+      type: string
+      enum: [strategy, manual, client, hedge]
+
+    BookRecord:
+      type: object
+      required: [id, kind, name, created]
+      properties:
+        id: { type: integer, minimum: 1, maximum: 65535 }
+        kind: { $ref: "#/components/schemas/BookKind" }
+        name: { type: string, examples: ["manual:vova", "client:acme", "hedge"] }
+        created: { $ref: "#/components/schemas/Nanos" }
+
     NewOrder:
       type: object
       required: [account, instrument_id, side, order_type, qty]
@@ -2372,6 +2856,16 @@ components:
           description: |
             Only reduces a position; an order sized to close cannot open the opposite
             side.
+        book:
+          type: string
+          description: |
+            Absent is the operator's own `manual:<login>`, or the shared `manual` when
+            the proxy in front named nobody. A `client:<name>` that is open may be named;
+            nothing else.
+        external_ref:
+          type: string
+          maxLength: 40
+          description: A client's own order id or an rfq trade id.
 
     OrderAccepted:
       type: object
@@ -2386,13 +2880,30 @@ components:
           description: |
             The only value this endpoint returns. The venue's status appears on the
             order once it has answered.
+        book_id: { type: integer }
+        book:
+          type: string
+          description: The book it landed on; `manual` says the operator was not known.
 
     Order:
       type: object
       required:
-        [client_order_id, instrument_id, side, order_type, tif, qty, status, ts_created, ts_updated]
+        [client_order_id, instrument_id, side, order_type, tif, qty, status, ts_created, ts_updated, book_id, book_kind]
       properties:
         client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
+        book_id:
+          type: integer
+          description: The strategy half of the client order id; every order has one, however old.
+        book_kind: { $ref: "#/components/schemas/BookKind" }
+        book:
+          type: string
+          description: The registry's name. Absent for a number with nothing on record.
+        parent_id:
+          allOf: [{ $ref: "#/components/schemas/ParentId" }]
+          description: The joe parent this is a child of; stable across restarts.
+        external_ref:
+          type: string
+          description: An rfq trade id or a client's own order id.
         exchange_client_order_id: { type: string }
         exchange_order_id: { type: string }
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
@@ -2424,6 +2935,11 @@ components:
             rejection.
         ts_created: { $ref: "#/components/schemas/Nanos" }
         ts_updated: { $ref: "#/components/schemas/Nanos" }
+        version:
+          type: string
+          description: |
+            Moves with every change to this order. Of two answers about one order the
+            higher is newer, whichever arrived last; digits, compare as numbers.
 
     OrderStatus:
       type: string
@@ -2456,6 +2972,19 @@ components:
       type: object
       required: [venue, exec_id, instrument_id, side, price, qty, ts_event]
       properties:
+        book_id:
+          type: integer
+          description: The strategy half of the client order id; every order has one, however old.
+        book_kind: { $ref: "#/components/schemas/BookKind" }
+        book:
+          type: string
+          description: The registry's name. Absent for a number with nothing on record.
+        parent_id:
+          allOf: [{ $ref: "#/components/schemas/ParentId" }]
+          description: The joe parent this is a child of; stable across restarts.
+        external_ref:
+          type: string
+          description: An rfq trade id or a client's own order id.
         venue: { type: string }
         exec_id:
           type: string
@@ -2476,7 +3005,9 @@ components:
       required: [instrument_id, strategy_id, qty, ts_updated]
       properties:
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
-        strategy_id: { type: integer }
+        strategy_id: { type: integer, description: The book's id. }
+        book_kind: { $ref: "#/components/schemas/BookKind" }
+        book: { type: string }
         qty:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: Signed; positive is long.
@@ -2494,6 +3025,11 @@ components:
           type: [string, "null"]
           description: When that snapshot was taken. Null when there is none.
         ts_updated: { $ref: "#/components/schemas/Nanos" }
+        version:
+          type: string
+          description: |
+            Of two answers about one position the higher is newer, whichever arrived
+            last; digits, compare as numbers.
 
     Balance:
       type: object
@@ -2556,7 +3092,10 @@ components:
         account: { type: string }
         kind: { $ref: "#/components/schemas/PnlKind" }
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
-        strategy_id: { type: integer }
+        strategy_id: { type: integer, description: The book's id. }
+        book_kind: { $ref: "#/components/schemas/BookKind" }
+        book: { type: string }
+        parent_id: { $ref: "#/components/schemas/ParentId" }
         amount:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: Signed; positive is money gained.

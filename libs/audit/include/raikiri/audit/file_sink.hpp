@@ -24,6 +24,8 @@ struct SinkOptions {
     std::size_t queue_slots{4096};
     std::size_t slot_bytes{2048};
     std::chrono::milliseconds idle_wait{10};
+    // whole days kept, today among them; zero keeps everything. the chain records what went and how it ended
+    std::uint32_t retain_days{0};
 };
 
 struct SinkStats {
@@ -58,11 +60,15 @@ private:
     void run();
     bool drain();
     void report_overflow();
+    void retain();
 
     FileWriter writer_;
     EntryQueue queue_;
     const Clock* clock_;
     std::chrono::milliseconds idle_wait_;
+    std::uint32_t retain_days_;
+    std::string stream_dir_;
+    std::uint64_t retain_due_ns_{0};
     std::string stream_;
     std::atomic<std::uint64_t> accepted_{0};
     std::atomic<std::uint64_t> dropped_{0};

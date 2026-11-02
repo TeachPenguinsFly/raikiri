@@ -3,6 +3,7 @@
 // joe's use cases; single-threaded, driven by the strategy loop that owns the sink
 
 #include <raikiri/common/time.hpp>
+#include <raikiri/domain/order_events.hpp>
 #include <raikiri/joe/parent.hpp>
 #include <raikiri/joe/ports.hpp>
 #include <raikiri/joe/resting.hpp>
@@ -12,6 +13,7 @@
 #include <expected>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::joe {
@@ -43,7 +45,16 @@ struct DeskConfig {
     // finished children one parent lists, and how long strategyd still attributes a late fill
     std::size_t keep_children{256};
     std::uint64_t late_fill_ns{15ULL * 60 * 1'000'000'000ULL};
+    // a journal row names its parent by this number, so a restart must start past every earlier one
+    std::uint64_t first_parent_id{1};
+    // the book of a parent that names none
+    std::uint16_t own_book{0};
 };
+
+// past any id an earlier process handed out, with room for 4096 parents a millisecond
+[[nodiscard]] constexpr std::uint64_t parent_id_seed(UnixNanos wall) noexcept {
+    return (wall.ns / 1'000'000ULL) << 12U;
+}
 
 class Desk {
 public:
@@ -57,6 +68,18 @@ public:
     [[nodiscard]] std::expected<void, Refusal> cancel(std::uint64_t id);
     [[nodiscard]] std::expected<void, Refusal> pause(std::uint64_t id);
     [[nodiscard]] std::expected<void, Refusal> resume(std::uint64_t id);
+
+    // a restart reads these back; null keeps nothing, for a desk nobody restarts
+    void set_log(ParentLog* log) noexcept { log_ = log; }
+
+    // the journal's frames in order, all before the first tick. nothing here reaches the sink: what was out is out,
+    // and its answers come through these or through the live path
+    void restore(const ParentRecord& record);
+    void restore(const OrderEvent& event);
+    // what was working waits, paused, until the venue has agreed with the book; a child may still be out
+    void finish_restore();
+    // true for each parent restored working and now working again
+    std::size_t resume_restored();
 
     [[nodiscard]] const std::deque<Parent>& parents() const noexcept { return parents_; }
 
@@ -98,6 +121,23 @@ private:
     [[nodiscard]] Parent* owner_of(std::uint64_t child_id) noexcept;
     void sample(Parent& parent, UnixNanos now);
     void prune();
+    void open_trace(Parent& parent);
+    void log_child(const Parent& parent, const Child& child);
+    void log_changes();
+
+    // a status moves in many places; each entry point writes what moved on its way out
+    class LogChanges {
+    public:
+        explicit LogChanges(Desk& desk) noexcept : desk_{&desk} {}
+
+        ~LogChanges() { desk_->log_changes(); }
+
+        LogChanges(const LogChanges&) = delete;
+        LogChanges& operator=(const LogChanges&) = delete;
+
+    private:
+        Desk* desk_;
+    };
 
     const MarketView* market_;
     OrderSink* sink_;
@@ -105,7 +145,11 @@ private:
     const VolumeProfile* recorded_;
     DeskConfig config_;
     std::deque<Parent> parents_;
-    std::uint64_t next_id_{1};
+    std::uint64_t next_id_;
+    ParentLog* log_{nullptr};
+    bool halting_{false};
+    std::unordered_map<std::uint64_t, Status> logged_;
+    std::vector<std::uint64_t> restart_paused_;
 };
 
 } // namespace raikiri::joe

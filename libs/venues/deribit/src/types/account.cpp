@@ -60,6 +60,24 @@ std::expected<WireLogPage, WireError> parse_transaction_log(std::string_view bod
     });
 }
 
+std::expected<std::string_view, WireError> parse_margin_regime(std::string_view body) {
+    return guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto result = wire::req_object(*root, "result");
+        if (!result.has_value()) {
+            return std::unexpected(result.error());
+        }
+        bool portfolio = false;
+        if ((*result)["portfolio_margining_enabled"].get_bool().get(portfolio) != simdjson::SUCCESS) {
+            return std::unexpected(WireError::MissingField);
+        }
+        return portfolio ? std::string_view{"portfolio"} : std::string_view{"standard"};
+    });
+}
+
 std::expected<WireAccountSummary, WireError> parse_account_summary(std::string_view body) {
     return guarded([&]() -> std::expected<WireAccountSummary, WireError> {
         auto root = session().open_object(body);

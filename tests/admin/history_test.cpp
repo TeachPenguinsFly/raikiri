@@ -456,5 +456,170 @@ TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
     EXPECT_EQ(fills[2].price, "18364.5") << "no window holds it, so the live catalogue answers";
 }
 
+TEST(AdminHistoryPg, EveryOrderFillAndPositionFiltersByBookAndParent) {
+    const char* dsn = std::getenv("RAIKIRI_PG_DSN");
+    if (dsn == nullptr || *dsn == '\0') {
+        GTEST_SKIP() << "RAIKIRI_PG_DSN not set";
+    }
+    History history{dsn};
+    if (!history.connected() || !history.health().reachable) {
+        GTEST_SKIP() << "sql/migrations not applied to $RAIKIRI_PG_DSN";
+    }
+    history.set_catalogue([](InstrumentId) -> Scales {
+        return {.tick_size = *parse_decimal_e9("0.01"), .lot_size = *parse_decimal_e9("0.01")};
+    });
+    history.set_books([](std::uint16_t id) -> std::optional<BookLabel> {
+        if (id == 31000) {
+            return BookLabel{.kind = "hedge", .name = "hedge"};
+        }
+        if (id == 31001) {
+            return BookLabel{.kind = "manual", .name = "manual:vova"};
+        }
+        return std::nullopt;
+    });
+
+    constexpr std::uint16_t k_hedge = 31000;
+    constexpr std::uint16_t k_vova = 31001;
+    constexpr std::uint16_t k_old_strategy = 31002;
+    constexpr std::int64_t k_parent = 880011;
+    const auto instrument = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFE0U});
+    const auto text = [](auto value) { return std::to_string(static_cast<std::int64_t>(value)); };
+    const auto child_a = ClientOrderId::make_child(k_hedge, 900'001);
+    const auto child_b = ClientOrderId::make_child(k_hedge, 900'002);
+    const auto hand = ClientOrderId::make(k_vova, 900'003);
+    // an order from before this table: it has a book, read off its id, and no origin row
+    const auto old = ClientOrderId::make(k_old_strategy, 900'004);
+    const auto id = text(instrument.packed);
+
+    pqxx::connection conn{dsn};
+    const auto scrub = [&] {
+        pqxx::work tx{conn};
+        for (const auto coid : {child_a, child_b, hand, old}) {
+            tx.exec("DELETE FROM raikiri.orders WHERE client_order_id = " + text(coid.raw));
+            tx.exec("DELETE FROM raikiri.order_origins WHERE client_order_id = " + text(coid.raw));
+            tx.exec("DELETE FROM raikiri.pnl_increments WHERE client_order_id = " + text(coid.raw));
+        }
+        tx.exec("DELETE FROM raikiri.executions WHERE venue = 'books-test'");
+        tx.exec("DELETE FROM raikiri.positions WHERE venue = 'books-test'");
+        tx.commit();
+    };
+    scrub();
+    {
+        pqxx::work tx{conn};
+        const auto order = [&](ClientOrderId coid, int ts) {
+            tx.exec("INSERT INTO raikiri.orders (client_order_id, instrument_id, side, order_type, tif, qty_lots,"
+                    " leaves_lots, status, ts_created, ts_updated) VALUES (" +
+                    text(coid.raw) + "," + id + ",'buy','limit','gtc',100,0,'filled'," + std::to_string(ts) + "," +
+                    std::to_string(ts) + ")");
+        };
+        order(child_a, 1);
+        order(child_b, 2);
+        order(hand, 3);
+        order(old, 4);
+        const auto origin = [&](ClientOrderId coid,
+                                std::string_view kind,
+                                std::string_view parent,
+                                std::string_view ref) {
+            tx.exec("INSERT INTO raikiri.order_origins (client_order_id, book_id, book_kind, parent_id, external_ref,"
+                    " ts_created) VALUES (" +
+                    text(coid.raw) + "," + std::to_string(coid.strategy_id()) + ",'" + std::string{kind} + "'," +
+                    std::string{parent} + "," + std::string{ref} + ",1)");
+        };
+        origin(child_a, "hedge", text(k_parent), "'rfq-12'");
+        origin(child_b, "hedge", text(k_parent), "'rfq-12'");
+        origin(hand, "manual", "NULL", "NULL");
+        const auto fill = [&](ClientOrderId coid, std::string_view exec, std::string_view side, int lots) {
+            tx.exec("INSERT INTO raikiri.executions (venue, exec_id, client_order_id, instrument_id, side, price_ticks,"
+                    " qty_lots, ts_event) VALUES ('books-test','" +
+                    std::string{exec} + "'," + text(coid.raw) + "," + id + ",'" + std::string{side} + "',10000," +
+                    std::to_string(lots) + ",5)");
+        };
+        fill(child_a, "x-a", "buy", 100);
+        fill(child_b, "x-b", "sell", 30);
+        fill(hand, "x-h", "buy", 7);
+        tx.exec("INSERT INTO raikiri.pnl_increments (source_id, account_id, kind, amount_e9, ts_event, strategy_id,"
+                " venue, instrument_id, client_order_id) VALUES ('books-test:r','sim','realized',2500000000,5,"
+                "31000,'books-test'," +
+                id + "," + text(child_b.raw) + ")");
+        tx.exec(
+            "INSERT INTO raikiri.positions (strategy_id, venue, exchange_symbol, instrument_id, net_qty_lots, cost_e9,"
+            " settle_side, ts_opened, ts_updated) VALUES (31000,'books-test','X'," +
+            id + ",70,0,'quote',1,5),(31001,'books-test','X'," + id + ",7,0,'quote',1,5)");
+        tx.commit();
+    }
+
+    const auto ids_of = [](const OrderPage& page) {
+        std::vector<std::string> out;
+        for (const auto& row : page.items) {
+            out.push_back(row.client_order_id);
+        }
+        return out;
+    };
+    const auto digits = [](ClientOrderId coid) { return std::to_string(coid.raw); };
+
+    const PageQuery everything{.instrument = instrument};
+    const auto all = history.orders(everything, std::nullopt);
+    ASSERT_EQ(all.items.size(), 4U);
+    EXPECT_EQ(all.items[0].client_order_id, digits(old));
+    EXPECT_EQ(all.items[0].book_id, k_old_strategy);
+    EXPECT_EQ(all.items[0].book_kind, "strategy") << "no origin row and nothing on record";
+    EXPECT_EQ(all.items[0].book, std::nullopt);
+    EXPECT_EQ(all.items[0].parent_id, std::nullopt);
+    EXPECT_EQ(all.items[1].book, "manual:vova");
+    EXPECT_EQ(all.items[1].book_kind, "manual");
+    EXPECT_EQ(all.items[2].book, "hedge");
+    EXPECT_EQ(all.items[2].parent_id, std::to_string(k_parent));
+    EXPECT_EQ(all.items[2].external_ref, "rfq-12");
+
+    auto query = everything;
+    query.book = k_hedge;
+    EXPECT_EQ(ids_of(history.orders(query, std::nullopt)), (std::vector{digits(child_b), digits(child_a)}));
+    query.book = k_old_strategy;
+    EXPECT_EQ(ids_of(history.orders(query, std::nullopt)), (std::vector{digits(old)}))
+        << "an old order still has a book";
+    query.book = std::nullopt;
+    query.parent = k_parent;
+    EXPECT_EQ(ids_of(history.orders(query, std::nullopt)), (std::vector{digits(child_b), digits(child_a)}));
+    query.parent = k_parent + 1;
+    EXPECT_TRUE(history.orders(query, std::nullopt).items.empty());
+
+    query = everything;
+    query.book = k_vova;
+    auto fills = history.fills(query).items;
+    ASSERT_EQ(fills.size(), 1U);
+    EXPECT_EQ(fills[0].exec_id, "x-h");
+    EXPECT_EQ(fills[0].book, "manual:vova");
+    EXPECT_EQ(fills[0].book_id, k_vova);
+    query = everything;
+    query.parent = k_parent;
+    fills = history.fills(query).items;
+    ASSERT_EQ(fills.size(), 2U);
+    EXPECT_EQ(fills[0].parent_id, std::to_string(k_parent));
+    EXPECT_EQ(fills[0].external_ref, "rfq-12");
+
+    const PageQuery pnl_of_parent{.parent = k_parent};
+    const auto pnl = history.pnl(pnl_of_parent, std::nullopt).items;
+    ASSERT_EQ(pnl.size(), 1U);
+    EXPECT_EQ(pnl[0].book, "hedge");
+    EXPECT_EQ(pnl[0].parent_id, std::to_string(k_parent));
+
+    const auto book_rows = history.positions(std::nullopt, k_vova);
+    bool saw_vova = false;
+    for (const auto& row : book_rows) {
+        saw_vova = saw_vova || row.qty == "0.07";
+        EXPECT_EQ(row.strategy_id, k_vova);
+        EXPECT_EQ(row.book, "manual:vova");
+    }
+    EXPECT_TRUE(saw_vova);
+
+    const auto of_parent = history.positions(std::nullopt, std::nullopt, static_cast<std::uint64_t>(k_parent));
+    ASSERT_EQ(of_parent.size(), 1U);
+    EXPECT_EQ(of_parent[0].strategy_id, k_hedge);
+    EXPECT_EQ(of_parent[0].qty, "0.7") << "a buy of 100 lots less a sell of 30, not the book's whole net";
+    EXPECT_EQ(of_parent[0].realized, "2.5");
+    EXPECT_EQ(of_parent[0].book_kind, "hedge");
+    scrub();
+}
+
 } // namespace
 } // namespace raikiri::admin

@@ -46,6 +46,18 @@ struct OrderUpsert {
     std::string reject_class;
     std::int32_t reject_code{0};
     bool has_reason{false};
+    // an amend confirmed: this row's price is the order's new one, where on a fill it is the fill's
+    bool reprices{false};
+};
+
+// from an order's create command; a record before schema version 7 has none, and its book is still its id
+struct OrderOriginRow {
+    std::uint64_t client_order_id{0};
+    std::int32_t book_id{0};
+    std::string book_kind;
+    std::uint64_t parent_id{0}; // zero is none
+    std::string external_ref;
+    std::uint64_t ts_created{0};
 };
 
 struct ExecutionRow {
@@ -157,6 +169,7 @@ struct LatencyRow {
 struct RowBatch {
     std::vector<OrderEventRow> order_events;
     std::vector<OrderUpsert> order_upserts;
+    std::vector<OrderOriginRow> order_origins;
     std::vector<ExecutionRow> executions;
     std::vector<PnlIncrementRow> pnl_increments;
     std::vector<ReconBreakRow> recon_breaks;
@@ -168,14 +181,15 @@ struct RowBatch {
     std::uint64_t last_seq{0}; // highest journal seq contributing to this batch
 
     [[nodiscard]] std::size_t size() const noexcept {
-        return order_events.size() + order_upserts.size() + executions.size() + pnl_increments.size() +
-               recon_breaks.size() + positions.size() + funding.size() + instruments.size() + connectivity.size() +
-               latency.size();
+        return order_events.size() + order_upserts.size() + order_origins.size() + executions.size() +
+               pnl_increments.size() + recon_breaks.size() + positions.size() + funding.size() + instruments.size() +
+               connectivity.size() + latency.size();
     }
 
     void clear() noexcept {
         order_events.clear();
         order_upserts.clear();
+        order_origins.clear();
         executions.clear();
         pnl_increments.clear();
         recon_breaks.clear();

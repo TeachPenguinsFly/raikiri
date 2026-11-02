@@ -19,8 +19,11 @@
 #include <array>
 #include <cstdint>
 #include <expected>
+#include <optional>
+#include <span>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 namespace raikiri::shm {
 
@@ -74,6 +77,9 @@ struct OpenOrderCell {
 };
 
 static_assert(std::is_trivially_copyable_v<OpenOrderCell>);
+
+// the last cell marks a whole pull: ts_venue is its stamp and leaves its row count, ts_pulled stays zero
+inline constexpr std::size_t k_open_order_rows = 1023;
 
 // a successful pull writes every instrument, zeros included; a failed one writes nothing so cells
 // go stale
@@ -130,6 +136,17 @@ using TickerStatsTable = SeqlockTable<TickerStats, k_ticker_cells>;
 using DepthTable = SeqlockTable<BookSnapshot, k_depth_cells>;
 using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
 using OpenOrderTable = SeqlockTable<OpenOrderCell, k_open_order_cells>;
+
+// one seqlock per cell, so a reader between two cells of a pull would see a live order missing; these make the pull
+// read as a whole or not at all
+struct OpenOrders {
+    UnixNanos pulled{};
+    std::vector<OpenOrderCell> rows{};
+};
+
+void publish_open_orders(OpenOrderTable& table, std::span<const OpenOrderCell> rows, UnixNanos pulled) noexcept;
+[[nodiscard]] std::optional<OpenOrders> read_open_orders(const OpenOrderTable& table);
+
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
 using LedgerEntryRing = BroadcastRing<LedgerEntryRec, k_funding_charge_ring>;

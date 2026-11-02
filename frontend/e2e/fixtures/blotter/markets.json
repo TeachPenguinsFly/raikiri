@@ -1,0 +1,22 @@
+[
+  {
+    "key": "crypto:BTC/USD*",
+    "symbol": "BTC/USDT",
+    "listings": [
+      {
+        "instrument_id": "72057594037927936", "account": "binance", "venue": "binance", "market": "perp",
+        "exchange_symbol": "BTCUSDT", "local_symbol": "BTC/USDT"
+      }
+    ]
+  },
+  {
+    "key": "crypto:ETH/USD*",
+    "symbol": "ETH/USDT",
+    "listings": [
+      {
+        "instrument_id": "72057594037927937", "account": "okx", "venue": "okx", "market": "perp",
+        "exchange_symbol": "ETH-USDT-SWAP", "local_symbol": "ETH/USDT"
+      }
+    ]
+  }
+]

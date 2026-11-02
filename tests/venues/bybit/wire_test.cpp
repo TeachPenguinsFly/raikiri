@@ -455,6 +455,37 @@ TEST(BybitBalances, WalletFiguresCrossIntoTheDomainAndSilenceStaysUndef) {
     EXPECT_EQ(xrp->total.raw, 1'000'000);
 }
 
+TEST(BybitBalances, TheAccountsFreeMarginBacksTheStablecoinRows) {
+    const auto body = fixture("rest_wallet_balance.json");
+    const auto env = parse_envelope(body);
+    ASSERT_TRUE(env.has_value());
+    CoinBalanceBuffer storage;
+    const auto coins = parse_wallet_balance(env->result, storage);
+    ASSERT_TRUE(coins.has_value());
+    EXPECT_EQ(storage.total_available, "1284.30719465");
+
+    const auto ts = ms_to_unix(env->time_ms, UnixNanos{});
+    std::vector<BalanceReport> reports;
+    for (const auto& wire : *coins) {
+        reports.push_back(*map_coin_balance(wire, ts));
+    }
+    apply_account_available(reports, storage.total_available, ts);
+    ASSERT_EQ(reports.size(), 3U) << "the account holds no usdc, so it gets a row that states only the free margin";
+    EXPECT_EQ(reports[0].asset.view(), "XRP");
+    EXPECT_TRUE(reports[0].available.is_undef());
+    EXPECT_EQ(reports[1].asset.view(), "USDT");
+    EXPECT_EQ(reports[1].available.raw, 1'284'307'194'650);
+    EXPECT_EQ(reports[2].asset.view(), "USDC");
+    EXPECT_EQ(reports[2].available.raw, 1'284'307'194'650);
+    EXPECT_TRUE(reports[2].total.is_undef()) << "no holding is invented, so the desk's total does not grow";
+}
+
+TEST(BybitBalances, IsolatedMarginStatesNoFreeMarginSoShortsStayRefused) {
+    std::vector<BalanceReport> reports;
+    apply_account_available(reports, "", UnixNanos{});
+    EXPECT_TRUE(reports.empty());
+}
+
 TEST(BybitBalances, AWalletFigureTruncatesWhereAPriceWouldBeRefused) {
     // the exact reader refuses more than nine fractional digits
     WireCoinBalance wire{};

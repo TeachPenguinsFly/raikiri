@@ -1,5 +1,6 @@
 #include <raikiri/admin/format.hpp>
 #include <raikiri/admin/history.hpp>
+#include <raikiri/books/book.hpp>
 #include <raikiri/domain/order.hpp>
 
 #include <algorithm>
@@ -215,10 +216,33 @@ private:
     return complete(scales_of(row.at("tick_size_e9"), row.at("lot_size_e9")), row.at("instrument_id"), live);
 }
 
-[[nodiscard]] Order read_order(pqxx::row_ref row, const ScaleLookup& live) {
+struct Labelled {
+    std::string kind;
+    std::optional<std::string> name;
+};
+
+// what the journal said of the book, then the registry; a row older than both is a strategy's, or the shared desk's
+[[nodiscard]] Labelled label(const BookLookup& books, std::uint16_t id, std::string_view journaled) {
+    const auto known = books ? books(id) : std::nullopt;
+    Labelled out{};
+    if (known.has_value()) {
+        out = {.kind = known->kind, .name = known->name};
+    } else if (id == k_manual_strategy_id) {
+        out = {.kind = std::string{to_string(BookKind::Manual)}, .name = std::string{books::k_shared_manual}};
+    } else {
+        out.kind = std::string{to_string(BookKind::Strategy)};
+    }
+    if (!journaled.empty() && journaled != to_string(BookKind::Unknown)) {
+        out.kind = std::string{journaled};
+    }
+    return out;
+}
+
+[[nodiscard]] Order read_order(pqxx::row_ref row, const ScaleLookup& live, const BookLookup& books) {
     const auto scales = scales_of(row, live);
     const ClientOrderId coid{static_cast<std::uint64_t>(int_of(row.at("client_order_id")))};
     const auto flags = static_cast<OrderFlags>(static_cast<std::uint8_t>(int_of(row.at("flags"))));
+    auto book = label(books, coid.strategy_id(), text_of(row.at("book_kind")));
     return {
         .client_order_id = digits(coid.raw),
         .exchange_client_order_id = opt_text(row.at("exchange_client_order_id")),
@@ -238,6 +262,12 @@ private:
         .reject_code = opt_int(row.at("reject_code")),
         .ts_created = digits_of(row.at("ts_created")),
         .ts_updated = digits_of(row.at("ts_updated")),
+        .book_id = coid.strategy_id(),
+        .book_kind = std::move(book.kind),
+        .book = std::move(book.name),
+        .parent_id = opt_id(row.at("parent_id")),
+        .external_ref = opt_text(row.at("external_ref")),
+        .version = digits_of(row.at("version")),
     };
 }
 
@@ -256,8 +286,16 @@ private:
     };
 }
 
-[[nodiscard]] Fill read_fill(pqxx::row_ref row, const ScaleLookup& live) {
+[[nodiscard]] Fill read_fill(pqxx::row_ref row, const ScaleLookup& live, const BookLookup& books) {
     const auto scales = scales_of(row, live);
+    const auto id = opt_id(row.at("client_order_id"));
+    std::optional<std::int64_t> book_id;
+    Labelled book{};
+    if (id.has_value()) {
+        const ClientOrderId coid{static_cast<std::uint64_t>(int_of(row.at("client_order_id")))};
+        book_id = coid.strategy_id();
+        book = label(books, coid.strategy_id(), text_of(row.at("book_kind")));
+    }
     return {
         .venue = text_of(row.at("venue")),
         .exec_id = text_of(row.at("exec_id")),
@@ -270,10 +308,15 @@ private:
         .fee = opt_amount(row.at("fee_e9")),
         .liquidity = text_of(row.at("liquidity")),
         .ts_event = digits_of(row.at("ts_event")),
+        .book_id = book_id,
+        .book_kind = id.has_value() ? std::optional{std::move(book.kind)} : std::nullopt,
+        .book = std::move(book.name),
+        .parent_id = opt_id(row.at("parent_id")),
+        .external_ref = opt_text(row.at("external_ref")),
     };
 }
 
-[[nodiscard]] Position read_position(pqxx::row_ref row, const ScaleLookup& live) {
+[[nodiscard]] Position read_position(pqxx::row_ref row, const ScaleLookup& live, const BookLookup& books) {
     const auto scales = complete({.lot_size = scale_of(row.at("lot_size_e9"))}, row.at("instrument_id"), live);
     Position out{};
     out.instrument_id = opt_id(row.at("instrument_id")).value_or(std::string{});
@@ -282,10 +325,15 @@ private:
     out.realized = opt_amount(row.at("realized_e9")).value_or(std::string{});
     // avg_entry_price belongs to portfolio::Position; venue_qty is not recorded anywhere
     out.ts_updated = digits_of(row.at("ts_updated"));
+    auto book = label(books, static_cast<std::uint16_t>(out.strategy_id), {});
+    out.book_kind = std::move(book.kind);
+    out.book = std::move(book.name);
+    out.version = out.ts_updated;
     return out;
 }
 
-[[nodiscard]] PnlIncrement read_pnl(pqxx::row_ref row) {
+[[nodiscard]] PnlIncrement read_pnl(pqxx::row_ref row, const BookLookup& books) {
+    auto book = label(books, static_cast<std::uint16_t>(int_of(row.at("strategy_id"))), text_of(row.at("book_kind")));
     return {
         .source_id = text_of(row.at("source_id")),
         .account = text_of(row.at("account_id")),
@@ -294,6 +342,9 @@ private:
         .strategy_id = int_of(row.at("strategy_id")),
         .amount = opt_amount(row.at("amount_e9")).value_or(std::string{}),
         .ts_event = digits_of(row.at("ts_event")),
+        .book_kind = std::move(book.kind),
+        .book = std::move(book.name),
+        .parent_id = opt_id(row.at("parent_id")),
     };
 }
 
@@ -477,6 +528,7 @@ std::optional<PnlKind> pnl_kind_from_string(std::string_view text) noexcept {
 struct History::Impl {
     std::string dsn;
     ScaleLookup catalogue;
+    BookLookup books;
     std::unique_ptr<pqxx::connection> conn;
 
     explicit Impl(std::string d) : dsn{std::move(d)} { (void)open(); }
@@ -510,6 +562,10 @@ struct History::Impl {
 };
 
 History::History(std::string dsn) : impl_{std::make_unique<Impl>(std::move(dsn))} {}
+
+void History::set_books(BookLookup lookup) {
+    impl_->books = std::move(lookup);
+}
 
 void History::set_catalogue(ScaleLookup lookup) {
     impl_->catalogue = std::move(lookup);
@@ -547,17 +603,37 @@ namespace {
            std::string{ts} + " < w.valid_to) ORDER BY w.valid_from DESC LIMIT 1) i ON TRUE";
 }
 
+// the digits come from a parsed integer, never from a request's text
+[[nodiscard]] std::string parent_position(std::uint64_t parent) {
+    const auto id = std::to_string(static_cast<std::int64_t>(parent));
+    return "(SELECT (x.client_order_id >> 48) AS strategy_id, x.venue, ''::text AS exchange_symbol, x.instrument_id,"
+           " SUM(CASE WHEN x.side = 'buy' THEN x.qty_lots ELSE -x.qty_lots END)::bigint AS net_qty_lots,"
+           " (SELECT SUM(r.amount_e9)::bigint FROM raikiri.pnl_increments r"
+           "   JOIN raikiri.order_origins ro ON ro.client_order_id = r.client_order_id"
+           "  WHERE ro.parent_id = " +
+           id +
+           " AND r.kind = 'realized' AND r.instrument_id = x.instrument_id) AS realized_e9,"
+           " MAX(x.ts_event) AS ts_updated"
+           " FROM raikiri.executions x"
+           " JOIN raikiri.order_origins og ON og.client_order_id = x.client_order_id"
+           " WHERE og.parent_id = " +
+           id + " GROUP BY 1, x.venue, x.instrument_id)";
+}
+
 const std::string k_order_select = "SELECT o.client_order_id, o.exchange_client_order_id, o.exchange_order_id,"
                                    " o.instrument_id, o.side, o.order_type, o.tif, o.flags, o.price_ticks, o.qty_lots,"
                                    " o.leaves_lots, o.status, o.reject_class, o.reject_code,"
-                                   " o.ts_created, o.ts_updated, i.tick_size_e9, i.lot_size_e9"
-                                   " FROM raikiri.orders o" +
+                                   " o.ts_created, o.ts_updated, o.version, i.tick_size_e9, i.lot_size_e9,"
+                                   " og.book_kind, og.parent_id, og.external_ref"
+                                   " FROM raikiri.orders o"
+                                   " LEFT JOIN raikiri.order_origins og ON og.client_order_id = o.client_order_id" +
                                    instrument_at("o.instrument_id", "o.ts_created");
 
 const std::string k_fill_select = "SELECT x.venue, x.exec_id, x.exchange_order_id, x.client_order_id, x.instrument_id,"
                                   " x.side, x.price_ticks, x.qty_lots, x.fee_e9, x.liquidity, x.ts_event,"
-                                  " i.tick_size_e9, i.lot_size_e9"
-                                  " FROM raikiri.executions x" +
+                                  " i.tick_size_e9, i.lot_size_e9, og.book_kind, og.parent_id, og.external_ref"
+                                  " FROM raikiri.executions x"
+                                  " LEFT JOIN raikiri.order_origins og ON og.client_order_id = x.client_order_id" +
                                   instrument_at("x.instrument_id", "x.ts_event");
 
 } // namespace
@@ -573,6 +649,12 @@ OrderPage History::orders(const PageQuery& query, std::optional<bool> open) cons
     }
     if (query.since.has_value()) {
         where.add("o.ts_created", ">=", static_cast<std::int64_t>(query.since->ns));
+    }
+    if (query.book.has_value()) {
+        where.add("(o.client_order_id >> 48)", "=", static_cast<std::int64_t>(*query.book));
+    }
+    if (query.parent.has_value()) {
+        where.add("og.parent_id", "=", static_cast<std::int64_t>(*query.parent));
     }
     if (open.has_value()) {
         where.raw(std::string{*open ? "o.status IN " : "o.status NOT IN "} + std::string{k_open_statuses});
@@ -592,8 +674,9 @@ OrderPage History::orders(const PageQuery& query, std::optional<bool> open) cons
     const auto sql = std::string{k_order_select} + where.text() +
                      " ORDER BY o.ts_created DESC, o.client_order_id DESC" + limit_clause(limit);
     return impl_->read(OrderPage{}, [&](pqxx::connection& conn) {
-        return fetch<Order>(
-            conn, sql, where.params(), limit, [&](pqxx::row_ref row) { return read_order(row, impl_->catalogue); });
+        return fetch<Order>(conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
+            return read_order(row, impl_->catalogue, impl_->books);
+        });
     });
 }
 
@@ -605,7 +688,7 @@ std::optional<Order> History::order(ClientOrderId id) const {
         pqxx::read_transaction tx{conn};
         const auto rows = tx.exec(sql, params);
         tx.commit();
-        return rows.empty() ? std::nullopt : std::optional{read_order(rows[0], impl_->catalogue)};
+        return rows.empty() ? std::nullopt : std::optional{read_order(rows[0], impl_->catalogue, impl_->books)};
     });
 }
 
@@ -646,6 +729,12 @@ FillPage History::fills(const PageQuery& query) const {
     if (query.since.has_value()) {
         where.add("x.ts_event", ">=", static_cast<std::int64_t>(query.since->ns));
     }
+    if (query.book.has_value()) {
+        where.add("(x.client_order_id >> 48)", "=", static_cast<std::int64_t>(*query.book));
+    }
+    if (query.parent.has_value()) {
+        where.add("og.parent_id", "=", static_cast<std::int64_t>(*query.parent));
+    }
     if (query.cursor.has_value()) {
         where.add("(x.ts_event, x.venue, x.exec_id)",
                   "<",
@@ -657,13 +746,15 @@ FillPage History::fills(const PageQuery& query) const {
     const auto sql = std::string{k_fill_select} + where.text() +
                      " ORDER BY x.ts_event DESC, x.venue DESC, x.exec_id DESC" + limit_clause(limit);
     return impl_->read(FillPage{}, [&](pqxx::connection& conn) {
-        return fetch<Fill>(
-            conn, sql, where.params(), limit, [&](pqxx::row_ref row) { return read_fill(row, impl_->catalogue); });
+        return fetch<Fill>(conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
+            return read_fill(row, impl_->catalogue, impl_->books);
+        });
     });
 }
 
 std::vector<Position> History::positions(std::optional<AccountId> account,
-                                         std::optional<std::uint16_t> strategy) const {
+                                         std::optional<std::uint16_t> strategy,
+                                         std::optional<std::uint64_t> parent) const {
     Where where;
     if (account.has_value()) {
         where.add("p.venue", "=", std::string{to_string(account->venue)});
@@ -673,10 +764,11 @@ std::vector<Position> History::positions(std::optional<AccountId> account,
         where.add("p.strategy_id", "=", static_cast<std::int64_t>(*strategy));
     }
 
+    const auto from = parent.has_value() ? parent_position(*parent) : std::string{"raikiri.positions"};
     const auto sql = "SELECT p.strategy_id, p.venue, p.exchange_symbol, p.instrument_id,"
                      " p.net_qty_lots, p.realized_e9, p.ts_updated, i.lot_size_e9"
-                     " FROM raikiri.positions p" +
-                     instrument_at("p.instrument_id", "p.ts_updated") + where.text() +
+                     " FROM " +
+                     from + " p" + instrument_at("p.instrument_id", "p.ts_updated") + where.text() +
                      " ORDER BY p.venue, p.exchange_symbol, p.strategy_id";
     return impl_->read(std::vector<Position>{}, [&](pqxx::connection& conn) {
         pqxx::read_transaction tx{conn};
@@ -685,7 +777,7 @@ std::vector<Position> History::positions(std::optional<AccountId> account,
         std::vector<Position> out;
         out.reserve(static_cast<std::size_t>(rows.size()));
         for (const auto row : rows) {
-            out.push_back(read_position(row, impl_->catalogue));
+            out.push_back(read_position(row, impl_->catalogue, impl_->books));
         }
         return out;
     });
@@ -702,6 +794,12 @@ PnlPage History::pnl(const PageQuery& query, std::optional<PnlKind> kind) const 
     if (kind.has_value()) {
         where.add("p.kind", "=", std::string{pnl_kind_name(*kind)});
     }
+    if (query.book.has_value()) {
+        where.add("p.strategy_id", "=", static_cast<std::int64_t>(*query.book));
+    }
+    if (query.parent.has_value()) {
+        where.add("og.parent_id", "=", static_cast<std::int64_t>(*query.parent));
+    }
     if (query.since.has_value()) {
         where.add("p.ts_event", ">=", static_cast<std::int64_t>(query.since->ns));
     }
@@ -710,11 +808,13 @@ PnlPage History::pnl(const PageQuery& query, std::optional<PnlKind> kind) const 
     }
 
     const auto sql = "SELECT p.source_id, p.account_id, p.kind, p.amount_e9, p.ts_event,"
-                     " p.strategy_id, p.instrument_id"
-                     " FROM raikiri.pnl_increments p" +
+                     " p.strategy_id, p.instrument_id, og.book_kind, og.parent_id"
+                     " FROM raikiri.pnl_increments p"
+                     " LEFT JOIN raikiri.order_origins og ON og.client_order_id = p.client_order_id" +
                      where.text() + " ORDER BY p.ts_event DESC, p.source_id DESC" + limit_clause(limit);
     return impl_->read(PnlPage{}, [&](pqxx::connection& conn) {
-        return fetch<PnlIncrement>(conn, sql, where.params(), limit, read_pnl);
+        return fetch<PnlIncrement>(
+            conn, sql, where.params(), limit, [&](pqxx::row_ref row) { return read_pnl(row, impl_->books); });
     });
 }
 

@@ -42,6 +42,7 @@ std::string_view to_string(ChildEnd end) noexcept {
 Parent::Parent(std::uint64_t id, ParentSpec spec, UnixNanos created) : id_{id}, spec_{spec}, created_{created} {}
 
 std::expected<void, TransitionError> Parent::start(UnixNanos now, FixedE9 qty, FixedE9 arrival) {
+    touch(now);
     if (status_ != Status::Pending) {
         return std::unexpected{terminal(status_) ? TransitionError::Terminal : TransitionError::NotPending};
     }
@@ -80,6 +81,7 @@ std::expected<void, TransitionError> Parent::finish(UnixNanos now) {
 }
 
 std::expected<void, TransitionError> Parent::fail(UnixNanos now, std::string reason) {
+    touch(now);
     auto ended = end(now, Status::Failed);
     if (ended.has_value()) {
         reason_ = std::move(reason);
@@ -88,6 +90,7 @@ std::expected<void, TransitionError> Parent::fail(UnixNanos now, std::string rea
 }
 
 std::expected<void, TransitionError> Parent::end(UnixNanos now, Status status) {
+    touch(now);
     if (terminal(status_)) {
         return std::unexpected{TransitionError::Terminal};
     }
@@ -102,6 +105,7 @@ void Parent::plan(std::vector<UnixNanos> times, std::vector<std::uint64_t> weigh
 }
 
 void Parent::add(Child child) {
+    touch(child.sent);
     children_.push_back(child);
 }
 
@@ -121,6 +125,7 @@ const Child* Parent::live() const noexcept {
 }
 
 bool Parent::fill(UnixNanos now, std::uint64_t child_id, FixedE9 qty, FixedE9 price, FixedE9 fee, FixedE9 leaves) {
+    touch(now);
     auto* it = find(child_id);
     if (it == nullptr) {
         return late_fill(now, child_id, qty, price, fee);
@@ -179,6 +184,7 @@ bool Parent::late_fill(UnixNanos now, std::uint64_t child_id, FixedE9 qty, Fixed
 }
 
 bool Parent::ack(UnixNanos now, std::uint64_t child_id) {
+    touch(now);
     auto* it = find(child_id);
     if (it == nullptr) {
         return false;
@@ -190,6 +196,7 @@ bool Parent::ack(UnixNanos now, std::uint64_t child_id) {
 }
 
 bool Parent::close(UnixNanos now, std::uint64_t child_id, ChildEnd end) {
+    touch(now);
     auto* it = find(child_id);
     if (it == nullptr) {
         return false;
@@ -207,6 +214,7 @@ bool Parent::close(UnixNanos now, std::uint64_t child_id, ChildEnd end) {
 }
 
 void Parent::cancel_sent(UnixNanos now, std::uint64_t child_id) noexcept {
+    touch(now);
     if (auto* it = find(child_id); it != nullptr) {
         it->cancel_sent = now;
     }
@@ -219,6 +227,7 @@ void Parent::cancel_refused(std::uint64_t child_id) noexcept {
 }
 
 void Parent::modify_sent(UnixNanos now, std::uint64_t child_id, FixedE9 limit) noexcept {
+    touch(now);
     if (auto* it = find(child_id); it != nullptr) {
         it->modify_sent = now;
         it->modify_limit = limit;
@@ -226,6 +235,7 @@ void Parent::modify_sent(UnixNanos now, std::uint64_t child_id, FixedE9 limit) n
 }
 
 bool Parent::modified(UnixNanos now, std::uint64_t child_id) noexcept {
+    touch(now);
     auto* it = find(child_id);
     if (it == nullptr || it->modify_sent.ns == 0) {
         return false;

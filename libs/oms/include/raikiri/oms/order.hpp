@@ -10,6 +10,7 @@
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <expected>
 
@@ -26,37 +27,54 @@ public:
           ts_created_{cmd.ts_created}, ts_updated_{cmd.ts_created} {}
 
     [[nodiscard]] std::expected<void, TransitionError> apply(const OrderEvent& event) noexcept {
-        // a pulled fill has undef leaves, so its own size comes off what was left
+        // leaves only fall: a resend or a fill that overtook another must not hand lots back, or they are booked twice
         auto remaining = leaves_;
         if (event.type == OrderEventType::Filled) {
             if (event.leaves_qty.is_undef()) {
+                // a pulled fill has undef leaves, so its own size comes off what was left
                 const auto size = event.qty.is_undef() ? std::int64_t{0} : event.qty.raw;
                 remaining = QtyLots::from_raw(leaves_.raw > size ? leaves_.raw - size : std::int64_t{0});
             } else {
-                remaining = event.leaves_qty;
+                remaining = QtyLots::from_raw(std::min(leaves_.raw, event.leaves_qty.raw));
             }
         }
-        const bool full_fill = event.type == OrderEventType::Filled && remaining.raw == 0;
-        const auto next = transition(status_, event.type, full_fill, prior_working_);
-        if (!next) {
-            return std::unexpected{next.error()};
+        const bool late = absorbed(status_, event.type);
+        if (!late) {
+            const bool full_fill = event.type == OrderEventType::Filled && remaining.raw == 0;
+            const auto next = transition(status_, event.type, full_fill, prior_working_);
+            if (!next) {
+                return std::unexpected{next.error()};
+            }
+            status_ = *next;
+            if (status_ == OrderStatus::Accepted || status_ == OrderStatus::PartiallyFilled ||
+                status_ == OrderStatus::Triggered) {
+                prior_working_ = status_;
+            } else if (event.type == OrderEventType::Filled && !full_fill) {
+                prior_working_ = OrderStatus::PartiallyFilled;
+            }
         }
-        status_ = *next;
-
-        if (event.type == OrderEventType::Filled) {
+        // a fill reported after a refusal moves nothing; one after a cancel still counts
+        if (event.type == OrderEventType::Filled && status_ != OrderStatus::Rejected &&
+            status_ != OrderStatus::Denied) {
             leaves_ = remaining;
             filled_ = qty_ - leaves_;
         }
         if (exchange_order_id_.empty() && !event.exchange_order_id.empty()) {
             exchange_order_id_ = event.exchange_order_id;
         }
-        if (status_ == OrderStatus::Accepted || status_ == OrderStatus::PartiallyFilled ||
-            status_ == OrderStatus::Triggered) {
-            prior_working_ = status_;
-        } else if (event.type == OrderEventType::Filled && !full_fill) {
-            prior_working_ = OrderStatus::PartiallyFilled;
+        const auto at = event.ts_event.ns != 0 ? event.ts_event : event.ts_init;
+        if (event.type == OrderEventType::Updated && !event.price.is_undef() && at.ns >= ts_priced_.ns) {
+            price_ = event.price;
+            ts_priced_ = at;
         }
-        ts_updated_ = event.ts_event.ns != 0 ? event.ts_event : event.ts_init;
+        if (event.type == OrderEventType::PendingCancel) {
+            ts_cancel_sent_ = event.ts_init;
+        }
+        if (event.type == OrderEventType::PendingUpdate && !late) {
+            pending_price_ = event.price;
+        }
+        ts_updated_ = UnixNanos{std::max(ts_updated_.ns, at.ns)};
+        ++version_;
         return {};
     }
 
@@ -96,6 +114,13 @@ public:
 
     [[nodiscard]] UnixNanos ts_updated() const noexcept { return ts_updated_; }
 
+    [[nodiscard]] UnixNanos ts_cancel_sent() const noexcept { return ts_cancel_sent_; }
+
+    [[nodiscard]] PriceTicks pending_price() const noexcept { return pending_price_; }
+
+    // moves with every event this order takes
+    [[nodiscard]] std::uint64_t version() const noexcept { return version_; }
+
 private:
     InstrumentId instrument_{};
     Side side_{Side::Buy};
@@ -113,6 +138,10 @@ private:
     ExchangeOrderId exchange_order_id_{}; // empty until the venue's ack binds it
     UnixNanos ts_created_{};
     UnixNanos ts_updated_{};
+    UnixNanos ts_priced_{};
+    UnixNanos ts_cancel_sent_{};
+    PriceTicks pending_price_{};
+    std::uint64_t version_{0};
 };
 
 } // namespace raikiri::oms

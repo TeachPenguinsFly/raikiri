@@ -18,11 +18,20 @@ struct NewOrderBody {
     std::string qty;
     bool post_only{false};
     bool reduce_only{false};
+    // absent is the operator's own book; only a client book may be named besides it
+    std::optional<std::string> book{};
+    std::string external_ref{};
 };
 
 struct OrderAcceptedBody {
     std::string client_order_id;
     std::string status{"queued"};
+    std::int64_t book_id{k_manual_strategy_id};
+    std::string book{books::k_shared_manual};
+};
+
+struct ParentBookBody {
+    std::optional<std::string> book{};
 };
 
 namespace {
@@ -33,6 +42,10 @@ constexpr std::string_view k_upstream_prefix = "/v1/x/";
 // joe runs inside strategyd and answers /joe/ on its control port
 constexpr std::string_view k_joe_prefix = "/v1/joe/";
 constexpr std::string_view k_joe_upstream = "strategyd";
+
+// a kill fsyncs before it answers, so it gets longer than a read
+constexpr std::string_view k_risk_prefix = "/v1/risk";
+constexpr std::uint32_t k_risk_timeout_ms = 2'000;
 
 // glaze omits an empty optional; the contract's absent fields rely on it
 constexpr glz::opts k_opts{.skip_null_members = true};
@@ -120,9 +133,52 @@ std::optional<MarketType> read_market(std::string_view text) {
 }
 
 // a refusal comes back as the response to send
-std::expected<PageQuery, http::Response> read_page_query(const http::Request& req) {
+// a book's number or its name
+std::expected<std::optional<std::uint16_t>, http::Response> read_book(const http::Request& req,
+                                                                      const books::Registry* books) {
+    const auto text = http::query_param(req.query, "book");
+    if (text.empty()) {
+        return std::nullopt;
+    }
+    if (const auto value = read_digits(text); value.has_value()) {
+        if (*value > 0xFFFF) {
+            return std::unexpected(problem(400, "a book id is 0 to 65535", text));
+        }
+        return static_cast<std::uint16_t>(*value);
+    }
+    const auto* book = books == nullptr ? nullptr : books->find(http::percent_decoded(text));
+    if (book == nullptr) {
+        return std::unexpected(problem(404, "no such book", text));
+    }
+    return book->id;
+}
+
+std::expected<std::optional<std::uint64_t>, http::Response> read_parent(const http::Request& req) {
+    const auto text = http::query_param(req.query, "parent");
+    if (text.empty()) {
+        return std::nullopt;
+    }
+    const auto value = read_digits(text);
+    if (!value.has_value()) {
+        return std::unexpected(problem(400, "a parent id is digits", text));
+    }
+    return *value;
+}
+
+std::expected<PageQuery, http::Response> read_page_query(const http::Request& req, const books::Registry* books) {
     PageQuery query{};
     query.limit = read_limit(http::query_param(req.query, "limit"));
+
+    auto book = read_book(req, books);
+    if (!book.has_value()) {
+        return std::unexpected(std::move(book).error());
+    }
+    query.book = *book;
+    auto parent = read_parent(req);
+    if (!parent.has_value()) {
+        return std::unexpected(std::move(parent).error());
+    }
+    query.parent = *parent;
 
     if (const auto text = http::query_param(req.query, "account"); !text.empty()) {
         const auto account = account_from_string(text);
@@ -195,7 +251,35 @@ int status_for(DeskError error) noexcept {
     return error == DeskError::RingFull ? 503 : 422;
 }
 
-http::Response place_order(ManualDesk* desk, const http::Request& req, UnixNanos now) {
+// a person places under their own book and may name a client's; nobody else's and no other kind. with no login the
+// shared book takes it, and the answer says so
+std::expected<books::Book, http::Response>
+book_to_place(books::Registry* books, std::string_view login, const std::optional<std::string>& named) {
+    books::Book shared{
+        .id = k_manual_strategy_id, .kind = BookKind::Manual, .name = std::string{books::k_shared_manual}};
+    if (books == nullptr) {
+        if (named.has_value() && *named != books::k_shared_manual) {
+            return std::unexpected(problem(503, "no book registry", "only the shared manual book is known here"));
+        }
+        return shared;
+    }
+    const auto own = books::manual_book_name(login);
+    if (!named.has_value() || *named == own) {
+        auto opened = books->resolve(own);
+        return opened.has_value() ? *opened : shared;
+    }
+    const auto book = books->resolve(*named);
+    if (!book.has_value()) {
+        return std::unexpected(problem(
+            book.error() == books::BookError::NotFound ? 404 : 422, "bad book", books::to_string(book.error())));
+    }
+    if (book->kind != BookKind::Client) {
+        return std::unexpected(problem(403, "not your book", "an order by hand goes to your own book or a client's"));
+    }
+    return *book;
+}
+
+http::Response place_order(ManualDesk* desk, books::Registry* books, const http::Request& req, UnixNanos now) {
     if (desk == nullptr) {
         return problem(503, "no desk", "no gateway is attached to place orders through");
     }
@@ -246,12 +330,19 @@ http::Response place_order(ManualDesk* desk, const http::Request& req, UnixNanos
     }
     order.price = body.price;
     order.qty = body.qty;
+    auto book = book_to_place(books, req.login, body.book);
+    if (!book.has_value()) {
+        return std::move(book).error();
+    }
+    order.book = book->id;
+    order.external_ref = std::move(body.external_ref);
 
     const auto placed = desk->place(order, req.idempotency_key, now);
     if (!placed.has_value()) {
         return problem(status_for(placed.error()), "refused", describe(placed.error()));
     }
-    const OrderAcceptedBody accepted{.client_order_id = std::to_string(placed->raw)};
+    const OrderAcceptedBody accepted{
+        .client_order_id = std::to_string(placed->raw), .book_id = book->id, .book = book->name};
     auto answer = json(accepted);
     // 202: accepted by the desk, not yet seen by a venue
     answer.status = 202;
@@ -278,6 +369,7 @@ http::Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNano
 }
 
 http::Response joe(const std::map<std::string, std::uint16_t>& upstreams, const http::Request& req) {
+    constexpr glz::opts k_lenient{.error_on_unknown_keys = false};
     const auto found = upstreams.find(std::string{k_joe_upstream});
     if (found == upstreams.end()) {
         return problem(503, "joe is not configured", "start admind with --upstream strategyd=<control port>");
@@ -290,11 +382,40 @@ http::Response joe(const std::map<std::string, std::uint16_t>& upstreams, const 
         target += '?';
         target += req.query;
     }
+    // a parent started by hand is the operator's unless it names a book; strategyd holds no login of its own
+    if (req.method == "POST" && req.path == std::string{k_joe_prefix} + "parents") {
+        const auto own = books::manual_book_name(req.login);
+        ParentBookBody named{};
+        if (!glz::read<k_lenient>(named, req.body) && named.book.has_value() &&
+            books::reserved_kind(*named.book) == BookKind::Manual && *named.book != own) {
+            return problem(403, "not your book", "an operator starts a parent on their own manual book");
+        }
+        target += req.query.empty() ? '?' : '&';
+        target += "default_book=" + own;
+    }
     const auto answer = http::fetch("127.0.0.1", found->second, target, 250, req.method, req.body);
     if (!answer.has_value()) {
         return problem(503, "strategyd is not answering", "joe's state is unknown until it does");
     }
     return {.status = answer->status, .content_type = "application/json", .body = answer->body};
+}
+
+http::Response book_risk(const std::map<std::string, std::uint16_t>& upstreams, const http::Request& req) {
+    const auto found = upstreams.find(std::string{k_joe_upstream});
+    if (found == upstreams.end()) {
+        return problem(503, "book risk is not configured", "start admind with --upstream strategyd=<control port>");
+    }
+    if (req.method != "GET" && req.method != "POST") {
+        return problem(405, "method not allowed");
+    }
+    const auto target = std::string{"/risk"} + std::string{req.path.substr(k_risk_prefix.size())};
+    const auto answer = http::fetch("127.0.0.1", found->second, target, k_risk_timeout_ms, req.method, req.body, req.login);
+    if (!answer.has_value()) {
+        return problem(503, "strategyd is not answering", "no change was confirmed; read the state again");
+    }
+    return {.status = answer->status,
+            .content_type = answer->status < 400 ? "application/json" : "application/problem+json",
+            .body = answer->body};
 }
 
 } // namespace
@@ -304,17 +425,26 @@ http::Handler make_router(const Registry& registry,
                           ManualDesk* desk,
                           std::function<MonoNanos()> now,
                           std::function<UnixNanos()> wall,
-                          std::map<std::string, std::uint16_t> upstreams) {
-    return [&registry, history, desk, now = std::move(now), wall = std::move(wall), upstreams = std::move(upstreams)](
-               const http::Request& req) -> http::Response {
+                          std::map<std::string, std::uint16_t> upstreams,
+                          books::Registry* books) {
+    return [&registry,
+            history,
+            desk,
+            now = std::move(now),
+            wall = std::move(wall),
+            upstreams = std::move(upstreams),
+            books](const http::Request& req) -> http::Response {
         if (req.method == "POST" && req.path == "/v1/orders") {
-            return place_order(desk, req, wall());
+            return place_order(desk, books, req, wall());
         }
         if (req.method == "DELETE" && req.path.starts_with("/v1/orders/")) {
             return cancel_order(desk, req.path.substr(std::string_view{"/v1/orders/"}.size()), wall());
         }
         if (req.path.starts_with(k_joe_prefix)) {
             return joe(upstreams, req);
+        }
+        if (req.path == k_risk_prefix || req.path.starts_with("/v1/risk/")) {
+            return book_risk(upstreams, req);
         }
         if (req.method != "GET") {
             return problem(405, "method not allowed", "this path serves reads");
@@ -411,7 +541,7 @@ http::Handler make_router(const Registry& registry,
 
         static constexpr std::string_view k_orders = "/v1/orders";
         if (req.path == k_orders) {
-            auto query = read_page_query(req);
+            auto query = read_page_query(req, books);
             if (!query.has_value()) {
                 return std::move(query).error();
             }
@@ -466,15 +596,23 @@ http::Handler make_router(const Registry& registry,
                 }
                 strategy = static_cast<std::uint16_t>(*value);
             }
+            auto book = read_book(req, books);
+            if (!book.has_value()) {
+                return std::move(book).error();
+            }
+            auto parent = read_parent(req);
+            if (!parent.has_value()) {
+                return std::move(parent).error();
+            }
             if (history == nullptr) {
                 return no_database();
             }
-            return json(history->positions(account, strategy));
+            return json(history->positions(account, book->has_value() ? *book : strategy, *parent));
         }
 
         if (req.path == "/v1/fills" || req.path == "/v1/pnl" || req.path == "/v1/funding" ||
             req.path == "/v1/recon-breaks") {
-            auto query = read_page_query(req);
+            auto query = read_page_query(req, books);
             if (!query.has_value()) {
                 return std::move(query).error();
             }

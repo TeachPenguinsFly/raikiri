@@ -1,0 +1,24 @@
+{
+  "items": [
+    {
+      "id": "7345112064000001", "symbol": "BTC/USDT", "market": "perp", "side": "sell", "algo": "twap", "profile": "flat",
+      "status": "working", "qty": "0.5", "filled": "0.18", "working": "0.05", "avg_price": "68409.2", "fees": "4.1",
+      "horizon_s": 600, "slices": 20, "slices_fired": 3, "pov_bp": 0, "created": "1793606398000000000",
+      "started": "1793606398000000000", "child_count": 3, "children_retired": 0, "post_only": false, "book_id": 1031,
+      "book_kind": "hedge", "book": "hedge", "external_ref": "rfq-12"
+    },
+    {
+      "id": "7345112064000002", "symbol": "ETH/USDT", "market": "perp", "side": "buy", "algo": "vwap", "profile": "recorded",
+      "status": "working", "qty": "12", "filled": "4.2", "working": "0", "avg_price": "3508.4", "fees": "1.3",
+      "horizon_s": 1800, "slices": 30, "slices_fired": 11, "pov_bp": 0, "created": "1793606000000000000",
+      "started": "1793606000000000000", "child_count": 11, "children_retired": 0, "post_only": false, "book_id": 1030,
+      "book_kind": "manual", "book": "manual:vova"
+    },
+    {
+      "id": "7345112064000000", "symbol": "SOL/USDT", "market": "perp", "side": "buy", "algo": "sor", "profile": "flat",
+      "status": "done", "qty": "3", "filled": "3", "working": "0", "avg_price": "171.2", "fees": "0.1", "horizon_s": 0,
+      "slices": 1, "slices_fired": 1, "pov_bp": 0, "created": "1793600000000000000", "child_count": 2,
+      "children_retired": 0, "post_only": false, "book_id": 1031, "book_kind": "hedge", "book": "hedge"
+    }
+  ]
+}

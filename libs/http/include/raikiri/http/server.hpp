@@ -20,8 +20,10 @@ struct Request {
     std::string_view query{}; // raw, without the '?'
     std::string_view body{};  // empty on GET; the parser caps it at 16 KiB
 
-    // named rather than a header map; one endpoint reads a header
+    // named rather than a header map; one endpoint reads each
     std::string_view idempotency_key{};
+    // who the proxy in front authenticated; it overwrites what a client sends, and empty is nobody it knows
+    std::string_view login{};
 };
 
 struct Response {
@@ -72,12 +74,16 @@ struct Fetched {
                                            std::string_view target,
                                            std::uint32_t timeout_ms,
                                            std::string_view method = "GET",
-                                           std::string_view body = {}) noexcept;
+                                           std::string_view body = {},
+                                           std::string_view login = {}) noexcept;
 
 // rfc 9457 problem response shared by every api here; `detail` is escaped
 [[nodiscard]] Response problem(int status, std::string_view title, std::string_view detail = {});
 
 // a query value for `key`, or empty; no percent-decoding
 [[nodiscard]] std::string_view query_param(std::string_view query, std::string_view key) noexcept;
+
+// query_param hands back raw text; a browser sends a name's ':' as %3A
+[[nodiscard]] std::string percent_decoded(std::string_view text);
 
 } // namespace raikiri::http

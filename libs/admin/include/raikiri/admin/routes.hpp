@@ -17,7 +17,8 @@ namespace raikiri::admin {
                                         ManualDesk* desk,
                                         std::function<MonoNanos()> now,
                                         std::function<UnixNanos()> wall,
-                                        std::map<std::string, std::uint16_t> upstreams = {});
+                                        std::map<std::string, std::uint16_t> upstreams = {},
+                                        books::Registry* books = nullptr);
 
 // rfc 9457 problem response
 [[nodiscard]] http::Response problem(int status, std::string_view title, std::string_view detail = {});

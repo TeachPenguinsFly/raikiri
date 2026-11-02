@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { api } from '../api/client'
 import type { components } from '../api/types'
+import { isNewer } from './latest'
 
 type Frame = components['schemas']['StreamFrame']
 type Quote = components['schemas']['Quote']
@@ -166,7 +167,7 @@ const k_max_instruments = 500
 
 /** a frame carries only what moved, so rows merge by instrument; frames landing inside one animation frame
  *  are merged into one render */
-function useRows<T extends { instrument_id: string }>(
+function useRows<T extends { instrument_id: string; ts_event?: string }>(
   channel: RowChannel,
   instruments: string[],
   read: (frame: Frame) => T[] | null,
@@ -187,7 +188,11 @@ function useRows<T extends { instrument_id: string }>(
       pending = new Map()
       setRows((prev) => {
         const merged = new Map(prev)
-        for (const [id, row] of batch) merged.set(id, row)
+        for (const [id, row] of batch) {
+          // a resubscribe's first frame can carry an older reading than the one on screen
+          const held = merged.get(id)
+          if (held === undefined || !isNewer(held.ts_event, row.ts_event)) merged.set(id, row)
+        }
         return merged
       })
     }

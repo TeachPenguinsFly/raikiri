@@ -11,6 +11,7 @@ namespace raikiri::config {
 namespace internal {
 
 constexpr std::int64_t k_max_whole = std::numeric_limits<std::int64_t>::max() / k_e9;
+constexpr std::uint64_t k_ms_ns = 1'000'000;
 
 template <typename T> void overlay(std::optional<T>& into, const std::optional<T>& from) {
     if (from.has_value()) {
@@ -19,12 +20,15 @@ template <typename T> void overlay(std::optional<T>& into, const std::optional<T
 }
 
 [[nodiscard]] std::string check(const RiskSettings& settings) {
-    const std::array<std::pair<std::string_view, const std::optional<std::int64_t>*>, 5> positives{{
+    const std::array<std::pair<std::string_view, const std::optional<std::int64_t>*>, 8> positives{{
         {"max_order_notional", &settings.max_order_notional},
         {"max_instrument_notional", &settings.max_instrument_notional},
         {"max_strategy_notional", &settings.max_strategy_notional},
         {"max_price_band_bp", &settings.max_price_band_bp},
         {"max_option_premium", &settings.max_option_premium},
+        {"max_naked_short", &settings.max_naked_short},
+        {"max_short_vega", &settings.max_short_vega},
+        {"max_short_gamma", &settings.max_short_gamma},
     }};
     for (const auto& [name, slot] : positives) {
         const auto& value = *slot;
@@ -41,8 +45,25 @@ template <typename T> void overlay(std::optional<T>& into, const std::optional<T
             return "a lot ceiling must be positive";
         }
     }
+    if (settings.duplicate_window_ms.has_value() && *settings.duplicate_window_ms < 0) {
+        return "duplicate_window_ms is negative";
+    }
+    if (settings.short_margin_buffer_bp.has_value() && *settings.short_margin_buffer_bp < 0) {
+        return "short_margin_buffer_bp is negative";
+    }
     if (settings.max_open_orders.has_value() && *settings.max_open_orders == 0) {
         return "max_open_orders is 0";
+    }
+    for (const auto* window : {&settings.order_window_ms, &settings.repeat_window_ms}) {
+        if (window->has_value() && **window == 0) {
+            return "a window must be longer than zero";
+        }
+    }
+    constexpr std::uint64_t k_max_ms = std::numeric_limits<std::int64_t>::max() / k_ms_ns;
+    for (const auto* span : {&settings.order_window_ms, &settings.repeat_window_ms, &settings.max_quote_age_ms}) {
+        if (span->has_value() && **span > k_max_ms) {
+            return "a window or age is too long";
+        }
     }
     return {};
 }
@@ -94,6 +115,16 @@ RiskSettings risk_for(const RiskFile& file, std::string_view name, std::uint16_t
     internal::overlay(out.max_lots.option, over.max_lots.option);
     internal::overlay(out.max_option_premium, over.max_option_premium);
     internal::overlay(out.max_option_open_lots, over.max_option_open_lots);
+    internal::overlay(out.max_orders_in_window, over.max_orders_in_window);
+    internal::overlay(out.order_window_ms, over.order_window_ms);
+    internal::overlay(out.max_repeat_entries, over.max_repeat_entries);
+    internal::overlay(out.repeat_window_ms, over.repeat_window_ms);
+    internal::overlay(out.max_quote_age_ms, over.max_quote_age_ms);
+    internal::overlay(out.duplicate_window_ms, over.duplicate_window_ms);
+    internal::overlay(out.max_naked_short, over.max_naked_short);
+    internal::overlay(out.max_short_vega, over.max_short_vega);
+    internal::overlay(out.max_short_gamma, over.max_short_gamma);
+    internal::overlay(out.short_margin_buffer_bp, over.short_margin_buffer_bp);
     return out;
 }
 
@@ -103,6 +134,9 @@ oms::RiskConfig to_risk_config(const RiskSettings& settings) noexcept {
         out.max_open_orders = *settings.max_open_orders;
     }
     out.max_price_band_bp = settings.max_price_band_bp.value_or(0);
+    if (settings.duplicate_window_ms.has_value()) {
+        out.duplicate_window_ns = static_cast<std::uint64_t>(*settings.duplicate_window_ms) * 1'000'000ULL;
+    }
     out.max_order_notional = internal::whole_e9(settings.max_order_notional);
     out.max_instrument_notional = internal::whole_e9(settings.max_instrument_notional);
     out.max_strategy_notional = internal::whole_e9(settings.max_strategy_notional);
@@ -112,6 +146,19 @@ oms::RiskConfig to_risk_config(const RiskSettings& settings) noexcept {
                     .option = internal::lots(settings.max_lots.option)};
     out.max_option_premium = internal::whole_e9(settings.max_option_premium);
     out.max_option_open_lots = internal::lots(settings.max_option_open_lots);
+    out.max_orders_in_window = settings.max_orders_in_window.value_or(0);
+    out.max_repeat_entries = settings.max_repeat_entries.value_or(0);
+    out.max_quote_age_ns = settings.max_quote_age_ms.value_or(0) * internal::k_ms_ns;
+    if (settings.order_window_ms.has_value()) {
+        out.order_window_ns = *settings.order_window_ms * internal::k_ms_ns;
+    }
+    if (settings.repeat_window_ms.has_value()) {
+        out.repeat_window_ns = *settings.repeat_window_ms * internal::k_ms_ns;
+    }
+    out.max_naked_short = internal::whole_e9(settings.max_naked_short);
+    out.max_short_vega = internal::whole_e9(settings.max_short_vega);
+    out.max_short_gamma = internal::whole_e9(settings.max_short_gamma);
+    out.short_margin_buffer_bp = settings.short_margin_buffer_bp.value_or(out.short_margin_buffer_bp);
     return out;
 }
 

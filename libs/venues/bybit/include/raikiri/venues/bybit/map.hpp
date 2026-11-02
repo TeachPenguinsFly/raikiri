@@ -13,6 +13,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
+#include <vector>
 
 namespace raikiri::venues::bybit {
 
@@ -52,6 +54,10 @@ map_funding_charge(const WireExecution& wire, const exec::InstrumentTable& table
 
 // nullopt when no coin is named; coin rows carry no time, so the caller passes one
 [[nodiscard]] std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixNanos ts_venue);
+
+// a unified account's coin rows state no availability, and its options settle in stablecoins, so those rows carry the
+// account-wide figure for the short margin check; USDC gets a row of its own when the account holds none
+void apply_account_available(std::vector<BalanceReport>& reports, std::string_view total_available, UnixNanos ts_venue);
 
 // nullopt for anything not trading or with unparsed filters
 // a zero bid or ask vol means that side is empty

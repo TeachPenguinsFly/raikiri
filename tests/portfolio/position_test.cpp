@@ -59,6 +59,18 @@ Position fold(const InstrumentBase& base, const std::vector<Fill>& fills) {
                                          << b.realized().raw << " fees " << a.fees().raw << "/" << b.fees().raw;
 }
 
+// the persisted row keeps the newer stamp, so a stamp going back would strand the position at its old size
+TEST(Position, ALateFillMovesTheSizeAndNotTheStampBack) {
+    const auto base = binance_btcusdt();
+    Position position{PositionKey{7, base.id}, UnixNanos{1}};
+    const auto price = PriceTicks::from_raw(1'000);
+    const auto fee = FixedE9::from_raw(0);
+    (void)position.apply_fill(base, Side::Buy, QtyLots::from_raw(5), price, fee, UnixNanos{100});
+    (void)position.apply_fill(base, Side::Buy, QtyLots::from_raw(2), price, fee, UnixNanos{50});
+    EXPECT_EQ(position.qty().raw, 7);
+    EXPECT_EQ(position.ts_updated().ns, 100U);
+}
+
 TEST(Position, LongOpensAndClosesForWhatTheMoveWasWorth) {
     const auto base = binance_btcusdt();
     // 1 BTC = 1000 lots at a 0.001 lot size.

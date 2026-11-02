@@ -19,6 +19,8 @@ std::string_view to_string(CreateError error) noexcept {
         return "this process holds as many strategies as it can";
     case CreateError::Refused:
         return "the strategy refused its configuration";
+    case CreateError::BookTaken:
+        return "the book registry holds that id under another name";
     }
     return "?";
 }
@@ -89,6 +91,13 @@ std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec, co
     if (!types.contains(spec.type)) {
         return std::unexpected{
             CreateFailure{.error = CreateError::UnknownType, .detail = "no strategy type named " + spec.type}};
+    }
+
+    if (kernel_.admit) {
+        if (auto admitted = kernel_.admit(spec); !admitted.has_value()) {
+            return std::unexpected{
+                CreateFailure{.error = CreateError::BookTaken, .detail = std::move(admitted.error())}};
+        }
     }
 
     // the context before the strategy, so a failed context needs no unwind
@@ -188,7 +197,8 @@ void Registry::on_funding(const FundingUpdate& funding) {
 }
 
 void Registry::on_order_event(const OrderEvent& event) {
-    auto* instance = find_mut(event.client_order_id.strategy_id());
+    const auto id = event.client_order_id;
+    auto* instance = find_mut(id.is_child() ? executor_ : id.strategy_id());
     if (instance != nullptr && instance->subscribed) {
         instance->strategy->on_order_event(*instance->ctx, event);
     }

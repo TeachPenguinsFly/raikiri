@@ -227,6 +227,18 @@ public:
         return reports;
     }
 
+    std::expected<std::string, exec::VenueError> option_account_mode() {
+        const auto config = pull(builder_.account_config(state_->venue_now()));
+        if (!config.has_value()) {
+            return std::unexpected{config.error()};
+        }
+        const auto mode = parse_account_mode(*config);
+        if (!mode.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(mode.error()))};
+        }
+        return std::string{option_mode_name(*mode)};
+    }
+
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
         // one trading account backs both markets
         (void)market;

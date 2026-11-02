@@ -9,10 +9,10 @@
 		admin {env.RAIKIRI_TERMINAL_HASH}
 	}
 
-	# placing orders is refused from outside; this must be a handle and come first
+	# placing orders and opening client books are refused from outside; this must be a handle and come first
 	@place_order {
 		method POST
-		path /v1/orders
+		path /v1/orders /v1/books
 	}
 	handle @place_order {
 		respond "order entry is not exposed" 403
@@ -25,8 +25,11 @@
 		reverse_proxy 127.0.0.1:8788
 	}
 
+	# admind books a hand order to manual:<login>; this replaces whatever the client sent
 	handle /v1/* {
-		reverse_proxy 127.0.0.1:8787
+		reverse_proxy 127.0.0.1:8787 {
+			header_up X-Raikiri-Login {http.auth.user.id}
+		}
 	}
 
 	handle {

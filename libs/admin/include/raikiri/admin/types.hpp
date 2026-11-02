@@ -211,6 +211,10 @@ struct Position {
     std::optional<std::string> venue_qty;
     std::optional<std::string> venue_reported_at;
     std::string ts_updated;
+    std::optional<std::string> book_kind;
+    std::optional<std::string> book;
+    // of two answers about one position the higher is newer
+    std::string version{};
 };
 
 // a currency balance as the venue last reported it; the set travels together

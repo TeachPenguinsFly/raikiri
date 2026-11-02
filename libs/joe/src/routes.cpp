@@ -48,6 +48,8 @@ struct NewParentBody {
     std::optional<std::string> venue{};
     bool post_only{false};
     std::string client_tag{};
+    std::optional<std::string> book{};
+    std::string external_ref{};
 };
 
 struct ChildDto {
@@ -104,6 +106,12 @@ struct ParentDto {
     std::optional<std::string> working_price{};
     std::optional<std::string> hold{};
     std::optional<std::string> client_tag{};
+    // zero is joe's own book, which has no number joe knows of
+    std::uint16_t book_id{0};
+    std::optional<std::string> book{};
+    std::optional<std::string> book_kind{};
+    std::optional<std::string> external_ref{};
+    std::string version{};
 };
 
 struct MidDto {
@@ -359,6 +367,7 @@ template <typename T> http::Response json(const T& value, int status = 200) {
                   .child_count = parent.child_count(),
                   .children_retired = parent.retired_count(),
                   .post_only = spec.post_only};
+    out.version = std::to_string(parent.version());
     if (spec.venue != VenueId::Invalid) {
         out.venue = std::string{to_string(spec.venue)};
     }
@@ -382,6 +391,10 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     }
     if (!spec.client_tag.empty()) {
         out.client_tag = spec.client_tag;
+    }
+    out.book_id = spec.book;
+    if (!spec.external_ref.empty()) {
+        out.external_ref = spec.external_ref;
     }
     if (parent.status() != Status::Pending) {
         out.slices_fired = fired(parent.times(), terminal(parent.status()) ? parent.ended() : now);
@@ -514,7 +527,15 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     spec.catchup_pct = in.catchup_pct;
     spec.pov_bp = in.pov_bp;
     spec.client_tag = std::move(in.client_tag);
+    spec.external_ref = std::move(in.external_ref);
     return spec;
+}
+
+// read apart from the spec, because a name means nothing until the registry answers
+[[nodiscard]] std::string read_book(std::string_view body) {
+    NewParentBody in{};
+    (void)glz::read_json(in, body);
+    return in.book.value_or(std::string{});
 }
 
 [[nodiscard]] http::Response refused(const Refusal& why) {
@@ -543,6 +564,14 @@ template <typename T> http::Response json(const T& value, int status = 200) {
 } // namespace
 
 std::optional<http::Response> JoeRoutes::operator()(const http::Request& req) const {
+    const auto labelled = [this](const Parent& parent, bool with_children) {
+        auto dto = to_dto(parent, with_children, desk_->now());
+        if (const auto* book = books_ == nullptr ? nullptr : books_->find(dto.book_id); book != nullptr) {
+            dto.book = book->name;
+            dto.book_kind = std::string{to_string(book->kind)};
+        }
+        return dto;
+    };
     if (!req.path.starts_with(k_prefix)) {
         return std::nullopt;
     }
@@ -554,17 +583,40 @@ std::optional<http::Response> JoeRoutes::operator()(const http::Request& req) co
         if (req.method == "GET") {
             ParentList list;
             const auto tag = http::query_param(req.query, "client_tag");
+            std::optional<std::uint16_t> wanted_book;
+            if (const auto text = http::query_param(req.query, "book"); !text.empty()) {
+                const auto* book = books_ == nullptr ? nullptr : books_->find(http::percent_decoded(text));
+                if (book == nullptr) {
+                    return http::problem(404, "no such book", text);
+                }
+                wanted_book = book->id;
+            }
             for (const auto& parent : std::views::reverse(desk_->parents())) {
-                if (tag.empty() || parent.spec().client_tag == tag) {
-                    list.items.push_back(to_dto(parent, false, desk_->now()));
+                if ((tag.empty() || parent.spec().client_tag == tag) &&
+                    (!wanted_book.has_value() || parent.spec().book == *wanted_book)) {
+                    list.items.push_back(labelled(parent, false));
                 }
             }
             return json(list);
         }
         if (req.method == "POST") {
-            const auto spec = read_spec(req.body);
+            auto spec = read_spec(req.body);
             if (!spec.has_value()) {
                 return http::problem(400, "bad request", spec.error());
+            }
+            const auto named = read_book(req.body);
+            const auto default_book = http::query_param(req.query, "default_book");
+            if (const auto name = named.empty() ? default_book : std::string_view{named}; !name.empty()) {
+                if (books_ == nullptr) {
+                    return http::problem(503, "no book registry", "strategyd holds no registry to resolve a book by");
+                }
+                const auto book = books_->resolve(name);
+                if (!book.has_value()) {
+                    return http::problem(book.error() == books::BookError::NotFound ? 404 : 422,
+                                         "bad book",
+                                         books::to_string(book.error()));
+                }
+                spec->book = book->id;
             }
             const bool held = desk_->find_tag(spec->client_tag) != nullptr;
             const auto started = desk_->start(*spec);
@@ -608,7 +660,7 @@ std::optional<http::Response> JoeRoutes::operator()(const http::Request& req) co
         if (parent == nullptr) {
             return http::problem(404, "no such parent order", req.path);
         }
-        return json(to_dto(*parent, true, desk_->now()));
+        return json(labelled(*parent, true));
     }
     const auto action = rest.substr(slash + 1);
     if (action == "trace") {
@@ -642,7 +694,7 @@ std::optional<http::Response> JoeRoutes::operator()(const http::Request& req) co
     if (!done.has_value()) {
         return refused(done.error());
     }
-    return json(to_dto(*desk_->find(*id), false, desk_->now()));
+    return json(labelled(*desk_->find(*id), false));
 }
 
 } // namespace raikiri::joe

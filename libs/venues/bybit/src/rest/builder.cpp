@@ -331,6 +331,10 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::wallet_balance(UnixN
     return signed_get(ep::k_wallet_balance, query.view(), now);
 }
 
+std::expected<net::RestRequest, BuildError> RequestBuilder::account_info(UnixNanos now) {
+    return signed_get(ep::k_account_info, {}, now);
+}
+
 net::RestRequest RequestBuilder::tickers(MarketType market) {
     Appender target{target_};
     target << ep::k_tickers << "?category=" << category_of(market);

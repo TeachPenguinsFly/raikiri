@@ -58,6 +58,10 @@ transition(OrderStatus status,
            bool full_fill = false,
            OrderStatus resume = OrderStatus::Accepted) noexcept;
 
+// an event that arrived late or twice and has nothing left to move: venues race their acks against fills and cancels,
+// so these are not errors, and the event's ids and price still count
+[[nodiscard]] bool absorbed(OrderStatus status, OrderEventType event) noexcept;
+
 // the currency of a fill's fee; empty is whatever the position's sums are counted in, as every
 // fill said before venues stated one
 using FeeAsset = FixedString<4>;

@@ -220,6 +220,15 @@ public:
         return out;
     }
 
+    // the venue names no mode, so the read config chose either answers or it does not
+    std::expected<std::string, exec::VenueError> option_account_mode() {
+        const auto read = option_balance_reports();
+        if (!read.has_value()) {
+            return std::unexpected{read.error()};
+        }
+        return std::string{state_->option_margin_account ? "margin" : "account"};
+    }
+
     std::expected<std::vector<BalanceReport>, exec::VenueError> option_balance_reports() {
         if (!option_rest_) {
             return std::unexpected{exec::not_implemented("binance option balances on a gateway of another market")};

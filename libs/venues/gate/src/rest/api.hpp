@@ -88,6 +88,22 @@ public:
         return user.has_value() ? std::optional{*user} : std::nullopt;
     }
 
+    std::expected<std::string, exec::VenueError> option_account_mode() {
+        const auto request = builder_.option_account(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto mode = parse_option_margin_mode(*body);
+        if (!mode.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(mode.error()))};
+        }
+        return std::to_string(*mode);
+    }
+
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};

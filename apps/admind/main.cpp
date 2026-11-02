@@ -8,6 +8,8 @@
 #include <raikiri/audit/file_store.hpp>
 #include <raikiri/audit/query.hpp>
 #include <raikiri/audit/routes.hpp>
+#include <raikiri/books/file_store.hpp>
+#include <raikiri/books/routes.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/common/version.hpp>
@@ -192,8 +194,25 @@ int main(int argc, char** argv) {
         }
     }
 
+    books::FileBookStore book_store{books::default_path()};
+    books::Registry book_registry{book_store, [&clock] { return clock.wall(); }};
+    if (const auto loaded = book_registry.load(); !loaded.has_value()) {
+        RLOG_ERROR("admind: {} — {}; hand orders go to the shared manual book",
+                   books::default_path(),
+                   books::to_string(loaded.error()));
+    }
+    if (history != nullptr) {
+        history->set_books([&book_registry](std::uint16_t id) -> std::optional<admin::BookLabel> {
+            const auto* book = book_registry.find(id);
+            if (book == nullptr) {
+                return std::nullopt;
+            }
+            return admin::BookLabel{.kind = std::string{to_string(book->kind)}, .name = book->name};
+        });
+    }
+
     // one desk per process; two would mint colliding client order ids
-    admin::ManualDesk desk{registry};
+    admin::ManualDesk desk{registry, &book_registry};
 
     const introspect::FileStatsSource stats_source{introspect::stats_dir(platform::runtime_dir())};
     const auto wall_ns = [&clock] { return clock.wall().ns; };
@@ -228,6 +247,7 @@ int main(int argc, char** argv) {
                                         .realized = option_realized.has_value() ? &*option_realized : nullptr},
                                        [&clock] { return clock.wall(); }};
     const optionrisk::RiskRoutes option_risk_routes{option_risk};
+    const books::BookRoutes book_routes{book_registry};
 
     net::IoContext io;
     http::Server server{io,
@@ -240,13 +260,15 @@ int main(int argc, char** argv) {
                          option_risk_routes,
                          option_routes,
                          audit_routes,
+                         book_routes,
                          routes = admin::make_router(
                              registry,
                              history.get(),
                              &desk,
                              [&clock] { return clock.mono(); },
                              [&clock] { return clock.wall(); },
-                             upstreams)](const http::Request& req) {
+                             upstreams,
+                             &book_registry)](const http::Request& req) {
                             if (auto answer = cache(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
@@ -266,6 +288,9 @@ int main(int argc, char** argv) {
                                 return std::move(*answer);
                             }
                             if (auto answer = audit_routes(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
+                            if (auto answer = book_routes(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
                             return routes(req);
@@ -293,6 +318,7 @@ int main(int argc, char** argv) {
     while (!g_stop.load(std::memory_order_relaxed)) {
         if (const auto mono = clock.mono().ns; mono >= rescan_due) {
             rescan_due = mono + k_rescan_ns;
+            book_registry.refresh();
             const auto found = registry.discover(shm_dir, ::getpid());
             warn_refused();
             if (found > attached) {

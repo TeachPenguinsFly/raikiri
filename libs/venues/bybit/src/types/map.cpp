@@ -416,6 +416,30 @@ std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixN
     return out;
 }
 
+void apply_account_available(std::vector<BalanceReport>& reports,
+                             std::string_view total_available,
+                             UnixNanos ts_venue) {
+    const auto available = to_amount(total_available);
+    if (!available.has_value()) {
+        return;
+    }
+    bool usdc = false;
+    for (auto& report : reports) {
+        if (report.asset.view() == "USDC" || report.asset.view() == "USDT") {
+            report.available = *available;
+            usdc = usdc || report.asset.view() == "USDC";
+        }
+    }
+    if (const auto asset = to_asset_code("USDC"); !usdc && asset.has_value()) {
+        BalanceReport row{};
+        row.asset = *asset;
+        row.wallet = WalletKind::Unified;
+        row.available = *available;
+        row.ts_venue = ts_venue;
+        reports.push_back(row);
+    }
+}
+
 namespace {
 
 [[nodiscard]] AssetClass asset_class_of(std::string_view symbol_type) noexcept {

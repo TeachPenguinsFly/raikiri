@@ -82,6 +82,38 @@ std::string_view to_string(OrderEventType type) noexcept {
     return "unknown";
 }
 
+bool absorbed(OrderStatus status, OrderEventType event) noexcept {
+    using S = OrderStatus;
+    using E = OrderEventType;
+    switch (status) {
+    case S::Initialized:
+    case S::Denied:
+        return false;
+    case S::Canceled:
+    case S::Expired:
+        return event != E::Filled;
+    case S::Rejected:
+    case S::Filled:
+        return true;
+    case S::Submitted:
+        return event == E::Submitted || event == E::PendingUpdate || event == E::Updated ||
+               event == E::ModifyRejected || event == E::CancelRejected || event == E::Triggered;
+    case S::Accepted:
+        return event == E::Submitted || event == E::ModifyRejected || event == E::CancelRejected;
+    case S::Triggered:
+    case S::PartiallyFilled:
+        return event == E::Submitted || event == E::Accepted || event == E::Triggered || event == E::ModifyRejected ||
+               event == E::CancelRejected;
+    case S::PendingUpdate:
+        return event == E::Submitted || event == E::Triggered || event == E::PendingUpdate ||
+               event == E::CancelRejected;
+    case S::PendingCancel:
+        return event == E::Submitted || event == E::Triggered || event == E::PendingCancel ||
+               event == E::PendingUpdate || event == E::Updated || event == E::ModifyRejected;
+    }
+    return false;
+}
+
 std::expected<OrderStatus, TransitionError>
 transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus resume) noexcept {
     using S = OrderStatus;
@@ -112,6 +144,8 @@ transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus
 
     case S::Submitted:
         switch (event) {
+        case E::Denied:
+            return S::Denied; // a replay: the journal holds the intent, then that the ring refused it
         case E::Accepted:
             return S::Accepted;
         case E::Rejected:
@@ -229,6 +263,8 @@ transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus
         switch (event) {
         case E::Filled:
             return full_fill ? S::Filled : S::PartiallyFilled;
+        case E::Rejected:
+            return S::Rejected; // a late reject of the remainder
         case E::Canceled:
             return S::Canceled; // remainder canceled
         case E::Expired:

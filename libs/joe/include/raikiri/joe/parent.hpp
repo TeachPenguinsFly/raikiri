@@ -3,6 +3,7 @@
 #include <raikiri/joe/order.hpp>
 #include <raikiri/joe/trace.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <expected>
 #include <span>
@@ -154,6 +155,9 @@ public:
 
     [[nodiscard]] std::uint64_t id() const noexcept { return id_; }
 
+    // moves with every change and never back, a restart included
+    [[nodiscard]] std::uint64_t version() const noexcept { return version_; }
+
     [[nodiscard]] const ParentSpec& spec() const noexcept { return spec_; }
 
     [[nodiscard]] Status status() const noexcept { return status_; }
@@ -213,11 +217,15 @@ public:
 
 private:
     std::expected<void, TransitionError> end(UnixNanos now, Status status);
+
+    void touch(UnixNanos now) noexcept { version_ = std::max(version_ + 1, now.ns); }
+
     [[nodiscard]] Child* find(std::uint64_t child_id) noexcept;
     bool late_fill(UnixNanos now, std::uint64_t child_id, FixedE9 qty, FixedE9 price, FixedE9 fee);
     [[nodiscard]] VenueRow& retired_row(VenueId venue);
 
     std::uint64_t id_;
+    std::uint64_t version_{0};
     ParentSpec spec_;
     Status status_{Status::Pending};
     std::string reason_;

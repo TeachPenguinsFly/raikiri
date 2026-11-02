@@ -59,6 +59,7 @@ private:
         const auto split = target.find('?');
         const auto& parsed = request_->get();
         const auto idempotency = parsed.find("Idempotency-Key");
+        const auto login = parsed.find("X-Raikiri-Login");
         const Request req{
             .method = std::string_view{parsed.method_string()},
             .path = target.substr(0, split),
@@ -66,6 +67,7 @@ private:
             .body = std::string_view{parsed.body()},
             .idempotency_key = idempotency == parsed.end() ? std::string_view{}
                                                            : std::string_view{idempotency->value()},
+            .login = login == parsed.end() ? std::string_view{} : std::string_view{login->value()},
         };
         Response answer{};
         try {
@@ -224,6 +226,32 @@ std::string_view query_param(std::string_view query, std::string_view key) noexc
         query.remove_prefix(amp + 1);
     }
     return {};
+}
+
+std::string percent_decoded(std::string_view text) {
+    const auto hex = [](char c) -> int {
+        if (c >= '0' && c <= '9') {
+            return c - '0';
+        }
+        if (c >= 'a' && c <= 'f') {
+            return c - 'a' + 10;
+        }
+        if (c >= 'A' && c <= 'F') {
+            return c - 'A' + 10;
+        }
+        return -1;
+    };
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '%' && i + 2 < text.size() && hex(text[i + 1]) >= 0 && hex(text[i + 2]) >= 0) {
+            out += static_cast<char>((hex(text[i + 1]) << 4) | hex(text[i + 2]));
+            i += 2;
+        } else {
+            out += text[i];
+        }
+    }
+    return out;
 }
 
 } // namespace raikiri::http

@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "client_order_id": "290341785029345281", "instrument_id": "72057594037927936", "strategy_id": 1031, "book_id": 1031,
+      "book_kind": "hedge", "book": "hedge", "parent_id": "7345112064000001", "external_ref": "rfq-12", "side": "sell",
+      "order_type": "limit", "tif": "gtc", "post_only": true, "reduce_only": false, "price": "68412.5", "qty": "0.05",
+      "leaves": "0.05", "status": "accepted", "ts_created": "1793606400000000000", "ts_updated": "1793606400000000000"
+    },
+    {
+      "client_order_id": "290341785029345280", "instrument_id": "72057594037927936", "strategy_id": 1031, "book_id": 1031,
+      "book_kind": "hedge", "book": "hedge", "parent_id": "7345112064000001", "external_ref": "rfq-12", "side": "sell",
+      "order_type": "limit", "tif": "ioc", "post_only": false, "reduce_only": false, "price": "68410", "qty": "0.1",
+      "leaves": "0", "status": "filled", "ts_created": "1793606399000000000", "ts_updated": "1793606399500000000"
+    },
+    {
+      "client_order_id": "290341785029345279", "instrument_id": "72057594037927936", "strategy_id": 1031, "book_id": 1031,
+      "book_kind": "hedge", "book": "hedge", "parent_id": "7345112064000001", "external_ref": "rfq-12", "side": "sell",
+      "order_type": "limit", "tif": "ioc", "post_only": false, "reduce_only": false, "price": "68408", "qty": "0.1",
+      "leaves": "0.02", "status": "canceled", "ts_created": "1793606398000000000", "ts_updated": "1793606398500000000"
+    }
+  ]
+}

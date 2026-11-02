@@ -30,6 +30,18 @@ namespace internal {
 // the run an open-ended parent's mid buffer is shaped for; past it the oldest samples go
 constexpr std::uint64_t k_open_run_ns = 3600ULL * 1'000'000'000ULL;
 
+constexpr std::string_view k_stopped = "stopped";
+
+// a slice repeats its siblings on purpose; only the same slice sent twice is a duplicate
+[[nodiscard]] std::uint64_t repeat_key(const Parent& parent) noexcept {
+    return (parent.id() << 32) | ((parent.child_count() + 1) & 0xFFFF'FFFFULL);
+}
+
+[[nodiscard]] OrderOrigin origin_of(const Parent& parent) noexcept {
+    return {.parent = parent.id(),
+            .external_ref = ExternalRef::from(parent.spec().external_ref).value_or(ExternalRef{})};
+}
+
 [[nodiscard]] Refusal refusal(TransitionError error) {
     return {.error = DeskError::Conflict, .detail = std::string{to_string(error)}};
 }
@@ -38,9 +50,11 @@ constexpr std::uint64_t k_open_run_ns = 3600ULL * 1'000'000'000ULL;
 
 Desk::Desk(
     const MarketView& market, OrderSink& sink, const Clock& clock, const VolumeProfile& recorded, DeskConfig config)
-    : market_{&market}, sink_{&sink}, clock_{&clock}, recorded_{&recorded}, config_{config} {}
+    : market_{&market}, sink_{&sink}, clock_{&clock}, recorded_{&recorded}, config_{config},
+      next_id_{config.first_parent_id} {}
 
 std::expected<std::uint64_t, Refusal> Desk::start(ParentSpec spec) {
+    const LogChanges logged{*this};
     if (const auto valid = validate(spec); !valid.has_value()) {
         return std::unexpected{Refusal{.error = DeskError::BadSpec, .detail = std::string{to_string(valid.error())}}};
     }
@@ -50,15 +64,22 @@ std::expected<std::uint64_t, Refusal> Desk::start(ParentSpec spec) {
     if (!sink_->running()) {
         return std::unexpected{Refusal{.error = DeskError::NotRunning, .detail = "joe is not running in strategyd"}};
     }
+    if (spec.book == 0) {
+        spec.book = config_.own_book;
+    }
     const auto now = clock_->wall();
     auto& parent = parents_.emplace_back(next_id_++, spec, now);
     const auto id = parent.id();
+    if (log_ != nullptr) {
+        log_->record({.kind = ParentRecord::Kind::Created, .parent = id, .ts = now, .spec = spec});
+    }
     begin(parent, now);
     prune();
     return id;
 }
 
 std::expected<void, Refusal> Desk::cancel(std::uint64_t id) {
+    const LogChanges logged{*this};
     auto* parent = find_mut(id);
     if (parent == nullptr) {
         return std::unexpected{Refusal{.error = DeskError::NoSuchParent, .detail = std::to_string(id)}};
@@ -71,6 +92,7 @@ std::expected<void, Refusal> Desk::cancel(std::uint64_t id) {
 }
 
 std::expected<void, Refusal> Desk::pause(std::uint64_t id) {
+    const LogChanges logged{*this};
     auto* parent = find_mut(id);
     if (parent == nullptr) {
         return std::unexpected{Refusal{.error = DeskError::NoSuchParent, .detail = std::to_string(id)}};
@@ -83,6 +105,7 @@ std::expected<void, Refusal> Desk::pause(std::uint64_t id) {
 }
 
 std::expected<void, Refusal> Desk::resume(std::uint64_t id) {
+    const LogChanges logged{*this};
     auto* parent = find_mut(id);
     if (parent == nullptr) {
         return std::unexpected{Refusal{.error = DeskError::NoSuchParent, .detail = std::to_string(id)}};
@@ -115,6 +138,7 @@ Parent* Desk::find_mut(std::uint64_t id) noexcept {
 }
 
 void Desk::tick() {
+    const LogChanges logged{*this};
     if (!sink_->running()) {
         return;
     }
@@ -151,12 +175,7 @@ void Desk::begin(Parent& parent, UnixNanos now) {
                          ? FixedE9::from_raw(mul_div(spec.notional.raw, k_e9, arrival.raw))
                          : spec.qty;
     (void)parent.start(now, qty, arrival);
-    const auto run = (spec.algo == Algo::Sor                       ? 0
-                      : resting(spec.algo) && spec.horizon_ns == 0 ? internal::k_open_run_ns
-                                                                   : spec.horizon_ns) +
-                     config_.grace_ns;
-    const auto shape = trace_shape(run, config_.sample_ns, config_.trace_mids);
-    parent.trace().open(shape.interval_ns, shape.mids, config_.trace_fills, config_.trace_reprices);
+    open_trace(parent);
     (void)parent.trace().sample(now, arrival, FixedE9::undef());
     const auto seed = parent.id() ^ now.ns;
     switch (spec.algo) {
@@ -181,7 +200,196 @@ void Desk::begin(Parent& parent, UnixNanos now) {
         parent.slot().random = seed;
         break;
     }
+    if (log_ != nullptr) {
+        const auto times = parent.times();
+        const auto weights = parent.weights();
+        log_->record({.kind = ParentRecord::Kind::Started,
+                      .parent = parent.id(),
+                      .ts = now,
+                      .qty = qty,
+                      .arrival = arrival,
+                      .times = {times.begin(), times.end()},
+                      .weights = {weights.begin(), weights.end()},
+                      .random = parent.slot().random});
+    }
     work(parent, now);
+}
+
+void Desk::open_trace(Parent& parent) {
+    const auto& spec = parent.spec();
+    const auto run = (spec.algo == Algo::Sor                       ? 0
+                      : resting(spec.algo) && spec.horizon_ns == 0 ? internal::k_open_run_ns
+                                                                   : spec.horizon_ns) +
+                     config_.grace_ns;
+    const auto shape = trace_shape(run, config_.sample_ns, config_.trace_mids);
+    parent.trace().open(shape.interval_ns, shape.mids, config_.trace_fills, config_.trace_reprices);
+}
+
+void Desk::log_child(const Parent& parent, const Child& child) {
+    if (log_ != nullptr) {
+        log_->record({.kind = ParentRecord::Kind::ChildSent, .parent = parent.id(), .ts = child.sent, .child = child});
+    }
+}
+
+void Desk::log_changes() {
+    if (log_ == nullptr) {
+        return;
+    }
+    for (const auto& parent : parents_) {
+        // pending to working is the started record's
+        if (parent.status() == Status::Pending) {
+            continue;
+        }
+        auto& logged = logged_.try_emplace(parent.id(), Status::Working).first->second;
+        if (logged == parent.status()) {
+            continue;
+        }
+        logged = parent.status();
+        const auto at = terminal(parent.status()) ? parent.ended() : clock_->wall();
+        log_->record({.kind = ParentRecord::Kind::StatusChanged,
+                      .parent = parent.id(),
+                      .ts = at,
+                      .status = parent.status(),
+                      .reason = halting_ ? std::string{internal::k_stopped} : std::string{parent.reason()}});
+    }
+    halting_ = false;
+}
+
+void Desk::restore(const ParentRecord& record) {
+    using Kind = ParentRecord::Kind;
+    if (record.kind == Kind::Created) {
+        parents_.emplace_back(record.parent, record.spec, record.ts);
+        next_id_ = std::max(next_id_, record.parent + 1);
+        // a long journal holds far more finished parents than a desk keeps, and each event looks through them
+        prune();
+        return;
+    }
+    auto* parent = find_mut(record.parent);
+    if (parent == nullptr) {
+        return;
+    }
+    switch (record.kind) {
+    case Kind::Created:
+        break;
+    case Kind::Started:
+        (void)parent->start(record.ts, record.qty, record.arrival);
+        open_trace(*parent);
+        (void)parent->trace().sample(record.ts, record.arrival, FixedE9::undef());
+        parent->plan(record.times, record.weights);
+        parent->slot().random = record.random;
+        break;
+    case Kind::ChildSent:
+        parent->add(record.child);
+        parent->slot().changed = record.ts;
+        parent->retire(record.ts, config_.keep_children, config_.late_fill_ns);
+        break;
+    case Kind::StatusChanged:
+        logged_[parent->id()] = record.status;
+        switch (record.status) {
+        case Status::Pending:
+            break;
+        case Status::Working:
+            (void)parent->resume(record.ts);
+            break;
+        case Status::Paused:
+            (void)parent->pause(record.ts);
+            // this process stopped, nobody asked it to pause, so a restart goes on
+            if (record.reason == internal::k_stopped) {
+                restart_paused_.push_back(parent->id());
+            }
+            break;
+        case Status::Done:
+            (void)parent->finish(record.ts);
+            break;
+        case Status::Cancelled:
+            (void)parent->cancel(record.ts);
+            break;
+        case Status::Failed:
+            (void)parent->fail(record.ts, record.reason);
+            break;
+        }
+        break;
+    }
+}
+
+void Desk::restore(const OrderEvent& event) {
+    const auto id = event.client_order_id.raw;
+    auto* parent = owner_of(id);
+    if (parent == nullptr) {
+        return;
+    }
+    const auto now = event.ts_init;
+    const auto closes = [&](ChildEnd end) { (void)parent->close(now, id, end); };
+    switch (event.type) {
+    case OrderEventType::Accepted:
+        (void)parent->ack(now, id);
+        (void)parent->modified(now, id);
+        break;
+    case OrderEventType::Updated:
+        (void)parent->modified(now, id);
+        break;
+    case OrderEventType::ModifyRejected:
+        (void)parent->modify_refused(id);
+        break;
+    case OrderEventType::CancelRejected:
+        parent->cancel_refused(id);
+        break;
+    case OrderEventType::Filled: {
+        const auto scale = market_->scale(event.instrument);
+        if (!scale.has_value() || event.qty.is_undef() || event.price.is_undef()) {
+            break;
+        }
+        const auto left = event.leaves_qty.is_undef() ? FixedE9::undef() : scale->lot.scaled_by(event.leaves_qty.raw);
+        (void)parent->fill(
+            now, id, scale->lot.scaled_by(event.qty.raw), scale->tick.scaled_by(event.price.raw), event.fee, left);
+        if (event.leaves_qty.raw == 0) {
+            closes(ChildEnd::Filled);
+        }
+        break;
+    }
+    case OrderEventType::Canceled:
+        closes(ChildEnd::Cancelled);
+        break;
+    case OrderEventType::Expired:
+        closes(ChildEnd::Expired);
+        break;
+    case OrderEventType::Rejected:
+        closes(ChildEnd::Rejected);
+        break;
+    case OrderEventType::Denied:
+        closes(ChildEnd::Denied);
+        break;
+    case OrderEventType::ReconClosed:
+        closes(ChildEnd::Lost);
+        break;
+    default:
+        break;
+    }
+}
+
+void Desk::finish_restore() {
+    const auto now = clock_->wall();
+    for (auto& parent : parents_) {
+        if (parent.status() == Status::Working) {
+            (void)parent.pause(now);
+            logged_[parent.id()] = Status::Paused;
+            restart_paused_.push_back(parent.id());
+        }
+    }
+    prune();
+}
+
+std::size_t Desk::resume_restored() {
+    const LogChanges logged{*this};
+    const auto now = clock_->wall();
+    std::size_t resumed = 0;
+    for (const auto id : restart_paused_) {
+        if (auto* parent = find_mut(id); parent != nullptr && parent->resume(now).has_value()) {
+            ++resumed;
+        }
+    }
+    restart_paused_.clear();
+    return resumed;
 }
 
 void Desk::work(Parent& parent, UnixNanos now) {
@@ -249,8 +457,14 @@ void Desk::send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, 
         }
         too_big = false;
         const auto lots = std::min(leg.lots, cap);
-        const auto sent = sink_->submit(
-            {.instrument = leg.instrument, .side = spec.side, .lots = lots, .limit = leg.limit, .tif = ChildTif::Ioc});
+        const auto sent = sink_->submit({.instrument = leg.instrument,
+                                         .side = spec.side,
+                                         .lots = lots,
+                                         .limit = leg.limit,
+                                         .tif = ChildTif::Ioc,
+                                         .book = spec.book,
+                                         .origin = internal::origin_of(parent),
+                                         .repeat_key = internal::repeat_key(parent)});
         if (sent.has_value()) {
             parent.add({.id = *sent,
                         .instrument = leg.instrument,
@@ -258,6 +472,7 @@ void Desk::send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, 
                         .lots = lots,
                         .limit = leg.limit,
                         .sent = now});
+            log_child(parent, parent.children().back());
             parent.accepted();
             continue;
         }
@@ -432,8 +647,14 @@ void Desk::place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos
         return;
     }
     const auto tif = spec.post_only ? ChildTif::PostOnly : ChildTif::Gtc;
-    const auto sent = sink_->submit(
-        {.instrument = book.instrument, .side = spec.side, .lots = lots, .limit = price, .tif = tif});
+    const auto sent = sink_->submit({.instrument = book.instrument,
+                                     .side = spec.side,
+                                     .lots = lots,
+                                     .limit = price,
+                                     .tif = tif,
+                                     .book = spec.book,
+                                     .origin = internal::origin_of(parent),
+                                     .repeat_key = internal::repeat_key(parent)});
     if (!sent.has_value()) {
         if (sent.error() == SinkError::Risk && parent.refused() >= config_.max_refusals) {
             (void)parent.fail(now,
@@ -451,6 +672,7 @@ void Desk::place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos
                 .limit = price,
                 .sent = now,
                 .tif = tif});
+    log_child(parent, parent.children().back());
     parent.accepted();
     slot.changed = now;
     const auto why = first ? RepriceWhy::Place : spec.algo == Algo::Iceberg ? RepriceWhy::Refill : RepriceWhy::Peg;
@@ -515,6 +737,7 @@ Parent* Desk::owner_of(std::uint64_t child_id) noexcept {
 
 void Desk::on_fill(
     std::uint64_t child_id, InstrumentId instrument, QtyLots qty, PriceTicks price, FixedE9 fee, QtyLots leaves) {
+    const LogChanges logged{*this};
     const auto scale = market_->scale(instrument);
     if (!scale.has_value() || qty.is_undef() || price.is_undef()) {
         return;
@@ -549,6 +772,7 @@ void Desk::on_fill(
 }
 
 void Desk::on_ack(std::uint64_t child_id) {
+    const LogChanges logged{*this};
     const auto now = clock_->wall();
     auto* parent = owner_of(child_id);
     if (parent == nullptr) {
@@ -560,6 +784,7 @@ void Desk::on_ack(std::uint64_t child_id) {
 }
 
 void Desk::on_closed(std::uint64_t child_id, ChildEnd end) {
+    const LogChanges logged{*this};
     const auto now = clock_->wall();
     auto* parent = owner_of(child_id);
     if (parent == nullptr) {
@@ -607,6 +832,7 @@ void Desk::on_closed(std::uint64_t child_id, ChildEnd end) {
 }
 
 void Desk::on_modified(std::uint64_t child_id) {
+    const LogChanges logged{*this};
     const auto now = clock_->wall();
     auto* parent = owner_of(child_id);
     if (parent == nullptr || !parent->modified(now, child_id)) {
@@ -653,6 +879,8 @@ void Desk::on_trade(InstrumentId instrument, PriceTicks price, QtyLots qty) {
 }
 
 void Desk::halt() {
+    const LogChanges logged{*this};
+    halting_ = true;
     const auto now = clock_->wall();
     for (auto& parent : parents_) {
         if (parent.status() == Status::Working) {
@@ -670,6 +898,7 @@ void Desk::prune() {
         if (it == parents_.end()) {
             return;
         }
+        logged_.erase(it->id());
         parents_.erase(it);
     }
 }

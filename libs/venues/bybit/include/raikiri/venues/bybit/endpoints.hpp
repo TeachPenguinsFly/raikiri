@@ -32,6 +32,7 @@ inline constexpr std::string_view k_order_open = "/v5/order/realtime";
 inline constexpr std::string_view k_execution_list = "/v5/execution/list";
 inline constexpr std::string_view k_position_list = "/v5/position/list";
 inline constexpr std::string_view k_wallet_balance = "/v5/account/wallet-balance";
+inline constexpr std::string_view k_account_info = "/v5/account/info";
 // metered at 25 requests a second; config/venues.yaml must agree
 inline constexpr std::string_view k_transaction_log = "/v5/account/transaction-log";
 

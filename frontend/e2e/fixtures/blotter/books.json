@@ -1,0 +1,8 @@
+[
+  { "id": 1, "kind": "manual", "name": "manual", "created": "1793000000000000000" },
+  { "id": 7, "kind": "strategy", "name": "mm", "created": "1793000000000000000" },
+  { "id": 9, "kind": "strategy", "name": "joe", "created": "1793000000000000000" },
+  { "id": 1030, "kind": "manual", "name": "manual:vova", "created": "1793100000000000000" },
+  { "id": 1031, "kind": "hedge", "name": "hedge", "created": "1793200000000000000" },
+  { "id": 1032, "kind": "client", "name": "client:acme", "created": "1793300000000000000" }
+]

@@ -23,7 +23,8 @@ std::optional<Fetched> fetch(std::string_view host,
                              std::string_view target,
                              std::uint32_t timeout_ms,
                              std::string_view method,
-                             std::string_view body) noexcept {
+                             std::string_view body,
+                             std::string_view login) noexcept {
     try {
         boost::asio::io_context ioc;
         beast::tcp_stream stream{ioc};
@@ -39,6 +40,9 @@ std::optional<Fetched> fetch(std::string_view host,
         }
         beast_http::request<beast_http::string_body> req{verb, std::string{target}, 11};
         req.set(beast_http::field::host, std::string{host});
+        if (!login.empty()) {
+            req.set("X-Raikiri-Login", std::string{login});
+        }
         if (!body.empty()) {
             req.set(beast_http::field::content_type, "application/json");
             req.body() = std::string{body};

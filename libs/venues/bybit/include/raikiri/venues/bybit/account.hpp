@@ -13,6 +13,9 @@
 
 namespace raikiri::venues::bybit {
 
+// /v5/account/info's marginMode, as the venue spells it: ISOLATED_MARGIN, REGULAR_MARGIN or PORTFOLIO_MARGIN
+[[nodiscard]] std::expected<std::string_view, WireError> parse_margin_mode(std::string_view result);
+
 // transaction log row; bybit mints a unique id per row and the ledger keys on it
 struct WireLedgerEntry {
     std::string_view id;
@@ -48,6 +51,8 @@ inline constexpr std::size_t k_max_coins = 128;
 
 struct CoinBalanceBuffer {
     std::array<WireCoinBalance, k_max_coins> coins{};
+    // the account's margin free for new positions, in usd; empty under isolated margin
+    std::string_view total_available{};
 };
 
 [[nodiscard]] std::expected<std::span<const WireCoinBalance>, WireError>

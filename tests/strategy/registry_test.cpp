@@ -361,6 +361,50 @@ TEST(StrategyRegistry, AnOrderEventReachesOnlyTheStrategyThatPlacedIt) {
     EXPECT_TRUE(journal().empty());
 }
 
+TEST(StrategyRegistry, AChildsEventReachesTheExecutorWhicheverBookItIsOn) {
+    Harness h;
+    Registry live{h.kernel()};
+    ASSERT_TRUE(live.create({.name = "a", .type = "recorder", .strategy_id = 3}, h.types));
+    ASSERT_TRUE(live.create({.name = "b", .type = "recorder", .strategy_id = 4}, h.types));
+    ASSERT_TRUE(live.start(3, {}));
+    ASSERT_TRUE(live.start(4, {}));
+    journal().clear();
+
+    OrderEvent child{};
+    child.client_order_id = ClientOrderId::make_child(3, 1);
+    live.on_order_event(child);
+    EXPECT_TRUE(journal().empty()) << "no executor set: a child belongs to nobody";
+
+    live.set_executor(4);
+    live.on_order_event(child);
+    child.client_order_id = ClientOrderId::make_child(2000, 2);
+    live.on_order_event(child);
+    EXPECT_EQ(journal(), (std::vector<std::string>{"s4:order", "s4:order"}));
+
+    journal().clear();
+    OrderEvent own{};
+    own.client_order_id = ClientOrderId::make(3, 1);
+    live.on_order_event(own);
+    EXPECT_EQ(journal(), (std::vector<std::string>{"s3:order"})) << "a plain order still goes to its strategy";
+}
+
+TEST(StrategyRegistry, TheBookRegistryCanRefuseAStrategyBeforeAnythingIsBuilt) {
+    Harness h;
+    auto kernel = h.kernel();
+    kernel.admit = [](const Spec& spec) -> std::expected<void, std::string> {
+        if (spec.strategy_id == 7) {
+            return std::unexpected{std::string{"id 7 is on record as mm"}};
+        }
+        return {};
+    };
+    Registry live{kernel};
+    const auto refused = live.create({.name = "arb", .type = "recorder", .strategy_id = 7}, h.types);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error().error, CreateError::BookTaken);
+    EXPECT_EQ(refused.error().detail, "id 7 is on record as mm");
+    EXPECT_TRUE(live.create({.name = "arb", .type = "recorder", .strategy_id = 8}, h.types).has_value());
+}
+
 TEST(StrategyRegistry, ATimerReachesOneStrategyAndNotItsNeighbour) {
     Harness h;
     Registry live{h.kernel()};

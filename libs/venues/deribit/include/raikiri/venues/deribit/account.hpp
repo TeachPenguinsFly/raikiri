@@ -47,4 +47,7 @@ struct WireAccountSummary {
 
 [[nodiscard]] std::expected<WireAccountSummary, WireError> parse_account_summary(std::string_view body);
 
+// the same body's portfolio_margining_enabled: "portfolio" or "standard"
+[[nodiscard]] std::expected<std::string_view, WireError> parse_margin_regime(std::string_view body);
+
 } // namespace raikiri::venues::deribit

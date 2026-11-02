@@ -88,6 +88,11 @@ public:
     }
 
     // account balances; gated by caps.balance_pull for the market asked
+    // the account mode options trade under, in the words venues.yaml's option_account_mode uses
+    [[nodiscard]] virtual std::expected<std::string, VenueError> option_account_mode() {
+        return std::unexpected{not_implemented("option account mode")};
+    }
+
     [[nodiscard]] virtual std::expected<std::vector<BalanceReport>, VenueError> balance_reports(MarketType market) {
         (void)market;
         return std::unexpected{VenueError::make(ErrorClass::Terminal, 0, "balances not implemented for this venue")};

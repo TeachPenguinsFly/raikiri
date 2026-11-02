@@ -14,13 +14,17 @@ std::expected<std::uint64_t, SinkError> ContextSink::submit(const ChildOrder& or
     if (!ticks.has_value()) {
         return std::unexpected{SinkError::Refused};
     }
-    const auto sent = ctx_->submit({.instrument = order.instrument,
-                                    .side = order.side,
-                                    .type = OrderType::Limit,
-                                    .tif = order.tif == ChildTif::Ioc ? TimeInForce::Ioc : TimeInForce::Gtc,
-                                    .flags = order.tif == ChildTif::PostOnly ? OrderFlags::PostOnly : OrderFlags::None,
-                                    .price = *ticks,
-                                    .qty = QtyLots::from_raw(order.lots)});
+    const auto sent = ctx_->submit_child(
+        {.instrument = order.instrument,
+         .side = order.side,
+         .type = OrderType::Limit,
+         .tif = order.tif == ChildTif::Ioc ? TimeInForce::Ioc : TimeInForce::Gtc,
+         .flags = order.tif == ChildTif::PostOnly ? OrderFlags::PostOnly : OrderFlags::None,
+         .price = *ticks,
+         .qty = QtyLots::from_raw(order.lots),
+         .repeat_key = order.repeat_key},
+        order.book,
+        order.origin);
     if (sent.has_value()) {
         return sent->raw;
     }

@@ -130,13 +130,22 @@ struct AccountId {
 
 // Strategy-minted order handle: {strategy_id:16 | seq:48}.
 struct ClientOrderId {
+    static constexpr std::uint64_t k_child_bit = 1ULL << 47;
+
     std::uint64_t raw{0};
 
     [[nodiscard]] static constexpr ClientOrderId make(std::uint16_t strategy_id, std::uint64_t seq) noexcept {
         return {(static_cast<std::uint64_t>(strategy_id) << 48) | (seq & 0xFFFF'FFFF'FFFFULL)};
     }
 
+    // books to `strategy_id` while its events go to the executor working it; no plain seq reaches this bit
+    [[nodiscard]] static constexpr ClientOrderId make_child(std::uint16_t strategy_id, std::uint64_t seq) noexcept {
+        return make(strategy_id, seq | k_child_bit);
+    }
+
     [[nodiscard]] constexpr std::uint16_t strategy_id() const noexcept { return static_cast<std::uint16_t>(raw >> 48); }
+
+    [[nodiscard]] constexpr bool is_child() const noexcept { return (raw & k_child_bit) != 0; }
 
     [[nodiscard]] constexpr std::uint64_t seq() const noexcept { return raw & 0xFFFF'FFFF'FFFFULL; }
 
@@ -145,7 +154,7 @@ struct ClientOrderId {
     friend constexpr auto operator<=>(ClientOrderId, ClientOrderId) noexcept = default;
 };
 
-// reserved for the manual desk so a hand-placed order is distinguishable from a strategy's
+// the shared manual book, for a hand-placed order whose operator is not known
 inline constexpr std::uint16_t k_manual_strategy_id = 1;
 
 // OMS-minted, sent to the venue as its client-order-id field

@@ -128,6 +128,11 @@ const bool registered = strategy::register_type<JoinBid>("join-bid");
 strategyd --gateway=bybit --strategy join-bid
 ```
 
+No new order passes until a person declares the desk's capital (`POST /v1/risk/capital`, or the Risk
+page where one is deployed), so a fresh data directory refuses everything but cancels. Only sim seeds
+itself. `--seed-capital <dollars>` sets a first figure from the command line and never replaces one a
+person set.
+
 Besides `on_bbo` there are `on_trade`, `on_funding`, `on_order_event`, `on_timer`, `on_start` and
 `on_stop`. `Context` also gives the strategy its position, unrealised PnL, timers and `set_target`,
 which declares the position to hold and lets the kernel send the orders.

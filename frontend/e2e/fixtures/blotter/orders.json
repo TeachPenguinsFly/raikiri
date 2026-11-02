@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "client_order_id": "290341785029345281", "exchange_client_order_id": "01KEXAMPLE0000000000000001",
+      "instrument_id": "72057594037927936", "strategy_id": 1031, "book_id": 1031, "book_kind": "hedge", "book": "hedge",
+      "parent_id": "7345112064000001", "external_ref": "rfq-12", "side": "sell", "order_type": "limit", "tif": "gtc",
+      "post_only": true, "reduce_only": false, "price": "68412.5", "qty": "0.05", "leaves": "0.05", "status": "accepted",
+      "ts_created": "1793606400000000000", "ts_updated": "1793606400000000000"
+    },
+    {
+      "client_order_id": "290200000000000123", "instrument_id": "72057594037927936", "strategy_id": 1030, "book_id": 1030,
+      "book_kind": "manual", "book": "manual:vova", "side": "buy", "order_type": "limit", "tif": "gtc", "post_only": false,
+      "reduce_only": false, "price": "68200", "qty": "0.01", "leaves": "0.01", "status": "accepted",
+      "ts_created": "1793606390000000000", "ts_updated": "1793606390000000000"
+    },
+    {
+      "client_order_id": "290480000000000999", "instrument_id": "72057594037927937", "strategy_id": 1032, "book_id": 1032,
+      "book_kind": "client", "book": "client:acme", "external_ref": "acme-77431", "side": "buy", "order_type": "limit",
+      "tif": "gtc", "post_only": false, "reduce_only": false, "price": "3510.2", "qty": "1.5", "leaves": "0.9",
+      "status": "partially_filled", "ts_created": "1793606380000000000", "ts_updated": "1793606381000000000"
+    },
+    {
+      "client_order_id": "1970324836974593", "instrument_id": "72057594037927937", "strategy_id": 7, "book_id": 7,
+      "book_kind": "strategy", "side": "sell", "order_type": "limit", "tif": "gtc", "post_only": false, "reduce_only": false,
+      "price": "3512", "qty": "0.3", "leaves": "0.3", "status": "accepted", "ts_created": "1793606370000000000",
+      "ts_updated": "1793606370000000000"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ export type PnlKind = Schema<'PnlKind'>
 export type Position = Schema<'Position'>
 export type Order = Schema<'Order'>
 export type Fill = Schema<'Fill'>
+export type BookRecord = Schema<'BookRecord'>
 export type Problem = Schema<'Problem'>
 export type UpstreamColumn = Schema<'UpstreamColumn'>
 export type NewOrder = Schema<'NewOrder'>
@@ -106,10 +107,12 @@ export const api = {
   optionRiskScenarios: (underlying: string, spot?: string, vol?: string) =>
     get<Schema<'OptionRiskScenarios'>>('/v1/options/risk/scenarios', { underlying, spot, vol }),
   // the routes below read postgres and answer 503 without a dsn
-  openOrders: () => get<Page<Order>>('/v1/orders', { open: 'true' }),
-  fills: (limit: string) => get<Page<Fill>>('/v1/fills', { limit }),
+  openOrders: (book?: string) => get<Page<Order>>('/v1/orders', { open: 'true', book }),
+  childOrders: (parent: string) => get<Page<Order>>('/v1/orders', { parent }),
+  fills: (limit: string, book?: string) => get<Page<Fill>>('/v1/fills', { limit, book }),
   balances: () => get<AccountBalances[]>('/v1/balances'),
-  positions: () => get<Position[]>('/v1/positions'),
+  positions: (book?: string) => get<Position[]>('/v1/positions', { book }),
+  books: () => get<BookRecord[]>('/v1/books'),
   pnl: (since: string, cursor: string | undefined) =>
     get<Page<PnlIncrement>>('/v1/pnl', { since, cursor, limit: k_pnl_page }),
 }

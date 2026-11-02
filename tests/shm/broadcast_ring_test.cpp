@@ -126,4 +126,30 @@ TEST(BroadcastRingStress, LappedReadersSeeCoherentItemsOnly) {
 }
 
 } // namespace
+
+TEST(BroadcastRing, ARewoundReaderSeesWhatWasPublishedBeforeItAttached) {
+    auto ring = std::make_unique<BroadcastRing<std::uint64_t, 16>>();
+    for (std::uint64_t i = 1; i <= 3; ++i) {
+        ring->publish(i);
+    }
+    BroadcastReader<std::uint64_t, 16> reader{ring.get()};
+    std::uint64_t seen = 0;
+    EXPECT_EQ(reader.poll(seen), PollResult::Empty);
+    reader.rewind();
+    ASSERT_EQ(reader.poll(seen), PollResult::Item);
+    EXPECT_EQ(seen, 1U);
+}
+
+TEST(BroadcastRing, ARewindStaysHalfARingBackSoTheWriterIsNotLappingIt) {
+    auto ring = std::make_unique<BroadcastRing<std::uint64_t, 16>>();
+    for (std::uint64_t i = 1; i <= 100; ++i) {
+        ring->publish(i);
+    }
+    BroadcastReader<std::uint64_t, 16> reader{ring.get()};
+    reader.rewind();
+    std::uint64_t seen = 0;
+    ASSERT_EQ(reader.poll(seen), PollResult::Item);
+    EXPECT_EQ(seen, 93U);
+}
+
 } // namespace raikiri::shm

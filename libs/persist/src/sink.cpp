@@ -83,6 +83,15 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.fee_asset});
     }
 
+    for (const auto& r : batch.order_origins) {
+        // a replay writes the same row
+        tx.exec("INSERT INTO raikiri.order_origins (client_order_id, book_id, book_kind, parent_id, external_ref,"
+                " ts_created)"
+                " VALUES ($1,$2,$3,NULLIF($4::bigint,0),NULLIF($5,''),$6)"
+                " ON CONFLICT (client_order_id) DO NOTHING",
+                pqxx::params{r.client_order_id, r.book_id, r.book_kind, r.parent_id, r.external_ref, r.ts_created});
+    }
+
     for (const auto& r : batch.order_upserts) {
         tx.exec("INSERT INTO raikiri.orders (client_order_id, exchange_client_order_id,"
                 " exchange_order_id, instrument_id, side, order_type, tif, flags, price_ticks,"
@@ -97,14 +106,25 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 "EXCLUDED.exchange_client_order_id),"
                 "  exchange_order_id = COALESCE(NULLIF(EXCLUDED.exchange_order_id,''),"
                 "                               raikiri.orders.exchange_order_id),"
-                "  leaves_lots = EXCLUDED.leaves_lots,"
-                "  status = CASE WHEN EXCLUDED.status IS NULL OR EXCLUDED.status = ''"
-                "                THEN raikiri.orders.status ELSE EXCLUDED.status END,"
+                // events race on the wire, so a stamp alone cannot order them: leaves only fall, a close stays closed
+                // and only a full fill outranks one, and an older event moves nothing else. a pulled fill has no leaves
+                "  leaves_lots = COALESCE(LEAST(NULLIF(raikiri.orders.leaves_lots, -9223372036854775808),"
+                "                               NULLIF(EXCLUDED.leaves_lots, -9223372036854775808)),"
+                "                         raikiri.orders.leaves_lots),"
+                "  price_ticks = CASE WHEN $17 AND EXCLUDED.ts_updated >= raikiri.orders.ts_updated"
+                "                THEN EXCLUDED.price_ticks ELSE raikiri.orders.price_ticks END,"
+                "  status = CASE"
+                "    WHEN EXCLUDED.status IS NULL OR EXCLUDED.status = '' THEN raikiri.orders.status"
+                "    WHEN raikiri.orders.status IN ('filled','denied','rejected') THEN raikiri.orders.status"
+                "    WHEN EXCLUDED.status = 'filled' THEN EXCLUDED.status"
+                "    WHEN raikiri.orders.status IN ('canceled','expired') THEN raikiri.orders.status"
+                "    WHEN EXCLUDED.ts_updated < raikiri.orders.ts_updated THEN raikiri.orders.status"
+                "    ELSE EXCLUDED.status END,"
                 "  ts_updated = GREATEST(raikiri.orders.ts_updated, EXCLUDED.ts_updated),"
+                "  version = raikiri.orders.version + 1,"
                 // keep the reason once written; later events carry none
                 "  reject_class = COALESCE(EXCLUDED.reject_class, raikiri.orders.reject_class),"
-                "  reject_code  = COALESCE(EXCLUDED.reject_code,  raikiri.orders.reject_code)"
-                " WHERE EXCLUDED.ts_updated >= raikiri.orders.ts_updated",
+                "  reject_code  = COALESCE(EXCLUDED.reject_code,  raikiri.orders.reject_code)",
                 pqxx::params{r.client_order_id,
                              r.exchange_client_order_id,
                              r.exchange_order_id,
@@ -120,7 +140,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.ts_event,
                              r.reject_class,
                              r.has_reason,
-                             r.reject_code});
+                             r.reject_code,
+                             r.reprices});
     }
 
     for (const auto& r : batch.executions) {

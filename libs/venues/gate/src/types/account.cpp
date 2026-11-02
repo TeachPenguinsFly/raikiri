@@ -44,6 +44,21 @@ std::expected<WireFuturesAccount, WireError> parse_futures_account(std::string_v
     });
 }
 
+std::expected<std::uint64_t, WireError> parse_option_margin_mode(std::string_view body) {
+    return guarded([&]() -> std::expected<std::uint64_t, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        // absent must not read as mode 0
+        std::uint64_t mode = 0;
+        if ((*root)["margin_mode"].get_uint64().get(mode) != simdjson::SUCCESS) {
+            return std::unexpected(WireError::MissingField);
+        }
+        return mode;
+    });
+}
+
 std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view body) {
     return guarded([&]() -> std::expected<std::uint64_t, WireError> {
         auto root = session().open_object(body);

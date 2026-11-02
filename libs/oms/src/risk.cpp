@@ -17,7 +17,17 @@ std::string describe(const RiskRefusal& refusal) {
     if (refusal.limit != 0) {
         const bool lots = refusal.why == RiskReject::QtyTooLarge || refusal.why == RiskReject::LongLimit ||
                           refusal.why == RiskReject::ShortLimit || refusal.why == RiskReject::OptionLots;
-        const auto shown = [&](std::int64_t v) { return lots ? std::to_string(v) + " lots" : internal::quote(v); };
+        const bool counts = refusal.why == RiskReject::OrderRate || refusal.why == RiskReject::RepeatedExecution;
+        const bool age = refusal.why == RiskReject::StaleQuote;
+        const auto shown = [&](std::int64_t v) {
+            if (age) {
+                return std::to_string(v / 1'000'000) + " ms";
+            }
+            if (counts) {
+                return std::to_string(v);
+            }
+            return lots ? std::to_string(v) + " lots" : internal::quote(v);
+        };
         out += " " + shown(refusal.limit) + ", would reach " + shown(refusal.value);
     }
     if (!refusal.order_notional.is_undef()) {

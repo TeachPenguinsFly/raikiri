@@ -431,6 +431,7 @@ Position position_of(const shm::PositionCell& cell, const InstrumentBase& base, 
     out.qty = size(cell.report.net_qty, base);
     // avg_entry_price stays empty; the venue's average is not this system's cost basis
     out.ts_updated = digits(cell.ts_pulled);
+    out.version = out.ts_updated;
     const bool fresh = cell.ts_pulled.ns != 0 && now.ns < cell.ts_pulled.ns + k_position_stale_ns;
     if (fresh) {
         out.venue_qty = out.qty;

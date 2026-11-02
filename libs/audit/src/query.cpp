@@ -14,6 +14,12 @@ struct Hit {
     std::string line{};
 };
 
+constexpr std::size_t k_stamp_slack_lines = 64;
+
+[[nodiscard]] constexpr bool earlier(UnixNanos a, UnixNanos b) noexcept {
+    return a.ns < b.ns;
+}
+
 [[nodiscard]] bool matches(std::string_view wanted, std::string_view value) noexcept {
     if (wanted.empty()) {
         return true;
@@ -80,20 +86,34 @@ AuditPage QueryAudit::operator()(const AuditQuery& query) const {
             (query.after.has_value() && day > query.after->day)) {
             continue;
         }
+        ScanHint hint{.actor = query.actor, .action = query.action, .subject = query.subject, .since = query.since};
+        hint.until = query.until;
+        // a page goes on from the cursor, so nothing newer is worth reading
+        if (query.after.has_value() && day == query.after->day) {
+            const UnixNanos past{query.after->ts + 1};
+            hint.until = hint.until.has_value() ? std::min(*hint.until, past, internal::earlier) : past;
+        }
         std::vector<internal::Hit> hits;
         for (const auto& stream : streams) {
-            store_->scan_day(stream, day, [&](const EntryView& entry) {
+            // a little past the page: lines sit in queue order, and stamps taken just apart can swap within it
+            std::size_t found = 0;
+            std::size_t overrun = 0;
+            store_->scan_day_newest(stream, day, hint, [&](const EntryView& entry) {
+                if (found >= wanted && ++overrun > internal::k_stamp_slack_lines) {
+                    return false;
+                }
                 if ((query.since.has_value() && entry.ts < *query.since) ||
                     (query.until.has_value() && entry.ts >= *query.until) ||
                     !internal::matches(query.actor, entry.actor) || !internal::matches(query.action, entry.action) ||
                     !internal::matches(query.subject, entry.subject)) {
-                    return;
+                    return true;
                 }
                 if (query.after.has_value() &&
                     !internal::newer(*query.after,
                                      Position{.day = day, .ts = entry.ts.ns, .stream = stream, .seq = entry.seq})) {
-                    return;
+                    return true;
                 }
+                ++found;
                 hits.push_back({.record = {.stream = stream,
                                            .day = day,
                                            .seq = entry.seq,
@@ -104,11 +124,7 @@ AuditPage QueryAudit::operator()(const AuditQuery& query) const {
                                            .detail_json = std::string{entry.detail_json},
                                            .prev = entry.prev},
                                 .line = std::string{entry.line}});
-                // a day can hold far more matches than a page wants
-                if (hits.size() >= (wanted * 2) + 1024) {
-                    std::ranges::nth_element(hits, hits.begin() + static_cast<std::ptrdiff_t>(wanted), order);
-                    hits.resize(wanted);
-                }
+                return true;
             });
         }
         std::ranges::sort(hits, order);

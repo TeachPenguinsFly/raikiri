@@ -43,6 +43,22 @@ enum class AccountMode : std::uint8_t {
 
 [[nodiscard]] std::expected<AccountMode, WireError> parse_account_mode(std::string_view body);
 
+[[nodiscard]] constexpr std::string_view option_mode_name(AccountMode mode) noexcept {
+    switch (mode) {
+    case AccountMode::Spot:
+        return "spot";
+    case AccountMode::Futures:
+        return "futures";
+    case AccountMode::MultiCurrency:
+        return "multi_currency";
+    case AccountMode::Portfolio:
+        return "portfolio";
+    case AccountMode::Unknown:
+        break;
+    }
+    return "unknown";
+}
+
 // cashBal is the currency's own balance and eq adds open pnl; absent values arrive as empty strings
 struct WireCurrencyBalance {
     std::string_view ccy;

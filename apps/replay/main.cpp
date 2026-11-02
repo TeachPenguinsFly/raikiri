@@ -59,6 +59,10 @@ void print_frame(const FrameView& frame) {
                    m.clientOrderIdField().value(),
                    m.price().value(),
                    m.qty().value());
+        // records before version 7 are shorter
+        if (frame.schema_version >= 7 && m.parentId().value() != 0) {
+            fmt::print("      parent={}\n", m.parentId().value());
+        }
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::PnlIncrementMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::PnlIncrementMsg>(frame.payload);
         // sbe char fields may be padded with nul or space

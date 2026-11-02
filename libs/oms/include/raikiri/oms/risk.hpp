@@ -5,7 +5,9 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
+#include <raikiri/oms/book_state.hpp>
 #include <raikiri/oms/notional.hpp>
+#include <raikiri/oms/short_option.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -14,6 +16,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <variant>
 
 namespace raikiri::oms {
 
@@ -37,6 +40,16 @@ enum class RiskReject : std::uint8_t {
     NoUnderlying,
     OptionPremium,
     OptionLots,
+    NoCapital,
+    BookHalted,
+    BookReducing,
+    OrderRate,
+    RepeatedExecution,
+    StaleQuote,
+    NakedShort,
+    ShortMarginUnknown,
+    ShortMargin,
+    ShortGreeks,
 };
 
 [[nodiscard]] constexpr std::string_view to_string(RiskReject why) noexcept {
@@ -80,6 +93,26 @@ enum class RiskReject : std::uint8_t {
         return "per-order option premium limit";
     case OptionLots:
         return "open option contracts limit per instrument";
+    case NoCapital:
+        return "no desk capital has been set";
+    case BookHalted:
+        return "the book is halted: only cancels pass";
+    case BookReducing:
+        return "the book is reducing: only orders that shrink the position pass";
+    case OrderRate:
+        return "order rate limit for this book";
+    case RepeatedExecution:
+        return "the book keeps filling and re-entering";
+    case StaleQuote:
+        return "the quote behind this order is too old";
+    case NakedShort:
+        return "naked short option exposure limit";
+    case ShortMarginUnknown:
+        return "opening a short option with no margin figure to check";
+    case ShortMargin:
+        return "estimated short option margin exceeds what the venue has available";
+    case ShortGreeks:
+        return "the book is past its short vega or gamma limit, so it may not sell more options";
     }
     return "unknown";
 }
@@ -125,10 +158,42 @@ struct RiskConfig {
     FixedE9 max_option_premium{};
     QtyLots max_option_open_lots{};
 
+    // orders sent per window, and fill-then-re-entry cycles per window; zero is off
+    std::uint32_t max_orders_in_window{0};
+    std::uint64_t order_window_ns{1'000'000'000};
+    std::uint32_t max_repeat_entries{0};
+    std::uint64_t repeat_window_ns{60'000'000'000};
+    // zero is off; on, an instrument with no quote at all counts as too old
+    std::uint64_t max_quote_age_ns{0};
+    // an identical order inside this is a duplicate; zero is a book that repeats on purpose
+    std::uint64_t duplicate_window_ns{1'000'000'000ULL};
+    // worst-case usd across the book's short options, e9; undef is off
+    FixedE9 max_naked_short{};
+    // magnitudes of the book's net vega and gamma, read by the periodic check, e9 usd; undef is off
+    FixedE9 max_short_vega{};
+    FixedE9 max_short_gamma{};
+    // an estimate is not the venue's own figure, so a short opening must leave this much spare
+    std::int64_t short_margin_buffer_bp{500};
+
     [[nodiscard]] constexpr bool prices_orders() const noexcept {
         return !max_order_notional.is_undef() || !max_instrument_notional.is_undef() ||
                !max_strategy_notional.is_undef();
     }
+};
+
+// read only for an option sell that would open or enlarge a short
+struct ShortOption {
+    ShortMarginRates rates{};
+    FixedE9 index{};
+    FixedE9 forward{};
+    FixedE9 mark{};
+    // in the option's settlement asset, as the venue last said; undef refuses
+    FixedE9 margin_available{};
+    // what this book's working short openings will take once filled, same asset
+    FixedE9 margin_working{FixedE9::from_raw(0)};
+    // the book's other instruments, e9 usd; undef when one cannot be valued
+    FixedE9 naked_besides{FixedE9::from_raw(0)};
+    bool greeks_breached{false};
 };
 
 // The mutable state the gate needs, assembled by the caller.
@@ -151,6 +216,17 @@ struct Exposure {
     FixedE9 underlying_price{};
     // the strategy's open notional on its other instruments, e9 quote; undef when one has no quote
     FixedE9 strategy_open_notional{FixedE9::from_raw(0)};
+
+    BookState book_state{BookState::Active};
+    bool capital_set{true};
+    // counted by the caller up to cmd.ts_created, so a replay of the same stream counts the same
+    std::uint32_t orders_in_window{0};
+    std::uint32_t repeats_in_window{0};
+    // the book filled on this instrument since its last entry there
+    bool filled_since_entry{false};
+    // this box's receive stamp of the quote behind bid and ask; zero when there is none
+    UnixNanos quote_ts{};
+    ShortOption short_option{};
 };
 
 struct RiskRefusal {
@@ -169,6 +245,24 @@ struct RiskRefusal {
     return std::max<std::int64_t>({0, longest, shortest});
 }
 
+// same-side working orders count as filled, so an order that passes cannot flip the position however they end
+[[nodiscard]] inline bool shrinks_position(const OrderCmd& cmd, const Exposure& exposure) noexcept {
+    const auto held = exposure.position_lots.raw;
+    if (cmd.side == Side::Buy) {
+        return held < 0 && detail::checked_add(exposure.working_buy_lots.raw, cmd.qty.raw) <= -held;
+    }
+    return held > 0 && detail::checked_add(exposure.working_sell_lots.raw, cmd.qty.raw) <= held;
+}
+
+[[nodiscard]] inline bool grows_worst_case(const OrderCmd& cmd, const Exposure& exposure) noexcept {
+    const bool buy = cmd.side == Side::Buy;
+    const auto before = open_lots(exposure.position_lots, exposure.working_buy_lots, exposure.working_sell_lots);
+    const auto after = open_lots(exposure.position_lots,
+                                 buy ? exposure.working_buy_lots + cmd.qty : exposure.working_buy_lots,
+                                 buy ? exposure.working_sell_lots : exposure.working_sell_lots + cmd.qty);
+    return after > before;
+}
+
 // names the limit, the value it would reach and the order's notional
 [[nodiscard]] std::string describe(const RiskRefusal& refusal);
 
@@ -185,11 +279,23 @@ public:
         if (exposure.reconciliation_break) {
             return std::unexpected{RiskRefusal{.why = RiskReject::ReconBreak}};
         }
+        if (!exposure.capital_set) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::NoCapital}};
+        }
+        if (exposure.book_state == BookState::Halted) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::BookHalted}};
+        }
         if (!cmd.instrument.valid()) {
             return std::unexpected{RiskRefusal{.why = RiskReject::BadInstrument}};
         }
         if (cmd.qty.is_undef() || cmd.qty.raw <= 0) {
             return std::unexpected{RiskRefusal{.why = RiskReject::BadQty}};
+        }
+        if (exposure.book_state == BookState::Reducing && !shrinks_position(cmd, exposure)) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::BookReducing}};
+        }
+        if (auto refused = check_pace(cmd, exposure); !refused.has_value()) {
+            return refused;
         }
         if (const auto ceiling = config_.max_lots.of(cmd.instrument.market());
             !ceiling.is_undef() && cmd.qty > ceiling) {
@@ -236,6 +342,9 @@ public:
             if (auto refused = check_option(cmd, exposure); !refused.has_value()) {
                 return refused;
             }
+            if (auto refused = check_short_option(cmd, exposure); !refused.has_value()) {
+                return refused;
+            }
         }
         if (config_.prices_orders()) {
             return check_notional(cmd, exposure);
@@ -244,6 +353,34 @@ public:
     }
 
 private:
+    [[nodiscard]] std::expected<void, RiskRefusal> check_pace(const OrderCmd& cmd,
+                                                              const Exposure& exposure) const noexcept {
+        if (config_.max_orders_in_window > 0 && exposure.orders_in_window >= config_.max_orders_in_window) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::OrderRate,
+                                               .limit = config_.max_orders_in_window,
+                                               .value = std::int64_t{exposure.orders_in_window} + 1}};
+        }
+        if (config_.max_repeat_entries > 0 && exposure.filled_since_entry &&
+            exposure.repeats_in_window >= config_.max_repeat_entries && grows_worst_case(cmd, exposure)) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::RepeatedExecution,
+                                               .limit = config_.max_repeat_entries,
+                                               .value = std::int64_t{exposure.repeats_in_window} + 1}};
+        }
+        // a quiet market must not trap a position, so closing leans on no quote
+        if (config_.max_quote_age_ns > 0 && !shrinks_position(cmd, exposure)) {
+            if (exposure.quote_ts.ns == 0) {
+                return std::unexpected{RiskRefusal{.why = RiskReject::StaleQuote}};
+            }
+            const auto age = cmd.ts_created.ns > exposure.quote_ts.ns ? cmd.ts_created.ns - exposure.quote_ts.ns : 0;
+            if (age > config_.max_quote_age_ns) {
+                return std::unexpected{RiskRefusal{.why = RiskReject::StaleQuote,
+                                                   .limit = static_cast<std::int64_t>(config_.max_quote_age_ns),
+                                                   .value = static_cast<std::int64_t>(age)}};
+            }
+        }
+        return {};
+    }
+
     [[nodiscard]] static RiskReject reject_of(NotionalError why) noexcept {
         switch (why) {
         case NotionalError::NoPrice:
@@ -258,14 +395,13 @@ private:
 
     [[nodiscard]] std::expected<void, RiskRefusal> check_option(const OrderCmd& cmd,
                                                                 const Exposure& exposure) const noexcept {
+        if (!grows_worst_case(cmd, exposure)) {
+            return {};
+        }
         const bool buy = cmd.side == Side::Buy;
-        const auto before = open_lots(exposure.position_lots, exposure.working_buy_lots, exposure.working_sell_lots);
         const auto after = open_lots(exposure.position_lots,
                                      buy ? exposure.working_buy_lots + cmd.qty : exposure.working_buy_lots,
                                      buy ? exposure.working_sell_lots : exposure.working_sell_lots + cmd.qty);
-        if (after <= before) {
-            return {};
-        }
         if (!config_.max_option_open_lots.is_undef() && after > config_.max_option_open_lots.raw) {
             return std::unexpected{
                 RiskRefusal{.why = RiskReject::OptionLots, .limit = config_.max_option_open_lots.raw, .value = after}};
@@ -286,6 +422,76 @@ private:
                                                .limit = config_.max_option_premium.raw,
                                                .value = e9.raw,
                                                .order_notional = e9}};
+        }
+        return {};
+    }
+
+    // a buy, or a sell that only takes down a long, never reaches a limit here
+    [[nodiscard]] std::expected<void, RiskRefusal> check_short_option(const OrderCmd& cmd,
+                                                                      const Exposure& exposure) const noexcept {
+        if (cmd.side != Side::Sell) {
+            return {};
+        }
+        const auto before = std::max<std::int64_t>(
+            0, detail::checked_sub(exposure.working_sell_lots.raw, exposure.position_lots.raw));
+        const auto after = detail::checked_sub(detail::checked_add(exposure.working_sell_lots.raw, cmd.qty.raw),
+                                               exposure.position_lots.raw);
+        if (after <= before) {
+            return {};
+        }
+        const auto& inputs = exposure.short_option;
+        if (inputs.greeks_breached) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::ShortGreeks}};
+        }
+        const auto* option = exposure.instrument != nullptr ? std::get_if<OptionInstrument>(exposure.instrument)
+                                                            : nullptr;
+        if (option == nullptr) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::Unpriceable}};
+        }
+        if (!config_.max_naked_short.is_undef()) {
+            const auto mine = short_worst_case(
+                *option, QtyLots::from_raw(after), inputs.index.is_undef() ? inputs.forward : inputs.index);
+            if (mine.is_undef()) {
+                return std::unexpected{RiskRefusal{.why = RiskReject::NoUnderlying}};
+            }
+            if (inputs.naked_besides.is_undef()) {
+                return std::unexpected{RiskRefusal{.why = RiskReject::UnpricedExposure}};
+            }
+            const auto total = to_e9(Notional128{static_cast<int128_t>(inputs.naked_besides.raw) + mine.raw});
+            if (total > config_.max_naked_short) {
+                return std::unexpected{RiskRefusal{
+                    .why = RiskReject::NakedShort, .limit = config_.max_naked_short.raw, .value = total.raw}};
+            }
+        }
+        return check_short_margin(cmd, exposure, *option, QtyLots::from_raw(after - before));
+    }
+
+    [[nodiscard]] std::expected<void, RiskRefusal> check_short_margin(const OrderCmd& cmd,
+                                                                      const Exposure& exposure,
+                                                                      const OptionInstrument& option,
+                                                                      QtyLots opening) const noexcept {
+        const auto& inputs = exposure.short_option;
+        const auto at = cmd.order_type == OrderType::Limit ? cmd.price : exposure.bid;
+        const auto margin = short_margin(
+            inputs.rates,
+            {.premium = option.premium,
+             .put_call = option.put_call,
+             .strike = option.base.ticks_to_price(option.strike),
+             .index = inputs.index.is_undef() ? inputs.forward : inputs.index,
+             .forward = inputs.forward.is_undef() ? inputs.index : inputs.forward,
+             .mark = inputs.mark,
+             .order_price = at.is_undef() ? FixedE9::undef() : option.base.ticks_to_price(at)});
+        const auto units = option_units(option.base, opening);
+        if (!margin.has_value() || units.is_undef() || inputs.margin_available.is_undef() ||
+            inputs.margin_working.is_undef()) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::ShortMarginUnknown}};
+        }
+        const auto buffered = static_cast<int128_t>(margin->order.raw) * units.raw / k_e9 *
+                              (10'000 + config_.short_margin_buffer_bp) / 10'000;
+        const auto required = to_e9(Notional128{buffered + inputs.margin_working.raw});
+        if (required.raw > inputs.margin_available.raw) {
+            return std::unexpected{RiskRefusal{
+                .why = RiskReject::ShortMargin, .limit = inputs.margin_available.raw, .value = required.raw}};
         }
         return {};
     }

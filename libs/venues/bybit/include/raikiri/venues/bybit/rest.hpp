@@ -61,6 +61,7 @@ public:
 
     // no category: one unified wallet backs both markets
     [[nodiscard]] std::expected<net::RestRequest, BuildError> wallet_balance(UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> account_info(UnixNanos now);
 
     [[nodiscard]] net::RestRequest
     instruments(MarketType market, std::string_view cursor = {}, std::string_view base_coin = {});

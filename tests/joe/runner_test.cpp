@@ -1,5 +1,10 @@
+#include <raikiri/books/registry.hpp>
+#include <raikiri/joe/routes.hpp>
 #include <raikiri/joe/runner.hpp>
 #include <raikiri/oms/attribution.hpp>
+#include <raikiri/portfolio/position_book.hpp>
+#include <raikiri/strategy/factory.hpp>
+#include <raikiri/strategy/registry.hpp>
 
 #include <gtest/gtest.h>
 
@@ -71,6 +76,20 @@ public:
 private:
     LiveClock clock_;
 };
+
+TEST(ContextSink, ASlicesRepeatKeyReachesTheOrderManager) {
+    Recording ctx;
+    ContextSink sink;
+    sink.attach(&ctx);
+    ASSERT_TRUE(sink.submit({.instrument = base_of(ctx.listed).id,
+                             .side = Side::Buy,
+                             .lots = 1,
+                             .limit = base_of(ctx.listed).tick_size,
+                             .tif = ChildTif::Gtc,
+                             .repeat_key = 77})
+                    .has_value());
+    EXPECT_EQ(ctx.orders.at(0).repeat_key, 77U);
+}
 
 TEST(JoeContextSink, MapsEachChildToItsTimeInForceAndFlags) {
     Recording ctx;
@@ -247,6 +266,198 @@ TEST(JoeLateFill, AChildBooksWhatThePositionBooks) {
         EXPECT_EQ((parent.filled() - before).raw, d("0.001").scaled_by(position.raw).raw)
             << "prior " << c.prior << " qty " << c.qty << " leaves " << c.leaves;
     }
+}
+
+// a kernel that mints children the way strategyd does: the book in the id, the origin beside it
+class Kernel final : public strategy::Context {
+public:
+    std::expected<ClientOrderId, strategy::RejectReason> submit(const strategy::NewOrder&) noexcept override {
+        ADD_FAILURE() << "joe's children go through submit_child";
+        return std::unexpected{strategy::RejectReason::Risk};
+    }
+
+    std::expected<ClientOrderId, strategy::RejectReason>
+    submit_child(const strategy::NewOrder& order, std::uint16_t book, const OrderOrigin& origin) noexcept override {
+        sent.push_back(ClientOrderId::make_child(book, sent.size() + 1));
+        orders.push_back(order);
+        origins.push_back(origin);
+        return sent.back();
+    }
+
+    bool cancel(ClientOrderId id) noexcept override {
+        cancels.push_back(id);
+        return true;
+    }
+
+    void cancel_all(InstrumentId) noexcept override {}
+
+    std::optional<Bbo> bbo(InstrumentId) const noexcept override { return std::nullopt; }
+
+    const Instrument* instrument(InstrumentId) const noexcept override { return &listed; }
+
+    const portfolio::Position* position(InstrumentId) const noexcept override { return nullptr; }
+
+    FixedE9 unrealized(InstrumentId, PriceTicks) const noexcept override { return FixedE9::from_raw(0); }
+
+    std::optional<ClientOrderId> set_target(const portfolio::PortfolioTarget&) noexcept override {
+        return std::nullopt;
+    }
+
+    void set_timer(std::uint32_t, std::uint64_t) noexcept override {}
+
+    const Clock& clock() const noexcept override { return clock_; }
+
+    Instrument listed{btc_perp()};
+    std::vector<ClientOrderId> sent;
+    std::vector<strategy::NewOrder> orders;
+    std::vector<OrderOrigin> origins;
+    std::vector<ClientOrderId> cancels;
+
+private:
+    LiveClock clock_;
+};
+
+constexpr std::uint16_t k_joe = 9;
+constexpr std::uint16_t k_book = 1030;
+constexpr std::uint64_t k_first_parent = 7'000'000;
+
+struct Executor {
+    Market market;
+    ContextSink sink;
+    TestClock clock{UnixNanos{1000 * k_s}};
+    CurveProfile curves;
+    Desk desk{market, sink, clock, curves, {.first_parent_id = k_first_parent, .own_book = k_joe}};
+    Kernel kernel;
+    strategy::Factory types;
+    strategy::Registry live{{.context_for = [this](std::uint16_t) -> strategy::Context* { return &kernel; },
+                             .cancel_working = [](std::uint16_t) -> std::size_t { return 0; },
+                             .wall = [] { return UnixNanos{1}; }}};
+
+    Executor() {
+        (void)types.add("joe", [this](const strategy::Params&) -> strategy::MakeResult {
+            return std::make_unique<Runner>(desk, sink);
+        });
+        EXPECT_TRUE(live.create({.name = "joe", .type = "joe", .strategy_id = k_joe}, types).has_value());
+        EXPECT_TRUE(live.start(k_joe, {}).has_value());
+        live.set_executor(k_joe);
+    }
+
+    std::uint64_t start(std::uint16_t book, std::string ref = {}) {
+        ParentSpec spec{};
+        spec.listing.symbol = *SymbolText::from("BTC/USDT");
+        spec.qty = d("0.05");
+        spec.algo = Algo::Pegged;
+        spec.max_child_notional = d("1000");
+        spec.book = book;
+        spec.external_ref = std::move(ref);
+        return *desk.start(spec);
+    }
+};
+
+TEST(JoeBooks, AChildFillBooksToItsParentsBookAndStillReachesJoe) {
+    Executor x;
+    const auto parent = x.start(k_book, "rfq-12");
+    EXPECT_EQ(parent, k_first_parent);
+    ASSERT_EQ(x.kernel.sent.size(), 1U);
+    const auto child = x.kernel.sent[0];
+    EXPECT_EQ(child.strategy_id(), k_book);
+    EXPECT_TRUE(child.is_child());
+    EXPECT_EQ(x.kernel.origins[0].parent, parent);
+    EXPECT_EQ(x.kernel.origins[0].external_ref.view(), "rfq-12");
+
+    OrderEvent fill{};
+    fill.type = OrderEventType::Filled;
+    fill.instrument = btc_on_binance();
+    fill.side = Side::Buy;
+    fill.client_order_id = child;
+    fill.qty = QtyLots::from_raw(20);
+    fill.leaves_qty = QtyLots::from_raw(30);
+    fill.price = PriceTicks::from_raw(9998);
+    fill.fee = d("0");
+    fill.exec_id = *ExecId::from("e-1");
+
+    // the book strategyd keeps: keyed on the id, so the fill lands on the parent's book and nowhere else
+    portfolio::PositionBook positions;
+    ASSERT_TRUE(positions.on_fill(x.kernel.listed, fill, fill.qty).has_value());
+    const auto* held = positions.find({k_book, btc_on_binance()});
+    ASSERT_NE(held, nullptr);
+    EXPECT_EQ(held->qty().raw, 20);
+    EXPECT_EQ(positions.find({k_joe, btc_on_binance()}), nullptr);
+
+    x.live.on_order_event(fill);
+    const auto* working = x.desk.find(parent);
+    ASSERT_NE(working, nullptr);
+    EXPECT_EQ(working->filled().raw, d("0.02").raw);
+    EXPECT_EQ(working->spec().book, k_book);
+}
+
+TEST(JoeBooks, ACancelOfAChildOnAnotherBookGoesThroughTheExecutor) {
+    Executor x;
+    const auto parent = x.start(k_book);
+    ASSERT_TRUE(x.desk.cancel(parent).has_value());
+    ASSERT_EQ(x.kernel.cancels.size(), 1U);
+    EXPECT_EQ(x.kernel.cancels[0], x.kernel.sent[0]);
+}
+
+TEST(JoeBooks, AParentThatNamesNoBookIsJoesOwnAndParentIdsDoNotRepeatAfterARestart) {
+    Executor x;
+    const auto first = x.start(0);
+    EXPECT_EQ(x.desk.find(first)->spec().book, k_joe);
+    EXPECT_EQ(x.kernel.sent[0].strategy_id(), k_joe);
+
+    const auto before = parent_id_seed(UnixNanos{1'000'000 * k_s});
+    const auto after = parent_id_seed(UnixNanos{1'000'000 * k_s + 1'000'000});
+    EXPECT_GE(after, before + 4096) << "a restart a millisecond later starts past 4096 parents";
+}
+
+TEST(JoeBooks, AnExternalRefLongerThanTheJournalHoldsIsRefused) {
+    Executor x;
+    ParentSpec spec{};
+    spec.listing.symbol = *SymbolText::from("BTC/USDT");
+    spec.qty = d("0.05");
+    spec.algo = Algo::Pegged;
+    spec.max_child_notional = d("1000");
+    spec.external_ref = std::string(41, 'x');
+    const auto refused = x.desk.start(spec);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error().error, DeskError::BadSpec);
+}
+
+TEST(JoeRoutesBooks, APostResolvesItsBookByName) {
+    Executor x;
+    books::MemoryBookStore store;
+    books::Registry names{store, [] { return UnixNanos{1}; }};
+    ASSERT_TRUE(names.load().has_value());
+    const JoeRoutes routes{&x.desk, &names};
+    const std::string
+        body = R"({"symbol":"BTC/USDT","side":"buy","qty":"0.05","algo":"pegged","max_child_notional":"1000")";
+    const auto post = [&](std::string extra, std::string_view query = {}) {
+        const auto text = body + extra + "}";
+        return *routes({.method = "POST", .path = "/joe/parents", .query = query, .body = text});
+    };
+
+    const auto hedged = post(R"(,"book":"hedge","external_ref":"rfq-3")");
+    EXPECT_EQ(hedged.status, 201) << hedged.body;
+    const auto hedge_id = names.find("hedge")->id;
+    EXPECT_EQ(x.kernel.sent.back().strategy_id(), hedge_id);
+    EXPECT_EQ(x.kernel.origins.back().external_ref.view(), "rfq-3");
+
+    // admind names the operator; the body's book wins over it
+    EXPECT_EQ(post("", "default_book=manual:vova").status, 201);
+    EXPECT_EQ(x.kernel.sent.back().strategy_id(), names.find("manual:vova")->id);
+    EXPECT_EQ(post(R"(,"book":"hedge")", "default_book=manual:vova").status, 201);
+    EXPECT_EQ(x.kernel.sent.back().strategy_id(), hedge_id);
+
+    EXPECT_EQ(post("").status, 201);
+    EXPECT_EQ(x.kernel.sent.back().strategy_id(), k_joe);
+
+    EXPECT_EQ(post(R"(,"book":"client:nobody")").status, 404) << "a client's book is opened by its own path";
+
+    const auto list = *routes({.method = "GET", .path = "/joe/parents", .query = "book=hedge"});
+    EXPECT_NE(list.body.find(R"("book":"hedge")"), std::string::npos) << list.body;
+    EXPECT_NE(list.body.find(R"("book_kind":"hedge")"), std::string::npos) << list.body;
+    EXPECT_NE(list.body.find(R"("external_ref":"rfq-3")"), std::string::npos) << list.body;
+    EXPECT_EQ(list.body.find("manual:vova"), std::string::npos) << list.body;
 }
 
 } // namespace
