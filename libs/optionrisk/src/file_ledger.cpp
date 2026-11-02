@@ -7,6 +7,7 @@
 
 #include <array>
 #include <charconv>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <glaze/glaze.hpp>
@@ -46,7 +47,10 @@ namespace internal {
 } // namespace internal
 
 std::string settlement_ledger_path() {
-    return platform::runtime_dir() + "/options/settlements.jsonl";
+    // the runtime dir can be tmpfs, and a booked expiry must outlive a reboot
+    const char* data = std::getenv("RAIKIRI_DATA_DIR");
+    const std::string root = data != nullptr && *data != '\0' ? std::string{data} : platform::runtime_dir();
+    return root + "/options/settlements.jsonl";
 }
 
 std::string ledger_line(const SettledPosition& settled) {

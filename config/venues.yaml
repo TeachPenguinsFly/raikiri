@@ -2,7 +2,7 @@ venues:
   binance:
     order_answer_timeout_ms: 15000
     # the option wallet read: account (/eapi/v1/account) or margin (/eapi/v1/marginAccount)
-    option_account: account
+    option_account: margin
     limits:
       - { name: weight, window_ms: 60000, max: 2160, reserve: 216, match: ["/fapi/"] }
       - { name: ws_streams, kind: ws_streams, market: perp, max: 300 }
