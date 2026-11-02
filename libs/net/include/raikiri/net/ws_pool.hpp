@@ -30,6 +30,9 @@ struct WsPoolConfig {
 
     // keys per connection that the venue file cannot raise, for streams too heavy to share a socket; 0 is none
     std::size_t key_cap{0};
+
+    // frames ask only for the keys they are built from, so a key placed on a live socket asks for itself alone
+    bool additive{false};
 };
 
 struct WsPoolStats {
@@ -78,6 +81,9 @@ public:
 
     // false when the ip channel cap or the connection ceiling leaves a key unplaced
     [[nodiscard]] bool subscribe(std::span<const std::string> keys);
+
+    // takes keys off their sockets so no reopen asks for them again; `leave` builds the frames that tell the venue
+    void release(std::span<const std::string> keys, const BuildFrames& leave);
 
     // sends one frame on every connection, for per-socket keepalives
     void broadcast(std::string_view text) noexcept;

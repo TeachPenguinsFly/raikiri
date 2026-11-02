@@ -99,6 +99,54 @@ TEST(WsPool, EverySubscribeIsQueuedRatherThanSent) {
     EXPECT_EQ(pool.pending_sends(), 120U) << "queued whole; nothing has gone out";
 }
 
+TEST(WsPool, AnAdditivePoolAsksOnlyForTheKeysItJustPlaced) {
+    IoContext io;
+    Silent handler;
+    auto pool = make(io, handler, {.max_keys_per_connection = 50, .additive = true});
+
+    ASSERT_TRUE(pool.subscribe(names(10)));
+    EXPECT_EQ(pool.pending_sends(), 10U);
+    ASSERT_TRUE(pool.subscribe(names(3, "j")));
+    EXPECT_EQ(pool.pending_sends(), 13U) << "the ten already asked for are not asked for again";
+    EXPECT_EQ(pool.key_count(), 13U);
+}
+
+TEST(WsPool, ReleasedKeysMakeRoomAndAreNotAskedForAgain) {
+    IoContext io;
+    Silent handler;
+    auto pool = make(io, handler, {.max_keys_per_connection = 10, .max_connections = 1});
+
+    ASSERT_TRUE(pool.subscribe(names(10)));
+    EXPECT_FALSE(pool.subscribe(names(1, "j")));
+
+    const auto gone = names(2);
+    std::vector<std::string> left;
+    pool.release(gone, [&left](std::span<const std::string> keys) {
+        left.assign(keys.begin(), keys.end());
+        return std::vector<std::string>{"leave"};
+    });
+    EXPECT_EQ(left, gone);
+    EXPECT_EQ(pool.key_count(), 8U);
+    EXPECT_EQ(pool.pending_sends(), 9U) << "the queue is rebuilt from the keys left, the leave frame ahead of them";
+    EXPECT_TRUE(pool.subscribe(names(2, "j")));
+    EXPECT_EQ(pool.connection_count(), 1U);
+}
+
+TEST(WsPool, ReleasingAKeyNoSocketHoldsSendsNothing) {
+    IoContext io;
+    Silent handler;
+    auto pool = make(io, handler, {.max_keys_per_connection = 10});
+    ASSERT_TRUE(pool.subscribe(names(2)));
+    const auto stranger = names(1, "x");
+    bool asked = false;
+    pool.release(stranger, [&asked](std::span<const std::string>) {
+        asked = true;
+        return std::vector<std::string>{};
+    });
+    EXPECT_FALSE(asked);
+    EXPECT_EQ(pool.key_count(), 2U);
+}
+
 TEST(WsPool, PollSendsNothingWhileTheSocketsAreDown) {
     IoContext io;
     Silent handler;

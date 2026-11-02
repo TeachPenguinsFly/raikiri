@@ -229,11 +229,41 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
         target->keys.insert(target->keys.end(),
                             keys.begin() + static_cast<std::ptrdiff_t>(placed),
                             keys.begin() + static_cast<std::ptrdiff_t>(placed + take));
+        if (impl.settings.additive) {
+            auto frames = impl.build_frames(keys.subspan(placed, take));
+            target->pending.insert(
+                target->pending.end(), std::make_move_iterator(frames.begin()), std::make_move_iterator(frames.end()));
+        } else {
+            // queued whole: the frames describe the connection's full set
+            impl.refill(*target);
+        }
         placed += take;
-        // queued whole: the frames describe the connection's full set
-        impl.refill(*target);
     }
     return whole;
+}
+
+void WsPool::release(std::span<const std::string> keys, const BuildFrames& leave) {
+    std::size_t released = 0;
+    for (const auto& conn : impl_->conns) {
+        std::vector<std::string> held;
+        for (const auto& key : keys) {
+            if (std::erase(conn->keys, key) != 0) {
+                held.push_back(key);
+            }
+        }
+        if (held.empty()) {
+            continue;
+        }
+        released += held.size();
+        // what is still queued may ask for a key just let go
+        if (!conn->pending.empty()) {
+            impl_->refill(*conn);
+        }
+        auto frames = leave(held);
+        conn->pending.insert(
+            conn->pending.begin(), std::make_move_iterator(frames.begin()), std::make_move_iterator(frames.end()));
+    }
+    process_ip_meters().release_channels(released);
 }
 
 void WsPool::broadcast(std::string_view text) noexcept {

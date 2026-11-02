@@ -122,6 +122,11 @@ std::size_t IpMeters::claim_channels(std::size_t wanted) noexcept {
     return granted;
 }
 
+void IpMeters::release_channels(std::size_t released) noexcept {
+    const std::scoped_lock lock{mu_};
+    channels_used_ -= std::min(channels_used_, released);
+}
+
 std::size_t IpMeters::channels_claimed() const noexcept {
     const std::scoped_lock lock{mu_};
     return channels_used_;
