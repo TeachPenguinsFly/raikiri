@@ -75,7 +75,9 @@ std::vector<VenueBook> ShmMarket::books(const Listing& listing, Side side) const
         VenueBook book{.instrument = id,
                        .taker_fee = internal::or_zero(base.taker_fee),
                        .lot = internal::lot_of(base),
-                       .min_notional = internal::or_zero(base.min_notional)};
+                       .min_notional = internal::or_zero(base.min_notional),
+                       .amend = exec::caps_of(id.venue()).amend_order,
+                       .post_only = exec::caps_of(id.venue()).native_post_only};
         if (book.lot.raw <= 0 || base.tick_size.is_undef() || base.tick_size.raw <= 0) {
             continue;
         }

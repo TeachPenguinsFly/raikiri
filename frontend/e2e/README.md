@@ -31,3 +31,15 @@ Install the browser once per machine:
 
 The last two read the text of the Bid cell, since a row can exist with only a
 dash in it.
+
+## The mock run
+
+`npm run test:e2e:mock` starts its own vite on `127.0.0.1:5174` and answers
+every `/v1` request and the `/v1/stream` socket from `e2e/fixtures`, so it needs
+no stack and touches no venue. The option fixtures are admind's own answers over
+a synthetic chain, written by the C++ test:
+
+    RAIKIRI_OPTIONS_FIXTURES=$PWD/frontend/e2e/fixtures/options \
+      build/dev-asan/tests/optiondata_test --gtest_filter='*Routes*'
+
+Screenshots land in `test-results/options`, or in `$RAIKIRI_SHOTS`.

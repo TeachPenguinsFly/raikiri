@@ -69,6 +69,11 @@ private:
 // settleCoin scopes account-wide pulls; without it bybit demands a symbol
 constexpr std::string_view k_settle_coin = "USDT";
 
+// the option category answers for every option without it, and settleCoin would drop the usdc ones
+[[nodiscard]] bool scoped_by_settle_coin(MarketType market) noexcept {
+    return market != MarketType::Option;
+}
+
 // a unified key accepts only accountType UNIFIED
 constexpr std::string_view k_account_type = "UNIFIED";
 
@@ -246,7 +251,11 @@ RequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& ta
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_all(MarketType market, UnixNanos now) {
     net::JsonWriter json{body_};
-    json.obj_begin().str("category", category_of(market)).str("settleCoin", k_settle_coin).obj_end();
+    json.obj_begin().str("category", category_of(market));
+    if (scoped_by_settle_coin(market)) {
+        json.str("settleCoin", k_settle_coin);
+    }
+    json.obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -255,7 +264,10 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_all(MarketTyp
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market, UnixNanos now) {
     Appender query{body_}; // reuse the body buffer: GET sends none
-    query << "category=" << category_of(market) << "&settleCoin=" << k_settle_coin;
+    query << "category=" << category_of(market);
+    if (scoped_by_settle_coin(market)) {
+        query << "&settleCoin=" << k_settle_coin;
+    }
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -280,7 +292,10 @@ RequestBuilder::executions(MarketType market, UnixNanos since, UnixNanos now) {
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market, UnixNanos now) {
     Appender query{body_};
-    query << "category=" << category_of(market) << "&settleCoin=" << k_settle_coin;
+    query << "category=" << category_of(market);
+    if (scoped_by_settle_coin(market)) {
+        query << "&settleCoin=" << k_settle_coin;
+    }
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

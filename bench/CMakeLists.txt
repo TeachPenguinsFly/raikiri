@@ -9,3 +9,7 @@ target_link_libraries(ring_throughput
 add_executable(ladder_prune ladder_prune.cpp)
 target_link_libraries(ladder_prune
   PRIVATE benchmark::benchmark raikiri::book raikiri::warnings)
+
+add_executable(option_board option_board.cpp)
+target_link_libraries(option_board
+  PRIVATE benchmark::benchmark raikiri::optiondata raikiri::optiondata_http raikiri::warnings)

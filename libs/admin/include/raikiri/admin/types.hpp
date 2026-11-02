@@ -228,6 +228,8 @@ struct AccountBalances {
     // absent until the venue answers
     std::optional<std::string> reported_at;
     bool stale{false};
+    // spot, futures, unified, options or funding; absent until the venue answers
+    std::optional<std::string> wallet;
     std::vector<Balance> assets;
 };
 

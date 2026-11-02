@@ -173,6 +173,35 @@ public:
         return reports;
     }
 
+    // one margin account per currency backs futures and options, read on the option gateway only so it counts once
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
+        if (market != MarketType::Option) {
+            return std::unexpected{exec::not_implemented("deribit balances are read on the option account")};
+        }
+        const auto now = state_->venue_now();
+        std::vector<BalanceReport> reports;
+        reports.reserve(k_currencies.size());
+        for (const auto currency : k_currencies) {
+            const auto request = builder_.account_summary(currency, now);
+            if (!request.has_value()) {
+                return std::unexpected{build_failure(request.error())};
+            }
+            const auto body = fetch(*request);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            const auto summary = parse_account_summary(*body);
+            if (!summary.has_value()) {
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(summary.error()))};
+            }
+            if (auto report = map_account_summary(*summary, state_->clock->wall()); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
     // the transaction log is per currency; only inverse btc and eth perpetuals are listed
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market, UnixNanos since) {
         if (market != MarketType::Perp) {

@@ -12,7 +12,7 @@ namespace ondemand = wire::ondemand;
 
 // _ms fields are milliseconds, bare ones seconds, sometimes fractional
 [[nodiscard]] std::uint64_t timestamp_ms(ondemand::object& obj) {
-    for (const auto key : {"update_time_ms", "finish_time_ms", "create_time_ms"}) {
+    for (const auto key : {"update_time_ms", "finish_time_ms", "create_time_ms", "time_ms"}) {
         if (const auto ms = whole_u64(field(obj, key)); ms != 0) {
             return ms;
         }
@@ -59,6 +59,20 @@ futures_state(std::string_view status, std::string_view finish_as, bool left_is_
     }
     if (status == "finished") {
         return terminal_state({}, left_is_zero);
+    }
+    return WireOrderState::Unknown;
+}
+
+// the option channel has no _new or _update: open is all it says of a live order, and a finish
+// reason means nothing until the status is finished. only an untouched order reads as the ack
+[[nodiscard]] WireOrderState option_state(
+    std::string_view status, std::string_view finish_as, bool left_is_zero, bool untouched, bool& accepted) noexcept {
+    if (status == "open") {
+        accepted = untouched;
+        return WireOrderState::Open;
+    }
+    if (status == "finished") {
+        return terminal_state(finish_as, left_is_zero);
     }
     return WireOrderState::Unknown;
 }
@@ -130,6 +144,20 @@ std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireOrd
     return {};
 }
 
+// the futures row by other rules; sizes are integers and the contract keeps its quote
+std::expected<void, WireError> read_option_order(ondemand::object& obj, WireOrder& out) {
+    if (auto ok = read_futures_order(obj, out); !ok.has_value()) {
+        return ok;
+    }
+    out.accepted = false;
+    out.state = option_state(text_field(obj, "status"),
+                             text_field(obj, "finish_as"),
+                             is_zero_qty(out.left),
+                             out.left == out.amount,
+                             out.accepted);
+    return {};
+}
+
 std::expected<void, WireError> read_spot_order(ondemand::object& obj, WireOrder& out) {
     const auto pair = wire::req_str(obj, "currency_pair");
     if (!pair.has_value()) {
@@ -164,9 +192,10 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrder& out,
         return read_futures_order(obj, out);
     case MarketType::Spot:
         return read_spot_order(obj, out);
-    case MarketType::Future:
     case MarketType::Option:
-        // nothing subscribes to delivery or options, so this is a routing bug
+        return read_option_order(obj, out);
+    case MarketType::Future:
+        // nothing subscribes to delivery, so this is a routing bug
         return std::unexpected{WireError::UnknownMessage};
     }
     return std::unexpected{WireError::UnknownMessage};
@@ -174,7 +203,8 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrder& out,
 
 std::expected<void, WireError> read_user_trade(ondemand::object& obj, WireUserTrade& out, MarketType market) {
     switch (market) {
-    case MarketType::Perp: {
+    case MarketType::Perp:
+    case MarketType::Option: {
         const auto contract = wire::req_str(obj, "contract");
         if (!contract.has_value()) {
             return std::unexpected{contract.error()};
@@ -196,7 +226,6 @@ std::expected<void, WireError> read_user_trade(ondemand::object& obj, WireUserTr
         break;
     }
     case MarketType::Future:
-    case MarketType::Option:
         return std::unexpected{WireError::UnknownMessage};
     }
     out.trade_id = field(obj, "id");
@@ -204,6 +233,9 @@ std::expected<void, WireError> read_user_trade(ondemand::object& obj, WireUserTr
         out.trade_id = field(obj, "trade_id"); // the my_trades_timerange name
     }
     out.order_id = field(obj, "order_id");
+    if (out.order_id.empty()) {
+        out.order_id = field(obj, "order"); // the option socket's name
+    }
     out.text = text_field(obj, "text");
     out.price = field(obj, "price");
     out.fee = field(obj, "fee");

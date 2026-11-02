@@ -880,6 +880,8 @@ TEST(OkxMap, BalanceTakesTheCashTotalAndNotTheEquity) {
     const auto report = map_balance((*rows)[0], AccountMode::Futures, k_ingest);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->asset.view(), "USDT");
+    EXPECT_EQ(report->wallet, WalletKind::Unified);
+    EXPECT_EQ(map_balance((*rows)[0], AccountMode::Spot, k_ingest)->wallet, WalletKind::Spot);
     // cashBal, not eq, which adds open pnl
     EXPECT_EQ(report->total.raw, 4'850'435'693'622);
     EXPECT_EQ(report->available.raw, 4'834'317'093'622);

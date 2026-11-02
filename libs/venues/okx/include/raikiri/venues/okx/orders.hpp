@@ -38,6 +38,7 @@ struct WireOrder {
     std::string_view fill_px;
     std::string_view fill_sz;
     std::string_view fill_fee; // negative is a fee charged, positive a rebate
+    std::string_view fill_fee_ccy;
     std::string_view trade_id;
     std::string_view exec_type;     // "T" taker, "M" maker
     std::string_view cancel_source; // "13"/"14": an FOK/IOC remainder expiring
@@ -68,6 +69,7 @@ struct WireFill {
     std::string_view fill_px;
     std::string_view fill_sz;
     std::string_view fee;
+    std::string_view fee_ccy;
     std::string_view exec_type;
     std::uint64_t fill_ms{0};
 };

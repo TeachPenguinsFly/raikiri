@@ -29,6 +29,9 @@ raikiri_add_test(symbol_test SRCS domain/symbol_test.cpp LIBS raikiri::domain)
 raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::domain)
 
 raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journal raikiri::schema raikiri::domain)
+raikiri_add_test(audit_test SRCS audit/audit_test.cpp audit/routes_test.cpp
+  LIBS raikiri::audit_file raikiri::audit_http raikiri::log glaze::glaze)
+target_include_directories(audit_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/strategyd)
 
 raikiri_add_test(mapper_test POSTGRES SRCS persist/mapper_test.cpp LIBS raikiri::persist raikiri::schema raikiri::oms libpqxx::pqxx)
 target_compile_definitions(mapper_test PRIVATE RAIKIRI_SQL_DIR="${PROJECT_SOURCE_DIR}/sql")
@@ -69,7 +72,7 @@ target_compile_definitions(settings_test PRIVATE RAIKIRI_CONFIG_DIR="${PROJECT_S
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
 
 raikiri_add_test(gate_venue_test SRCS venues/gate/venue_test.cpp LIBS raikiri::venue_gate raikiri::exec)
-raikiri_add_test(gate_option_test SRCS venues/gate/option_test.cpp LIBS raikiri::venue_gate raikiri::options raikiri::exec)
+raikiri_add_test(gate_option_test SRCS venues/gate/option_test.cpp LIBS raikiri::venue_gate raikiri::options raikiri::exec raikiri::net raikiri::portfolio raikiri::oms)
 raikiri_add_test(gate_trade_test SRCS venues/gate/trade_test.cpp LIBS raikiri::venue_gate raikiri::net raikiri::exec)
 raikiri_add_test(kucoin_venue_test SRCS venues/kucoin/venue_test.cpp LIBS raikiri::venue_kucoin raikiri::exec)
 raikiri_add_test(kucoin_trade_test SRCS venues/kucoin/trade_test.cpp LIBS raikiri::venue_kucoin raikiri::exec raikiri::net)
@@ -130,7 +133,7 @@ raikiri_add_test(vest_venue_test SRCS venues/vest/venue_test.cpp LIBS raikiri::v
 raikiri_add_test(ondoperps_venue_test SRCS venues/ondoperps/venue_test.cpp LIBS raikiri::venue_ondoperps raikiri::exec)
 raikiri_add_test(polymarketperps_venue_test SRCS venues/polymarketperps/venue_test.cpp LIBS raikiri::venue_polymarketperps raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
-raikiri_add_test(binance_option_test SRCS venues/binance/option_test.cpp LIBS raikiri::venue_binance raikiri::options raikiri::exec raikiri::net)
+raikiri_add_test(binance_option_test SRCS venues/binance/option_test.cpp LIBS raikiri::venue_binance raikiri::options raikiri::exec raikiri::net raikiri::portfolio raikiri::oms)
 target_compile_definitions(binance_option_test PRIVATE
   RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
@@ -147,7 +150,8 @@ target_compile_definitions(binance_ws_api_test PRIVATE
 
 raikiri_add_test(bybit_book_sync_test SRCS venues/bybit/book_sync_test.cpp LIBS raikiri::venue_bybit)
 raikiri_add_test(bybit_map_test SRCS venues/bybit/map_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
-raikiri_add_test(bybit_option_test SRCS venues/bybit/option_test.cpp LIBS raikiri::venue_bybit raikiri::options raikiri::exec)
+raikiri_add_test(bybit_option_test SRCS venues/bybit/option_test.cpp LIBS raikiri::venue_bybit raikiri::options raikiri::exec
+  raikiri::oms raikiri::portfolio)
 raikiri_add_test(bybit_rest_test SRCS venues/bybit/rest_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_ws_test SRCS venues/bybit/ws_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_trade_test SRCS venues/bybit/trade_test.cpp LIBS raikiri::venue_bybit raikiri::net)
@@ -155,7 +159,8 @@ target_compile_definitions(bybit_trade_test PRIVATE
   RAIKIRI_BYBIT_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/bybit/fixtures")
 raikiri_add_test(bybit_venue_test SRCS venues/bybit/venue_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
 raikiri_add_test(okx_map_test SRCS venues/okx/map_test.cpp LIBS raikiri::venue_okx raikiri::exec)
-raikiri_add_test(okx_option_test SRCS venues/okx/option_test.cpp LIBS raikiri::venue_okx raikiri::options raikiri::exec)
+raikiri_add_test(okx_option_test SRCS venues/okx/option_test.cpp LIBS raikiri::venue_okx raikiri::options raikiri::exec
+  raikiri::oms raikiri::portfolio)
 
 raikiri_add_test(okx_trade_test SRCS venues/okx/trade_test.cpp LIBS raikiri::venue_okx raikiri::net raikiri::exec)
 raikiri_add_test(okx_wire_test SRCS venues/okx/wire_test.cpp LIBS raikiri::venue_okx)
@@ -233,7 +238,7 @@ raikiri_add_test(admin_stream_token_test SRCS admin/stream_token_test.cpp LIBS r
 add_test(NAME apps_help
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh
     $<TARGET_FILE:gatewayd> $<TARGET_FILE:admind> $<TARGET_FILE:persisterd> $<TARGET_FILE:strategyd>
-    $<TARGET_FILE:symbolaudit> $<TARGET_FILE:refd> $<TARGET_FILE:reftop>)
+    $<TARGET_FILE:symbolaudit> $<TARGET_FILE:refd> $<TARGET_FILE:reftop> $<TARGET_FILE:auditcheck>)
 set_tests_properties(apps_help PROPERTIES TIMEOUT 30)
 
 add_test(NAME deploy_venue_args
@@ -248,7 +253,16 @@ raikiri_add_test(introspect_routes_test SRCS introspect/routes_test.cpp
 raikiri_add_test(introspect_latency_test SRCS introspect/latency_test.cpp
   LIBS raikiri::introspect_http raikiri::introspect_probe)
 
+raikiri_add_test(optiondata_test SRCS optiondata/optiondata_test.cpp
+  LIBS raikiri::optiondata raikiri::optiondata_http)
+raikiri_add_test(optiondata_shm_test SRCS optiondata/shm_market_test.cpp LIBS raikiri::optiondata_shm)
+raikiri_add_test(optionrisk_test SRCS optionrisk/risk_test.cpp optionrisk/queries_test.cpp
+  LIBS raikiri::optionrisk raikiri::optionrisk_infra raikiri::optionrisk_http raikiri::log)
+
 raikiri_add_test(joe_domain_test SRCS joe/domain_test.cpp LIBS raikiri::joe)
+raikiri_add_test(joe_trace_test SRCS joe/trace_test.cpp LIBS raikiri::joe raikiri::joe_http)
+raikiri_add_test(joe_resting_test SRCS joe/resting_test.cpp LIBS raikiri::joe raikiri::joe_http)
+raikiri_add_test(joe_runner_test SRCS joe/runner_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::oms)
 
 raikiri_add_test(reference_mid_test SRCS reference/mid_test.cpp LIBS raikiri::reference)
 raikiri_add_test(reference_segment_test SRCS reference/segment_test.cpp

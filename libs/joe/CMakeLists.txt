@@ -6,6 +6,9 @@ add_library(raikiri_joe STATIC
   src/schedule.cpp
   src/parent.cpp
   src/desk.cpp
+  src/trace.cpp
+  src/tca.cpp
+  src/resting.cpp
 )
 add_library(raikiri::joe ALIAS raikiri_joe)
 target_include_directories(raikiri_joe PUBLIC

@@ -17,7 +17,7 @@ inline constexpr std::string_view k_spot_rest_test = "testnet.binance.vision";
 inline constexpr std::string_view k_spot_stream_live = "stream.binance.com";
 inline constexpr std::string_view k_spot_stream_test = "stream.testnet.binance.vision";
 
-// options stream from the futures host and share its testnet
+// options stream from the futures host, private events included, and share its testnet
 inline constexpr std::string_view k_option_rest_live = "eapi.binance.com";
 
 [[nodiscard]] constexpr std::string_view rest_host(bool testnet, MarketType market = MarketType::Perp) noexcept {
@@ -62,6 +62,18 @@ inline constexpr std::string_view k_user_trades = "/fapi/v1/userTrades";
 inline constexpr std::string_view k_position_risk = "/fapi/v3/positionRisk";
 // the only read that states multiAssetsMargin beside the per-asset rows; v3 dropped it
 inline constexpr std::string_view k_account = "/fapi/v2/account";
+// the european options account, a wallet of its own beside usd-m futures
+inline constexpr std::string_view k_option_account = "/eapi/v1/account";
+inline constexpr std::string_view k_option_margin_account = "/eapi/v1/marginAccount";
+// post places, delete cancels, get reads; options have no amend and no websocket order entry
+inline constexpr std::string_view k_option_order = "/eapi/v1/order";
+inline constexpr std::string_view k_option_open_orders = "/eapi/v1/openOrders";
+// takes one symbol only; the bill says which symbols moved
+inline constexpr std::string_view k_option_user_trades = "/eapi/v1/userTrades";
+inline constexpr std::string_view k_option_position = "/eapi/v1/position";
+inline constexpr std::string_view k_option_bill = "/eapi/v1/bill";
+// a key of its own, though the stream connects to the futures host
+inline constexpr std::string_view k_option_listen_key = "/eapi/v1/listenKey";
 // post opens, put keeps alive, delete closes
 inline constexpr std::string_view k_listen_key = "/fapi/v1/listenKey";
 

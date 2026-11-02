@@ -80,39 +80,45 @@ std::expected<std::span<const WireOrderUpdate>, WireError> parse_order_updates(s
     });
 }
 
+namespace {
+
+std::expected<void, WireError> read_execution(ondemand::object& obj, WireExecution& out) {
+    auto symbol = wire::req_str(obj, "symbol");
+    if (!symbol.has_value()) {
+        return std::unexpected{symbol.error()};
+    }
+    out.symbol = *symbol;
+    const auto field = [&](std::string_view key) {
+        obj.reset();
+        return wire::opt_str(obj, key).value_or(std::string_view{});
+    };
+    out.exec_type = field("execType");
+    out.exec_id = field("execId");
+    out.order_id = field("orderId");
+    out.order_link_id = field("orderLinkId");
+    out.side = field("side");
+    out.exec_price = field("execPrice");
+    out.exec_qty = field("execQty");
+    out.exec_fee = field("execFee");
+    out.leaves_qty = field("leavesQty");
+    out.exec_ms = wire::digits_to_u64(field("execTime"));
+    obj.reset();
+    out.is_maker = wire::opt_bool(obj, "isMaker").value_or(false);
+    return {};
+}
+
+} // namespace
+
 std::expected<std::span<const WireExecution>, WireError> parse_executions(std::string_view frame,
                                                                           ExecutionBuffer& storage) {
-    return guarded([&] {
-        return read_list<WireExecution>(
-            frame,
-            "data",
-            storage.executions,
-            k_max_updates,
-            [](ondemand::object& obj, WireExecution& out) -> std::expected<void, WireError> {
-                auto symbol = wire::req_str(obj, "symbol");
-                if (!symbol.has_value()) {
-                    return std::unexpected{symbol.error()};
-                }
-                out.symbol = *symbol;
-                const auto field = [&](std::string_view key) {
-                    obj.reset();
-                    return wire::opt_str(obj, key).value_or(std::string_view{});
-                };
-                out.exec_type = field("execType");
-                out.exec_id = field("execId");
-                out.order_id = field("orderId");
-                out.order_link_id = field("orderLinkId");
-                out.side = field("side");
-                out.exec_price = field("execPrice");
-                out.exec_qty = field("execQty");
-                out.exec_fee = field("execFee");
-                out.leaves_qty = field("leavesQty");
-                out.exec_ms = wire::digits_to_u64(field("execTime"));
-                obj.reset();
-                out.is_maker = wire::opt_bool(obj, "isMaker").value_or(false);
-                return {};
-            });
-    });
+    return guarded(
+        [&] { return read_list<WireExecution>(frame, "data", storage.executions, k_max_updates, read_execution); });
+}
+
+std::expected<std::span<const WireExecution>, WireError> parse_execution_list(std::string_view result,
+                                                                              ExecutionBuffer& storage) {
+    return guarded(
+        [&] { return read_list<WireExecution>(result, "list", storage.executions, k_max_updates, read_execution); });
 }
 
 std::expected<std::span<const WireOpenOrder>, WireError> parse_open_orders(std::string_view result,

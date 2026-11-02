@@ -44,11 +44,12 @@ export function linear(
   return (value) => r0 + ((value - d0) / span) * (r1 - r0)
 }
 
-/** always spans zero, since every plot here is a signed running sum */
-export function paddedDomain(values: number[]): [number, number] {
+/** spans zero unless told otherwise, since most plots here are signed running sums */
+export function paddedDomain(all: number[], spanZero = true): [number, number] {
+  const values = all.filter(Number.isFinite)
   if (values.length === 0) return [0, 1]
-  const min = Math.min(...values, 0)
-  const max = Math.max(...values, 0)
+  const min = Math.min(...values, ...(spanZero ? [0] : []))
+  const max = Math.max(...values, ...(spanZero ? [0] : []))
   if (min === max) {
     const nudge = Math.abs(min) * 0.05 || 1
     return [min - nudge, max + nudge]

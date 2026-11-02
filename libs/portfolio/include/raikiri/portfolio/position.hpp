@@ -28,8 +28,10 @@ public:
         FixedE9 realized{FixedE9::from_raw(0)};  // booked by the closing part
         FixedE9 close_fee{FixedE9::from_raw(0)}; // the part of `fee` that closed
         FixedE9 open_fee{FixedE9::from_raw(0)};  // the rest; the two sum to `fee` exactly
-        bool flipped{false};                     // crossed zero: closed and opened
-        bool closed{false};                      // reached flat
+        // a fee in another currency than the position's sums, left out of them and of the two above
+        FixedE9 unbooked_fee{FixedE9::from_raw(0)};
+        bool flipped{false}; // crossed zero: closed and opened
+        bool closed{false};  // reached flat
     };
 
     Position() noexcept = default;

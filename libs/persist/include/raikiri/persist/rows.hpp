@@ -18,6 +18,7 @@ struct OrderEventRow {
     std::int64_t qty_lots{0};
     std::int64_t leaves_lots{0};
     std::int64_t fee_e9{0};
+    std::string fee_asset; // empty before schema version 6 and where the venue stated none
     std::string exec_id;
     std::uint64_t ts_event{0};
     std::uint64_t ts_recorded{0};
@@ -57,6 +58,7 @@ struct ExecutionRow {
     std::int64_t price_ticks{0};
     std::int64_t qty_lots{0};
     std::int64_t fee_e9{0};
+    std::string fee_asset;
     std::string liquidity;
     std::uint64_t ts_event{0};
 };

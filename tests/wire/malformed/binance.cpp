@@ -3,9 +3,13 @@
 #include <raikiri/venues/binance/catalogue.hpp>
 #include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/market_data.hpp>
+#include <raikiri/venues/binance/orders.hpp>
+#include <raikiri/venues/binance/positions.hpp>
 #include <raikiri/venues/binance/ws_api.hpp>
 
 #include <gtest/gtest.h>
+
+#include <array>
 
 #include "harness.hpp"
 
@@ -86,6 +90,44 @@ TEST(Malformed, Binance) {
                     (void)parse_premium_index(f, storage);
                 }},
                {"rest_server_time.json", [](std::string_view f) { (void)parse_server_time(f); }},
+               {"rest_option_account.json",
+                [](std::string_view f) {
+                    static OptionAccountBuffer storage;
+                    (void)parse_option_account(f, storage);
+                }},
+               {"rest_option_margin_account.json",
+                [](std::string_view f) {
+                    static OptionAccountBuffer storage;
+                    (void)parse_option_account(f, storage);
+                }},
+               {"rest_option_order.json", [](std::string_view f) { (void)parse_order(f); }},
+               {"rest_option_open_orders.json",
+                [](std::string_view f) {
+                    static OrderBuffer storage;
+                    (void)parse_option_orders(f, storage);
+                }},
+               {"rest_option_user_trades.json",
+                [](std::string_view f) {
+                    static TradeBuffer storage;
+                    (void)parse_option_user_trades(f, storage);
+                }},
+               {"rest_option_positions.json",
+                [](std::string_view f) {
+                    static std::array<WirePositionRisk, 8> storage{};
+                    (void)parse_option_positions(f, storage);
+                }},
+               {"rest_option_bill.json",
+                [](std::string_view f) {
+                    static OptionBillBuffer storage;
+                    (void)parse_option_bill(f, storage);
+                }},
+               {"ws_option_order_*",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    if (const auto inner = unwrap(f); inner.has_value()) {
+                        (void)parse_order_update(*inner);
+                    }
+                }},
                {"rest_account.json",
                 [](std::string_view f) {
                     static BalanceBuffer storage;

@@ -285,7 +285,11 @@ http::Response joe(const std::map<std::string, std::uint16_t>& upstreams, const 
     if (req.method != "GET" && req.method != "POST") {
         return problem(405, "method not allowed");
     }
-    const auto target = std::string{"/joe/"} + std::string{req.path.substr(k_joe_prefix.size())};
+    auto target = std::string{"/joe/"} + std::string{req.path.substr(k_joe_prefix.size())};
+    if (!req.query.empty()) {
+        target += '?';
+        target += req.query;
+    }
     const auto answer = http::fetch("127.0.0.1", found->second, target, 250, req.method, req.body);
     if (!answer.has_value()) {
         return problem(503, "strategyd is not answering", "joe's state is unknown until it does");

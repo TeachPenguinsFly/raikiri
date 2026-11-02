@@ -22,7 +22,11 @@ std::expected<void, WireError> read_position(ondemand::object& obj, WirePosition
     // an empty side with size "0" means flat
     out.side = field("side");
     out.size = field("size");
-    out.avg_price = field("entryPrice");
+    // the rest list names it avgPrice
+    out.avg_price = field("avgPrice");
+    if (out.avg_price.empty()) {
+        out.avg_price = field("entryPrice");
+    }
     out.updated_ms = wire::digits_to_u64(field("updatedTime"));
     return {};
 }

@@ -1,5 +1,6 @@
 #include <raikiri/common/int128.hpp>
 #include <raikiri/domain/asset_class.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/deribit/account.hpp>
 #include <raikiri/venues/deribit/book.hpp>
@@ -1457,6 +1458,7 @@ TEST(DeribitMap, FillReportsAndPositionsCarryTheirOwnUnits) {
     EXPECT_EQ(taker->instrument.market(), MarketType::Option);
     EXPECT_EQ(taker->qty.raw, 3);      // 0.3 coin / 0.1
     EXPECT_EQ(taker->fee.raw, 90'000); // 9.0e-5 BTC
+    EXPECT_EQ(taker->fee_asset.view(), "BTC");
 
     const auto positions_body = fixture("rest_positions.json");
     auto position_storage = std::make_unique<PositionBuffer>();
@@ -1664,6 +1666,32 @@ TEST(DeribitMapRest, FundingStaysInTheCurrencyTheContractSettlesIn) {
     auto eth_row = btc->entries[0];
     eth_row.currency = "ETH";
     EXPECT_FALSE(map_funding_settlement(eth_row, table, UnixNanos{1}).has_value());
+}
+
+TEST(DeribitBalances, TheOptionAccountReadsEachCurrencysSummaryAsAnOptionsWallet) {
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+    const auto request = builder.account_summary("BTC", UnixNanos{1'787'751'010'667'000'000ULL});
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->target, "/api/v2/private/get_account_summary?currency=BTC");
+    EXPECT_FALSE(builder.account_summary("", UnixNanos{1}).has_value());
+
+    const auto body = fixture("rest_account_summary_btc.json");
+    const auto summary = parse_account_summary(body);
+    ASSERT_TRUE(summary.has_value());
+    const auto report = map_account_summary(*summary, UnixNanos{5});
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->asset.view(), "BTC");
+    EXPECT_EQ(report->wallet, WalletKind::Unified);
+    EXPECT_EQ(report->total.raw, 1'234'500'000);
+    EXPECT_EQ(report->available.raw, 987'600'000);
+    EXPECT_EQ(report->unrealized.raw, 34'500'000);
+    EXPECT_EQ(report->ts_venue.ns, 5U);
+
+    const auto& caps = exec::caps_of(VenueId::Deribit);
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Option));
+    EXPECT_FALSE(caps.balance_pull.has(MarketType::Perp)) << "the same account would count twice";
 }
 
 } // namespace

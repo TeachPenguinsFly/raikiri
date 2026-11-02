@@ -17,6 +17,13 @@ export type NewOrder = Schema<'NewOrder'>
 export type NewParentOrder = Schema<'NewParentOrder'>
 export type ParentOrder = Schema<'ParentOrder'>
 export type ChildOrder = Schema<'ChildOrder'>
+export type OptionUnderlying = Schema<'OptionUnderlying'>
+export type OptionChain = Schema<'OptionChain'>
+export type OptionQuote = Schema<'OptionQuote'>
+export type OptionSurface = Schema<'OptionSurface'>
+export type ParentTrace = Schema<'ParentTrace'>
+export type VenueTca = Schema<'VenueTca'>
+export type JoeTca = Schema<'JoeTca'>
 
 type Page<T> = { items: T[]; next_cursor?: string | null }
 
@@ -75,6 +82,10 @@ export const joe = {
   parent: (id: string) => get<ParentOrder>(`/v1/joe/parents/${id}`),
   start: (order: NewParentOrder) => post<{ id: string }>('/v1/joe/parents', order),
   act: (id: string, action: 'cancel' | 'pause' | 'resume') => post<ParentOrder>(`/v1/joe/parents/${id}/${action}`),
+  /** pass the last answer's seq to get only what is newer */
+  trace: (id: string, since?: number) =>
+    get<ParentTrace>(`/v1/joe/parents/${id}/trace`, { since: since === undefined ? undefined : String(since) }),
+  tca: () => get<JoeTca>('/v1/joe/tca'),
 }
 
 export const api = {
@@ -86,6 +97,14 @@ export const api = {
   upstreamTable: (name: string, path: string, params: Record<string, string | undefined> = {}) =>
     get<Schema<'UpstreamTable'>>(`/v1/x/${name}/${path}`, params),
   markets: (q?: string) => get<Market[]>('/v1/markets', { q }),
+  optionUnderlyings: () => get<OptionUnderlying[]>('/v1/options/underlyings'),
+  optionChain: (underlying: string, expiry: string, venue?: string) =>
+    get<OptionChain>('/v1/options/chain', { underlying, expiry, venue }),
+  optionSurface: (underlying: string, venue?: string) =>
+    get<OptionSurface>('/v1/options/surface', { underlying, venue }),
+  optionRisk: () => get<Schema<'OptionRisk'>>('/v1/options/risk'),
+  optionRiskScenarios: (underlying: string, spot?: string, vol?: string) =>
+    get<Schema<'OptionRiskScenarios'>>('/v1/options/risk/scenarios', { underlying, spot, vol }),
   // the routes below read postgres and answer 503 without a dsn
   openOrders: () => get<Page<Order>>('/v1/orders', { open: 'true' }),
   fills: (limit: string) => get<Page<Fill>>('/v1/fills', { limit }),

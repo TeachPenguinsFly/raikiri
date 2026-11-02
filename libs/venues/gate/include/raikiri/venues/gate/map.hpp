@@ -98,4 +98,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
 // nullopt when gate named no currency
 [[nodiscard]] std::optional<BalanceReport> map_futures_account(const WireFuturesAccount& wire);
 
+// the same row shape, in the options wallet; gate stamps no time, so the caller's stands
+[[nodiscard]] std::optional<BalanceReport> map_option_account(const WireFuturesAccount& wire, UnixNanos ts_venue);
+
 } // namespace raikiri::venues::gate

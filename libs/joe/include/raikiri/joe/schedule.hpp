@@ -8,6 +8,11 @@
 #include <vector>
 
 namespace raikiri::joe {
+namespace internal {
+
+[[nodiscard]] std::uint64_t splitmix(std::uint64_t& state) noexcept;
+
+} // namespace internal
 
 [[nodiscard]] std::vector<std::uint64_t> flat_weights(std::uint32_t slices);
 

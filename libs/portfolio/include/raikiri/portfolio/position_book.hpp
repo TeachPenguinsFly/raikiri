@@ -37,6 +37,10 @@ public:
     [[nodiscard]] std::expected<Position::Applied, BookError>
     on_fill(const InstrumentBase& base, const OrderEvent& event, QtyLots delta);
 
+    // knows an option's premium currency, which its base does not
+    [[nodiscard]] std::expected<Position::Applied, BookError>
+    on_fill(const Instrument& instrument, const OrderEvent& event, QtyLots delta);
+
     // Insertion order, and stable: the ledger and the tests both lean on it.
     [[nodiscard]] std::span<const Position> all() const noexcept { return positions_; }
 
@@ -45,6 +49,9 @@ public:
     [[nodiscard]] std::size_t capacity() const noexcept { return capacity_; }
 
 private:
+    [[nodiscard]] std::expected<Position::Applied, BookError>
+    book_fill(const InstrumentBase& base, SettleSide side, const OrderEvent& event, QtyLots delta);
+
     std::vector<Position> positions_;
     std::size_t capacity_;
 };

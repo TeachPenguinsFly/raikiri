@@ -116,6 +116,8 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
                             (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Rejected ||
                              m.eventType() == raikiri_journal::types::orderEventTypeEnum::CancelRejected ||
                              m.eventType() == raikiri_journal::types::orderEventTypeEnum::ModifyRejected);
+    // records before version 6 are shorter
+    const auto fee_asset = frame.schema_version >= 6 ? trim_fixed(m.feeAsset()) : std::string{};
     std::string reject_class;
     std::int32_t reject_code = 0;
     if (has_reason) {
@@ -132,6 +134,7 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
         .qty_lots = m.qty().value(),
         .leaves_lots = m.leavesQty().value(),
         .fee_e9 = m.fee().value(),
+        .fee_asset = fee_asset,
         .exec_id = exec_id,
         .ts_event = m.tsEvent().value(),
         .ts_recorded = m.tsInit().value(),
@@ -177,6 +180,7 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
             .price_ticks = m.price().value(),
             .qty_lots = m.qty().value(),
             .fee_e9 = m.fee().value(),
+            .fee_asset = fee_asset,
             .liquidity = enum_name(
                 m.liquidity(), +[](std::uint8_t v) { return liquidity_name(v); }),
             .ts_event = m.tsEvent().value(),

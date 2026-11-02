@@ -60,4 +60,33 @@ std::expected<WireLogPage, WireError> parse_transaction_log(std::string_view bod
     });
 }
 
+std::expected<WireAccountSummary, WireError> parse_account_summary(std::string_view body) {
+    return guarded([&]() -> std::expected<WireAccountSummary, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto result = wire::req_object(*root, "result");
+        if (!result.has_value()) {
+            return std::unexpected(result.error());
+        }
+        WireAccountSummary out{};
+        const auto currency = wire::opt_str(*result, "currency");
+        if (!currency.has_value()) {
+            return std::unexpected(currency.error());
+        }
+        out.currency = *currency;
+        for (const auto& [key, field] : {std::pair{"equity", &out.equity},
+                                         std::pair{"available_funds", &out.available_funds},
+                                         std::pair{"session_upl", &out.session_upl}}) {
+            const auto value = opt_num(*result, key);
+            if (!value.has_value()) {
+                return std::unexpected(value.error());
+            }
+            *field = *value;
+        }
+        return out;
+    });
+}
+
 } // namespace raikiri::venues::deribit

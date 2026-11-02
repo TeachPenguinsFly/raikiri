@@ -15,6 +15,7 @@ public:
 
     [[nodiscard]] std::expected<std::uint64_t, SinkError> submit(const ChildOrder& order) noexcept override;
     void cancel(std::uint64_t child_id) noexcept override;
+    [[nodiscard]] bool modify(std::uint64_t child_id, InstrumentId instrument, FixedE9 limit) noexcept override;
 
 private:
     strategy::Context* ctx_{nullptr};

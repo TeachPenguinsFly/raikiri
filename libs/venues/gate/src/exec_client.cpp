@@ -38,6 +38,8 @@ public:
             perp_ = std::make_unique<PrivateStream>(*state_, MarketType::Perp);
         } else if (market == MarketType::Spot) {
             spot_ = std::make_unique<PrivateStream>(*state_, MarketType::Spot);
+        } else if (market == MarketType::Option) {
+            option_ = std::make_unique<PrivateStream>(*state_, MarketType::Option);
         }
     }
 
@@ -53,6 +55,17 @@ public:
                     exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, "gate: futures account id unavailable")};
             }
         }
+        // a gateway with no keys still serves the option market data
+        const bool option_trades = option_ && state_->signer.has_credentials();
+        if (option_trades && state_->futures_user_id == 0) {
+            if (const auto user = api_.option_user_id(); user.has_value()) {
+                state_->futures_user_id = *user;
+            }
+            if (state_->futures_user_id == 0) {
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, "gate: options account id unavailable")};
+            }
+        }
         started_ = true;
         if (state_->pulls_only) {
             return {};
@@ -62,6 +75,9 @@ public:
         }
         if (spot_) {
             spot_->start();
+        }
+        if (option_trades) {
+            option_->start();
         }
         if (state_->signer.has_credentials() && (perp_ || spot_)) {
             open_trade_socket();
@@ -76,6 +92,9 @@ public:
         if (spot_) {
             spot_->stop();
         }
+        if (option_) {
+            option_->stop();
+        }
         if (trade_) {
             trade_->stop();
             trade_.reset();
@@ -87,7 +106,9 @@ public:
     [[nodiscard]] bool connected() const noexcept override {
         const bool perp_up = perp_ == nullptr || perp_->connected();
         const bool spot_up = spot_ == nullptr || spot_->connected();
-        return started_ && perp_up && spot_up && (perp_ != nullptr || spot_ != nullptr);
+        const bool option_up = option_ == nullptr || option_->connected();
+        return started_ && perp_up && spot_up && option_up &&
+               (perp_ != nullptr || spot_ != nullptr || option_ != nullptr);
     }
 
     // sweeps rest connections the venue closed, so an idle gateway does not write into a dead socket
@@ -106,6 +127,13 @@ public:
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
+        // options have no batch endpoint
+        if (market_ == MarketType::Option) {
+            for (const auto& cmd : cmds) {
+                fire(cmd, Kind::Cancel);
+            }
+            return;
+        }
         // gate refuses a whole batch over 20, so the span is chunked
         for (std::size_t at = 0; at < cmds.size(); at += SignedRequestBuilder::k_max_batch_cancel) {
             const auto chunk = cmds.subspan(at, std::min(SignedRequestBuilder::k_max_batch_cancel, cmds.size() - at));
@@ -253,11 +281,6 @@ private:
     }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
-        if (cmd.instrument.market() == MarketType::Option) {
-            emit_reject(
-                cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate options are market data only"));
-            return;
-        }
         const auto now = state_->venue_now();
         auto& builder = api_.builder();
         const auto request = kind == Kind::Create   ? builder.create_order(cmd, state_->instruments, now)
@@ -347,6 +370,7 @@ private:
     std::shared_ptr<VenueState> state_;
     std::unique_ptr<PrivateStream> perp_;
     std::unique_ptr<PrivateStream> spot_;
+    std::unique_ptr<PrivateStream> option_;
     MarketType market_;
     RestApi api_;
     TradeCodec codec_;

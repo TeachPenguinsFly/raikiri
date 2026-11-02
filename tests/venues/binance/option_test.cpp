@@ -1,13 +1,20 @@
 #include <raikiri/domain/asset_class.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/net/signer.hpp>
+#include <raikiri/oms/attribution.hpp>
 #include <raikiri/options/chain.hpp>
 #include <raikiri/options/key.hpp>
+#include <raikiri/portfolio/reconcile.hpp>
+#include <raikiri/venues/binance/account.hpp>
 #include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/catalogue.hpp>
 #include <raikiri/venues/binance/endpoints.hpp>
 #include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/map.hpp>
 #include <raikiri/venues/binance/market_data.hpp>
+#include <raikiri/venues/binance/orders.hpp>
+#include <raikiri/venues/binance/positions.hpp>
 #include <raikiri/venues/binance/rest.hpp>
 #include <raikiri/venues/binance/ws.hpp>
 
@@ -233,6 +240,329 @@ TEST(BinanceOptionStream, StreamsByUnderlyingOnTheOptionPaths) {
     RequestBuilder builder{signer, MarketType::Option};
     EXPECT_EQ(builder.instruments().target, "/eapi/v1/exchangeInfo");
     EXPECT_EQ(builder.server_time().target, "/eapi/v1/time");
+}
+
+TEST(BinanceOptionAccount, TheEapiAccountIsAnOptionsWalletOfItsOwn) {
+    net::Signer signer;
+    signer.set_api_key("TESTKEY");
+    ASSERT_TRUE(signer.secret().assign("testsecret").has_value());
+    RequestBuilder builder{signer, MarketType::Option};
+    const auto request = builder.option_account(UnixNanos{1'592'449'455'000'000'000ULL});
+    ASSERT_TRUE(request.has_value());
+    EXPECT_TRUE(request->target.starts_with("/eapi/v1/account?recvWindow="));
+    EXPECT_NE(request->target.find("&signature="), std::string_view::npos);
+    EXPECT_EQ(rest_host(false, MarketType::Option), "eapi.binance.com");
+
+    const auto body = fixture("rest_option_account.json");
+    OptionAccountBuffer storage;
+    const auto rows = parse_option_account(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    const auto usdt = map_option_balance((*rows)[0], UnixNanos{9});
+    ASSERT_TRUE(usdt.has_value());
+    EXPECT_EQ(usdt->asset.view(), "USDT");
+    EXPECT_EQ(usdt->wallet, WalletKind::Options);
+    EXPECT_EQ(usdt->total, e9("617.77711415"));
+    EXPECT_EQ(usdt->available, e9("0"));
+    EXPECT_EQ(usdt->unrealized, e9("222.23697"));
+    EXPECT_FALSE(map_option_balance((*rows)[1], UnixNanos{9}).has_value()) << "nothing held";
+    EXPECT_TRUE(exec::caps_of(VenueId::Binance).balance_pull.has(MarketType::Option));
+}
+
+constexpr std::string_view k_coid = "01JBZ3NDEKTSV4RRFFQ69G5OPT";
+
+OrderCmd option_order(const exec::InstrumentTable& table) {
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.instrument = base_of(*table.find(k_call)).id;
+    cmd.side = Side::Sell;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.flags = OrderFlags::PostOnly;
+    cmd.price = PriceTicks::from_raw(301); // 1505 at a 5 tick
+    cmd.qty = QtyLots::from_raw(5);        // 0.05 contracts at a 0.01 lot
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from(k_coid);
+    return cmd;
+}
+
+struct Signed {
+    net::Signer signer;
+    RequestBuilder builder;
+
+    Signed()
+        : builder{(signer.set_api_key("TESTKEY"), (void)signer.secret().assign("testsecret"), signer),
+                  MarketType::Option} {}
+};
+
+constexpr UnixNanos k_now{1'792'465'880'000'000'000ULL};
+
+TEST(BinanceOptionOrders, CreateSendsContractsLimitOnlyAndGtxOnEapi) {
+    const auto loaded = load_catalogue();
+    const auto signed_up = std::make_unique<Signed>();
+    auto& builder = signed_up->builder;
+    const auto& base = base_of(*loaded->table.find(k_call));
+
+    const auto create = builder.create_order(option_order(loaded->table), base, k_now);
+    ASSERT_TRUE(create.has_value());
+    EXPECT_EQ(create->method, net::HttpMethod::Post);
+    EXPECT_TRUE(create->target.starts_with("/eapi/v1/order?symbol=BTC-261225-85000-C&side=SELL&type=LIMIT"
+                                           "&timeInForce=GTX&quantity=0.05&price=1505"
+                                           "&clientOrderId=01JBZ3NDEKTSV4RRFFQ69G5OPT&recvWindow=5000"
+                                           "&timestamp=1792465880000&signature="))
+        << create->target;
+
+    auto reduce = option_order(loaded->table);
+    reduce.flags = OrderFlags::ReduceOnly;
+    reduce.tif = TimeInForce::Ioc;
+    const auto closing = builder.create_order(reduce, base, k_now);
+    ASSERT_TRUE(closing.has_value());
+    EXPECT_NE(closing->target.find("&timeInForce=IOC"), std::string_view::npos);
+    EXPECT_NE(closing->target.find("&reduceOnly=true"), std::string_view::npos);
+
+    auto market = option_order(loaded->table);
+    market.flags = OrderFlags::None;
+    market.order_type = OrderType::Market;
+    EXPECT_EQ(builder.create_order(market, base, k_now).error(), BuildError::UnsupportedOrderType);
+}
+
+TEST(BinanceOptionOrders, CancelNamesTheOrderByTheOptionParametersAndAmendIsRefused) {
+    const auto loaded = load_catalogue();
+    const auto signed_up = std::make_unique<Signed>();
+    auto& builder = signed_up->builder;
+    const auto& base = base_of(*loaded->table.find(k_call));
+
+    auto cancel = option_order(loaded->table);
+    cancel.kind = CmdKind::Cancel;
+    const auto by_client = builder.cancel_order(cancel, base, k_now);
+    ASSERT_TRUE(by_client.has_value());
+    EXPECT_EQ(by_client->method, net::HttpMethod::Delete);
+    EXPECT_TRUE(by_client->target.starts_with("/eapi/v1/order?symbol=BTC-261225-85000-C"
+                                              "&clientOrderId=01JBZ3NDEKTSV4RRFFQ69G5OPT&recvWindow="))
+        << by_client->target;
+
+    cancel.target_exchange_order_id = *ExchangeOrderId::from("4611875134427365000");
+    const auto by_venue = builder.cancel_order(cancel, base, k_now);
+    ASSERT_TRUE(by_venue.has_value());
+    EXPECT_NE(by_venue->target.find("&orderId=4611875134427365000&"), std::string_view::npos);
+
+    EXPECT_EQ(builder.amend_order(cancel, base, k_now).error(), BuildError::UnsupportedOrderType);
+}
+
+TEST(BinanceOptionOrders, PullsAndTheListenKeyGoToEapiAndAGetCarriesNoContentType) {
+    const auto signed_up = std::make_unique<Signed>();
+    auto& builder = signed_up->builder;
+
+    const auto open = builder.open_orders(k_now);
+    ASSERT_TRUE(open.has_value());
+    EXPECT_TRUE(open->target.starts_with("/eapi/v1/openOrders?"));
+    EXPECT_TRUE(open->content_type.empty());
+    EXPECT_TRUE(builder.position_risk(k_now)->target.starts_with("/eapi/v1/position?"));
+
+    // the endpoint takes one symbol, so the whole-account form of the perp path is refused
+    EXPECT_EQ(builder.user_trades({}, UnixNanos{}, k_now).error(), BuildError::BadValue);
+    const auto trades = builder.user_trades(k_call, UnixNanos{1'792'000'000'000'000'000ULL}, k_now);
+    ASSERT_TRUE(trades.has_value());
+    EXPECT_TRUE(trades->target.starts_with("/eapi/v1/userTrades?symbol=BTC-261225-85000-C"
+                                           "&startTime=1792000000000&limit=1000&recvWindow="))
+        << trades->target;
+
+    const auto bill = builder.option_bill(UnixNanos{1'792'000'000'000'000'000ULL}, k_now);
+    ASSERT_TRUE(bill.has_value());
+    EXPECT_TRUE(bill->target.starts_with("/eapi/v1/bill?currency=USDT&limit=1000&startTime=1792000000000&"))
+        << bill->target;
+
+    EXPECT_EQ(builder.listen_key_create()->target, "/eapi/v1/listenKey");
+    EXPECT_EQ(builder.listen_key_keepalive()->method, net::HttpMethod::Put);
+    EXPECT_EQ(builder.listen_key_keepalive()->target, "/eapi/v1/listenKey");
+    EXPECT_EQ(builder.listen_key_close()->target, "/eapi/v1/listenKey");
+
+    net::Signer perp_signer;
+    perp_signer.set_api_key("TESTKEY");
+    ASSERT_TRUE(perp_signer.secret().assign("testsecret").has_value());
+    RequestBuilder perp{perp_signer};
+    EXPECT_EQ(perp.listen_key_create()->target, "/fapi/v1/listenKey");
+    EXPECT_EQ(perp.open_orders(k_now)->content_type, "application/x-www-form-urlencoded");
+}
+
+TEST(BinanceOptionStream, OrderFramesMapToTheOptionWithAPositiveFeeInItsCurrency) {
+    const auto loaded = load_catalogue();
+    const auto id = base_of(*loaded->table.find(k_call)).id;
+
+    const auto accepted_body = fixture("ws_option_order_new.json");
+    const auto kind = parse_event_payload(accepted_body);
+    ASSERT_TRUE(kind.has_value());
+    EXPECT_EQ(kind->kind, EventKind::OrderUpdate);
+    const auto accepted_wire = parse_order_update(accepted_body);
+    ASSERT_TRUE(accepted_wire.has_value());
+    const auto accepted = map_order_event(*accepted_wire, loaded->table, k_now);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->type, OrderEventType::Accepted);
+    EXPECT_EQ(accepted->instrument, id);
+    EXPECT_EQ(accepted->side, Side::Sell);
+    EXPECT_TRUE(has_flag(accepted->flags, OrderFlags::PostOnly));
+    EXPECT_EQ(accepted->price, PriceTicks::from_raw(301));
+    EXPECT_EQ(accepted->qty, QtyLots::from_raw(5));
+    EXPECT_EQ(accepted->leaves_qty, QtyLots::from_raw(5));
+    EXPECT_EQ(accepted->exchange_client_order_id.view(), k_coid);
+    EXPECT_EQ(accepted->exchange_order_id.view(), "4611875134427365000");
+
+    const auto fill_body = fixture("ws_option_order_fill.json");
+    const auto fill_wire = parse_order_update(fill_body);
+    ASSERT_TRUE(fill_wire.has_value());
+    const auto fill = map_order_event(*fill_wire, loaded->table, k_now);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->type, OrderEventType::Filled);
+    EXPECT_EQ(fill->qty, QtyLots::from_raw(1));
+    EXPECT_EQ(fill->leaves_qty, QtyLots::from_raw(4));
+    EXPECT_EQ(fill->price, PriceTicks::from_raw(301));
+    EXPECT_EQ(fill->liquidity, Liquidity::Maker);
+    // eapi writes a charge negative; the book counts a charge as positive
+    EXPECT_EQ(fill->fee, e9("0.3"));
+    EXPECT_EQ(fill->fee_asset.view(), "USDT");
+    EXPECT_EQ(fill->exec_id.view(), "239-4611875134427365000");
+}
+
+TEST(BinanceOptionStream, TheWrappedFormOfAFrameUnwrapsToTheSameEvent) {
+    const std::string wrapped = R"({"stream":"listenkey","data":)" + fixture("ws_option_order_fill.json") + "}";
+    const auto payload = unwrap(wrapped);
+    ASSERT_TRUE(payload.has_value());
+    const auto kind = parse_event_payload(*payload);
+    ASSERT_TRUE(kind.has_value());
+    EXPECT_EQ(kind->kind, EventKind::OrderUpdate);
+    EXPECT_TRUE(parse_order_update(*payload).has_value());
+}
+
+TEST(BinanceOptionRecon, OpenOrdersReadTheQuantityFieldAndItsFills) {
+    const auto loaded = load_catalogue();
+    const auto body = fixture("rest_option_open_orders.json");
+    OrderBuffer storage;
+    const auto rows = parse_option_orders(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto report = map_open_order((*rows)[0], loaded->table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(report->qty, QtyLots::from_raw(5));
+    EXPECT_EQ(report->leaves, QtyLots::from_raw(2));
+    EXPECT_EQ(report->exchange_client_order_id.view(), k_coid);
+
+    const auto placed = fixture("rest_option_order.json");
+    EXPECT_TRUE(parse_rest_error(placed).has_value());
+    EXPECT_EQ(parse_rest_error(placed)->code, k_ok);
+}
+
+TEST(BinanceOptionRecon, TheBillAndThePositionsSayWhichSymbolsToAskOnce) {
+    const auto bill_body = fixture("rest_option_bill.json");
+    OptionBillBuffer bill_storage;
+    const auto bill = parse_option_bill(bill_body, bill_storage);
+    ASSERT_TRUE(bill.has_value());
+    ASSERT_EQ(bill->size(), 4U);
+    EXPECT_TRUE((*bill)[2].symbol.empty());
+
+    const auto positions_body = fixture("rest_option_positions.json");
+    std::array<WirePositionRisk, 8> position_storage{};
+    const auto positions = parse_option_positions(positions_body, position_storage);
+    ASSERT_TRUE(positions.has_value());
+
+    const auto symbols = option_traded_symbols(*bill, *positions);
+    ASSERT_EQ(symbols.size(), 2U);
+    EXPECT_EQ(symbols[0], k_call);
+    EXPECT_EQ(symbols[1], k_put);
+}
+
+TEST(BinanceOptionRecon, ThePulledHistoryFindsTheFillTheSocketMissedAndThePositionThenAgrees) {
+    const auto loaded = load_catalogue();
+    const auto id = base_of(*loaded->table.find(k_call)).id;
+    oms::SeenFills seen;
+    QtyLots local = QtyLots::from_raw(0);
+
+    const auto frame = fixture("ws_option_order_fill.json");
+    const auto pushed = map_order_event(*parse_order_update(frame), loaded->table, k_now);
+    ASSERT_TRUE(pushed.has_value());
+    ASSERT_TRUE(seen.admit(pushed->exec_id.view(), k_now));
+    local = QtyLots::from_raw(local.raw - pushed->qty.raw);
+
+    const auto positions_body = fixture("rest_option_positions.json");
+    std::array<WirePositionRisk, 8> position_storage{};
+    const auto rows = parse_option_positions(positions_body, position_storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto venue = map_position((*rows)[0], loaded->table);
+    ASSERT_TRUE(venue.has_value());
+    EXPECT_EQ(venue->net_qty, QtyLots::from_raw(-3));
+    EXPECT_EQ(venue->avg_entry, PriceTicks::from_raw(301));
+    EXPECT_EQ(portfolio::reconcile_position(true, venue, local).verdict, portfolio::ReconVerdict::Break);
+
+    const auto history_body = fixture("rest_option_user_trades.json");
+    TradeBuffer history_storage;
+    const auto history = parse_option_user_trades(history_body, history_storage);
+    ASSERT_TRUE(history.has_value());
+    ASSERT_EQ(history->size(), 2U);
+    std::vector<exec::FillReport> missed;
+    for (const auto& wire : *history) {
+        if (const auto report = map_user_trade(wire, loaded->table);
+            report.has_value() && seen.admit(report->exec_id.view(), k_now)) {
+            missed.push_back(*report);
+        }
+    }
+    // the pull's id for the pushed fill matches the push, so only the missed one is new
+    ASSERT_EQ(missed.size(), 1U);
+    EXPECT_EQ(missed[0].exec_id.view(), "240-4611875134427365000");
+    EXPECT_EQ(missed[0].instrument, id);
+    EXPECT_EQ(missed[0].side, Side::Sell);
+    EXPECT_EQ(missed[0].fee, e9("0.6"));
+    EXPECT_EQ(missed[0].fee_asset.view(), "USDT");
+    EXPECT_EQ(missed[0].liquidity, Liquidity::Taker);
+    local = QtyLots::from_raw(local.raw - missed[0].qty.raw);
+    EXPECT_EQ(portfolio::reconcile_position(true, venue, local).verdict, portfolio::ReconVerdict::Agree);
+}
+
+TEST(BinanceOptionRecon, TheSameTradeNumberOnAnotherOrderIsAnotherExecution) {
+    const auto loaded = load_catalogue();
+    WireTrade first{};
+    first.symbol = k_call;
+    first.price = "1505";
+    first.qty = "0.01";
+    first.side = "BUY";
+    first.trade_id = 239;
+    first.order_id = 1;
+    auto second = first;
+    second.symbol = k_put;
+    second.order_id = 2;
+    const auto one = map_user_trade(first, loaded->table);
+    const auto two = map_user_trade(second, loaded->table);
+    ASSERT_TRUE(one.has_value());
+    ASSERT_TRUE(two.has_value());
+    EXPECT_NE(one->exec_id, two->exec_id);
+}
+
+TEST(BinanceOptionAccount, TheMarginAccountIsTheConfiguredAlternative) {
+    const auto signed_up = std::make_unique<Signed>();
+    const auto request = signed_up->builder.option_account(k_now, true);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_TRUE(request->target.starts_with("/eapi/v1/marginAccount?recvWindow=")) << request->target;
+
+    const auto body = fixture("rest_option_margin_account.json");
+    OptionAccountBuffer storage;
+    const auto rows = parse_option_account(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto usdt = map_option_balance((*rows)[0], UnixNanos{9});
+    ASSERT_TRUE(usdt.has_value());
+    EXPECT_EQ(usdt->asset.view(), "USDT");
+    EXPECT_EQ(usdt->wallet, WalletKind::Options);
+    EXPECT_EQ(usdt->total, e9("10094.44662"));
+    EXPECT_EQ(usdt->available, e9("8725.92524"));
+    EXPECT_EQ(usdt->unrealized, e9("-5.00138"));
+}
+
+TEST(BinanceOptionCaps, PullsAreDeclaredForOptions) {
+    const auto caps = exec::caps_of(VenueId::Binance);
+    EXPECT_TRUE(caps.position_pull.has(MarketType::Option));
+    EXPECT_TRUE(caps.order_pull.has(MarketType::Option));
+    EXPECT_TRUE(caps.fill_pull.has(MarketType::Option));
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Option));
+    EXPECT_FALSE(caps.funding_charge.has(MarketType::Option));
 }
 
 } // namespace

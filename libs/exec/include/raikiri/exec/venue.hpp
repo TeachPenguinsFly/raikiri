@@ -42,6 +42,9 @@ struct VenueConfig {
     // which feed to take where the venue publishes several; empty is the adapter default
     std::string market_data_feed{};
 
+    // which account read serves option balances where the venue has several; empty is the adapter default
+    std::string option_account{};
+
     // an account poller's adapter: rest pulls only, no order or account sockets nobody would poll
     bool pulls_only{false};
 };

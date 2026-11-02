@@ -77,6 +77,10 @@ struct ExecutionBuffer {
 [[nodiscard]] std::expected<std::span<const WireExecution>, WireError> parse_executions(std::string_view frame,
                                                                                         ExecutionBuffer& storage);
 
+// the `list` of a /v5/execution/list result; the socket frame carries the same rows under `data`
+[[nodiscard]] std::expected<std::span<const WireExecution>, WireError> parse_execution_list(std::string_view result,
+                                                                                            ExecutionBuffer& storage);
+
 // result of /v5/order/create and /v5/order/cancel
 struct WireOrderAck {
     std::string_view order_id;

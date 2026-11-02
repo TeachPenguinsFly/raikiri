@@ -27,6 +27,9 @@ namespace internal {
     return best;
 }
 
+// the run an open-ended parent's mid buffer is shaped for; past it the oldest samples go
+constexpr std::uint64_t k_open_run_ns = 3600ULL * 1'000'000'000ULL;
+
 [[nodiscard]] Refusal refusal(TransitionError error) {
     return {.error = DeskError::Conflict, .detail = std::string{to_string(error)}};
 }
@@ -40,6 +43,9 @@ Desk::Desk(
 std::expected<std::uint64_t, Refusal> Desk::start(ParentSpec spec) {
     if (const auto valid = validate(spec); !valid.has_value()) {
         return std::unexpected{Refusal{.error = DeskError::BadSpec, .detail = std::string{to_string(valid.error())}}};
+    }
+    if (const auto* held = find_tag(spec.client_tag); held != nullptr) {
+        return held->id();
     }
     if (!sink_->running()) {
         return std::unexpected{Refusal{.error = DeskError::NotRunning, .detail = "joe is not running in strategyd"}};
@@ -95,6 +101,14 @@ const Parent* Desk::find(std::uint64_t id) const noexcept {
     return it == parents_.end() ? nullptr : &*it;
 }
 
+const Parent* Desk::find_tag(std::string_view tag) const noexcept {
+    if (tag.empty()) {
+        return nullptr;
+    }
+    const auto it = std::ranges::find_if(parents_, [tag](const Parent& p) { return p.spec().client_tag == tag; });
+    return it == parents_.end() ? nullptr : &*it;
+}
+
 Parent* Desk::find_mut(std::uint64_t id) noexcept {
     const auto it = std::ranges::find_if(parents_, [id](const Parent& p) { return p.id() == id; });
     return it == parents_.end() ? nullptr : &*it;
@@ -108,9 +122,16 @@ void Desk::tick() {
     for (auto& parent : parents_) {
         if (parent.status() == Status::Pending) {
             begin(parent, now);
-        } else if (parent.status() == Status::Working) {
+            continue;
+        }
+        if (parent.status() == Status::Working || parent.status() == Status::Paused) {
+            sample(parent, now);
+        }
+        if (parent.status() == Status::Working) {
             work(parent, now);
         }
+        chase_cancels(parent, now);
+        parent.retire(now, config_.keep_children, config_.late_fill_ns);
     }
 }
 
@@ -130,6 +151,13 @@ void Desk::begin(Parent& parent, UnixNanos now) {
                          ? FixedE9::from_raw(mul_div(spec.notional.raw, k_e9, arrival.raw))
                          : spec.qty;
     (void)parent.start(now, qty, arrival);
+    const auto run = (spec.algo == Algo::Sor                       ? 0
+                      : resting(spec.algo) && spec.horizon_ns == 0 ? internal::k_open_run_ns
+                                                                   : spec.horizon_ns) +
+                     config_.grace_ns;
+    const auto shape = trace_shape(run, config_.sample_ns, config_.trace_mids);
+    parent.trace().open(shape.interval_ns, shape.mids, config_.trace_fills, config_.trace_reprices);
+    (void)parent.trace().sample(now, arrival, FixedE9::undef());
     const auto seed = parent.id() ^ now.ns;
     switch (spec.algo) {
     case Algo::Sor:
@@ -148,12 +176,20 @@ void Desk::begin(Parent& parent, UnixNanos now) {
     }
     case Algo::Pov:
         break;
+    case Algo::Iceberg:
+    case Algo::Pegged:
+        parent.slot().random = seed;
+        break;
     }
     work(parent, now);
 }
 
 void Desk::work(Parent& parent, UnixNanos now) {
     const auto& spec = parent.spec();
+    if (resting(spec.algo)) {
+        rest(parent, now);
+        return;
+    }
     const auto books = market_->books(spec.listing, spec.side);
     const auto working = parent.working();
     auto min_lot = std::numeric_limits<std::int64_t>::max();
@@ -214,7 +250,7 @@ void Desk::send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, 
         too_big = false;
         const auto lots = std::min(leg.lots, cap);
         const auto sent = sink_->submit(
-            {.instrument = leg.instrument, .side = spec.side, .lots = lots, .limit = leg.limit});
+            {.instrument = leg.instrument, .side = spec.side, .lots = lots, .limit = leg.limit, .tif = ChildTif::Ioc});
         if (sent.has_value()) {
             parent.add({.id = *sent,
                         .instrument = leg.instrument,
@@ -240,33 +276,359 @@ void Desk::send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, 
     }
 }
 
-void Desk::cancel_children(Parent& parent) {
+void Desk::sample(Parent& parent, UnixNanos now) {
+    auto& trace = parent.trace();
+    if (!trace.due(now)) {
+        return;
+    }
+    const auto& spec = parent.spec();
+    const auto ask = internal::touch(market_->books(spec.listing, Side::Buy), Side::Buy);
+    const auto bid = internal::touch(market_->books(spec.listing, Side::Sell), Side::Sell);
+    if (!ask.has_value() || !bid.has_value()) {
+        return;
+    }
+    (void)trace.sample(now, FixedE9::from_raw((ask->raw + bid->raw) / 2), parent.market_vwap());
+}
+
+void Desk::rest(Parent& parent, UnixNanos now) {
+    const auto& spec = parent.spec();
+    const auto* live = parent.live();
+    const auto asks = market_->books(spec.listing, Side::Buy);
+    const auto bids = market_->books(spec.listing, Side::Sell);
+    const auto& far = spec.side == Side::Buy ? asks : bids;
+    const auto left = parent.qty().raw - parent.filled().raw;
+
+    auto least_lot = live != nullptr ? live->lot.raw : std::numeric_limits<std::int64_t>::max();
+    for (const auto& book : far) {
+        least_lot = std::min(least_lot, book.lot.raw);
+    }
+    // with no book and no child the lot is unknown, which is not the same as nothing left
+    const bool dust = least_lot != std::numeric_limits<std::int64_t>::max() && left < least_lot;
+    const bool expired = spec.horizon_ns != 0 && now.ns >= parent.started().ns + spec.horizon_ns;
+    if (left <= 0 || dust || expired) {
+        if (live != nullptr) {
+            pull(parent, *live, now);
+        } else if (expired && left > 0) {
+            (void)parent.fail(now, "the horizon passed with " + internal::decimal(FixedE9::from_raw(left)) + " left");
+        } else if (parent.filled().raw == 0) {
+            (void)parent.fail(now, "the order is smaller than one lot on every venue");
+        } else {
+            (void)parent.finish(now);
+        }
+        return;
+    }
+    if (live != nullptr && live->cancel_sent.ns != 0) {
+        return;
+    }
+
+    const auto chosen = spec.venue != VenueId::Invalid
+                            ? std::ranges::find_if(
+                                  far, [&](const VenueBook& b) { return b.instrument.venue() == spec.venue; })
+                            : far.end();
+    const VenueBook* book = nullptr;
+    if (live != nullptr) {
+        const auto it = std::ranges::find(far, live->instrument, &VenueBook::instrument);
+        book = it == far.end() ? nullptr : &*it;
+    } else if (spec.venue == VenueId::Invalid) {
+        book = best_venue(spec.side, far, spec.post_only);
+    } else if (chosen != far.end()) {
+        book = &*chosen;
+    }
+    if (book == nullptr) {
+        if (live == nullptr && parent.children().empty() && now.ns - parent.started().ns > config_.grace_ns) {
+            (void)parent.fail(now,
+                              spec.venue != VenueId::Invalid ? "the chosen venue does not quote this listing"
+                                                             : "no venue that takes orders quotes this listing");
+            return;
+        }
+        hold(parent, Hold::Stale, now);
+        return;
+    }
+    if (live == nullptr && spec.post_only && !book->post_only) {
+        (void)parent.fail(now, "the venue offers no post-only order");
+        return;
+    }
+    const auto instrument = live != nullptr ? live->instrument : book->instrument;
+    const auto quote = quote_of(instrument, bids, asks);
+    if (quote.state != BookState::Live) {
+        hold(parent, quote.state == BookState::Crossed ? Hold::Crossed : Hold::Stale, now);
+        return;
+    }
+    parent.slot().hold = Hold::None;
+    const auto scale = market_->scale(instrument);
+    if (!scale.has_value()) {
+        return;
+    }
+    const auto tick = scale->tick;
+    const auto price = spec.algo == Algo::Pegged
+                           ? peg_price(spec.side, spec.peg, quote, tick, spec.limit, spec.post_only)
+                           : rest_price(spec.side, spec.limit, quote, tick, spec.limit, spec.post_only);
+    if (price.is_undef()) {
+        hold(parent, Hold::Stale, now);
+        return;
+    }
+
+    if (live == nullptr) {
+        if (now.ns >= parent.slot().retry_at.ns) {
+            place(parent, *book, price, now);
+        }
+        return;
+    }
+    if (live->modify_sent.ns != 0) {
+        if (now.ns - live->modify_sent.ns >= config_.modify_wait_ns) {
+            pull(parent, *live, now);
+        }
+        return;
+    }
+    // a late fill left the live child larger than the order
+    if (live->leaves().raw > left) {
+        pull(parent, *live, now);
+        return;
+    }
+    // no venue id to aim at before the first answer
+    if (live->acked.ns == 0) {
+        return;
+    }
+    const auto gap = spec.algo == Algo::Pegged ? spec.peg.min_interval_ns : config_.resend_ns;
+    if (now.ns < parent.slot().changed.ns + gap) {
+        return;
+    }
+    if (spec.algo == Algo::Iceberg && spec.iceberg.refill == Refill::OnFill && live->filled.raw > 0 &&
+        left > live->leaves().raw) {
+        pull(parent, *live, now);
+        return;
+    }
+    const auto threshold = spec.algo == Algo::Pegged ? spec.peg.threshold_ticks : 1U;
+    const auto moved = price.raw > live->limit.raw ? price.raw - live->limit.raw : live->limit.raw - price.raw;
+    if (moved == 0 || moved < tick.raw * static_cast<std::int64_t>(threshold)) {
+        return;
+    }
+    // only an untouched child: venues read an amend's size as the total or as what is left
+    if (book->amend && !parent.slot().no_modify && live->filled.raw == 0 &&
+        sink_->modify(live->id, instrument, price)) {
+        parent.modify_sent(now, live->id, price);
+        parent.slot().changed = now;
+        return;
+    }
+    pull(parent, *live, now);
+}
+
+void Desk::place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos now) {
+    const auto& spec = parent.spec();
+    const auto lot = book.lot;
+    auto& slot = parent.slot();
+    const auto left_lots = lots_in(FixedE9::from_raw(parent.qty().raw - parent.filled().raw), lot);
+    const auto want = spec.algo == Algo::Iceberg ? next_show(spec.iceberg, lot, left_lots, slot.random) : left_lots;
+    const auto lots = fit_lots(want, left_lots, lot, price, book.min_notional, spec.max_child_notional);
+    if (lots == 0) {
+        const auto per_lot = value_of(lot, price);
+        if (per_lot.raw > spec.max_child_notional.raw) {
+            (void)parent.fail(now, "one lot on the venue is worth more than max_child_notional");
+        } else if (parent.filled().raw == 0) {
+            (void)parent.fail(now, "the order is below the venue's minimum notional");
+        } else {
+            (void)parent.finish(now);
+        }
+        return;
+    }
+    const auto tif = spec.post_only ? ChildTif::PostOnly : ChildTif::Gtc;
+    const auto sent = sink_->submit(
+        {.instrument = book.instrument, .side = spec.side, .lots = lots, .limit = price, .tif = tif});
+    if (!sent.has_value()) {
+        if (sent.error() == SinkError::Risk && parent.refused() >= config_.max_refusals) {
+            (void)parent.fail(now,
+                              "the risk gate refused " + std::to_string(config_.max_refusals) + " children in a row");
+            return;
+        }
+        slot.retry_at = UnixNanos{now.ns + config_.resend_ns};
+        return;
+    }
+    const bool first = parent.child_count() == 0;
+    parent.add({.id = *sent,
+                .instrument = book.instrument,
+                .lot = lot,
+                .lots = lots,
+                .limit = price,
+                .sent = now,
+                .tif = tif});
+    parent.accepted();
+    slot.changed = now;
+    const auto why = first ? RepriceWhy::Place : spec.algo == Algo::Iceberg ? RepriceWhy::Refill : RepriceWhy::Peg;
+    parent.trace().reprice({.ts = now,
+                            .child_id = *sent,
+                            .instrument = book.instrument,
+                            .price = price,
+                            .qty = lot.scaled_by(lots),
+                            .why = why});
+}
+
+void Desk::hold(Parent& parent, Hold why, UnixNanos now) {
+    auto& slot = parent.slot();
+    const auto* live = parent.live();
+    // an iceberg's price does not follow the book, so a bad book only stops its next child
+    if (live != nullptr && parent.spec().algo == Algo::Pegged) {
+        pull(parent, *live, now);
+    }
+    if (slot.hold == why) {
+        return;
+    }
+    slot.hold = why;
+    parent.trace().reprice({.ts = now,
+                            .child_id = live != nullptr ? live->id : 0,
+                            .instrument = live != nullptr ? live->instrument : InstrumentId{},
+                            .price = FixedE9::undef(),
+                            .qty = FixedE9::from_raw(0),
+                            .why = why == Hold::Crossed ? RepriceWhy::Crossed : RepriceWhy::Stale});
+}
+
+void Desk::pull(Parent& parent, const Child& child, UnixNanos now) {
+    if (child.cancel_sent.ns != 0) {
+        return;
+    }
+    const auto id = child.id;
+    sink_->cancel(id);
+    parent.cancel_sent(now, id);
+}
+
+void Desk::chase_cancels(Parent& parent, UnixNanos now) {
     for (const auto& child : parent.children()) {
-        if (child.open) {
+        if (child.open && child.cancel_sent.ns != 0 && now.ns - child.cancel_sent.ns >= config_.cancel_retry_ns) {
             sink_->cancel(child.id);
+            parent.cancel_sent(now, child.id);
         }
     }
 }
 
-void Desk::on_fill(std::uint64_t child_id, InstrumentId instrument, QtyLots qty, PriceTicks price, FixedE9 fee) {
+void Desk::cancel_children(Parent& parent) {
+    const auto now = clock_->wall();
+    for (const auto& child : parent.children()) {
+        if (child.open) {
+            pull(parent, child, now);
+        }
+    }
+}
+
+Parent* Desk::owner_of(std::uint64_t child_id) noexcept {
+    const auto it = std::ranges::find_if(parents_, [child_id](const Parent& p) { return p.owns(child_id); });
+    return it == parents_.end() ? nullptr : &*it;
+}
+
+void Desk::on_fill(
+    std::uint64_t child_id, InstrumentId instrument, QtyLots qty, PriceTicks price, FixedE9 fee, QtyLots leaves) {
     const auto scale = market_->scale(instrument);
     if (!scale.has_value() || qty.is_undef() || price.is_undef()) {
         return;
     }
     const auto base = scale->lot.scaled_by(qty.raw);
     const auto px = scale->tick.scaled_by(price.raw);
-    for (auto& parent : parents_) {
-        if (parent.fill(child_id, base, px, fee)) {
-            return;
-        }
+    const auto left = leaves.is_undef() ? FixedE9::undef() : scale->lot.scaled_by(leaves.raw);
+    const auto now = clock_->wall();
+    auto* parent = owner_of(child_id);
+    if (parent == nullptr) {
+        return;
+    }
+    const auto* held = parent->child(child_id);
+    const bool was_open = held != nullptr && held->open;
+    if (!parent->fill(now, child_id, base, px, fee, left) || !resting(parent->spec().algo)) {
+        return;
+    }
+    if (base.raw > 0) {
+        parent->slot().rejects = 0;
+    }
+    if (const auto* child = parent->child(child_id); was_open && !child->open) {
+        parent->trace().reprice({.ts = now,
+                                 .child_id = child_id,
+                                 .instrument = child->instrument,
+                                 .price = FixedE9::undef(),
+                                 .qty = FixedE9::from_raw(0),
+                                 .why = RepriceWhy::Closed});
+    }
+    if (parent->status() == Status::Working) {
+        rest(*parent, now);
     }
 }
 
-void Desk::on_closed(std::uint64_t child_id) {
-    for (auto& parent : parents_) {
-        if (parent.close(child_id)) {
+void Desk::on_ack(std::uint64_t child_id) {
+    const auto now = clock_->wall();
+    auto* parent = owner_of(child_id);
+    if (parent == nullptr) {
+        return;
+    }
+    (void)parent->ack(now, child_id);
+    // some venues answer an amend with a fresh ack
+    on_modified(child_id);
+}
+
+void Desk::on_closed(std::uint64_t child_id, ChildEnd end) {
+    const auto now = clock_->wall();
+    auto* parent = owner_of(child_id);
+    if (parent == nullptr) {
+        return;
+    }
+    const auto* child = parent->child(child_id);
+    if (child == nullptr || !child->open) {
+        (void)parent->close(now, child_id, end);
+        return;
+    }
+    const bool asked = child->cancel_sent.ns != 0;
+    const bool untouched = child->filled.raw == 0;
+    const auto tif = child->tif;
+    const auto instrument = child->instrument;
+    // venues answer a post-only that would cross with any of the three
+    const bool bounced = tif == ChildTif::PostOnly && !asked && untouched &&
+                         (end == ChildEnd::Expired || end == ChildEnd::Cancelled);
+    const auto how = bounced ? ChildEnd::Rejected : end;
+    (void)parent->close(now, child_id, how);
+    if (tif == ChildTif::Ioc) {
+        return;
+    }
+    auto& slot = parent->slot();
+    const bool turned_away = how != ChildEnd::Filled && !asked && untouched;
+    parent->trace().reprice({.ts = now,
+                             .child_id = child_id,
+                             .instrument = instrument,
+                             .price = FixedE9::undef(),
+                             .qty = FixedE9::from_raw(0),
+                             .why = turned_away ? RepriceWhy::Rejected : RepriceWhy::Closed});
+    if (turned_away) {
+        const auto& spec = parent->spec();
+        slot.retry_at = UnixNanos{now.ns + (spec.algo == Algo::Pegged ? spec.peg.min_interval_ns : config_.resend_ns)};
+        if (++slot.rejects >= config_.max_rejects) {
+            (void)parent->fail(now,
+                               "the venue turned away " + std::to_string(slot.rejects) + " resting children in a row");
             return;
         }
+    } else {
+        slot.rejects = 0;
+    }
+    if (parent->status() == Status::Working) {
+        rest(*parent, now);
+    }
+}
+
+void Desk::on_modified(std::uint64_t child_id) {
+    const auto now = clock_->wall();
+    auto* parent = owner_of(child_id);
+    if (parent == nullptr || !parent->modified(now, child_id)) {
+        return;
+    }
+    parent->slot().rejects = 0;
+    // venues differ on an amend's size, so one that crossed a fill may be larger than joe thinks
+    if (const auto* child = parent->child(child_id); child != nullptr && child->filled.raw > 0) {
+        pull(*parent, *child, now);
+    }
+}
+
+void Desk::on_modify_refused(std::uint64_t child_id) {
+    auto* parent = owner_of(child_id);
+    if (parent != nullptr && parent->modify_refused(child_id)) {
+        parent->slot().no_modify = true;
+    }
+}
+
+void Desk::on_cancel_refused(std::uint64_t child_id) {
+    if (auto* parent = owner_of(child_id); parent != nullptr) {
+        parent->cancel_refused(child_id);
     }
 }
 
@@ -302,7 +664,9 @@ void Desk::halt() {
 
 void Desk::prune() {
     while (parents_.size() > config_.keep) {
-        const auto it = std::ranges::find_if(parents_, [](const Parent& p) { return terminal(p.status()); });
+        // one with a child still out keeps its place, or that child's fills go nowhere
+        const auto it = std::ranges::find_if(
+            parents_, [](const Parent& p) { return terminal(p.status()) && p.live() == nullptr; });
         if (it == parents_.end()) {
             return;
         }

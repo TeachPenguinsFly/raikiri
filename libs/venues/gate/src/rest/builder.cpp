@@ -128,6 +128,16 @@ private:
     return side == Side::Sell ? FixedE9::from_raw(-qty.raw) : qty;
 }
 
+// an option size is a whole number of contracts, signed by side
+[[nodiscard]] std::optional<std::int64_t> option_size(QtyLots lots, const InstrumentBase& base, Side side) noexcept {
+    const auto qty = base.lots_to_qty(lots);
+    if (qty.is_undef() || qty.raw <= 0 || qty.raw % k_e9 != 0) {
+        return std::nullopt;
+    }
+    const auto contracts = qty.raw / k_e9;
+    return side == Side::Sell ? -contracts : contracts;
+}
+
 [[nodiscard]] net::RestRequest with_size_decimal(net::RestRequest request) {
     request.headers.push_back(k_size_decimal_header);
     return request;
@@ -163,7 +173,9 @@ std::string_view to_string(BuildError err) noexcept {
     case BuildError::SpotMarketBuyNotExpressible:
         return "gate spot market buy is priced in quote currency";
     case BuildError::OptionsUnsupported:
-        return "gate options order entry";
+        return "not offered on gate options";
+    case BuildError::TifUnsupported:
+        return "gate options take gtc, ioc and poc";
     case BuildError::DatedFuturesUnsupported:
         return "gate delivery (dated futures) order entry";
     }
@@ -178,6 +190,18 @@ std::string_view client_id_text(const ExchangeClientOrderId& id, std::span<char>
     std::memcpy(out.data(), k_client_id_prefix.data(), k_client_id_prefix.size());
     std::memcpy(out.data() + k_client_id_prefix.size(), body.data(), body.size());
     return {out.data(), k_client_id_prefix.size() + body.size()};
+}
+
+std::string_view option_contract_text(std::string_view symbol, std::span<char> out) noexcept {
+    constexpr std::string_view quote = "_USDT";
+    const auto dash = symbol.find('-');
+    if (dash == std::string_view::npos || symbol.size() + quote.size() > out.size()) {
+        return {};
+    }
+    symbol.copy(out.data(), dash);
+    quote.copy(out.data() + dash, quote.size());
+    symbol.substr(dash).copy(out.data() + dash + quote.size(), symbol.size() - dash);
+    return {out.data(), symbol.size() + quote.size()};
 }
 
 std::string_view client_id_from_text(std::string_view text) noexcept {
@@ -295,18 +319,9 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(
     return request;
 }
 
-// only spot and perps are served here; asked before the table lookup so the error names the market
+// asked before the table lookup so the error names the market
 std::optional<BuildError> market_refusal(MarketType market) noexcept {
-    switch (market) {
-    case MarketType::Spot:
-    case MarketType::Perp:
-        return std::nullopt;
-    case MarketType::Future:
-        return BuildError::DatedFuturesUnsupported;
-    case MarketType::Option:
-        return BuildError::OptionsUnsupported;
-    }
-    return BuildError::OptionsUnsupported;
+    return market == MarketType::Future ? std::optional{BuildError::DatedFuturesUnsupported} : std::nullopt;
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -386,9 +401,37 @@ SignedRequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTa
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
-    case MarketType::Option:
-        // nothing maps an OptionInstrument onto /api/v4/options yet
-        return std::unexpected{BuildError::OptionsUnsupported};
+    case MarketType::Option: {
+        const auto size = option_size(cmd.qty, base, cmd.side);
+        if (!size.has_value()) {
+            return std::unexpected{BuildError::BadQuantity};
+        }
+        if (cmd.tif == TimeInForce::Fok && !is_market) {
+            return std::unexpected{BuildError::TifUnsupported};
+        }
+        std::array<char, 40> contract_buf{};
+        const auto contract = option_contract_text(base.exchange_symbol.view(), contract_buf);
+        if (contract.empty()) {
+            return std::unexpected{BuildError::UnknownInstrument};
+        }
+        json.obj_begin().str("contract", contract).num("size", *size);
+        if (is_market) {
+            json.str("price", "0").str("tif", "ioc");
+        } else {
+            const auto price = base.ticks_to_price(cmd.price);
+            if (price.is_undef() || price.raw <= 0) {
+                return std::unexpected{BuildError::BadPrice};
+            }
+            json.decimal("price", price).str("tif", tif_text(cmd.tif, cmd.flags));
+        }
+        json.str("text", coid);
+        if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
+            json.boolean("reduce_only", true);
+        }
+        json.obj_end();
+        path << ep::k_option_orders;
+        break;
+    }
     }
     if (!json.ok() || !path.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -426,7 +469,12 @@ SignedRequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTa
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
-        return std::unexpected{BuildError::OptionsUnsupported};
+        // the option path takes the venue id alone, which the t- id is not
+        if (cmd.target_exchange_order_id.empty()) {
+            return std::unexpected{BuildError::NoOrderTarget};
+        }
+        path << ep::k_option_orders << "/" << target;
+        break;
     }
     if (!path.ok() || !query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -489,8 +537,28 @@ SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTab
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
-    case MarketType::Option:
-        return std::unexpected{BuildError::OptionsUnsupported};
+    case MarketType::Option: {
+        if (cmd.target_exchange_order_id.empty()) {
+            return std::unexpected{BuildError::NoOrderTarget};
+        }
+        // contract, price and size are all required; the size restates the signed order size, as on futures
+        const auto size = option_size(cmd.qty, base, cmd.side);
+        if (!size.has_value()) {
+            return std::unexpected{BuildError::BadQuantity};
+        }
+        const auto price = base.ticks_to_price(cmd.price);
+        if (price.is_undef() || price.raw <= 0) {
+            return std::unexpected{BuildError::BadPrice};
+        }
+        std::array<char, 40> contract_buf{};
+        const auto contract = option_contract_text(base.exchange_symbol.view(), contract_buf);
+        if (contract.empty()) {
+            return std::unexpected{BuildError::UnknownInstrument};
+        }
+        json.obj_begin().str("contract", contract).decimal("price", price).num("size", *size).obj_end();
+        path << ep::k_option_orders << "/" << target;
+        break;
+    }
     }
     if (!json.ok() || !path.ok() || !query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -572,7 +640,9 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(Ma
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
-        return std::unexpected{BuildError::OptionsUnsupported};
+        path << ep::k_option_orders;
+        query << "status=open&limit=" << k_page_limit;
+        break;
     }
     if (!path.ok() || !query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -599,7 +669,8 @@ SignedRequestBuilder::query_order(const ExchangeClientOrderId& id, MarketType ma
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
-        return std::unexpected{BuildError::OptionsUnsupported};
+        // the option read takes the venue id alone
+        return std::unexpected{BuildError::UnknownInstrument};
     }
     if (!path.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -633,7 +704,23 @@ SignedRequestBuilder::my_trades(MarketType market, UnixNanos since, UnixNanos no
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
-        return std::unexpected{BuildError::OptionsUnsupported};
+        // no underlying to ask for here
+        return std::unexpected{BuildError::UnknownInstrument};
+    }
+    if (!path.ok() || !query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, path.view(), query.view(), {}, now);
+}
+
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::option_my_trades(std::string_view underlying, UnixNanos since, UnixNanos now) {
+    Appender path{path_};
+    Appender query{query_};
+    path << ep::k_option_my_trades;
+    query << "underlying=" << underlying << "&limit=" << k_page_limit;
+    if (const auto from_s = static_cast<std::int64_t>(since.ns / 1'000'000'000ULL); from_s > 0) {
+        query << "&from=" << from_s;
     }
     if (!path.ok() || !query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -656,7 +743,9 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
-        return std::unexpected{BuildError::OptionsUnsupported};
+        // every underlying when none is named
+        path << ep::k_option_positions;
+        break;
     }
     if (!path.ok() || !query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -686,6 +775,10 @@ SignedRequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return sign(net::HttpMethod::Get, path.view(), query.view(), {}, now);
+}
+
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::option_account(UnixNanos now) {
+    return sign(net::HttpMethod::Get, ep::k_option_accounts, {}, {}, now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::futures_account(UnixNanos now) {

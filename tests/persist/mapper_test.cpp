@@ -69,6 +69,7 @@ std::string build_journal(const std::string& dir) {
         m.qty(jt::qtyLots{25});
         m.leavesQty(jt::qtyLots{0});
         m.fee(jt::fixedE9{1'000'000});
+        m.feeAsset().assign_range(std::string_view{"BTC"});
         m.tsEvent(jt::timestampNs{100});
         m.tsInit(jt::timestampNs{101});
     });
@@ -198,6 +199,7 @@ TEST(Mapper, FillProducesEventUpsertAndExecution) {
     EXPECT_EQ(ev.event_type, "filled");
     EXPECT_EQ(ev.exec_id, "FILL-9");
     EXPECT_EQ(ev.fee_e9, 1'000'000);
+    EXPECT_EQ(ev.fee_asset, "BTC");
 
     const auto& up = batch.order_upserts[0];
     EXPECT_EQ(up.status, "filled"); // leaves==0 -> full fill

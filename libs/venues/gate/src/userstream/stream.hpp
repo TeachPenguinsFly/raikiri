@@ -114,11 +114,11 @@ private:
         if (channel.empty() || client_ == nullptr) {
             return false;
         }
-        // the user id is positional and futures-only
+        // the user id is positional on futures and options, and absent on spot
         std::array<char, 24> id_text{};
         std::array<std::string_view, 2> payload{};
         std::size_t count = 0;
-        if (market_ == MarketType::Perp) {
+        if (market_ != MarketType::Spot) {
             const auto [stop,
                         ec] = std::to_chars(id_text.data(), id_text.data() + id_text.size(), state_->futures_user_id);
             if (ec != std::errc{} || state_->futures_user_id == 0) {

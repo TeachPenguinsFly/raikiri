@@ -5,6 +5,9 @@
 #include <raikiri/admin/routes.hpp>
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/admin/stream_token.hpp>
+#include <raikiri/audit/file_store.hpp>
+#include <raikiri/audit/query.hpp>
+#include <raikiri/audit/routes.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/common/version.hpp>
@@ -14,6 +17,10 @@
 #include <raikiri/introspect/routes.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
+#include <raikiri/optiondata/routes.hpp>
+#include <raikiri/optiondata/shm_market.hpp>
+#include <raikiri/optionrisk/infra.hpp>
+#include <raikiri/optionrisk/routes.hpp>
 #include <raikiri/reference/routes.hpp>
 #include <raikiri/reference/segment.hpp>
 
@@ -45,6 +52,7 @@ constexpr std::string_view k_usage = R"(usage: admind [--address 127.0.0.1] [--p
               [--upstream <name>=<port>]...
               [--dsn <postgres-dsn>]
               [--stream-secret env:NAME|file:PATH|exec:CMD]
+              [--audit-dir <dir>]
 )";
 
 int main(int argc, char** argv) {
@@ -69,6 +77,7 @@ int main(int argc, char** argv) {
     std::uint16_t stream_port = 0;
     std::string dsn;
     std::string stream_secret_ref;
+    std::string audit_dir;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--address" && i + 1 < argc) {
@@ -87,6 +96,8 @@ int main(int argc, char** argv) {
             dsn = argv[++i];
         } else if (arg == "--stream-secret" && i + 1 < argc) {
             stream_secret_ref = argv[++i];
+        } else if (arg == "--audit-dir" && i + 1 < argc) {
+            audit_dir = argv[++i];
         }
     }
     if (stream_port == 0) {
@@ -96,6 +107,10 @@ int main(int argc, char** argv) {
         if (const char* env = std::getenv("RAIKIRI_PG_DSN"); env != nullptr) {
             dsn = env;
         }
+    }
+    if (audit_dir.empty()) {
+        const char* data_dir = std::getenv("RAIKIRI_DATA_DIR");
+        audit_dir = std::string{data_dir != nullptr ? data_dir : "raikiri-data"} + "/audit";
     }
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
@@ -190,6 +205,29 @@ int main(int argc, char** argv) {
     reference::ShmReferenceFeed reference_feed{
         reference::ref_segment_path(), "admind", [&clock] { return clock.mono().ns; }};
     const reference::ReferenceRoute reference_route{reference_feed, wall_ns};
+    const optiondata::ShmOptionMarket option_market{registry};
+    const optiondata::ListUnderlyings option_underlyings{option_market};
+    const optiondata::GetChain option_chain{option_market, [&clock] { return clock.wall(); }};
+    optiondata::GetSurface option_surface{option_market, [&clock] { return clock.wall(); }};
+    const optiondata::OptionRoutes option_routes{option_underlyings, option_chain, option_surface};
+    const audit::FileStore audit_store{audit_dir};
+    const audit::QueryAudit audit_query{audit_store};
+    const audit::GetChainStatus audit_status{audit_store, [&clock] { return clock.wall(); }};
+    const audit::AuditRoutes audit_routes{audit_query, audit_status};
+    const optionrisk::ShmHoldings option_holdings{registry};
+    const optionrisk::IndexSettlements option_settlements{option_market};
+    optionrisk::FileSettlementLedger option_ledger{optionrisk::settlement_ledger_path()};
+    std::optional<optionrisk::HistoryRealized> option_realized;
+    if (history != nullptr) {
+        option_realized.emplace(*history, registry);
+    }
+    optionrisk::OptionRisk option_risk{{.holdings = &option_holdings,
+                                        .market = &option_market,
+                                        .settlements = &option_settlements,
+                                        .ledger = &option_ledger,
+                                        .realized = option_realized.has_value() ? &*option_realized : nullptr},
+                                       [&clock] { return clock.wall(); }};
+    const optionrisk::RiskRoutes option_risk_routes{option_risk};
 
     net::IoContext io;
     http::Server server{io,
@@ -199,6 +237,9 @@ int main(int argc, char** argv) {
                          metrics,
                          token_route,
                          reference_route,
+                         option_risk_routes,
+                         option_routes,
+                         audit_routes,
                          routes = admin::make_router(
                              registry,
                              history.get(),
@@ -218,6 +259,15 @@ int main(int argc, char** argv) {
                             if (auto answer = reference_route(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
+                            if (auto answer = option_risk_routes(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
+                            if (auto answer = option_routes(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
+                            if (auto answer = audit_routes(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
                             return routes(req);
                         }};
     if (!server.start()) {
@@ -235,7 +285,10 @@ int main(int argc, char** argv) {
 
     constexpr std::uint64_t k_rescan_ns = 2ULL * 1'000'000'000ULL;
     constexpr std::uint64_t k_idle_ns = 250ULL * 1'000'000ULL;
+    // a venue clears an expired position on its next pull, so this must have seen it before then
+    constexpr std::uint64_t k_option_sweep_ns = 10ULL * 1'000'000'000ULL;
     auto rescan_due = clock.mono().ns;
+    auto option_sweep_due = clock.mono().ns;
 
     while (!g_stop.load(std::memory_order_relaxed)) {
         if (const auto mono = clock.mono().ns; mono >= rescan_due) {
@@ -248,6 +301,10 @@ int main(int argc, char** argv) {
                 }
                 attached = found;
             }
+        }
+        if (const auto mono = clock.mono().ns; mono >= option_sweep_due) {
+            option_sweep_due = mono + k_option_sweep_ns;
+            option_risk.sweep();
         }
         (void)stream.poll();
         const auto mono = clock.mono().ns;

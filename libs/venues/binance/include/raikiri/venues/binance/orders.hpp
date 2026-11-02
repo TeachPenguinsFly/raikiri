@@ -61,12 +61,17 @@ struct OrderBuffer {
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
                                                                                 OrderBuffer& storage);
 
+// /eapi/v1/openOrders: the same rows with the size under `quantity`
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError> parse_option_orders(std::string_view body,
+                                                                                       OrderBuffer& storage);
+
 // the account's own fill from /fapi/v1/userTrades
 struct WireTrade {
     std::string_view symbol;
     std::string_view price;
     std::string_view qty;
     std::string_view commission;
+    std::string_view commission_asset; // options only
     std::string_view side;
     std::uint64_t trade_id{0};
     std::uint64_t order_id{0};
@@ -82,5 +87,9 @@ struct TradeBuffer {
 
 [[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::string_view body,
                                                                                      TradeBuffer& storage);
+
+// /eapi/v1/userTrades: other names for the same facts, with the fee negative when charged and in quoteAsset
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError> parse_option_user_trades(std::string_view body,
+                                                                                            TradeBuffer& storage);
 
 } // namespace raikiri::venues::binance

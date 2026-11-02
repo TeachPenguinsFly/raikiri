@@ -179,4 +179,20 @@ Route route(Side side, FixedE9 qty, FixedE9 limit, std::span<const VenueBook> bo
     return out;
 }
 
+const VenueBook* best_venue(Side side, std::span<const VenueBook> books, bool post_only) noexcept {
+    const VenueBook* best = nullptr;
+    int128_t best_price = 0;
+    for (const auto& book : books) {
+        if (book.levels.empty() || (post_only && !book.post_only)) {
+            continue;
+        }
+        const auto price = internal::effective(side, book.levels.front().price, book.taker_fee);
+        if (best == nullptr || internal::better(side, price, best_price)) {
+            best = &book;
+            best_price = price;
+        }
+    }
+    return best;
+}
+
 } // namespace raikiri::joe

@@ -270,13 +270,21 @@ TEST(Notional, InverseIsTheContractsFaceAtAnyPrice) {
     }
 }
 
-TEST(Notional, AnOptionIsValuedOnlyWhenItsPremiumIsInQuote) {
+TEST(Notional, AnOptionIsItsPremiumAndACoinPremiumIsTurnedIntoQuoteAtTheUnderlying) {
     OptionInstrument option{.base = base_of(linear_perp()), .premium = OptionUnit::Quote};
+    option.base.id = InstrumentId::make(VenueId::Deribit, MarketType::Option, SymbolId{2});
     const auto premium = notional(option, PriceTicks::from_raw(1'000), QtyLots::from_raw(10));
     ASSERT_TRUE(premium.has_value());
     EXPECT_EQ(to_e9(*premium), quote(1));
     option.premium = OptionUnit::Base;
-    EXPECT_EQ(notional(option, PriceTicks::from_raw(1'000), QtyLots::from_raw(10)).error(), NotionalError::Unpriceable);
+    EXPECT_EQ(notional(option, PriceTicks::from_raw(1'000), QtyLots::from_raw(10)).error(),
+              NotionalError::NoUnderlying);
+    const auto coin = notional(option, PriceTicks::from_raw(1'000), QtyLots::from_raw(10), quote(60'000));
+    ASSERT_TRUE(coin.has_value());
+    EXPECT_EQ(to_e9(*coin), quote(60'000));
+    option.premium = OptionUnit::Unknown;
+    EXPECT_EQ(notional(option, PriceTicks::from_raw(1'000), QtyLots::from_raw(10), quote(60'000)).error(),
+              NotionalError::Unpriceable);
     PerpInstrument unknown{.base = base_of(linear_perp())};
     unknown.base.kind = ContractKind::Unknown;
     EXPECT_EQ(notional(unknown, PriceTicks::from_raw(1'000), QtyLots::from_raw(1)).error(), NotionalError::Unpriceable);
@@ -390,6 +398,60 @@ TEST(RiskGate, ThereIsNoThousandLotCap) {
 }
 
 // listed explicitly so a new enumerator breaks this file
+// deribit's shape: 0.1 btc a lot, premium in btc at a 0.0005 tick
+Instrument coin_option() {
+    OptionInstrument out{.premium = OptionUnit::Base};
+    out.base.id = InstrumentId::make(VenueId::Deribit, MarketType::Option, SymbolId{3});
+    out.base.kind = ContractKind::Linear;
+    out.base.tick_size = FixedE9::from_raw(500'000);
+    out.base.lot_size = FixedE9::from_raw(100'000'000);
+    out.base.contract_value = FixedE9::from_raw(k_e9);
+    return out;
+}
+
+OrderCmd option_limit(std::int64_t lots, std::int64_t ticks) {
+    auto cmd = valid_limit(lots, ticks);
+    cmd.instrument = base_of(coin_option()).id;
+    return cmd;
+}
+
+TEST(RiskGate, ACoinPremiumOptionIsValuedAtTheUnderlyingInsteadOfRefused) {
+    const auto option = coin_option();
+    const RiskGate gate{RiskConfig{.max_order_notional = quote(1'000)}};
+    // 10 lots is 1 btc at 0.05 btc (100 ticks) is 0.05 btc, 3000 usd at 60000
+    const auto cmd = option_limit(10, 100);
+    EXPECT_EQ(gate.check(cmd, Exposure{.instrument = &option}).error().why, RiskReject::NoUnderlying);
+    const auto res = gate.check(cmd, Exposure{.instrument = &option, .underlying_price = quote(60'000)});
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error().why, RiskReject::OrderNotional);
+    EXPECT_EQ(res.error().order_notional, quote(3'000));
+    EXPECT_TRUE(gate.check(option_limit(3, 100), Exposure{.instrument = &option, .underlying_price = quote(60'000)})
+                    .has_value());
+}
+
+TEST(RiskGate, OptionLimitsBoundPremiumPerOrderAndOpenContracts) {
+    const auto option = coin_option();
+    const RiskGate gate{RiskConfig{.max_option_premium = quote(500), .max_option_open_lots = QtyLots::from_raw(20)}};
+    const Exposure exposure{.instrument = &option, .underlying_price = quote(60'000)};
+    // 1 lot at 100 ticks is 0.005 btc, 300 usd
+    EXPECT_TRUE(gate.check(option_limit(1, 100), exposure).has_value());
+    const auto premium = gate.check(option_limit(2, 100), exposure);
+    ASSERT_FALSE(premium.has_value());
+    EXPECT_EQ(premium.error().why, RiskReject::OptionPremium);
+    EXPECT_EQ(premium.error().value, quote(600).raw);
+
+    auto held = exposure;
+    held.position_lots = QtyLots::from_raw(-20);
+    auto sell = option_limit(1, 1);
+    sell.side = Side::Sell;
+    const auto lots = gate.check(sell, held);
+    ASSERT_FALSE(lots.has_value());
+    EXPECT_EQ(lots.error().why, RiskReject::OptionLots);
+    EXPECT_EQ(describe(lots.error()), "open option contracts limit per instrument 20 lots, would reach 21 lots");
+    // buying back a short never grows the worst case
+    EXPECT_TRUE(gate.check(option_limit(5, 1'000), held).has_value());
+}
+
 TEST(RiskGate, EveryRefusalCanNameItself) {
     using enum RiskReject;
     for (const auto why : {ReconBreak,
@@ -407,7 +469,10 @@ TEST(RiskGate, EveryRefusalCanNameItself) {
                            UnpricedExposure,
                            OrderNotional,
                            InstrumentNotional,
-                           StrategyNotional}) {
+                           StrategyNotional,
+                           NoUnderlying,
+                           OptionPremium,
+                           OptionLots}) {
         EXPECT_NE(to_string(why), "unknown") << "unnamed RiskReject";
         EXPECT_FALSE(to_string(why).empty());
     }

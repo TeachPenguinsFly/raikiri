@@ -37,4 +37,14 @@ struct WireLogPage {
 // private/get_transaction_log: result.logs, newest first
 [[nodiscard]] std::expected<WireLogPage, WireError> parse_transaction_log(std::string_view body, LogBuffer& storage);
 
+// private/get_account_summary: one currency's margin account, futures and options alike, in that currency
+struct WireAccountSummary {
+    std::string_view currency;
+    std::string_view equity;
+    std::string_view available_funds;
+    std::string_view session_upl;
+};
+
+[[nodiscard]] std::expected<WireAccountSummary, WireError> parse_account_summary(std::string_view body);
+
 } // namespace raikiri::venues::deribit

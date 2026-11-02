@@ -340,6 +340,7 @@ public:
             m.tsInit(jt::timestampNs{event.ts_init.ns});
             m.rejectClass(static_cast<jt::errorClassEnum>(event.reject_class));
             m.rejectCode(jt::venueCode{event.reject_code});
+            m.feeAsset().assign_range(event.fee_asset.view());
         });
     }
 
@@ -664,8 +665,14 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
     raikiri::shm::BalanceSnapshot snapshot{};
     snapshot.count = static_cast<std::uint32_t>(reports->size());
     snapshot.ts_pulled = now;
+    const auto wallet = market == raikiri::MarketType::Spot     ? raikiri::WalletKind::Spot
+                        : market == raikiri::MarketType::Option ? raikiri::WalletKind::Options
+                                                                : raikiri::WalletKind::Futures;
     for (std::size_t i = 0; i < reports->size(); ++i) {
         snapshot.rows[i] = (*reports)[i];
+        if (snapshot.rows[i].wallet == raikiri::WalletKind::Unknown) {
+            snapshot.rows[i].wallet = wallet;
+        }
     }
     table.write(0, snapshot);
 
@@ -1039,6 +1046,7 @@ int main(int argc, char** argv) {
     std::uint64_t answer_timeout_ns = config::VenueSettings{}.order_answer_timeout_ms * 1'000'000ULL;
     std::uint32_t book_depth = 0; // the adapter's own tier until a file says otherwise
     std::string market_data_feed; // and the adapter's own feed
+    std::string option_account;
     const auto venues_path = config::config_dir() + "/venues.yaml";
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
         if (const auto it = settings->venues.find(std::string{venue_name}); it != settings->venues.end()) {
@@ -1049,6 +1057,7 @@ int main(int argc, char** argv) {
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
             book_depth = it->second.book_depth;
             market_data_feed = it->second.market_data_feed;
+            option_account = it->second.option_account;
         } else {
             RLOG_INFO("gatewayd[{}]: no rate budget configured — running unlimited", account_name);
         }
@@ -1069,7 +1078,8 @@ int main(int argc, char** argv) {
                                      .budget = budget.has_value() ? &*budget : nullptr,
                                      .order_answer_timeout_ns = answer_timeout_ns,
                                      .book_depth = book_depth,
-                                     .market_data_feed = market_data_feed},
+                                     .market_data_feed = market_data_feed,
+                                     .option_account = option_account},
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
@@ -1343,6 +1353,7 @@ int main(int argc, char** argv) {
                                       .order_answer_timeout_ns = 0,
                                       // the feed picks the catalogue too, e.g. hyperliquid's hip-3 dexes
                                       .market_data_feed = market_data_feed,
+                                      .option_account = option_account,
                                       .pulls_only = true},
                                      poller_sink,
                                      clock);

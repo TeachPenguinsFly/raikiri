@@ -146,6 +146,139 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/options/underlyings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Underlyings with listed options, by venue and expiry */
+        get: operations["listOptionUnderlyings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/options/chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One expiry's chain across venues
+         * @description Per strike, every venue's call and put with the best bid and ask across
+         *     venues in USD. The forward is put-call parity over each venue's mids,
+         *     else the venues' own underlying, else their index. A coin premium is
+         *     shown in coin and in USD at the venue's index. Implied vols and greeks
+         *     are the venue's where it publishes them, else Black-76 on this forward;
+         *     `iv_source` and `greeks_source` say which. Live prices follow over
+         *     `/v1/stream` `quotes` and `greeks` by `instrument_id`.
+         */
+        get: operations["getOptionChain"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/options/surface": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The volatility surface of one underlying
+         * @description Per expiry the ATM vol, 25-delta risk reversal and butterfly, the SVI
+         *     slice and the chosen model's smile across the quoted strikes, the venues'
+         *     out-of-the-money mid vols and their residuals to the fit. Fitted at most
+         *     every few seconds; a request inside that window gets the last fit.
+         */
+        get: operations["getOptionSurface"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/options/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Greeks, premium and P&L of the option positions
+         * @description The positions the venues report, marked off the feed. Every figure is
+         *     in one convention whichever way the contract settles: `units` are
+         *     contracts × contract size in the underlying, signed, + long; greeks are
+         *     Black-76 on the forward at the vol that reprices the mark. `delta_coin`
+         *     is ∂V/∂F in underlying units, `delta_adjusted_coin` the same less a coin
+         *     premium (Δ − C/F), `delta_usd` is `delta_coin` × F, `gamma` the change
+         *     in `delta_coin` per one USD of F, `gamma_usd_1pct` the change in
+         *     `delta_usd` per a 1% move in F, `vega_usd` per vol point and `theta_usd`
+         *     per calendar day. USD means the quote currency.
+         *
+         *     Unsuffixed money is in `premium_unit`, per position; a coin figure turns
+         *     into USD at the venue's index today, so `value_usd` − `premium_usd` =
+         *     `unrealized_usd`. `premium` is + paid, − received, off the venue's
+         *     average entry. `realized` is what the fills booked, gross of fees, and
+         *     null with no database; `realized_available` says which.
+         *
+         *     A position past expiry never keeps a mark: it settles at the venue's
+         *     price or else the first index read at or after expiry, books its P&L in
+         *     `settled`, once, and leaves `positions`. With no price to settle at it
+         *     waits in `awaiting_settlement`, out of every total. A figure with no
+         *     input is null, never zero, and `incomplete` on a total counts the
+         *     positions it understates.
+         */
+        get: operations["getOptionRisk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/options/risk/scenarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Spot by vol matrix of one underlying's option P&L
+         * @description Each cell revalues every position in full with the pricing library at
+         *     F × (1 + spot) and σ + vol across all expiries, with no time passing; a
+         *     coin premium's USD value moves with the coin as well. The mark's gap to
+         *     the model carries through, so the cell at no shock is the current value.
+         *     `pnl_usd` is the cell's value less `base_value_usd`; the lowest is
+         *     `worst`. A shocked vol floors at 1%. `excluded` lists positions with no
+         *     mark, vol or forward to revalue from, which the matrix leaves out.
+         */
+        get: operations["getOptionRiskScenarios"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orders": {
         parameters: {
             query?: never;
@@ -428,8 +561,11 @@ export interface paths {
          * Start a parent order
          * @description joe slices the parent in time (`twap`, `vwap`, `pov`) or sends it at once
          *     (`sor`), and routes each slice across the venues that list the symbol and
-         *     take orders, by price after the taker fee. Children are IOC limits and each
-         *     one passes strategyd's risk gate under joe's strategy id.
+         *     take orders, by price after the taker fee; those children are IOC limits.
+         *     `iceberg` and `pegged` instead rest one GTC or post-only child at a time on
+         *     one venue. Every child passes strategyd's risk gate under joe's strategy id.
+         *     A `client_tag` joe still holds answers 200 with the first parent instead of
+         *     starting another.
          */
         post: operations["startParentOrder"];
         delete?: never;
@@ -447,6 +583,90 @@ export interface paths {
         };
         /** One parent order with its child orders */
         get: operations["getParentOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/joe/parents/{id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a parent saw while it worked, for the in-flight chart
+         * @description Mids sampled across venues and every fill, each with a `seq` shared by both lists. Pass
+         *     the answer's `seq` back as `since` to get only what is newer; the plan comes only with
+         *     a full read. Buffers are bounded: a full one drops its oldest entry and counts it in
+         *     `mids_dropped` / `fills_dropped`.
+         */
+        get: operations["getParentTrace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who did what and why it was allowed or refused, newest first
+         * @description Merged across every process that writes an audit stream. `actor`, `action` and `subject`
+         *     match exactly, or as a prefix when they end in `*`. Lines that cannot be read are left out
+         *     here; `/v1/audit/status` reports them.
+         */
+        get: operations["listAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audit/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether each audit stream's hash chain holds
+         * @description Verifies each stream's newest day, or the named day, on every request. The hash is unkeyed:
+         *     this catches edits, deletions and reordering, and a full rewrite of a chain only shows
+         *     against a `head_sha256` copied somewhere else.
+         */
+        get: operations["getAuditStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/joe/tca": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Child orders of every parent joe still holds, summed per venue */
+        get: operations["getJoeTca"];
         put?: never;
         post?: never;
         delete?: never;
@@ -640,6 +860,93 @@ export interface components {
         Page: {
             /** @description Absent or null on the last page. */
             next_cursor?: string | null;
+        };
+        AuditEntry: {
+            /** @description The process's chain this line belongs to. */
+            stream: string;
+            /** @description The UTC day of the file holding it. */
+            day: string;
+            /** @description Position in the stream's chain. */
+            seq: string;
+            ts: components["schemas"]["Nanos"];
+            /**
+             * @example operator
+             * @example strategy:7
+             * @example desk
+             */
+            actor: string;
+            /**
+             * @example strategy.start
+             * @example order.refused
+             */
+            action: string;
+            /**
+             * @example strategy:7
+             * @example order:123
+             */
+            subject: string;
+            /**
+             * @description Free form per action. Commands carry `status`, `outcome` (`allowed`, `refused`, or
+             *     `failed` when the handler threw), `request` and `answer`; refused orders carry `why`,
+             *     and `limit` and `value` in the risk gate's raw units.
+             */
+            detail: {
+                [key: string]: unknown;
+            };
+            /** @description SHA-256 of the line before this one */
+            prev_sha256: string;
+            /** @description SHA-256 of this line */
+            sha256: string;
+        };
+        AuditPage: components["schemas"]["Page"] & {
+            items: components["schemas"]["AuditEntry"][];
+        };
+        AuditBreak: {
+            /**
+             * @description `malformed` a line cannot be read; `sequence` a line is missing or out of place;
+             *     `prev_hash` the line before was edited; `anchor` the day does not follow the day
+             *     before it; `head` the last lines are gone, or the last line was edited.
+             * @enum {string}
+             */
+            kind: "malformed" | "sequence" | "prev_hash" | "anchor" | "head";
+            /** @description 1-based line in the day's file. */
+            line: string;
+            expected_seq: string;
+            found_seq: string;
+        };
+        AuditStream: {
+            stream: string;
+            /**
+             * @description `recovered` holds, but its writer recorded a torn tail or dropped entries that day.
+             * @enum {string}
+             */
+            state: "intact" | "recovered" | "broken" | "empty";
+            /** @description The day checked; absent when the stream lacks it. */
+            day?: string;
+            /** @description Day files the stream holds. */
+            days: number;
+            lines: string;
+            first_seq: string;
+            last_seq: string;
+            /** @description SHA-256 of the last line checked; copy it elsewhere to anchor the chain. */
+            head_sha256?: string;
+            /** @description The first line follows the day before, or starts the chain. False once older days are gone. */
+            anchored: boolean;
+            /** @description The last lines were compared with the writer's HEAD file. */
+            head_checked: boolean;
+            /** @description Partial last line; the next writer to open truncates it. */
+            torn_tail_bytes: number;
+            /** @description Recovery entries in the day. */
+            recoveries: number;
+            /** @description Entries recording that the queue dropped lines. */
+            overflows: number;
+            first_break?: components["schemas"]["AuditBreak"];
+        };
+        AuditStatus: {
+            as_of: components["schemas"]["Nanos"];
+            /** @description False when any stream is broken. */
+            ok: boolean;
+            streams: components["schemas"]["AuditStream"][];
         };
         CacheStats: {
             taken_ns: components["schemas"]["Nanos"];
@@ -1210,8 +1517,11 @@ export interface components {
              * @default twap
              * @enum {string}
              */
-            algo: "sor" | "twap" | "vwap" | "pov";
-            /** @default 0 */
+            algo: "sor" | "twap" | "vwap" | "pov" | "iceberg" | "pegged";
+            /**
+             * @description For `iceberg` and `pegged`, when to give up; zero rests until filled or cancelled.
+             * @default 0
+             */
             horizon_s: number;
             /** @default 1 */
             slices: number;
@@ -1238,15 +1548,68 @@ export interface components {
             pov_bp: number;
             /** @description The most one child may be worth; 20 by default, as the risk gate's order limit. */
             max_child_notional?: components["schemas"]["Decimal"];
+            iceberg?: components["schemas"]["IcebergParams"];
+            pegged?: components["schemas"]["PeggedParams"];
+            /** @description Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child. */
+            venue?: string;
+            /**
+             * @description `iceberg` and `pegged` only. The child stays a tick short of the other side's touch, and one the venue turns away is retried from a fresh book after the minimum interval.
+             * @default false
+             */
+            post_only: boolean;
+            /** @description The caller's name for this order, so a retried POST finds the first parent. */
+            client_tag?: string;
+        };
+        /** @description Required with `algo` `iceberg`, which also requires `limit`. */
+        IcebergParams: {
+            /** @description The visible size in the base asset. */
+            show: components["schemas"]["Decimal"];
+            /**
+             * @description Each show moves by up to this share of its size, either way.
+             * @default 0
+             */
+            variance_bp: number;
+            /**
+             * @description `complete` waits for a show to fill. `fill` replaces a part-filled show at the next resend gap, which costs its place in the queue.
+             * @default complete
+             * @enum {string}
+             */
+            refill: "complete" | "fill";
+        };
+        PeggedParams: {
+            /**
+             * @description The same side's touch, the mid, or the other side's touch. `limit` caps it.
+             * @default primary
+             * @enum {string}
+             */
+            to: "primary" | "mid" | "market";
+            /**
+             * @description Positive sits further from the other side, a buy lower and a sell higher. Give this or `offset_bp`.
+             * @default 0
+             */
+            offset_ticks: number;
+            /** @default 0 */
+            offset_bp: number;
+            /**
+             * @description How far the peg must move before the child follows.
+             * @default 1
+             */
+            threshold_ticks: number;
+            /**
+             * @description The least time between two changes to the child.
+             * @default 1000
+             */
+            min_interval_ms: number;
         };
         ParentOrder: {
             id: components["schemas"]["ParentId"];
+            client_tag?: string;
             symbol: string;
             /** @enum {string} */
             market: "perp" | "spot";
             side: components["schemas"]["Side"];
             /** @enum {string} */
-            algo: "sor" | "twap" | "vwap" | "pov";
+            algo: "sor" | "twap" | "vwap" | "pov" | "iceberg" | "pegged";
             /** @enum {string} */
             profile: "flat" | "u" | "recorded";
             /** @enum {string} */
@@ -1276,9 +1639,23 @@ export interface components {
             created: components["schemas"]["Nanos"];
             started?: components["schemas"]["Nanos"];
             ended?: components["schemas"]["Nanos"];
+            /** @description Every child sent */
             child_count: number;
+            /** @description Finished children no longer listed; they still count in the totals and the venue rows. */
+            children_retired: number;
             /** @description Only on `GET /v1/joe/parents/{id}`. */
             children?: components["schemas"]["ChildOrder"][];
+            venue?: string;
+            post_only: boolean;
+            iceberg?: components["schemas"]["IcebergParams"];
+            pegged?: components["schemas"]["PeggedParams"];
+            /** @description The resting child's limit. */
+            working_price?: components["schemas"]["Decimal"];
+            /**
+             * @description Why a resting algo is waiting on its venue's book.
+             * @enum {string}
+             */
+            hold?: "stale" | "crossed";
         };
         ChildOrder: {
             client_order_id: components["schemas"]["ClientOrderId"];
@@ -1291,7 +1668,86 @@ export interface components {
             avg_price?: components["schemas"]["Decimal"];
             fees: components["schemas"]["Decimal"];
             sent: components["schemas"]["Nanos"];
+            /** @description The venue's first answer of any kind; less `sent` is the round trip. */
+            acked?: components["schemas"]["Nanos"];
+            closed?: components["schemas"]["Nanos"];
+            /** @enum {string} */
+            end: "open" | "filled" | "cancelled" | "expired" | "rejected" | "denied" | "lost";
             open: boolean;
+            /** @enum {string} */
+            tif: "ioc" | "gtc" | "post_only";
+            /** @description A cancel is out and unanswered; no replacement goes until it is. */
+            cancelling: boolean;
+        };
+        ParentTrace: {
+            id: components["schemas"]["ParentId"];
+            /** @description The newest entry's seq. */
+            seq: number;
+            interval_ns: components["schemas"]["Nanos"];
+            mids_dropped: number;
+            fills_dropped: number;
+            reprices_dropped: number;
+            mids: {
+                seq: number;
+                ts: components["schemas"]["Nanos"];
+                /** @description The best bid and ask across venues; the first is the arrival. */
+                mid: components["schemas"]["Decimal"];
+                /** @description The market VWAP so far. */
+                vwap?: components["schemas"]["Decimal"];
+            }[];
+            fills: {
+                seq: number;
+                ts: components["schemas"]["Nanos"];
+                client_order_id: components["schemas"]["ClientOrderId"];
+                venue: string;
+                qty: components["schemas"]["Decimal"];
+                price: components["schemas"]["Decimal"];
+                fee: components["schemas"]["Decimal"];
+            }[];
+            /** @description Each change of a resting child's working price. */
+            reprices: {
+                seq: number;
+                ts: components["schemas"]["Nanos"];
+                client_order_id: components["schemas"]["ClientOrderId"];
+                venue?: string;
+                /** @description The working price from here on; absent while nothing works. */
+                price?: components["schemas"]["Decimal"];
+                qty: components["schemas"]["Decimal"];
+                /** @enum {string} */
+                why: "place" | "refill" | "peg" | "closed" | "rejected" | "stale" | "crossed";
+            }[];
+            /** @description What should have filled by each slice time; only when `since` is absent. */
+            plan?: {
+                ts: components["schemas"]["Nanos"];
+                qty: components["schemas"]["Decimal"];
+            }[];
+            venues: components["schemas"]["VenueTca"][];
+        };
+        JoeTca: {
+            parents: number;
+            venues: components["schemas"]["VenueTca"][];
+        };
+        VenueTca: {
+            venue: string;
+            children: number;
+            filled_children: number;
+            /** @description Cancelled or expired. */
+            cancelled: number;
+            /** @description Rejected by the venue or denied by the risk gate. */
+            rejected: number;
+            acked: number;
+            /** @description In the base asset. */
+            sent: components["schemas"]["Decimal"];
+            filled: components["schemas"]["Decimal"];
+            /** @description In the quote asset. */
+            value: components["schemas"]["Decimal"];
+            fees: components["schemas"]["Decimal"];
+            /** @description Positive is a cost against each parent's arrival mid. */
+            slippage_arrival_bp?: components["schemas"]["Decimal"];
+            fees_bp?: components["schemas"]["Decimal"];
+            ack_p50_ns?: components["schemas"]["Nanos"];
+            ack_p90_ns?: components["schemas"]["Nanos"];
+            ack_max_ns?: components["schemas"]["Nanos"];
         };
         NewOrder: {
             /**
@@ -1445,6 +1901,13 @@ export interface components {
              *     rounds. The figures are the last ones the venue gave.
              */
             stale: boolean;
+            /**
+             * @description Which of the venue's wallets this account reads. A unified wallet backs
+             *     several markets, so every account of the venue that reports it shows the
+             *     same money; count it once per venue. Absent until the venue answers.
+             * @enum {string}
+             */
+            wallet?: "spot" | "futures" | "unified" | "options" | "funding" | "unknown";
             assets: components["schemas"]["Balance"][];
         };
         /** @enum {string} */
@@ -1662,6 +2125,338 @@ export interface components {
             id?: string;
             problem: components["schemas"]["Problem"];
         };
+        /**
+         * @description `base` is the underlying coin, `quote` is USD or a stablecoin.
+         * @enum {string}
+         */
+        OptionUnit: "base" | "quote" | "unknown";
+        /**
+         * @description `venue` when the venue published it, `model` when Black-76 computed it here.
+         * @enum {string}
+         */
+        Figure: "venue" | "model" | "none";
+        /** @enum {string} */
+        ForwardSource: "parity" | "venue" | "index" | "none";
+        OptionExpiry: {
+            expiry: components["schemas"]["Nanos"];
+            /** @description UTC, YYYYMMDD. */
+            date: string;
+            /** @description Distinct strikes across venues. */
+            strikes: number;
+            venues: string[];
+        };
+        OptionUnderlying: {
+            /** @example BTC */
+            underlying: string;
+            venues: {
+                venue: string;
+                options: number;
+            }[];
+            /** @description Nearest first. */
+            expiries: components["schemas"]["OptionExpiry"][];
+        };
+        /**
+         * @description Why a position's figures are in doubt. `mark_model` means no quoted mark, so
+         *     the model priced it at the venue's iv.
+         * @enum {string}
+         */
+        OptionRiskFlag: "mark_missing" | "mark_stale" | "mark_model" | "greeks_missing" | "greeks_stale" | "position_stale" | "entry_missing" | "rate_missing";
+        OptionRiskPosition: {
+            account: string;
+            venue: string;
+            instrument_id: components["schemas"]["InstrumentId"];
+            symbol: string;
+            underlying: string;
+            expiry: components["schemas"]["Nanos"];
+            /** @example 20261127 */
+            expiry_date: string;
+            strike: components["schemas"]["Decimal"];
+            /** @enum {string} */
+            put_call: "call" | "put";
+            /** @enum {string} */
+            premium_unit: "base" | "quote" | "unknown";
+            contracts: components["schemas"]["Decimal"];
+            contract_value: components["schemas"]["Decimal"];
+            units?: components["schemas"]["Decimal"];
+            days_to_expiry?: components["schemas"]["Decimal"];
+            entry?: components["schemas"]["Decimal"];
+            mark?: components["schemas"]["Decimal"];
+            /** @enum {string} */
+            mark_source: "venue" | "mid" | "model" | "none";
+            mark_ts?: components["schemas"]["Nanos"];
+            vol?: components["schemas"]["Decimal"];
+            forward?: components["schemas"]["Decimal"];
+            rate?: components["schemas"]["Decimal"];
+            delta_coin?: components["schemas"]["Decimal"];
+            delta_adjusted_coin?: components["schemas"]["Decimal"];
+            delta_usd?: components["schemas"]["Decimal"];
+            gamma?: components["schemas"]["Decimal"];
+            gamma_usd_1pct?: components["schemas"]["Decimal"];
+            vega_usd?: components["schemas"]["Decimal"];
+            theta_usd?: components["schemas"]["Decimal"];
+            premium?: components["schemas"]["Decimal"];
+            premium_usd?: components["schemas"]["Decimal"];
+            value?: components["schemas"]["Decimal"];
+            value_usd?: components["schemas"]["Decimal"];
+            unrealized?: components["schemas"]["Decimal"];
+            unrealized_usd?: components["schemas"]["Decimal"];
+            realized?: components["schemas"]["Decimal"];
+            realized_usd?: components["schemas"]["Decimal"];
+            flags: components["schemas"]["OptionRiskFlag"][];
+            as_of: components["schemas"]["Nanos"];
+        };
+        /** @description Past expiry with no price to settle at yet. */
+        OptionRiskAwaiting: {
+            account: string;
+            venue: string;
+            instrument_id: components["schemas"]["InstrumentId"];
+            symbol: string;
+            underlying: string;
+            expiry: components["schemas"]["Nanos"];
+            contracts: components["schemas"]["Decimal"];
+        };
+        /**
+         * @description A position booked at expiry. `late` says an index read over five minutes
+         *     past expiry; `from_last_seen` that the venue had already cleared the
+         *     position, so its size is the last one reported. `realized` is gross of
+         *     any delivery fee and null when the venue gave no entry.
+         */
+        OptionRiskSettled: {
+            account: string;
+            venue: string;
+            instrument_id: components["schemas"]["InstrumentId"];
+            symbol: string;
+            underlying: string;
+            expiry: components["schemas"]["Nanos"];
+            strike: components["schemas"]["Decimal"];
+            /** @enum {string} */
+            put_call: "call" | "put";
+            /** @enum {string} */
+            premium_unit: "base" | "quote" | "unknown";
+            units?: components["schemas"]["Decimal"];
+            entry?: components["schemas"]["Decimal"];
+            price: components["schemas"]["Decimal"];
+            /** @enum {string} */
+            price_source: "venue" | "index";
+            price_ts: components["schemas"]["Nanos"];
+            settled_at: components["schemas"]["Nanos"];
+            from_last_seen: boolean;
+            late: boolean;
+            payoff?: components["schemas"]["Decimal"];
+            proceeds?: components["schemas"]["Decimal"];
+            proceeds_usd?: components["schemas"]["Decimal"];
+            realized?: components["schemas"]["Decimal"];
+            realized_usd?: components["schemas"]["Decimal"];
+        };
+        /** @description Coin figures are absent where the total mixes underlyings. */
+        OptionRiskTotals: {
+            delta_coin?: components["schemas"]["Decimal"];
+            delta_adjusted_coin?: components["schemas"]["Decimal"];
+            delta_usd: components["schemas"]["Decimal"];
+            gamma?: components["schemas"]["Decimal"];
+            gamma_usd_1pct: components["schemas"]["Decimal"];
+            vega_usd: components["schemas"]["Decimal"];
+            theta_usd: components["schemas"]["Decimal"];
+            premium_usd: components["schemas"]["Decimal"];
+            value_usd: components["schemas"]["Decimal"];
+            unrealized_usd: components["schemas"]["Decimal"];
+            realized_usd: components["schemas"]["Decimal"];
+            positions: number;
+            incomplete: number;
+            settled: number;
+        };
+        OptionRisk: {
+            as_of: components["schemas"]["Nanos"];
+            /** @description A mark or greek is old or missing, a position is stale, or one awaits settlement. */
+            stale: boolean;
+            realized_available: boolean;
+            positions: components["schemas"]["OptionRiskPosition"][];
+            awaiting_settlement: components["schemas"]["OptionRiskAwaiting"][];
+            settled: components["schemas"]["OptionRiskSettled"][];
+            by_underlying: {
+                underlying: string;
+                totals: components["schemas"]["OptionRiskTotals"];
+            }[];
+            /** @description By underlying, nearest first; a settled expiry stays with its realized P&L. */
+            by_expiry: {
+                underlying: string;
+                expiry: components["schemas"]["Nanos"];
+                expiry_date: string;
+                days_to_expiry?: components["schemas"]["Decimal"];
+                totals: components["schemas"]["OptionRiskTotals"];
+            }[];
+            total: components["schemas"]["OptionRiskTotals"];
+        };
+        OptionRiskCell: {
+            /** @description Percent move. */
+            spot: components["schemas"]["Decimal"];
+            /** @description Vol points. */
+            vol: components["schemas"]["Decimal"];
+            value_usd?: components["schemas"]["Decimal"];
+            pnl_usd?: components["schemas"]["Decimal"];
+            worst: boolean;
+        };
+        OptionRiskScenarios: {
+            underlying: string;
+            spot: components["schemas"]["Decimal"][];
+            vol: components["schemas"]["Decimal"][];
+            /** @description A row per vol, a column per spot. */
+            cells: components["schemas"]["OptionRiskCell"][];
+            worst?: {
+                spot: components["schemas"]["Decimal"];
+                vol: components["schemas"]["Decimal"];
+                pnl_usd: components["schemas"]["Decimal"];
+            };
+            base_value_usd: components["schemas"]["Decimal"];
+            positions: number;
+            excluded: components["schemas"]["InstrumentId"][];
+        };
+        /**
+         * @description One venue's listing. `bid`, `ask` and `mark` are in `premium_unit`;
+         *     the `_usd` figures are in the quote currency, a coin premium converted at
+         *     the venue's index. Sizes are the venue's quantity. IVs are ratios.
+         *     Venue greeks are in `greeks_unit`; model greeks are per one unit of the
+         *     underlying, in USD, vega per vol point and theta per day.
+         */
+        OptionQuote: {
+            venue: string;
+            instrument_id: components["schemas"]["InstrumentId"];
+            symbol: string;
+            premium_unit: components["schemas"]["OptionUnit"];
+            bid?: components["schemas"]["Decimal"];
+            ask?: components["schemas"]["Decimal"];
+            bid_size?: components["schemas"]["Decimal"];
+            ask_size?: components["schemas"]["Decimal"];
+            mark?: components["schemas"]["Decimal"];
+            bid_usd?: components["schemas"]["Decimal"];
+            ask_usd?: components["schemas"]["Decimal"];
+            mark_usd?: components["schemas"]["Decimal"];
+            bid_iv?: components["schemas"]["Decimal"];
+            ask_iv?: components["schemas"]["Decimal"];
+            mark_iv?: components["schemas"]["Decimal"];
+            iv_source: components["schemas"]["Figure"];
+            delta?: components["schemas"]["Decimal"];
+            gamma?: components["schemas"]["Decimal"];
+            vega?: components["schemas"]["Decimal"];
+            theta?: components["schemas"]["Decimal"];
+            greeks_source: components["schemas"]["Figure"];
+            greeks_unit?: components["schemas"]["OptionUnit"];
+            /** @description In the base asset. */
+            open_interest?: components["schemas"]["Decimal"];
+            /** @description In the base asset. */
+            volume_24h?: components["schemas"]["Decimal"];
+            ts_event: components["schemas"]["Nanos"];
+        };
+        OptionBest: {
+            venue: string;
+            usd: components["schemas"]["Decimal"];
+            iv?: components["schemas"]["Decimal"];
+            size?: components["schemas"]["Decimal"];
+        };
+        OptionSide: {
+            venues: components["schemas"]["OptionQuote"][];
+            best_bid?: components["schemas"]["OptionBest"];
+            best_ask?: components["schemas"]["OptionBest"];
+        };
+        OptionChain: {
+            underlying: string;
+            expiry: components["schemas"]["Nanos"];
+            date: string;
+            as_of: components["schemas"]["Nanos"];
+            /** @description Act/365 to expiry. */
+            years?: components["schemas"]["Decimal"];
+            seconds_to_expiry: number;
+            forward?: components["schemas"]["Decimal"];
+            forward_source: components["schemas"]["ForwardSource"];
+            /** @description The listed strike nearest the forward. */
+            atm_strike?: components["schemas"]["Decimal"];
+            venues: {
+                venue: string;
+                /** @description What the venue's coin premiums are converted at. */
+                index?: components["schemas"]["Decimal"];
+                /** @description The venue's own forward for this expiry. */
+                underlying?: components["schemas"]["Decimal"];
+            }[];
+            /** @description Strike ascending. */
+            rows: {
+                strike: components["schemas"]["Decimal"];
+                call: components["schemas"]["OptionSide"];
+                put: components["schemas"]["OptionSide"];
+            }[];
+        };
+        OptionResidual: {
+            venue: string;
+            quotes: number;
+            /** @description Mid vol minus the fit; positive is rich. */
+            mean: components["schemas"]["Decimal"];
+            rms?: components["schemas"]["Decimal"];
+        };
+        OptionSurfaceExpiry: {
+            expiry: components["schemas"]["Nanos"];
+            date: string;
+            years?: components["schemas"]["Decimal"];
+            forward?: components["schemas"]["Decimal"];
+            forward_source: components["schemas"]["ForwardSource"];
+            atm_iv?: components["schemas"]["Decimal"];
+            /** @description Vol at the 25-delta call minus vol at the 25-delta put. */
+            rr25?: components["schemas"]["Decimal"];
+            /** @description Their mean minus the ATM vol. */
+            bf25?: components["schemas"]["Decimal"];
+            call25_strike?: components["schemas"]["Decimal"];
+            put25_strike?: components["schemas"]["Decimal"];
+            fit?: {
+                /** @description Raw SVI in total variance: w(k) = a + b(ρ(k − m) + √((k − m)² + σ²)), k = ln(K/F). */
+                svi: {
+                    a: components["schemas"]["Decimal"];
+                    b: components["schemas"]["Decimal"];
+                    rho: components["schemas"]["Decimal"];
+                    m: components["schemas"]["Decimal"];
+                    sigma: components["schemas"]["Decimal"];
+                };
+                quotes: number;
+                /** @description Stale */
+                dropped: number;
+                svi_rmse?: components["schemas"]["Decimal"];
+                ssvi_rmse?: components["schemas"]["Decimal"];
+                /** @description Share of quotes the model prices inside bid/ask. */
+                inside?: components["schemas"]["Decimal"];
+            };
+            /** @description The chosen model across the quoted strikes. */
+            fitted: {
+                strike: components["schemas"]["Decimal"];
+                vol: components["schemas"]["Decimal"];
+            }[];
+            /** @description Out-of-the-money quotes only, vols implied on each venue's own forward. */
+            smile: {
+                venue: string;
+                strike: components["schemas"]["Decimal"];
+                /** @enum {string} */
+                put_call: "call" | "put";
+                mid_iv: components["schemas"]["Decimal"];
+                bid_iv?: components["schemas"]["Decimal"];
+                ask_iv?: components["schemas"]["Decimal"];
+            }[];
+            residuals: components["schemas"]["OptionResidual"][];
+        };
+        OptionSurface: {
+            underlying: string;
+            as_of: components["schemas"]["Nanos"];
+            /** @enum {string} */
+            model: "ssvi" | "svi" | "none";
+            rmse?: components["schemas"]["Decimal"];
+            ssvi?: {
+                rho: components["schemas"]["Decimal"];
+                eta: components["schemas"]["Decimal"];
+                gamma: components["schemas"]["Decimal"];
+            };
+            calendar_repair: boolean;
+            butterfly_points: number;
+            calendar_points: number;
+            /** @description Residuals over every expiry. */
+            venues: components["schemas"]["OptionResidual"][];
+            /** @description Nearest first. */
+            expiries: components["schemas"]["OptionSurfaceExpiry"][];
+        };
         /** @description Anything the server sends; `type` selects the variant. */
         StreamFrame: components["schemas"]["StreamAck"] | components["schemas"]["StreamQuotes"] | components["schemas"]["StreamBook"] | components["schemas"]["StreamGreeks"] | components["schemas"]["StreamFunding"] | components["schemas"]["StreamTicker"] | components["schemas"]["StreamPositions"] | components["schemas"]["StreamHealth"] | components["schemas"]["StreamEvent"] | components["schemas"]["StreamGap"] | components["schemas"]["StreamProblem"];
     };
@@ -1686,6 +2481,8 @@ export interface components {
         Since: components["schemas"]["Nanos"];
         /** @description Opaque; take it from the previous page's `next_cursor`. */
         Cursor: string;
+        /** @description Comma-separated venue names; every venue when absent. */
+        OptionVenues: string;
         Limit: number;
     };
     requestBodies: never;
@@ -1867,6 +2664,151 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listOptionUnderlyings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionUnderlying"][];
+                };
+            };
+        };
+    };
+    getOptionChain: {
+        parameters: {
+            query: {
+                underlying: string;
+                /** @description A UTC date, `YYYYMMDD`, or the expiry instant in nanoseconds. */
+                expiry: string;
+                /** @description Comma-separated venue names; every venue when absent. */
+                venue?: components["parameters"]["OptionVenues"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionChain"];
+                };
+            };
+            /** @description A required parameter is missing or a venue is unknown */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getOptionSurface: {
+        parameters: {
+            query: {
+                underlying: string;
+                /** @description Comma-separated venue names; every venue when absent. */
+                venue?: components["parameters"]["OptionVenues"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionSurface"];
+                };
+            };
+            /** @description The underlying is missing or a venue is unknown */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getOptionRisk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionRisk"];
+                };
+            };
+        };
+    };
+    getOptionRiskScenarios: {
+        parameters: {
+            query: {
+                underlying: string;
+                /** @description Comma list of up to 21 percent moves above −100. Defaults to −30 to 30. */
+                spot?: string;
+                /** @description Comma list of up to 21 vol point moves. Defaults to −20 to 20. */
+                vol?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionRiskScenarios"];
+                };
+            };
+            /** @description The underlying is missing or a shock does not parse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listOrders: {
@@ -2325,7 +3267,10 @@ export interface operations {
     };
     listParentOrders: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Only the parent started with this tag. */
+                client_tag?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2367,6 +3312,17 @@ export interface operations {
             };
         };
         responses: {
+            /** @description A parent with this client_tag exists already */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: components["schemas"]["ParentId"];
+                    };
+                };
+            };
             /** @description Started */
             201: {
                 headers: {
@@ -2434,6 +3390,158 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getParentTrace: {
+        parameters: {
+            query?: {
+                since?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ParentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParentTrace"];
+                };
+            };
+            /** @description since is not a seq */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such parent order */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description joe is off, or strategyd is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listAudit: {
+        parameters: {
+            query?: {
+                /** @description Lower bound on `ts_event`, inclusive. */
+                since?: components["parameters"]["Since"];
+                /** @description Upper bound on `ts`, exclusive. */
+                until?: components["schemas"]["Nanos"];
+                actor?: string;
+                action?: string;
+                subject?: string;
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque; take it from the previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description A bound, limit or cursor could not be read */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAuditStatus: {
+        parameters: {
+            query?: {
+                /** @description A UTC day; each stream's newest when absent. */
+                day?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditStatus"];
+                };
+            };
+            /** @description The day could not be read */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getJoeTca: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoeTca"];
                 };
             };
             /** @description joe is off, or strategyd is not answering */

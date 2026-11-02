@@ -206,18 +206,18 @@ TEST(JoeParent, PartialFillRollsTheRestBackIntoThePlan) {
     EXPECT_EQ(parent.working(), d("0.03"));
     EXPECT_EQ(parent.remaining(), d("0.07"));
 
-    EXPECT_TRUE(parent.fill(11, d("0.01"), d("100"), d("0.0005")));
+    EXPECT_TRUE(parent.fill(UnixNanos{}, 11, d("0.01"), d("100"), d("0.0005")));
     EXPECT_EQ(parent.filled(), d("0.01"));
     EXPECT_EQ(parent.working(), d("0.02"));
     EXPECT_EQ(parent.remaining(), d("0.07"));
 
     // the ioc expires: its unfilled 0.02 is no longer working and is owed again
-    EXPECT_TRUE(parent.close(11));
+    EXPECT_TRUE(parent.close(UnixNanos{}, 11, ChildEnd::Expired));
     EXPECT_EQ(parent.working(), d("0"));
     EXPECT_EQ(parent.remaining(), d("0.09"));
     EXPECT_EQ(next_slice(d("0.05"), parent.filled(), parent.working(), d("0.025"), 200, false), d("0.04"));
 
-    EXPECT_FALSE(parent.fill(99, d("1"), d("1"), d("0")));
+    EXPECT_FALSE(parent.fill(UnixNanos{}, 99, d("1"), d("1"), d("0")));
     EXPECT_EQ(parent.avg_price(), d("100"));
     EXPECT_EQ(parent.fees(), d("0.0005"));
 }
@@ -244,8 +244,8 @@ TEST(JoeParent, AFillAfterCancelStillCounts) {
     ASSERT_TRUE(parent.start(UnixNanos{2}, d("0.1"), d("100")).has_value());
     parent.add(child(11, 50));
     ASSERT_TRUE(parent.cancel(UnixNanos{3}).has_value());
-    EXPECT_TRUE(parent.fill(11, d("0.05"), d("101"), d("0")));
-    EXPECT_TRUE(parent.close(11));
+    EXPECT_TRUE(parent.fill(UnixNanos{}, 11, d("0.05"), d("101"), d("0")));
+    EXPECT_TRUE(parent.close(UnixNanos{}, 11, ChildEnd::Filled));
     EXPECT_EQ(parent.status(), Status::Cancelled);
     EXPECT_EQ(parent.filled(), d("0.05"));
     EXPECT_EQ(parent.working(), d("0"));
@@ -256,8 +256,8 @@ TEST(JoeParent, FailKeepsItsReasonAndAnOverfillReadsAsNothingLeft) {
     ASSERT_TRUE(parent.start(UnixNanos{2}, d("0.01"), d("100")).has_value());
     parent.add(child(11, 10));
     parent.add(child(12, 10));
-    EXPECT_TRUE(parent.fill(11, d("0.01"), d("100"), d("0")));
-    EXPECT_TRUE(parent.fill(12, d("0.01"), d("100"), d("0")));
+    EXPECT_TRUE(parent.fill(UnixNanos{}, 11, d("0.01"), d("100"), d("0")));
+    EXPECT_TRUE(parent.fill(UnixNanos{}, 12, d("0.01"), d("100"), d("0")));
     EXPECT_EQ(parent.remaining(), d("0"));
     ASSERT_TRUE(parent.fail(UnixNanos{3}, "risk").has_value());
     EXPECT_EQ(parent.reason(), "risk");

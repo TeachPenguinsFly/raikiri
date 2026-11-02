@@ -2,6 +2,7 @@
 
 // decimals arrive in float formatting, exponents included
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
@@ -72,6 +73,9 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
 // entry, a zero amount, or a currency the contract does not settle in
 [[nodiscard]] std::optional<LedgerEntry>
 map_funding_settlement(const WireLogEntry& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// equity as the total, available funds, and the session's unrealized; nullopt without a currency or equity
+[[nodiscard]] std::optional<BalanceReport> map_account_summary(const WireAccountSummary& wire, UnixNanos ts_venue);
 
 // appends the entries whose id is not in `seen`; false when the page brought no new id
 [[nodiscard]] bool collect_funding_settlements(std::span<const WireLogEntry> entries,

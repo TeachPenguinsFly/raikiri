@@ -3,6 +3,8 @@ import { k_terminal } from './e2e/preflight'
 
 export default defineConfig({
   testDir: './e2e',
+  // the mock run has its own config
+  testIgnore: ['mock/**'],
   globalSetup: './e2e/preflight.ts',
   timeout: 90_000,
   retries: 0,

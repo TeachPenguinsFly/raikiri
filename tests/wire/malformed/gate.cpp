@@ -161,6 +161,39 @@ TEST(Malformed, Gate) {
                     (void)parse_positions(f, storage);
                 }},
                {"rest_futures_account.json", [](std::string_view f) { (void)parse_account_user_id(f); }},
+               {"rest_option_account.json",
+                [](std::string_view f) {
+                    (void)parse_account_user_id(f);
+                    (void)parse_futures_account(f);
+                }},
+               {"rest_option_order.json", [](std::string_view f) { (void)parse_rest_order(f, MarketType::Option); }},
+               {"rest_option_open_orders.json",
+                [](std::string_view f) {
+                    static OrderBuffer storage;
+                    (void)parse_rest_orders(f, storage, MarketType::Option);
+                }},
+               {"rest_option_my_trades.json",
+                [](std::string_view f) {
+                    static UserTradeBuffer storage;
+                    (void)parse_rest_user_trades(f, storage, MarketType::Option);
+                }},
+               {"rest_option_positions.json",
+                [](std::string_view f) {
+                    static PositionBuffer storage;
+                    (void)parse_positions(f, storage);
+                }},
+               {"ws_option_orders.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    static OrderBuffer storage;
+                    (void)parse_ws_orders(f, storage, MarketType::Option);
+                }},
+               {"ws_option_usertrades.json",
+                [](std::string_view f) {
+                    (void)parse_event(f);
+                    static UserTradeBuffer storage;
+                    (void)parse_ws_user_trades(f, storage, MarketType::Option);
+                }},
            });
 }
 

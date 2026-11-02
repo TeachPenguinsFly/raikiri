@@ -33,11 +33,11 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path() noexcept;
 
-// futures private shares the public host; spot uses another host and path
+// private and market data share a host on each market
 [[nodiscard]] std::string_view private_host(bool testnet, MarketType market) noexcept;
 [[nodiscard]] std::string_view private_path(bool testnet, MarketType market) noexcept;
 
-// the market-data socket: options stream from their own host, the rest share the private one
+// the market-data socket
 [[nodiscard]] std::string_view public_host(bool testnet, MarketType market) noexcept;
 [[nodiscard]] std::string_view public_path(bool testnet, MarketType market) noexcept;
 

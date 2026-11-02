@@ -55,7 +55,8 @@ enum class BuildError : std::uint8_t {
     NoOrderTarget,  // cancel/amend with neither a venue id nor a client id
     // gate spot prices a market buy in quote currency, which base lots cannot express
     SpotMarketBuyNotExpressible,
-    OptionsUnsupported,      // Gate lists options; this adapter does not trade them
+    OptionsUnsupported,      // an operation gate does not offer on options, such as a batch cancel
+    TifUnsupported,          // gate options take gtc, ioc and poc
     DatedFuturesUnsupported, // Gate's /delivery API is a separate surface
 };
 
@@ -74,6 +75,9 @@ static_assert(sizeof(ExchangeClientOrderId::data) <= k_client_id_body_max,
 
 // the venue id when known, else t-<ulid>; cancel and amend name the order by it
 [[nodiscard]] std::string_view order_target(const OrderCmd& cmd, std::span<char> out) noexcept;
+
+// BTC-20261225-90000-C goes on the wire as BTC_USDT-20261225-90000-C; empty when it does not fit
+[[nodiscard]] std::string_view option_contract_text(std::string_view symbol, std::span<char> out) noexcept;
 
 // text without the t- prefix is one of gate's own sources and is not ours
 [[nodiscard]] std::string_view client_id_from_text(std::string_view text) noexcept;
@@ -107,6 +111,10 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     my_trades(MarketType market, UnixNanos since, UnixNanos now);
 
+    // the option history is asked one underlying at a time
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    option_my_trades(std::string_view underlying, UnixNanos since, UnixNanos now);
+
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market, UnixNanos now);
 
     // funding settlements from the account book; pairs with VenueCaps::funding_charge
@@ -115,6 +123,9 @@ public:
 
     // its user field is the id the futures private subscribe needs first
     [[nodiscard]] std::expected<net::RestRequest, BuildError> futures_account(UnixNanos now);
+
+    // the same for the option socket, beside the wallet figures
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> option_account(UnixNanos now);
 
     // Exposed for tests: the exact bytes that went into the last HMAC.
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

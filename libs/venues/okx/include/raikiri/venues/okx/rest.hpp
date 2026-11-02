@@ -19,7 +19,7 @@ namespace raikiri::venues::okx {
 
 enum class BuildError : std::uint8_t {
     UnknownInstrument, // not in the table: we never loaded it
-    UnsupportedMarket, // options; see the note on td_mode_of
+    UnsupportedMarket, // a market order on an option
     BadQuantity,       // quantity does not render as a venue-legal decimal
     BadPrice,
     BufferTooSmall, // payload exceeded the scratch buffer (a config bug)
@@ -32,8 +32,7 @@ enum class BuildError : std::uint8_t {
 // exhaustive so a new market cannot fall into the swap path
 [[nodiscard]] std::string_view inst_type_of(MarketType market) noexcept;
 
-// assumes spot/futures account mode, so spot orders under portfolio margin get 51000.
-// options are refused: the catalogue builds no OptionInstrument
+// assumes spot/futures account mode, so spot orders under portfolio margin get 51000; options trade cross
 [[nodiscard]] std::expected<std::string_view, BuildError> td_mode_of(MarketType market) noexcept;
 
 [[nodiscard]] std::string_view rest_host() noexcept;

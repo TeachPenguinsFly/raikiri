@@ -60,9 +60,10 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
         // null on non-rejections and on pre-version-2 records
         tx.exec("INSERT INTO raikiri.order_events (journal, journal_seq, client_order_id,"
                 " event_type, instrument_id, price_ticks, qty_lots, leaves_lots, fee_e9,"
-                " exec_id, ts_event, ts_recorded, reject_class, reject_code)"
+                " exec_id, ts_event, ts_recorded, reject_class, reject_code, fee_asset)"
                 " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,"
-                "         NULLIF($13,''), CASE WHEN $14 THEN $15::integer ELSE NULL::integer END)"
+                "         NULLIF($13,''), CASE WHEN $14 THEN $15::integer ELSE NULL::integer END,"
+                "         NULLIF($16,''))"
                 " ON CONFLICT (journal, journal_seq) DO NOTHING",
                 pqxx::params{journal,
                              r.journal_seq,
@@ -78,7 +79,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.ts_recorded,
                              r.reject_class,
                              r.has_reason,
-                             r.reject_code});
+                             r.reject_code,
+                             r.fee_asset});
     }
 
     for (const auto& r : batch.order_upserts) {
@@ -124,8 +126,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
     for (const auto& r : batch.executions) {
         tx.exec("INSERT INTO raikiri.executions (venue, exec_id, exchange_order_id,"
                 " client_order_id, instrument_id, side, price_ticks, qty_lots, fee_e9,"
-                " liquidity, ts_event)"
-                " VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11)"
+                " liquidity, ts_event, fee_asset)"
+                " VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''))"
                 " ON CONFLICT (venue, exec_id) DO NOTHING",
                 pqxx::params{r.venue,
                              r.exec_id,
@@ -137,7 +139,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.qty_lots,
                              r.fee_e9,
                              r.liquidity,
-                             r.ts_event});
+                             r.ts_event,
+                             r.fee_asset});
     }
 
     for (const auto& r : batch.pnl_increments) {

@@ -102,13 +102,16 @@ public:
 private:
     void subscribe_orders() {
         // the fills channel needs fee tier vip4 (64003); orders carries fills too
-        std::array<Subscription, 2> args{};
+        std::array<Subscription, 3> args{};
         std::size_t count = 0;
         if (state_->spot_enabled) {
             args[count++] = {.channel = k_orders_channel, .inst_type = inst_type_of(MarketType::Spot)};
         }
         if (state_->perp_enabled) {
             args[count++] = {.channel = k_orders_channel, .inst_type = inst_type_of(MarketType::Perp)};
+        }
+        if (state_->option_enabled) {
+            args[count++] = {.channel = k_orders_channel, .inst_type = inst_type_of(MarketType::Option)};
         }
         if (count == 0) {
             return;

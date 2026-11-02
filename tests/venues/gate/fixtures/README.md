@@ -129,3 +129,14 @@ are single frames copied verbatim from sessions on
 | `ws_option_book_ticker.json` | `options.book_ticker` with payload `{"underlyings":["BTC_USDT"]}` |
 | `ws_option_trades.json` | `options.trades` with payload `{"underlyings":[...]}`, the one print in fifteen minutes |
 
+## option order fixtures, written from documentation
+
+These are not captures. No key has placed a gate option order from here, so each is written from the examples
+in gate's published reference (the markdown bundle at
+`www.gate.com/docs/developers/downloads/gate-api-v4-markdown.zip`, `en/gate-api-v4.md` and `en/options/ws/index.md`),
+with the contract, sizes and prices changed to fit the catalogue fixture. `rest_option_account.json` keeps the
+documented figures. The partial-fill frame in `ws_option_orders.json` is built by analogy: the docs show one
+`finished` frame and say an open order reads `status: open`, with no `_new` or `_update`.
+
+`rest_option_order.json`, `rest_option_open_orders.json`, `rest_option_my_trades.json`,
+`rest_option_positions.json`, `rest_option_account.json`, `ws_option_orders.json`, `ws_option_usertrades.json`.

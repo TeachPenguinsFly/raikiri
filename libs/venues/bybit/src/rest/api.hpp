@@ -143,7 +143,7 @@ public:
         }
         static thread_local const auto storage_owner = std::make_unique<ExecutionBuffer>();
         auto& storage = *storage_owner;
-        const auto executions = parse_executions(envelope->result, storage);
+        const auto executions = parse_execution_list(envelope->result, storage);
         if (!executions.has_value()) {
             return std::vector<exec::FillReport>{};
         }

@@ -11,6 +11,7 @@
 #include <raikiri/venues/gate/positions.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,12 +26,10 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
     case MarketType::Perp:
+    case MarketType::Option:
         return std::nullopt;
     case MarketType::Future:
         return exec::not_implemented("gate delivery (dated futures) order entry");
-    case MarketType::Option:
-        // nothing maps an OptionInstrument onto /api/v4/options yet
-        return exec::not_implemented("gate options order entry");
     }
     return exec::not_implemented("gate: unknown market");
 }
@@ -64,6 +63,20 @@ public:
     // the futures private subscribe needs this id; absent rather than refused
     [[nodiscard]] std::optional<std::uint64_t> futures_user_id() {
         const auto request = builder_.futures_account(state_->venue_now());
+        if (!request.has_value()) {
+            return std::nullopt;
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::nullopt;
+        }
+        const auto user = parse_account_user_id(*body);
+        return user.has_value() ? std::optional{*user} : std::nullopt;
+    }
+
+    // the same id from the option account, for the option socket's subscribe
+    [[nodiscard]] std::optional<std::uint64_t> option_user_id() {
+        const auto request = builder_.option_account(state_->venue_now());
         if (!request.has_value()) {
             return std::nullopt;
         }
@@ -135,6 +148,9 @@ public:
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
+        if (market == MarketType::Option) {
+            return option_fill_reports(since);
+        }
         const auto request = builder_.my_trades(market, since, state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failure(request.error())};
@@ -153,24 +169,7 @@ public:
         }
         std::vector<exec::FillReport> reports;
         reports.reserve(trades->size());
-        for (const auto& wire : *trades) {
-            const auto memo = state_->memo_for(wire.order_id);
-            const auto event = map_user_trade(
-                wire, state_->instruments, memo.leaves, memo.client_order_id, state_->clock->wall());
-            if (!event.has_value()) {
-                continue;
-            }
-            reports.push_back({.exec_id = event->exec_id,
-                               .exchange_order_id = event->exchange_order_id,
-                               .exchange_client_order_id = event->exchange_client_order_id,
-                               .instrument = event->instrument,
-                               .side = event->side,
-                               .price = event->price,
-                               .qty = event->qty,
-                               .fee = event->fee,
-                               .liquidity = event->liquidity,
-                               .ts_venue = event->ts_event});
-        }
+        append_fills(*trades, reports);
         return reports;
     }
 
@@ -178,11 +177,13 @@ public:
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
-        if (market != MarketType::Perp) {
+        if (market == MarketType::Spot) {
             // spot balances use another endpoint and shape
             return std::unexpected{exec::not_implemented("gate spot balance pull")};
         }
-        const auto request = builder_.futures_account(state_->venue_now());
+        const bool option = market == MarketType::Option;
+        const auto request = option ? builder_.option_account(state_->venue_now())
+                                    : builder_.futures_account(state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failure(request.error())};
         }
@@ -194,7 +195,8 @@ public:
         if (!account.has_value()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(account.error()))};
         }
-        const auto balance = map_futures_account(*account);
+        const auto balance = option ? map_option_account(*account, state_->clock->wall())
+                                    : map_futures_account(*account);
         if (!balance.has_value()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate: account names no currency")};
@@ -207,6 +209,9 @@ public:
                                                                                             UnixNanos since) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Option) {
+            return std::unexpected{exec::not_implemented("gate options pay no funding")};
         }
         const auto request = builder_.funding_book(market, since, state_->venue_now());
         if (!request.has_value()) {
@@ -296,6 +301,58 @@ public:
     }
 
 private:
+    void append_fills(std::span<const WireUserTrade> trades, std::vector<exec::FillReport>& reports) {
+        for (const auto& wire : trades) {
+            const auto memo = state_->memo_for(wire.order_id);
+            const auto event = map_user_trade(
+                wire, state_->instruments, memo.leaves, memo.client_order_id, state_->clock->wall());
+            if (!event.has_value()) {
+                continue;
+            }
+            reports.push_back({.exec_id = event->exec_id,
+                               .exchange_order_id = event->exchange_order_id,
+                               .exchange_client_order_id = event->exchange_client_order_id,
+                               .instrument = event->instrument,
+                               .side = event->side,
+                               .price = event->price,
+                               .qty = event->qty,
+                               .fee = event->fee,
+                               .liquidity = event->liquidity,
+                               .fee_asset = event->fee_asset,
+                               .ts_venue = event->ts_event});
+        }
+    }
+
+    // the history takes one underlying per call; the catalogue says which exist
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> option_fill_reports(UnixNanos since) {
+        std::vector<std::string> underlyings;
+        for (const auto& instrument : state_->instruments.all()) {
+            underlyings.push_back(option_underlying(base_of(instrument).exchange_symbol.view()));
+        }
+        std::ranges::sort(underlyings);
+        underlyings.erase(std::ranges::unique(underlyings).begin(), underlyings.end());
+
+        static thread_local const auto storage_owner = std::make_unique<UserTradeBuffer>();
+        std::vector<exec::FillReport> reports;
+        for (const auto& underlying : underlyings) {
+            const auto request = builder_.option_my_trades(underlying, since, state_->venue_now());
+            if (!request.has_value()) {
+                return std::unexpected{build_failure(request.error())};
+            }
+            const auto body = fetch(*request);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            const auto trades = parse_rest_user_trades(*body, *storage_owner, MarketType::Option);
+            if (!trades.has_value()) {
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(trades.error()))};
+            }
+            append_fills(*trades, reports);
+        }
+        return reports;
+    }
+
     [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& request) {
         const auto response = await_response(*state_, rest_, request);
         if (!response.has_value() || response->transport_failed()) {

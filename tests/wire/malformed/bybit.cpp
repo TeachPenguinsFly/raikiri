@@ -47,7 +47,7 @@ TEST(Malformed, Bybit) {
                     (void)parse_topic(f);
                     (void)parse_ticker(f);
                 }},
-               {"order_update.json",
+               {"*order_update.json",
                 [](std::string_view f) {
                     static OrderUpdateBuffer updates;
                     (void)parse_topic(f);
@@ -59,7 +59,7 @@ TEST(Malformed, Bybit) {
                     (void)parse_topic(f);
                     (void)parse_order_updates(f, updates);
                 }},
-               {"execution.json",
+               {"*execution.json",
                 [](std::string_view f) {
                     static ExecutionBuffer execs;
                     (void)parse_topic(f);
@@ -96,6 +96,20 @@ TEST(Malformed, Bybit) {
                     static InstrumentBuffer instruments;
                     if (const auto envelope = parse_envelope(f); envelope.has_value()) {
                         (void)parse_instruments(envelope->result, instruments);
+                    }
+                }},
+               {"rest_executions_option.json",
+                [](std::string_view f) {
+                    static ExecutionBuffer execs;
+                    if (const auto envelope = parse_envelope(f); envelope.has_value()) {
+                        (void)parse_execution_list(envelope->result, execs);
+                    }
+                }},
+               {"rest_positions_option.json",
+                [](std::string_view f) {
+                    static PositionBuffer positions;
+                    if (const auto envelope = parse_envelope(f); envelope.has_value()) {
+                        (void)parse_position_list(envelope->result, positions);
                     }
                 }},
                {"rest_wallet_balance.json",

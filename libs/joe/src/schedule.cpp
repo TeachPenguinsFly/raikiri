@@ -6,7 +6,7 @@
 namespace raikiri::joe {
 namespace internal {
 
-[[nodiscard]] std::uint64_t splitmix(std::uint64_t& state) noexcept {
+std::uint64_t splitmix(std::uint64_t& state) noexcept {
     std::uint64_t z = (state += 0x9E3779B97F4A7C15ULL);
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;

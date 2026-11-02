@@ -483,6 +483,9 @@ map_fill(const WireUserTrade& wire, const exec::InstrumentTable& table, QtyLots 
     if (const auto fee = parse_number_e9(wire.fee); fee.has_value()) {
         event.fee = *fee;
     }
+    if (base.id.market() == MarketType::Option) {
+        event.fee_asset = to_fee_asset(wire.fee_currency);
+    }
     event.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker) : Liquidity::Unknown;
     event.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     event.ts_init = ts_init;
@@ -572,6 +575,9 @@ std::optional<exec::FillReport> map_fill_report(const WireUserTrade& wire, const
     if (const auto fee = parse_number_e9(wire.fee); fee.has_value()) {
         report.fee = *fee;
     }
+    if (base.id.market() == MarketType::Option) {
+        report.fee_asset = to_fee_asset(wire.fee_currency);
+    }
     report.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker) : Liquidity::Unknown;
     report.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{0});
     return report;
@@ -597,6 +603,27 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
     }
     report.ts_venue = ts_venue;
     return report;
+}
+
+std::optional<BalanceReport> map_account_summary(const WireAccountSummary& wire, UnixNanos ts_venue) {
+    const auto asset = to_asset_code(wire.currency);
+    const auto equity = wire.equity.empty() ? std::nullopt : parse_number_e9(wire.equity);
+    if (!asset.has_value() || asset->empty() || !equity.has_value()) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    out.wallet = WalletKind::Unified;
+    out.total = *equity;
+    if (const auto available = parse_number_e9(wire.available_funds);
+        !wire.available_funds.empty() && available.has_value()) {
+        out.available = *available;
+    }
+    if (const auto upl = parse_number_e9(wire.session_upl); !wire.session_upl.empty() && upl.has_value()) {
+        out.unrealized = *upl;
+    }
+    out.ts_venue = ts_venue;
+    return out;
 }
 
 std::optional<LedgerEntry>

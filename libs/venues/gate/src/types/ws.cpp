@@ -80,8 +80,9 @@ std::string_view private_host(bool testnet, MarketType market) noexcept {
         return stream_host(testnet);
     case MarketType::Spot:
         return ep::spot_stream_host(testnet);
-    case MarketType::Future:
     case MarketType::Option:
+        return ep::option_stream_host(testnet);
+    case MarketType::Future:
         return {};
     }
     return {};
@@ -93,19 +94,20 @@ std::string_view private_path(bool testnet, MarketType market) noexcept {
         return stream_path();
     case MarketType::Spot:
         return ep::ws_spot_path(testnet);
-    case MarketType::Future:
     case MarketType::Option:
+        return ep::ws_option_path(testnet);
+    case MarketType::Future:
         return {};
     }
     return {};
 }
 
 std::string_view public_host(bool testnet, MarketType market) noexcept {
-    return market == MarketType::Option ? ep::option_stream_host(testnet) : private_host(testnet, market);
+    return private_host(testnet, market);
 }
 
 std::string_view public_path(bool testnet, MarketType market) noexcept {
-    return market == MarketType::Option ? ep::ws_option_path(testnet) : private_path(testnet, market);
+    return private_path(testnet, market);
 }
 
 std::vector<std::pair<std::string, std::string>> handshake_headers(MarketType market) {
@@ -121,9 +123,10 @@ std::string_view orders_channel(MarketType market) noexcept {
         return "futures.orders";
     case MarketType::Spot:
         return "spot.orders";
-    case MarketType::Future:
     case MarketType::Option:
-        // options and delivery payloads are not mapped
+        return "options.orders";
+    case MarketType::Future:
+        // delivery payloads are not mapped
         return {};
     }
     return {};
@@ -135,8 +138,9 @@ std::string_view user_trades_channel(MarketType market) noexcept {
         return "futures.usertrades";
     case MarketType::Spot:
         return "spot.usertrades";
-    case MarketType::Future:
     case MarketType::Option:
+        return "options.usertrades";
+    case MarketType::Future:
         return {};
     }
     return {};

@@ -23,8 +23,10 @@ tags:
   - name: trading
   - name: analytics
   - name: live
+  - name: options
   - name: cache
   - name: execution
+  - name: audit
 
 paths:
   /v1/health:
@@ -180,6 +182,159 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Instrument" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/options/underlyings:
+    get:
+      tags: [options]
+      summary: Underlyings with listed options, by venue and expiry
+      operationId: listOptionUnderlyings
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OptionUnderlying" }
+
+  /v1/options/chain:
+    get:
+      tags: [options]
+      summary: One expiry's chain across venues
+      description: |
+        Per strike, every venue's call and put with the best bid and ask across
+        venues in USD. The forward is put-call parity over each venue's mids,
+        else the venues' own underlying, else their index. A coin premium is
+        shown in coin and in USD at the venue's index. Implied vols and greeks
+        are the venue's where it publishes them, else Black-76 on this forward;
+        `iv_source` and `greeks_source` say which. Live prices follow over
+        `/v1/stream` `quotes` and `greeks` by `instrument_id`.
+      operationId: getOptionChain
+      parameters:
+        - name: underlying
+          in: query
+          required: true
+          schema: { type: string, examples: ["BTC"] }
+        - name: expiry
+          in: query
+          required: true
+          description: A UTC date, `YYYYMMDD`, or the expiry instant in nanoseconds.
+          schema: { type: string, examples: ["20261127"] }
+        - $ref: "#/components/parameters/OptionVenues"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionChain" }
+        "400":
+          description: A required parameter is missing or a venue is unknown
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/options/surface:
+    get:
+      tags: [options]
+      summary: The volatility surface of one underlying
+      description: |
+        Per expiry the ATM vol, 25-delta risk reversal and butterfly, the SVI
+        slice and the chosen model's smile across the quoted strikes, the venues'
+        out-of-the-money mid vols and their residuals to the fit. Fitted at most
+        every few seconds; a request inside that window gets the last fit.
+      operationId: getOptionSurface
+      parameters:
+        - name: underlying
+          in: query
+          required: true
+          schema: { type: string, examples: ["BTC"] }
+        - $ref: "#/components/parameters/OptionVenues"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionSurface" }
+        "400":
+          description: The underlying is missing or a venue is unknown
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/options/risk:
+    get:
+      tags: [options]
+      summary: Greeks, premium and P&L of the option positions
+      description: |
+        The positions the venues report, marked off the feed. Every figure is
+        in one convention whichever way the contract settles: `units` are
+        contracts × contract size in the underlying, signed, + long; greeks are
+        Black-76 on the forward at the vol that reprices the mark. `delta_coin`
+        is ∂V/∂F in underlying units, `delta_adjusted_coin` the same less a coin
+        premium (Δ − C/F), `delta_usd` is `delta_coin` × F, `gamma` the change
+        in `delta_coin` per one USD of F, `gamma_usd_1pct` the change in
+        `delta_usd` per a 1% move in F, `vega_usd` per vol point and `theta_usd`
+        per calendar day. USD means the quote currency.
+
+        Unsuffixed money is in `premium_unit`, per position; a coin figure turns
+        into USD at the venue's index today, so `value_usd` − `premium_usd` =
+        `unrealized_usd`. `premium` is + paid, − received, off the venue's
+        average entry. `realized` is what the fills booked, gross of fees, and
+        null with no database; `realized_available` says which.
+
+        A position past expiry never keeps a mark: it settles at the venue's
+        price or else the first index read at or after expiry, books its P&L in
+        `settled`, once, and leaves `positions`. With no price to settle at it
+        waits in `awaiting_settlement`, out of every total. A figure with no
+        input is null, never zero, and `incomplete` on a total counts the
+        positions it understates.
+      operationId: getOptionRisk
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionRisk" }
+
+  /v1/options/risk/scenarios:
+    get:
+      tags: [options]
+      summary: Spot by vol matrix of one underlying's option P&L
+      description: |
+        Each cell revalues every position in full with the pricing library at
+        F × (1 + spot) and σ + vol across all expiries, with no time passing; a
+        coin premium's USD value moves with the coin as well. The mark's gap to
+        the model carries through, so the cell at no shock is the current value.
+        `pnl_usd` is the cell's value less `base_value_usd`; the lowest is
+        `worst`. A shocked vol floors at 1%. `excluded` lists positions with no
+        mark, vol or forward to revalue from, which the matrix leaves out.
+      operationId: getOptionRiskScenarios
+      parameters:
+        - name: underlying
+          in: query
+          required: true
+          schema: { type: string, examples: ["BTC"] }
+        - name: spot
+          in: query
+          description: Comma list of up to 21 percent moves above −100. Defaults to −30 to 30.
+          schema: { type: string, examples: ["-20,-10,0,10,20"] }
+        - name: vol
+          in: query
+          description: Comma list of up to 21 vol point moves. Defaults to −20 to 20.
+          schema: { type: string, examples: ["-10,0,10"] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionRiskScenarios" }
+        "400":
+          description: The underlying is missing or a shock does not parse
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /v1/orders:
     get:
@@ -566,6 +721,12 @@ paths:
         `/v1/joe/` to the upstream named `strategyd`. Parents live in memory and a
         restart forgets them; their children are ordinary orders in the journal.
       operationId: listParentOrders
+      parameters:
+        - name: client_tag
+          in: query
+          required: false
+          schema: { type: string }
+          description: Only the parent started with this tag.
       responses:
         "200":
           description: OK
@@ -590,8 +751,11 @@ paths:
       description: |
         joe slices the parent in time (`twap`, `vwap`, `pov`) or sends it at once
         (`sor`), and routes each slice across the venues that list the symbol and
-        take orders, by price after the taker fee. Children are IOC limits and each
-        one passes strategyd's risk gate under joe's strategy id.
+        take orders, by price after the taker fee; those children are IOC limits.
+        `iceberg` and `pegged` instead rest one GTC or post-only child at a time on
+        one venue. Every child passes strategyd's risk gate under joe's strategy id.
+        A `client_tag` joe still holds answers 200 with the first parent instead of
+        starting another.
       operationId: startParentOrder
       requestBody:
         required: true
@@ -599,6 +763,15 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/NewParentOrder" }
       responses:
+        "200":
+          description: A parent with this client_tag exists already
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { $ref: "#/components/schemas/ParentId" }
         "201":
           description: Started
           content:
@@ -642,6 +815,119 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/joe/parents/{id}/trace:
+    get:
+      tags: [execution]
+      summary: What a parent saw while it worked, for the in-flight chart
+      description: |
+        Mids sampled across venues and every fill, each with a `seq` shared by both lists. Pass
+        the answer's `seq` back as `since` to get only what is newer; the plan comes only with
+        a full read. Buffers are bounded: a full one drops its oldest entry and counts it in
+        `mids_dropped` / `fills_dropped`.
+      operationId: getParentTrace
+      parameters:
+        - { $ref: "#/components/parameters/ParentId" }
+        - name: since
+          in: query
+          required: false
+          schema: { type: string, pattern: '^\d+$' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParentTrace" }
+        "400":
+          description: since is not a seq
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: No such parent order
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: joe is off, or strategyd is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/audit:
+    get:
+      tags: [audit]
+      summary: Who did what and why it was allowed or refused, newest first
+      description: |
+        Merged across every process that writes an audit stream. `actor`, `action` and `subject`
+        match exactly, or as a prefix when they end in `*`. Lines that cannot be read are left out
+        here; `/v1/audit/status` reports them.
+      operationId: listAudit
+      parameters:
+        - { $ref: "#/components/parameters/Since" }
+        - name: until
+          in: query
+          description: Upper bound on `ts`, exclusive.
+          schema: { $ref: "#/components/schemas/Nanos" }
+        - { name: actor, in: query, schema: { type: string, examples: ["operator", "strategy:*"] } }
+        - { name: action, in: query, schema: { type: string, examples: ["order.refused", "joe.*"] } }
+        - { name: subject, in: query, schema: { type: string, examples: ["strategy:7"] } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditPage" }
+        "400":
+          description: A bound, limit or cursor could not be read
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/audit/status:
+    get:
+      tags: [audit]
+      summary: Whether each audit stream's hash chain holds
+      description: |
+        Verifies each stream's newest day, or the named day, on every request. The hash is unkeyed:
+        this catches edits, deletions and reordering, and a full rewrite of a chain only shows
+        against a `head_sha256` copied somewhere else.
+      operationId: getAuditStatus
+      parameters:
+        - name: day
+          in: query
+          description: A UTC day; each stream's newest when absent.
+          schema: { type: string, examples: ["2026-11-02"] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditStatus" }
+        "400":
+          description: The day could not be read
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/joe/tca:
+    get:
+      tags: [execution]
+      summary: Child orders of every parent joe still holds, summed per venue
+      operationId: getJoeTca
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JoeTca" }
         "503":
           description: joe is off, or strategyd is not answering
           content:
@@ -864,6 +1150,12 @@ components:
       description: |
         Opaque; take it from the previous page's `next_cursor`.
       schema: { type: string }
+    OptionVenues:
+      name: venue
+      in: query
+      description: Comma-separated venue names; every venue when absent.
+      schema: { type: string, examples: ["deribit,okx"] }
+
     Limit:
       name: limit
       in: query
@@ -928,6 +1220,88 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Absent or null on the last page.
+
+    AuditEntry:
+      type: object
+      required: [stream, day, seq, ts, actor, action, subject, detail, prev_sha256, sha256]
+      properties:
+        stream: { type: string, description: The process's chain this line belongs to. }
+        day: { type: string, description: The UTC day of the file holding it. }
+        seq: { type: string, pattern: '^\d+$', description: Position in the stream's chain. }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        actor: { type: string, examples: ["operator", "strategy:7", "desk"] }
+        action: { type: string, examples: ["strategy.start", "order.refused"] }
+        subject: { type: string, examples: ["strategy:7", "order:123"] }
+        detail:
+          type: object
+          additionalProperties: true
+          description: |
+            Free form per action. Commands carry `status`, `outcome` (`allowed`, `refused`, or
+            `failed` when the handler threw), `request` and `answer`; refused orders carry `why`,
+            and `limit` and `value` in the risk gate's raw units.
+        prev_sha256: { type: string, description: SHA-256 of the line before this one, hex. }
+        sha256: { type: string, description: SHA-256 of this line, hex. }
+
+    AuditPage:
+      allOf:
+        - { $ref: "#/components/schemas/Page" }
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/AuditEntry" }
+
+    AuditBreak:
+      type: object
+      required: [kind, line, expected_seq, found_seq]
+      properties:
+        kind:
+          type: string
+          enum: [malformed, sequence, prev_hash, anchor, head]
+          description: |
+            `malformed` a line cannot be read; `sequence` a line is missing or out of place;
+            `prev_hash` the line before was edited; `anchor` the day does not follow the day
+            before it; `head` the last lines are gone, or the last line was edited.
+        line: { type: string, pattern: '^\d+$', description: 1-based line in the day's file. }
+        expected_seq: { type: string, pattern: '^\d+$' }
+        found_seq: { type: string, pattern: '^\d+$' }
+
+    AuditStream:
+      type: object
+      required: [stream, state, days, lines, first_seq, last_seq, anchored, head_checked, torn_tail_bytes, recoveries,
+                 overflows]
+      properties:
+        stream: { type: string }
+        state:
+          type: string
+          enum: [intact, recovered, broken, empty]
+          description: |
+            `recovered` holds, but its writer recorded a torn tail or dropped entries that day.
+        day: { type: string, description: The day checked; absent when the stream lacks it. }
+        days: { type: integer, description: Day files the stream holds. }
+        lines: { type: string, pattern: '^\d+$' }
+        first_seq: { type: string, pattern: '^\d+$' }
+        last_seq: { type: string, pattern: '^\d+$' }
+        head_sha256: { type: string, description: SHA-256 of the last line checked; copy it elsewhere to anchor the chain. }
+        anchored:
+          type: boolean
+          description: The first line follows the day before, or starts the chain. False once older days are gone.
+        head_checked: { type: boolean, description: The last lines were compared with the writer's HEAD file. }
+        torn_tail_bytes: { type: integer, description: Partial last line; the next writer to open truncates it. }
+        recoveries: { type: integer, description: Recovery entries in the day. }
+        overflows: { type: integer, description: Entries recording that the queue dropped lines. }
+        first_break: { $ref: "#/components/schemas/AuditBreak" }
+
+    AuditStatus:
+      type: object
+      required: [as_of, ok, streams]
+      properties:
+        as_of: { $ref: "#/components/schemas/Nanos" }
+        ok: { type: boolean, description: False when any stream is broken. }
+        streams:
+          type: array
+          items: { $ref: "#/components/schemas/AuditStream" }
 
     CacheStats:
       type: object
@@ -1681,8 +2055,13 @@ components:
         limit:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: No child trades through it.
-        algo: { type: string, enum: [sor, twap, vwap, pov], default: twap }
-        horizon_s: { type: integer, minimum: 0, maximum: 604800, default: 0 }
+        algo: { type: string, enum: [sor, twap, vwap, pov, iceberg, pegged], default: twap }
+        horizon_s:
+          type: integer
+          minimum: 0
+          maximum: 604800
+          default: 0
+          description: For `iceberg` and `pegged`, when to give up; zero rests until filled or cancelled.
         slices: { type: integer, minimum: 1, maximum: 10000, default: 1 }
         jitter_bp:
           type: integer
@@ -1709,17 +2088,82 @@ components:
         max_child_notional:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: The most one child may be worth; 20 by default, as the risk gate's order limit.
+        iceberg: { $ref: "#/components/schemas/IcebergParams" }
+        pegged: { $ref: "#/components/schemas/PeggedParams" }
+        venue:
+          type: string
+          description: Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child.
+        post_only:
+          type: boolean
+          default: false
+          description: >-
+            `iceberg` and `pegged` only. The child stays a tick short of the other side's touch, and one the
+            venue turns away is retried from a fresh book after the minimum interval.
+        client_tag:
+          type: string
+          maxLength: 64
+          description: The caller's name for this order, so a retried POST finds the first parent.
+
+    IcebergParams:
+      type: object
+      description: Required with `algo` `iceberg`, which also requires `limit`.
+      required: [show]
+      properties:
+        show:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The visible size in the base asset.
+        variance_bp:
+          type: integer
+          minimum: 0
+          maximum: 5000
+          default: 0
+          description: Each show moves by up to this share of its size, either way.
+        refill:
+          type: string
+          enum: [complete, fill]
+          default: complete
+          description: >-
+            `complete` waits for a show to fill. `fill` replaces a part-filled show at the next resend
+            gap, which costs its place in the queue.
+
+    PeggedParams:
+      type: object
+      properties:
+        to:
+          type: string
+          enum: [primary, mid, market]
+          default: primary
+          description: The same side's touch, the mid, or the other side's touch. `limit` caps it.
+        offset_ticks:
+          type: integer
+          minimum: -100000
+          maximum: 100000
+          default: 0
+          description: Positive sits further from the other side, a buy lower and a sell higher. Give this or `offset_bp`.
+        offset_bp: { type: integer, minimum: -1000, maximum: 1000, default: 0 }
+        threshold_ticks:
+          type: integer
+          minimum: 1
+          default: 1
+          description: How far the peg must move before the child follows.
+        min_interval_ms:
+          type: integer
+          minimum: 100
+          maximum: 3600000
+          default: 1000
+          description: The least time between two changes to the child.
 
     ParentOrder:
       type: object
       required: [id, symbol, market, side, algo, profile, status, qty, filled, working, fees, horizon_s,
-                 slices, slices_fired, pov_bp, created, child_count]
+                 slices, slices_fired, pov_bp, created, child_count, children_retired, post_only]
       properties:
         id: { $ref: "#/components/schemas/ParentId" }
+        client_tag: { type: string }
         symbol: { type: string }
         market: { type: string, enum: [perp, spot] }
         side: { $ref: "#/components/schemas/Side" }
-        algo: { type: string, enum: [sor, twap, vwap, pov] }
+        algo: { type: string, enum: [sor, twap, vwap, pov, iceberg, pegged] }
         profile: { type: string, enum: [flat, u, recorded] }
         status: { type: string, enum: [pending, working, paused, done, cancelled, failed] }
         reason: { type: string, description: Why it failed. }
@@ -1752,15 +2196,29 @@ components:
         created: { $ref: "#/components/schemas/Nanos" }
         started: { $ref: "#/components/schemas/Nanos" }
         ended: { $ref: "#/components/schemas/Nanos" }
-        child_count: { type: integer }
+        child_count: { type: integer, description: Every child sent, listed or retired. }
+        children_retired:
+          type: integer
+          description: Finished children no longer listed; they still count in the totals and the venue rows.
         children:
           type: array
           description: Only on `GET /v1/joe/parents/{id}`.
           items: { $ref: "#/components/schemas/ChildOrder" }
+        venue: { type: string }
+        post_only: { type: boolean }
+        iceberg: { $ref: "#/components/schemas/IcebergParams" }
+        pegged: { $ref: "#/components/schemas/PeggedParams" }
+        working_price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The resting child's limit.
+        hold:
+          type: string
+          enum: [stale, crossed]
+          description: Why a resting algo is waiting on its venue's book.
 
     ChildOrder:
       type: object
-      required: [client_order_id, instrument_id, venue, qty, limit, filled, fees, sent, open]
+      required: [client_order_id, instrument_id, venue, qty, limit, filled, fees, sent, end, open, tif, cancelling]
       properties:
         client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
@@ -1773,7 +2231,115 @@ components:
         avg_price: { $ref: "#/components/schemas/Decimal" }
         fees: { $ref: "#/components/schemas/Decimal" }
         sent: { $ref: "#/components/schemas/Nanos" }
+        acked:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: The venue's first answer of any kind; less `sent` is the round trip.
+        closed: { $ref: "#/components/schemas/Nanos" }
+        end: { type: string, enum: [open, filled, cancelled, expired, rejected, denied, lost] }
         open: { type: boolean }
+        tif: { type: string, enum: [ioc, gtc, post_only] }
+        cancelling: { type: boolean, description: A cancel is out and unanswered; no replacement goes until it is. }
+
+    ParentTrace:
+      type: object
+      required: [id, seq, interval_ns, mids_dropped, fills_dropped, reprices_dropped, mids, fills, reprices, venues]
+      properties:
+        id: { $ref: "#/components/schemas/ParentId" }
+        seq: { type: integer, description: The newest entry's seq. }
+        interval_ns: { $ref: "#/components/schemas/Nanos" }
+        mids_dropped: { type: integer }
+        fills_dropped: { type: integer }
+        reprices_dropped: { type: integer }
+        mids:
+          type: array
+          items:
+            type: object
+            required: [seq, ts, mid]
+            properties:
+              seq: { type: integer }
+              ts: { $ref: "#/components/schemas/Nanos" }
+              mid:
+                allOf: [{ $ref: "#/components/schemas/Decimal" }]
+                description: The best bid and ask across venues; the first is the arrival.
+              vwap:
+                allOf: [{ $ref: "#/components/schemas/Decimal" }]
+                description: The market VWAP so far.
+        fills:
+          type: array
+          items:
+            type: object
+            required: [seq, ts, client_order_id, venue, qty, price, fee]
+            properties:
+              seq: { type: integer }
+              ts: { $ref: "#/components/schemas/Nanos" }
+              client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
+              venue: { type: string }
+              qty: { $ref: "#/components/schemas/Decimal" }
+              price: { $ref: "#/components/schemas/Decimal" }
+              fee: { $ref: "#/components/schemas/Decimal" }
+        reprices:
+          type: array
+          description: Each change of a resting child's working price.
+          items:
+            type: object
+            required: [seq, ts, client_order_id, qty, why]
+            properties:
+              seq: { type: integer }
+              ts: { $ref: "#/components/schemas/Nanos" }
+              client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
+              venue: { type: string }
+              price:
+                allOf: [{ $ref: "#/components/schemas/Decimal" }]
+                description: The working price from here on; absent while nothing works.
+              qty: { $ref: "#/components/schemas/Decimal" }
+              why: { type: string, enum: [place, refill, peg, closed, rejected, stale, crossed] }
+        plan:
+          type: array
+          description: What should have filled by each slice time; only when `since` is absent.
+          items:
+            type: object
+            required: [ts, qty]
+            properties:
+              ts: { $ref: "#/components/schemas/Nanos" }
+              qty: { $ref: "#/components/schemas/Decimal" }
+        venues:
+          type: array
+          items: { $ref: "#/components/schemas/VenueTca" }
+
+    JoeTca:
+      type: object
+      required: [parents, venues]
+      properties:
+        parents: { type: integer }
+        venues:
+          type: array
+          items: { $ref: "#/components/schemas/VenueTca" }
+
+    VenueTca:
+      type: object
+      required: [venue, children, filled_children, cancelled, rejected, acked, sent, filled, value, fees]
+      properties:
+        venue: { type: string }
+        children: { type: integer }
+        filled_children: { type: integer }
+        cancelled: { type: integer, description: Cancelled or expired. }
+        rejected: { type: integer, description: Rejected by the venue or denied by the risk gate. }
+        acked: { type: integer }
+        sent:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the base asset.
+        filled: { $ref: "#/components/schemas/Decimal" }
+        value:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the quote asset.
+        fees: { $ref: "#/components/schemas/Decimal" }
+        slippage_arrival_bp:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Positive is a cost against each parent's arrival mid.
+        fees_bp: { $ref: "#/components/schemas/Decimal" }
+        ack_p50_ns: { $ref: "#/components/schemas/Nanos" }
+        ack_p90_ns: { $ref: "#/components/schemas/Nanos" }
+        ack_max_ns: { $ref: "#/components/schemas/Nanos" }
 
     NewOrder:
       type: object
@@ -1964,6 +2530,13 @@ components:
           description: |
             True once the last answer is older than three of the gateway's pull
             rounds. The figures are the last ones the venue gave.
+        wallet:
+          type: string
+          enum: [spot, futures, unified, options, funding, unknown]
+          description: |
+            Which of the venue's wallets this account reads. A unified wallet backs
+            several markets, so every account of the venue that reports it shows the
+            same money; count it once per venue. Absent until the venue answers.
         assets:
           type: array
           items: { $ref: "#/components/schemas/Balance" }
@@ -2226,6 +2799,443 @@ components:
         type: { type: string, const: problem }
         id: { type: string }
         problem: { $ref: "#/components/schemas/Problem" }
+
+    OptionUnit:
+      type: string
+      description: "`base` is the underlying coin, `quote` is USD or a stablecoin."
+      enum: [base, quote, unknown]
+
+    Figure:
+      type: string
+      description: "`venue` when the venue published it, `model` when Black-76 computed it here."
+      enum: [venue, model, none]
+
+    ForwardSource:
+      type: string
+      enum: [parity, venue, index, none]
+
+    OptionExpiry:
+      type: object
+      required: [expiry, date, strikes, venues]
+      properties:
+        expiry: { $ref: "#/components/schemas/Nanos" }
+        date: { type: string, description: "UTC, YYYYMMDD." }
+        strikes: { type: integer, description: Distinct strikes across venues. }
+        venues: { type: array, items: { type: string } }
+
+    OptionUnderlying:
+      type: object
+      required: [underlying, venues, expiries]
+      properties:
+        underlying: { type: string, examples: ["BTC"] }
+        venues:
+          type: array
+          items:
+            type: object
+            required: [venue, options]
+            properties:
+              venue: { type: string }
+              options: { type: integer }
+        expiries:
+          type: array
+          description: Nearest first.
+          items: { $ref: "#/components/schemas/OptionExpiry" }
+
+    OptionRiskFlag:
+      description: |
+        Why a position's figures are in doubt. `mark_model` means no quoted mark, so
+        the model priced it at the venue's iv.
+      type: string
+      enum: [mark_missing, mark_stale, mark_model, greeks_missing, greeks_stale, position_stale, entry_missing, rate_missing]
+
+    OptionRiskPosition:
+      type: object
+      required: [account, venue, instrument_id, symbol, underlying, expiry, expiry_date, strike, put_call, premium_unit, contracts, contract_value, mark_source, flags, as_of]
+      properties:
+        account: { type: string }
+        venue: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        symbol: { type: string }
+        underlying: { type: string }
+        expiry: { $ref: "#/components/schemas/Nanos" }
+        expiry_date: { type: string, examples: ["20261127"] }
+        strike: { $ref: "#/components/schemas/Decimal" }
+        put_call: { type: string, enum: [call, put] }
+        premium_unit: { type: string, enum: [base, quote, unknown] }
+        contracts: { $ref: "#/components/schemas/Decimal" }
+        contract_value: { $ref: "#/components/schemas/Decimal" }
+        units: { $ref: "#/components/schemas/Decimal" }
+        days_to_expiry: { $ref: "#/components/schemas/Decimal" }
+        entry: { $ref: "#/components/schemas/Decimal" }
+        mark: { $ref: "#/components/schemas/Decimal" }
+        mark_source: { type: string, enum: [venue, mid, model, none] }
+        mark_ts: { $ref: "#/components/schemas/Nanos" }
+        vol: { $ref: "#/components/schemas/Decimal" }
+        forward: { $ref: "#/components/schemas/Decimal" }
+        rate: { $ref: "#/components/schemas/Decimal" }
+        delta_coin: { $ref: "#/components/schemas/Decimal" }
+        delta_adjusted_coin: { $ref: "#/components/schemas/Decimal" }
+        delta_usd: { $ref: "#/components/schemas/Decimal" }
+        gamma: { $ref: "#/components/schemas/Decimal" }
+        gamma_usd_1pct: { $ref: "#/components/schemas/Decimal" }
+        vega_usd: { $ref: "#/components/schemas/Decimal" }
+        theta_usd: { $ref: "#/components/schemas/Decimal" }
+        premium: { $ref: "#/components/schemas/Decimal" }
+        premium_usd: { $ref: "#/components/schemas/Decimal" }
+        value: { $ref: "#/components/schemas/Decimal" }
+        value_usd: { $ref: "#/components/schemas/Decimal" }
+        unrealized: { $ref: "#/components/schemas/Decimal" }
+        unrealized_usd: { $ref: "#/components/schemas/Decimal" }
+        realized: { $ref: "#/components/schemas/Decimal" }
+        realized_usd: { $ref: "#/components/schemas/Decimal" }
+        flags:
+          type: array
+          items: { $ref: "#/components/schemas/OptionRiskFlag" }
+        as_of: { $ref: "#/components/schemas/Nanos" }
+
+    OptionRiskAwaiting:
+      description: Past expiry with no price to settle at yet.
+      type: object
+      required: [account, venue, instrument_id, symbol, underlying, expiry, contracts]
+      properties:
+        account: { type: string }
+        venue: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        symbol: { type: string }
+        underlying: { type: string }
+        expiry: { $ref: "#/components/schemas/Nanos" }
+        contracts: { $ref: "#/components/schemas/Decimal" }
+
+    OptionRiskSettled:
+      description: |
+        A position booked at expiry. `late` says an index read over five minutes
+        past expiry; `from_last_seen` that the venue had already cleared the
+        position, so its size is the last one reported. `realized` is gross of
+        any delivery fee and null when the venue gave no entry.
+      type: object
+      required: [account, venue, instrument_id, symbol, underlying, expiry, strike, put_call, premium_unit, price, price_source, price_ts, settled_at, from_last_seen, late]
+      properties:
+        account: { type: string }
+        venue: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        symbol: { type: string }
+        underlying: { type: string }
+        expiry: { $ref: "#/components/schemas/Nanos" }
+        strike: { $ref: "#/components/schemas/Decimal" }
+        put_call: { type: string, enum: [call, put] }
+        premium_unit: { type: string, enum: [base, quote, unknown] }
+        units: { $ref: "#/components/schemas/Decimal" }
+        entry: { $ref: "#/components/schemas/Decimal" }
+        price: { $ref: "#/components/schemas/Decimal" }
+        price_source: { type: string, enum: [venue, index] }
+        price_ts: { $ref: "#/components/schemas/Nanos" }
+        settled_at: { $ref: "#/components/schemas/Nanos" }
+        from_last_seen: { type: boolean }
+        late: { type: boolean }
+        payoff: { $ref: "#/components/schemas/Decimal" }
+        proceeds: { $ref: "#/components/schemas/Decimal" }
+        proceeds_usd: { $ref: "#/components/schemas/Decimal" }
+        realized: { $ref: "#/components/schemas/Decimal" }
+        realized_usd: { $ref: "#/components/schemas/Decimal" }
+
+    OptionRiskTotals:
+      description: Coin figures are absent where the total mixes underlyings.
+      type: object
+      required: [delta_usd, gamma_usd_1pct, vega_usd, theta_usd, premium_usd, value_usd, unrealized_usd, realized_usd, positions, incomplete, settled]
+      properties:
+        delta_coin: { $ref: "#/components/schemas/Decimal" }
+        delta_adjusted_coin: { $ref: "#/components/schemas/Decimal" }
+        delta_usd: { $ref: "#/components/schemas/Decimal" }
+        gamma: { $ref: "#/components/schemas/Decimal" }
+        gamma_usd_1pct: { $ref: "#/components/schemas/Decimal" }
+        vega_usd: { $ref: "#/components/schemas/Decimal" }
+        theta_usd: { $ref: "#/components/schemas/Decimal" }
+        premium_usd: { $ref: "#/components/schemas/Decimal" }
+        value_usd: { $ref: "#/components/schemas/Decimal" }
+        unrealized_usd: { $ref: "#/components/schemas/Decimal" }
+        realized_usd: { $ref: "#/components/schemas/Decimal" }
+        positions: { type: integer }
+        incomplete: { type: integer }
+        settled: { type: integer }
+
+    OptionRisk:
+      type: object
+      required: [as_of, stale, realized_available, positions, awaiting_settlement, settled, by_underlying, by_expiry, total]
+      properties:
+        as_of: { $ref: "#/components/schemas/Nanos" }
+        stale:
+          type: boolean
+          description: A mark or greek is old or missing, a position is stale, or one awaits settlement.
+        realized_available: { type: boolean }
+        positions:
+          type: array
+          items: { $ref: "#/components/schemas/OptionRiskPosition" }
+        awaiting_settlement:
+          type: array
+          items: { $ref: "#/components/schemas/OptionRiskAwaiting" }
+        settled:
+          type: array
+          items: { $ref: "#/components/schemas/OptionRiskSettled" }
+        by_underlying:
+          type: array
+          items:
+            type: object
+            required: [underlying, totals]
+            properties:
+              underlying: { type: string }
+              totals: { $ref: "#/components/schemas/OptionRiskTotals" }
+        by_expiry:
+          type: array
+          description: By underlying, nearest first; a settled expiry stays with its realized P&L.
+          items:
+            type: object
+            required: [underlying, expiry, expiry_date, totals]
+            properties:
+              underlying: { type: string }
+              expiry: { $ref: "#/components/schemas/Nanos" }
+              expiry_date: { type: string }
+              days_to_expiry: { $ref: "#/components/schemas/Decimal" }
+              totals: { $ref: "#/components/schemas/OptionRiskTotals" }
+        total: { $ref: "#/components/schemas/OptionRiskTotals" }
+
+    OptionRiskCell:
+      type: object
+      required: [spot, vol, worst]
+      properties:
+        spot: { $ref: "#/components/schemas/Decimal", description: Percent move. }
+        vol: { $ref: "#/components/schemas/Decimal", description: Vol points. }
+        value_usd: { $ref: "#/components/schemas/Decimal" }
+        pnl_usd: { $ref: "#/components/schemas/Decimal" }
+        worst: { type: boolean }
+
+    OptionRiskScenarios:
+      type: object
+      required: [underlying, spot, vol, cells, base_value_usd, positions, excluded]
+      properties:
+        underlying: { type: string }
+        spot:
+          type: array
+          items: { $ref: "#/components/schemas/Decimal" }
+        vol:
+          type: array
+          items: { $ref: "#/components/schemas/Decimal" }
+        cells:
+          type: array
+          description: A row per vol, a column per spot.
+          items: { $ref: "#/components/schemas/OptionRiskCell" }
+        worst:
+          type: object
+          required: [spot, vol, pnl_usd]
+          properties:
+            spot: { $ref: "#/components/schemas/Decimal" }
+            vol: { $ref: "#/components/schemas/Decimal" }
+            pnl_usd: { $ref: "#/components/schemas/Decimal" }
+        base_value_usd: { $ref: "#/components/schemas/Decimal" }
+        positions: { type: integer }
+        excluded:
+          type: array
+          items: { $ref: "#/components/schemas/InstrumentId" }
+
+    OptionQuote:
+      description: |
+        One venue's listing. `bid`, `ask` and `mark` are in `premium_unit`;
+        the `_usd` figures are in the quote currency, a coin premium converted at
+        the venue's index. Sizes are the venue's quantity. IVs are ratios.
+        Venue greeks are in `greeks_unit`; model greeks are per one unit of the
+        underlying, in USD, vega per vol point and theta per day.
+      type: object
+      required: [venue, instrument_id, symbol, premium_unit, iv_source, greeks_source, ts_event]
+      properties:
+        venue: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        symbol: { type: string }
+        premium_unit: { $ref: "#/components/schemas/OptionUnit" }
+        bid: { $ref: "#/components/schemas/Decimal" }
+        ask: { $ref: "#/components/schemas/Decimal" }
+        bid_size: { $ref: "#/components/schemas/Decimal" }
+        ask_size: { $ref: "#/components/schemas/Decimal" }
+        mark: { $ref: "#/components/schemas/Decimal" }
+        bid_usd: { $ref: "#/components/schemas/Decimal" }
+        ask_usd: { $ref: "#/components/schemas/Decimal" }
+        mark_usd: { $ref: "#/components/schemas/Decimal" }
+        bid_iv: { $ref: "#/components/schemas/Decimal" }
+        ask_iv: { $ref: "#/components/schemas/Decimal" }
+        mark_iv: { $ref: "#/components/schemas/Decimal" }
+        iv_source: { $ref: "#/components/schemas/Figure" }
+        delta: { $ref: "#/components/schemas/Decimal" }
+        gamma: { $ref: "#/components/schemas/Decimal" }
+        vega: { $ref: "#/components/schemas/Decimal" }
+        theta: { $ref: "#/components/schemas/Decimal" }
+        greeks_source: { $ref: "#/components/schemas/Figure" }
+        greeks_unit: { $ref: "#/components/schemas/OptionUnit" }
+        open_interest:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the base asset.
+        volume_24h:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the base asset.
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    OptionBest:
+      type: object
+      required: [venue, usd]
+      properties:
+        venue: { type: string }
+        usd: { $ref: "#/components/schemas/Decimal" }
+        iv: { $ref: "#/components/schemas/Decimal" }
+        size: { $ref: "#/components/schemas/Decimal" }
+
+    OptionSide:
+      type: object
+      required: [venues]
+      properties:
+        venues: { type: array, items: { $ref: "#/components/schemas/OptionQuote" } }
+        best_bid: { $ref: "#/components/schemas/OptionBest" }
+        best_ask: { $ref: "#/components/schemas/OptionBest" }
+
+    OptionChain:
+      type: object
+      required: [underlying, expiry, date, as_of, seconds_to_expiry, forward_source, venues, rows]
+      properties:
+        underlying: { type: string }
+        expiry: { $ref: "#/components/schemas/Nanos" }
+        date: { type: string }
+        as_of: { $ref: "#/components/schemas/Nanos" }
+        years:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Act/365 to expiry.
+        seconds_to_expiry: { type: integer }
+        forward: { $ref: "#/components/schemas/Decimal" }
+        forward_source: { $ref: "#/components/schemas/ForwardSource" }
+        atm_strike:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The listed strike nearest the forward.
+        venues:
+          type: array
+          items:
+            type: object
+            required: [venue]
+            properties:
+              venue: { type: string }
+              index:
+                allOf: [{ $ref: "#/components/schemas/Decimal" }]
+                description: What the venue's coin premiums are converted at.
+              underlying:
+                allOf: [{ $ref: "#/components/schemas/Decimal" }]
+                description: The venue's own forward for this expiry.
+        rows:
+          type: array
+          description: Strike ascending.
+          items:
+            type: object
+            required: [strike, call, put]
+            properties:
+              strike: { $ref: "#/components/schemas/Decimal" }
+              call: { $ref: "#/components/schemas/OptionSide" }
+              put: { $ref: "#/components/schemas/OptionSide" }
+
+    OptionResidual:
+      type: object
+      required: [venue, quotes, mean]
+      properties:
+        venue: { type: string }
+        quotes: { type: integer }
+        mean:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Mid vol minus the fit; positive is rich.
+        rms: { $ref: "#/components/schemas/Decimal" }
+
+    OptionSurfaceExpiry:
+      type: object
+      required: [expiry, date, forward_source, fitted, smile, residuals]
+      properties:
+        expiry: { $ref: "#/components/schemas/Nanos" }
+        date: { type: string }
+        years: { $ref: "#/components/schemas/Decimal" }
+        forward: { $ref: "#/components/schemas/Decimal" }
+        forward_source: { $ref: "#/components/schemas/ForwardSource" }
+        atm_iv: { $ref: "#/components/schemas/Decimal" }
+        rr25:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Vol at the 25-delta call minus vol at the 25-delta put.
+        bf25:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Their mean minus the ATM vol.
+        call25_strike: { $ref: "#/components/schemas/Decimal" }
+        put25_strike: { $ref: "#/components/schemas/Decimal" }
+        fit:
+          type: object
+          required: [svi, quotes, dropped]
+          properties:
+            svi:
+              type: object
+              description: "Raw SVI in total variance: w(k) = a + b(ρ(k − m) + √((k − m)² + σ²)), k = ln(K/F)."
+              required: [a, b, rho, m, sigma]
+              properties:
+                a: { $ref: "#/components/schemas/Decimal" }
+                b: { $ref: "#/components/schemas/Decimal" }
+                rho: { $ref: "#/components/schemas/Decimal" }
+                m: { $ref: "#/components/schemas/Decimal" }
+                sigma: { $ref: "#/components/schemas/Decimal" }
+            quotes: { type: integer }
+            dropped: { type: integer, description: Stale, crossed, one-sided, too wide or too far out. }
+            svi_rmse: { $ref: "#/components/schemas/Decimal" }
+            ssvi_rmse: { $ref: "#/components/schemas/Decimal" }
+            inside:
+              allOf: [{ $ref: "#/components/schemas/Decimal" }]
+              description: Share of quotes the model prices inside bid/ask.
+        fitted:
+          type: array
+          description: The chosen model across the quoted strikes.
+          items:
+            type: object
+            required: [strike, vol]
+            properties:
+              strike: { $ref: "#/components/schemas/Decimal" }
+              vol: { $ref: "#/components/schemas/Decimal" }
+        smile:
+          type: array
+          description: Out-of-the-money quotes only, vols implied on each venue's own forward.
+          items:
+            type: object
+            required: [venue, strike, put_call, mid_iv]
+            properties:
+              venue: { type: string }
+              strike: { $ref: "#/components/schemas/Decimal" }
+              put_call: { type: string, enum: [call, put] }
+              mid_iv: { $ref: "#/components/schemas/Decimal" }
+              bid_iv: { $ref: "#/components/schemas/Decimal" }
+              ask_iv: { $ref: "#/components/schemas/Decimal" }
+        residuals:
+          type: array
+          items: { $ref: "#/components/schemas/OptionResidual" }
+
+    OptionSurface:
+      type: object
+      required: [underlying, as_of, model, calendar_repair, butterfly_points, calendar_points, venues, expiries]
+      properties:
+        underlying: { type: string }
+        as_of: { $ref: "#/components/schemas/Nanos" }
+        model: { type: string, enum: [ssvi, svi, none] }
+        rmse: { $ref: "#/components/schemas/Decimal" }
+        ssvi:
+          type: object
+          required: [rho, eta, gamma]
+          properties:
+            rho: { $ref: "#/components/schemas/Decimal" }
+            eta: { $ref: "#/components/schemas/Decimal" }
+            gamma: { $ref: "#/components/schemas/Decimal" }
+        calendar_repair: { type: boolean }
+        butterfly_points: { type: integer }
+        calendar_points: { type: integer }
+        venues:
+          type: array
+          description: Residuals over every expiry.
+          items: { $ref: "#/components/schemas/OptionResidual" }
+        expiries:
+          type: array
+          description: Nearest first.
+          items: { $ref: "#/components/schemas/OptionSurfaceExpiry" }
 
     StreamFrame:
       description: Anything the server sends; `type` selects the variant.

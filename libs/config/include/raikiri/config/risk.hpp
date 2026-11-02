@@ -26,6 +26,9 @@ struct RiskSettings {
     std::optional<std::int64_t> max_instrument_notional{};
     std::optional<std::int64_t> max_strategy_notional{};
     LotCeilingSettings max_lots{};
+    // options: premium per order in whole quote units, and open contracts per instrument in lots
+    std::optional<std::int64_t> max_option_premium{};
+    std::optional<std::int64_t> max_option_open_lots{};
 };
 
 // `strategies` is keyed by strategy name or id; a set field there replaces the default

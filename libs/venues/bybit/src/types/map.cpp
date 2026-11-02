@@ -401,6 +401,7 @@ std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixN
     }
     BalanceReport out{};
     out.asset = *asset;
+    out.wallet = WalletKind::Unified;
     // fields stay undef where bybit sent an empty string; availableToWithdraw is empty on unified accounts
     if (const auto total = to_amount(wire.wallet_balance); total.has_value()) {
         out.total = *total;

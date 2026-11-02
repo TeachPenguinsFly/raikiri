@@ -50,8 +50,10 @@ std::expected<std::span<const WirePosition>, WireError> parse_account_update(std
     });
 }
 
-std::expected<std::span<const WirePositionRisk>, WireError> parse_position_risk(std::string_view body,
-                                                                                std::span<WirePositionRisk> storage) {
+namespace {
+
+[[nodiscard]] std::expected<std::span<const WirePositionRisk>, WireError>
+read_position_rows(std::string_view body, std::span<WirePositionRisk> storage, std::string_view qty_key) {
     return guarded([&]() -> std::expected<std::span<const WirePositionRisk>, WireError> {
         auto array = session().open_array(body);
         if (!array.has_value()) {
@@ -68,7 +70,7 @@ std::expected<std::span<const WirePositionRisk>, WireError> parse_position_risk(
             }
             WirePositionRisk out{};
             const std::array<Wanted, 3> wanted{
-                {{"symbol", &out.symbol}, {"positionAmt", &out.position_amt}, {"entryPrice", &out.entry_price}}};
+                {{"symbol", &out.symbol}, {qty_key, &out.position_amt}, {"entryPrice", &out.entry_price}}};
             if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
                 return std::unexpected(ok.error());
             }
@@ -77,6 +79,18 @@ std::expected<std::span<const WirePositionRisk>, WireError> parse_position_risk(
         }
         return std::span<const WirePositionRisk>{storage.data(), count};
     });
+}
+
+} // namespace
+
+std::expected<std::span<const WirePositionRisk>, WireError> parse_position_risk(std::string_view body,
+                                                                                std::span<WirePositionRisk> storage) {
+    return read_position_rows(body, storage, "positionAmt");
+}
+
+std::expected<std::span<const WirePositionRisk>, WireError>
+parse_option_positions(std::string_view body, std::span<WirePositionRisk> storage) {
+    return read_position_rows(body, storage, "quantity");
 }
 
 } // namespace raikiri::venues::binance

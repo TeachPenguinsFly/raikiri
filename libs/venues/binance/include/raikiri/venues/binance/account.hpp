@@ -36,6 +36,35 @@ struct WireAccount {
 
 [[nodiscard]] std::expected<WireAccount, WireError> parse_account(std::string_view body, BalanceBuffer& storage);
 
+// one row of the `asset` array of /eapi/v1/account or /eapi/v1/marginAccount, which name these alike
+struct WireOptionAsset {
+    std::string_view asset;
+    std::string_view equity;
+    std::string_view available;
+    std::string_view unrealized_pnl; // unrealizedPNL
+};
+
+struct OptionAccountBuffer {
+    std::array<WireOptionAsset, k_max_balances> assets{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOptionAsset>, WireError>
+parse_option_account(std::string_view body, OptionAccountBuffer& storage);
+
+// a row of /eapi/v1/bill; only a row about a contract names its symbol
+struct WireOptionBill {
+    std::string_view symbol;
+};
+
+inline constexpr std::size_t k_max_option_bills = 1024;
+
+struct OptionBillBuffer {
+    std::array<WireOptionBill, k_max_option_bills> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireOptionBill>, WireError> parse_option_bill(std::string_view body,
+                                                                                          OptionBillBuffer& storage);
+
 // one row of /fapi/v1/income; income is signed as the account moved
 struct WireIncome {
     std::string_view symbol;

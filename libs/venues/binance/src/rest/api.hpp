@@ -36,20 +36,30 @@ class RestApi {
 public:
     explicit RestApi(VenueState& state)
         : state_{&state},
-          rest_{state.io, net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}} {}
+          rest_{state.io, net::RestConfig{.host = std::string{rest_host(state.testnet)}, .port = "443"}} {
+        if (state.market == MarketType::Option) {
+            option_rest_.emplace(
+                state.io,
+                net::RestConfig{.host = std::string{rest_host(state.testnet, MarketType::Option)}, .port = "443"});
+        }
+    }
 
-    void start() { rest_.start(); }
+    void start() { signed_rest().start(); }
 
-    void stop() { rest_.stop(); }
+    void stop() { signed_rest().stop(); }
 
     // keeps the socket warm so an order does not pay a reconnect
-    void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
+    void keepalive(UnixNanos now) noexcept { signed_rest().keepalive(now); }
+
+    [[nodiscard]] std::string_view order_path() const noexcept {
+        return option_rest_ ? ep::k_option_order : ep::k_order;
+    }
 
     // held by the state so every signer shares one builder and one clock offset
     [[nodiscard]] RequestBuilder& builder() noexcept { return state_->builder; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
-        return rest_.send(request, std::move(on_done));
+        return signed_rest().send(request, std::move(on_done));
     }
 
     // binance meters weight across every endpoint, so every call spends Shared
@@ -77,12 +87,13 @@ public:
     // cold path only: reconciliation reads and listen-key calls
     [[nodiscard]] std::expected<std::string, exec::VenueError> pull(const net::RestRequest& request,
                                                                     std::uint64_t timeout_ms = 10'000) {
-        return usable_body(await_response(*state_, rest_, request, timeout_ms));
+        return usable_body(await_response(*state_, signed_rest(), request, timeout_ms));
     }
 
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> open_order_reports(MarketType) {
         const auto request = builder().open_orders(state_->venue_now());
-        if (const auto allowed = spend(ep::k_open_orders, exec::RateClass::Poll); !allowed.has_value()) {
+        const auto path = option_rest_ ? ep::k_option_open_orders : ep::k_open_orders;
+        if (const auto allowed = spend(path, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         if (!request.has_value()) {
@@ -94,7 +105,7 @@ public:
         }
         static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
         auto& storage = *storage_owner;
-        const auto wire = parse_orders(*body, storage);
+        const auto wire = option_rest_ ? parse_option_orders(*body, storage) : parse_orders(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
@@ -109,6 +120,9 @@ public:
     }
 
     std::expected<exec::OrderStatusReport, exec::VenueError> query_order(const ExchangeClientOrderId& id, MarketType) {
+        if (option_rest_) {
+            return option_query_order(id);
+        }
         if (const auto allowed = spend(ep::k_order, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -138,6 +152,9 @@ public:
     }
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType, UnixNanos since) {
+        if (option_rest_) {
+            return option_fill_reports(since);
+        }
         if (const auto allowed = spend(ep::k_user_trades, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -167,6 +184,9 @@ public:
     }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
+        if (market == MarketType::Option) {
+            return option_balance_reports();
+        }
         if (const auto allowed = spend(ep::k_account, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -200,7 +220,41 @@ public:
         return out;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError> option_balance_reports() {
+        if (!option_rest_) {
+            return std::unexpected{exec::not_implemented("binance option balances on a gateway of another market")};
+        }
+        const auto path = state_->option_margin_account ? ep::k_option_margin_account : ep::k_option_account;
+        if (const auto allowed = spend(path, exec::RateClass::Poll); !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
+        const auto request = builder().option_account(state_->venue_now(), state_->option_margin_account);
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto body = usable_body(await_response(*state_, *option_rest_, *request, 10'000));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local const auto storage_owner = std::make_unique<OptionAccountBuffer>();
+        const auto wire = parse_option_account(*body, *storage_owner);
+        if (!wire.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        std::vector<BalanceReport> out;
+        out.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            if (const auto report = map_option_balance(entry, state_->clock->wall()); report.has_value()) {
+                out.push_back(*report);
+            }
+        }
+        return out;
+    }
+
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType, UnixNanos since) {
+        if (option_rest_) {
+            return std::unexpected{exec::not_implemented("binance options pay no funding")};
+        }
         if (const auto allowed = spend(ep::k_income, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -260,7 +314,8 @@ public:
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType) {
-        if (const auto allowed = spend(ep::k_position_risk, exec::RateClass::Poll); !allowed.has_value()) {
+        const auto path = option_rest_ ? ep::k_option_position : ep::k_position_risk;
+        if (const auto allowed = spend(path, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         const auto request = builder().position_risk(state_->venue_now());
@@ -272,7 +327,7 @@ public:
             return std::unexpected{body.error()};
         }
         std::array<WirePositionRisk, 512> storage{};
-        const auto wire = parse_position_risk(*body, storage);
+        const auto wire = option_rest_ ? parse_option_positions(*body, storage) : parse_position_risk(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
@@ -287,6 +342,86 @@ public:
     }
 
 private:
+    // an option gateway does everything signed on eapi and never opens the futures host
+    [[nodiscard]] net::RestClient& signed_rest() noexcept { return option_rest_ ? *option_rest_ : rest_; }
+
+    // the single-order read needs a symbol a client id does not carry, so the open orders answer it
+    std::expected<exec::OrderStatusReport, exec::VenueError> option_query_order(const ExchangeClientOrderId& id) {
+        const auto reports = open_order_reports(MarketType::Option);
+        if (!reports.has_value()) {
+            return std::unexpected{reports.error()};
+        }
+        for (const auto& report : *reports) {
+            if (report.exchange_client_order_id.view() == id.view()) {
+                return report;
+            }
+        }
+        return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
+    }
+
+    // a whole-account trade pull does not exist here: the bill and the held positions say which symbols to ask
+    std::expected<std::vector<exec::FillReport>, exec::VenueError> option_fill_reports(UnixNanos since) {
+        if (const auto allowed = spend(ep::k_option_bill, exec::RateClass::Poll); !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
+        const auto bill_request = builder().option_bill(since, state_->venue_now());
+        if (!bill_request.has_value()) {
+            return std::unexpected{build_failed(bill_request.error())};
+        }
+        const auto bill_body = pull(*bill_request);
+        if (!bill_body.has_value()) {
+            return std::unexpected{bill_body.error()};
+        }
+        static thread_local const auto bill_owner = std::make_unique<OptionBillBuffer>();
+        const auto bill = parse_option_bill(*bill_body, *bill_owner);
+        if (!bill.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bill.error()))};
+        }
+
+        if (const auto allowed = spend(ep::k_option_position, exec::RateClass::Poll); !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
+        const auto position_request = builder().position_risk(state_->venue_now());
+        if (!position_request.has_value()) {
+            return std::unexpected{build_failed(position_request.error())};
+        }
+        const auto position_body = pull(*position_request);
+        if (!position_body.has_value()) {
+            return std::unexpected{position_body.error()};
+        }
+        std::array<WirePositionRisk, 512> position_storage{};
+        const auto positions = parse_option_positions(*position_body, position_storage);
+        if (!positions.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+        }
+
+        static thread_local const auto trades_owner = std::make_unique<TradeBuffer>();
+        std::vector<exec::FillReport> out;
+        for (const auto symbol : option_traded_symbols(*bill, *positions)) {
+            if (const auto allowed = spend(ep::k_option_user_trades, exec::RateClass::Poll); !allowed.has_value()) {
+                return std::unexpected{allowed.error()};
+            }
+            const auto request = builder().user_trades(symbol, since, state_->venue_now());
+            if (!request.has_value()) {
+                return std::unexpected{build_failed(request.error())};
+            }
+            const auto body = pull(*request);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            const auto wire = parse_option_user_trades(*body, *trades_owner);
+            if (!wire.has_value()) {
+                return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+            }
+            for (const auto& entry : *wire) {
+                if (const auto report = map_user_trade(entry, state_->instruments); report.has_value()) {
+                    out.push_back(*report);
+                }
+            }
+        }
+        return out;
+    }
+
     [[nodiscard]] const Instrument* first_known_instrument() const noexcept {
         const auto all = state_->instruments.all();
         return all.empty() ? nullptr : &all.front();
@@ -313,6 +448,8 @@ private:
 
     VenueState* state_;
     net::RestClient rest_;
+    // eapi lives on its own host, for keys, orders and pulls alike; only an option gateway has it
+    std::optional<net::RestClient> option_rest_;
 };
 
 } // namespace raikiri::venues::binance::internal

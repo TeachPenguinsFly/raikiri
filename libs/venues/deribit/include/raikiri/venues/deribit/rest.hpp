@@ -91,6 +91,8 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     positions(MarketType market, std::string_view currency, UnixNanos now);
 
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> account_summary(std::string_view currency, UnixNanos now);
+
     // settlement entries only, newest first; a zero continuation asks for the first page
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     funding_settlements(std::string_view currency, UnixNanos since, std::uint64_t continuation, UnixNanos now);

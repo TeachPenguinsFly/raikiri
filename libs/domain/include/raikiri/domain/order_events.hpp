@@ -3,6 +3,7 @@
 // transition() is the only arbiter of what an event does to a status
 
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/common/fixed_string.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/error_class.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -57,6 +58,13 @@ transition(OrderStatus status,
            bool full_fill = false,
            OrderStatus resume = OrderStatus::Accepted) noexcept;
 
+// the currency of a fill's fee; empty is whatever the position's sums are counted in, as every
+// fill said before venues stated one
+using FeeAsset = FixedString<4>;
+
+// folded to upper; a code too long to hold reads "?", which matches no currency, so it is never summed
+[[nodiscard]] FeeAsset to_fee_asset(std::string_view text) noexcept;
+
 // pod embedded in shm exec_events and journal frames; 192 bytes
 struct OrderEvent {
     OrderEventType type{OrderEventType::Initialized};
@@ -72,16 +80,16 @@ struct OrderEvent {
     InstrumentId instrument{};
     ClientOrderId client_order_id{};
     ExchangeClientOrderId exchange_client_order_id{}; // 27 B
-    std::uint8_t pad2_[5]{};
-    ExchangeOrderId exchange_order_id{}; // 41 B
-    ExecId exec_id{};                    // 41 B
+    FeeAsset fee_asset{};                             // 5 B, where padding was, so the layout is unchanged
+    ExchangeOrderId exchange_order_id{};              // 41 B
+    ExecId exec_id{};                                 // 41 B
     std::uint8_t pad3_[2]{};
     std::int32_t reject_code{0};
 
     PriceTicks price{};   // limit price or fill price
     QtyLots qty{};        // order qty or fill qty
     QtyLots leaves_qty{}; // remaining after this event
-    FixedE9 fee{};        // venue fee for this fill (quote units, e9)
+    FixedE9 fee{};        // venue fee for this fill, e9, in fee_asset
     UnixNanos ts_event{}; // venue timestamp
     UnixNanos ts_init{};  // local ingest timestamp
 };

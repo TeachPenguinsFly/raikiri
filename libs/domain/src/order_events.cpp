@@ -7,6 +7,18 @@
 
 namespace raikiri {
 
+FeeAsset to_fee_asset(std::string_view text) noexcept {
+    if (text.empty()) {
+        return {};
+    }
+    if (const auto code = to_asset_code(text); code.has_value()) {
+        if (const auto held = FeeAsset::from(code->view()); held.has_value()) {
+            return *held;
+        }
+    }
+    return *FeeAsset::from("?");
+}
+
 namespace {
 
 // fixed width so two identities cannot collide

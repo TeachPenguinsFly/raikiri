@@ -24,14 +24,20 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         }
         ++state.private_frames_dropped;
     };
-    const auto event = parse_event(frame);
+    // the option stream may wrap a payload in stream and data; a bare one comes back unchanged
+    const auto payload = unwrap(frame);
+    if (!payload.has_value()) {
+        drop("unreadable envelope");
+        return;
+    }
+    const auto event = parse_event_payload(*payload);
     if (!event.has_value()) {
         drop("unreadable envelope");
         return;
     }
     switch (event->kind) {
     case EventKind::OrderUpdate: {
-        const auto wire = parse_order_update(frame);
+        const auto wire = parse_order_update(*payload);
         if (!wire.has_value()) {
             drop("an ORDER_TRADE_UPDATE whose body would not parse");
             return;

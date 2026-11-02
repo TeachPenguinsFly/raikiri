@@ -1557,16 +1557,9 @@ TEST(GateSignedRest, OptionsAreRefusedByNameOnEveryPath) {
     SignedRequestBuilder builder{signer};
     const auto table = table_with_btc();
     auto cmd = limit_cmd(MarketType::Option, Side::Buy, PriceTicks::from_raw(1), QtyLots::from_raw(1));
-
-    EXPECT_EQ(builder.create_order(cmd, table, k_sign_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.cancel_order(cmd, table, k_sign_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.amend_order(cmd, table, k_sign_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.open_orders(MarketType::Option, k_sign_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.my_trades(MarketType::Option, UnixNanos{}, k_sign_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.positions(MarketType::Option, k_sign_now).error(), BuildError::OptionsUnsupported);
-    EXPECT_EQ(builder.query_order(sample_coid(), MarketType::Option, k_sign_now).error(),
-              BuildError::OptionsUnsupported);
-    EXPECT_EQ(to_string(BuildError::OptionsUnsupported), "gate options order entry");
+    // the table holds no option, so the order is unknown rather than refused by market
+    EXPECT_EQ(builder.create_order(cmd, table, k_sign_now).error(), BuildError::UnknownInstrument);
+    EXPECT_EQ(to_string(BuildError::OptionsUnsupported), "not offered on gate options");
 
     // dated futures get their own refusal
     auto dated = cmd;
@@ -1992,9 +1985,8 @@ TEST(GateWsPrivate, PrivateEndpointsAndChannelsExistPerMarket) {
     EXPECT_EQ(user_trades_channel(MarketType::Perp), "futures.usertrades");
     EXPECT_EQ(orders_channel(MarketType::Spot), "spot.orders");
     EXPECT_EQ(user_trades_channel(MarketType::Spot), "spot.usertrades");
-    // options orders are not mapped, so no subscription is offered
-    EXPECT_TRUE(orders_channel(MarketType::Option).empty());
-    EXPECT_TRUE(user_trades_channel(MarketType::Option).empty());
+    EXPECT_EQ(orders_channel(MarketType::Option), "options.orders");
+    EXPECT_EQ(user_trades_channel(MarketType::Option), "options.usertrades");
 
     // spot uses another host as well as another path
     EXPECT_EQ(private_host(false, MarketType::Perp), stream_host(false));

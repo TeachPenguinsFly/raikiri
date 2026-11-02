@@ -27,11 +27,8 @@ constexpr std::uint32_t k_trade_stream_id = 2;
 // a request is never left without a verdict, even where config sets no answer timeout
 constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 
-[[nodiscard]] exec::VenueError market_data_only(MarketType market) {
-    return exec::VenueError::make(exec::ErrorClass::Terminal,
-                                  0,
-                                  market == MarketType::Option ? "binance options are market data only"
-                                                               : "binance spot is market data only");
+[[nodiscard]] exec::VenueError market_data_only() {
+    return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "binance spot is market data only");
 }
 
 // holds orders sent over rest and not yet answered on the user stream, and owns the listen key
@@ -55,7 +52,9 @@ public:
         if (!state_->signer.has_credentials() || state_->market_data_only() || state_->pulls_only) {
             return {};
         }
-        open_trade_socket();
+        if (state_->market == MarketType::Perp) {
+            open_trade_socket();
+        }
         return open_user_stream();
     }
 
@@ -105,7 +104,7 @@ public:
 
     void submit(const OrderCmd& cmd) noexcept override {
         if (state_->market_data_only()) {
-            emit(cmd, OrderEventType::Rejected, market_data_only(state_->market));
+            emit(cmd, OrderEventType::Rejected, market_data_only());
             return;
         }
         const auto* instrument = state_->instruments.find(cmd.instrument);
@@ -115,7 +114,7 @@ public:
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
-        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order); !allowed.has_value()) {
+        if (const auto allowed = api_.spend(api_.order_path(), exec::RateClass::Order); !allowed.has_value()) {
             emit(cmd, OrderEventType::Rejected, allowed.error());
             return;
         }
@@ -132,7 +131,7 @@ public:
 
     void cancel(const OrderCmd& cmd) noexcept override {
         if (state_->market_data_only()) {
-            emit(cmd, OrderEventType::CancelRejected, market_data_only(state_->market));
+            emit(cmd, OrderEventType::CancelRejected, market_data_only());
             return;
         }
         const auto* instrument = state_->instruments.find(cmd.instrument);
@@ -142,7 +141,7 @@ public:
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
-        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order); !allowed.has_value()) {
+        if (const auto allowed = api_.spend(api_.order_path(), exec::RateClass::Order); !allowed.has_value()) {
             emit(cmd, OrderEventType::CancelRejected, allowed.error());
             return;
         }
@@ -159,7 +158,7 @@ public:
 
     void amend(const OrderCmd& cmd) noexcept override {
         if (state_->market_data_only()) {
-            emit(cmd, OrderEventType::ModifyRejected, market_data_only(state_->market));
+            emit(cmd, OrderEventType::ModifyRejected, market_data_only());
             return;
         }
         const auto* instrument = state_->instruments.find(cmd.instrument);

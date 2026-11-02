@@ -74,6 +74,67 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
     });
 }
 
+std::expected<std::span<const WireOptionAsset>, WireError> parse_option_account(std::string_view body,
+                                                                                OptionAccountBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOptionAsset>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto assets = wire::req_array(*root, "asset");
+        if (!assets.has_value()) {
+            return std::unexpected(assets.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *assets) {
+            if (count == storage.assets.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object row;
+            if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireOptionAsset out{};
+            const std::array<Wanted, 4> wanted{{{"asset", &out.asset},
+                                                {"equity", &out.equity},
+                                                {"available", &out.available},
+                                                {"unrealizedPNL", &out.unrealized_pnl}}};
+            if (const auto ok = read_strings(row, wanted); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            storage.assets[count++] = out;
+        }
+        return std::span<const WireOptionAsset>{storage.assets.data(), count};
+    });
+}
+
+std::expected<std::span<const WireOptionBill>, WireError> parse_option_bill(std::string_view body,
+                                                                            OptionBillBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireOptionBill>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object row;
+            if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireOptionBill out{};
+            const std::array<Wanted, 1> wanted{{{"symbol", &out.symbol}}};
+            if (const auto ok = read_strings(row, wanted); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            storage.rows[count++] = out;
+        }
+        return std::span<const WireOptionBill>{storage.rows.data(), count};
+    });
+}
+
 std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body, IncomeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireIncome>, WireError> {
         auto array = session().open_array(body);

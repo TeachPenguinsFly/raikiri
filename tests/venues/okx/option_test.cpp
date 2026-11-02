@@ -1,12 +1,17 @@
 #include <raikiri/domain/asset_class.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/oms/attribution.hpp>
 #include <raikiri/options/chain.hpp>
 #include <raikiri/options/key.hpp>
+#include <raikiri/portfolio/reconcile.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/catalogue.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
 #include <raikiri/venues/okx/map.hpp>
 #include <raikiri/venues/okx/market_data.hpp>
+#include <raikiri/venues/okx/orders.hpp>
+#include <raikiri/venues/okx/positions.hpp>
+#include <raikiri/venues/okx/rest.hpp>
 #include <raikiri/venues/okx/ws.hpp>
 
 #include <gtest/gtest.h>
@@ -310,6 +315,101 @@ TEST(OkxOptionStream, FamiliesSubscribeByInstFamily) {
     EXPECT_EQ(frame->text,
               R"({"op":"subscribe","args":[{"channel":"opt-summary","instFamily":"BTC-USD"},)"
               R"({"channel":"option-trades","instType":"OPTION","instFamily":"BTC-USD_UM"}]})");
+}
+
+constexpr std::string_view k_coin_call = "BTC-USD-261009-86500-C";
+
+OrderCmd option_order(const exec::InstrumentTable& table) {
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.instrument = base_of(*table.find(k_coin_call)).id;
+    cmd.side = Side::Sell;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.flags = OrderFlags::PostOnly;
+    cmd.price = PriceTicks::from_raw(125); // 0.0125 btc at a 0.0001 tick
+    cmd.qty = QtyLots::from_raw(5);        // five contracts
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01JBZ3NDEKTSV4RRFFQ69G5OPT");
+    return cmd;
+}
+
+TEST(OkxOptionOrders, CreateTradesCrossInContractsAndRefusesAMarketOrder) {
+    const auto loaded = load_catalogue();
+    net::Signer signer;
+    signer.set_api_key("TESTKEY");
+    ASSERT_TRUE(signer.secret().assign("testsecret").has_value());
+    RequestBuilder builder{signer};
+    builder.set_passphrase("testpass");
+    const UnixNanos now{1'791'049'800'000'000'000ULL};
+
+    auto cmd = option_order(loaded->table);
+    const auto create = builder.create_order(cmd, loaded->table, now);
+    ASSERT_TRUE(create.has_value()) << to_string(create.error());
+    EXPECT_EQ(create->body,
+              R"({"instId":"BTC-USD-261009-86500-C","tdMode":"cross","clOrdId":"01JBZ3NDEKTSV4RRFFQ69G5OPT",)"
+              R"("side":"sell","ordType":"post_only","sz":"5","px":"0.0125"})");
+
+    cmd.flags = OrderFlags::None;
+    cmd.tif = TimeInForce::Ioc;
+    EXPECT_NE(builder.create_order(cmd, loaded->table, now)->body.find(R"("ordType":"ioc")"), std::string_view::npos);
+    cmd.order_type = OrderType::Market;
+    EXPECT_EQ(builder.create_order(cmd, loaded->table, now).error(), BuildError::UnsupportedMarket);
+
+    EXPECT_NE(builder.positions(MarketType::Option, now)->target.find("instType=OPTION"), std::string_view::npos);
+    EXPECT_NE(builder.open_orders(MarketType::Option, now)->target.find("instType=OPTION"), std::string_view::npos);
+}
+
+TEST(OkxOptionRecon, TheOrdersChannelFillAndThePulledHistoryAgreeWithThePosition) {
+    const auto loaded = load_catalogue();
+    const auto id = base_of(*loaded->table.find(k_coin_call)).id;
+    const UnixNanos now{1'791'049'821'000'000'000ULL};
+    oms::SeenFills seen;
+    QtyLots local = QtyLots::from_raw(0);
+
+    const auto frame = fixture("ws_orders_option_fill.json");
+    OrderBuffer order_storage;
+    const auto orders = parse_orders(frame, order_storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 1U);
+    const auto pushed = map_order_fill((*orders)[0], loaded->table, now);
+    ASSERT_TRUE(pushed.has_value());
+    EXPECT_EQ(pushed->fee_asset.view(), "BTC");
+    EXPECT_EQ(pushed->instrument, id);
+    EXPECT_EQ(pushed->side, Side::Sell);
+    EXPECT_EQ(pushed->liquidity, Liquidity::Maker);
+    EXPECT_EQ(pushed->price, PriceTicks::from_raw(125));
+    EXPECT_EQ(pushed->qty, QtyLots::from_raw(2));
+    EXPECT_EQ(pushed->leaves_qty, QtyLots::from_raw(3));
+    ASSERT_TRUE(seen.admit(pushed->exec_id.view(), now));
+    local = QtyLots::from_raw(local.raw - pushed->qty.raw);
+
+    const auto positions_body = fixture("rest_positions_option.json");
+    PositionBuffer position_storage;
+    const auto rows = parse_positions(positions_body, position_storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto venue = map_position((*rows)[0], loaded->table);
+    ASSERT_TRUE(venue.has_value());
+    EXPECT_EQ(venue->net_qty, QtyLots::from_raw(-3));
+    EXPECT_EQ(portfolio::reconcile_position(true, venue, local).verdict, portfolio::ReconVerdict::Break);
+
+    const auto fills_body = fixture("rest_fills_option.json");
+    FillBuffer fill_storage;
+    const auto fills = parse_fills(fills_body, fill_storage);
+    ASSERT_TRUE(fills.has_value());
+    std::vector<exec::FillReport> missed;
+    for (const auto& wire : *fills) {
+        if (const auto report = map_fill(wire, loaded->table);
+            report.has_value() && seen.admit(report->exec_id.view(), now)) {
+            missed.push_back(*report);
+        }
+    }
+    ASSERT_EQ(missed.size(), 1U);
+    EXPECT_EQ(missed[0].exec_id.view(), "9002");
+    EXPECT_EQ(missed[0].instrument, id);
+    EXPECT_EQ(missed[0].fee_asset.view(), "BTC");
+    local = QtyLots::from_raw(local.raw - missed[0].qty.raw);
+    EXPECT_EQ(portfolio::reconcile_position(true, venue, local).verdict, portfolio::ReconVerdict::Agree);
 }
 
 } // namespace

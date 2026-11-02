@@ -34,6 +34,9 @@ enum class RiskReject : std::uint8_t {
     OrderNotional,
     InstrumentNotional,
     StrategyNotional,
+    NoUnderlying,
+    OptionPremium,
+    OptionLots,
 };
 
 [[nodiscard]] constexpr std::string_view to_string(RiskReject why) noexcept {
@@ -71,6 +74,12 @@ enum class RiskReject : std::uint8_t {
         return "open notional limit per instrument";
     case StrategyNotional:
         return "open notional limit per strategy";
+    case NoUnderlying:
+        return "coin-premium option with no underlying price to value it";
+    case OptionPremium:
+        return "per-order option premium limit";
+    case OptionLots:
+        return "open option contracts limit per instrument";
     }
     return "unknown";
 }
@@ -112,6 +121,10 @@ struct RiskConfig {
     FixedE9 max_instrument_notional{};
     FixedE9 max_strategy_notional{};
 
+    // options only: premium in quote per order, e9, and worst-case open lots per instrument; undef is off
+    FixedE9 max_option_premium{};
+    QtyLots max_option_open_lots{};
+
     [[nodiscard]] constexpr bool prices_orders() const noexcept {
         return !max_order_notional.is_undef() || !max_instrument_notional.is_undef() ||
                !max_strategy_notional.is_undef();
@@ -134,6 +147,8 @@ struct Exposure {
     const Instrument* instrument{nullptr};
     PriceTicks bid{};
     PriceTicks ask{};
+    // quote per base unit, e9; values a coin-premium option, undef elsewhere
+    FixedE9 underlying_price{};
     // the strategy's open notional on its other instruments, e9 quote; undef when one has no quote
     FixedE9 strategy_open_notional{FixedE9::from_raw(0)};
 };
@@ -217,6 +232,11 @@ public:
                     RiskRefusal{.why = RiskReject::ShortLimit, .limit = config_.max_short_lots.raw, .value = after}};
             }
         }
+        if (cmd.instrument.market() == MarketType::Option) {
+            if (auto refused = check_option(cmd, exposure); !refused.has_value()) {
+                return refused;
+            }
+        }
         if (config_.prices_orders()) {
             return check_notional(cmd, exposure);
         }
@@ -224,6 +244,52 @@ public:
     }
 
 private:
+    [[nodiscard]] static RiskReject reject_of(NotionalError why) noexcept {
+        switch (why) {
+        case NotionalError::NoPrice:
+            return RiskReject::NoPrice;
+        case NotionalError::NoUnderlying:
+            return RiskReject::NoUnderlying;
+        case NotionalError::Unpriceable:
+            break;
+        }
+        return RiskReject::Unpriceable;
+    }
+
+    [[nodiscard]] std::expected<void, RiskRefusal> check_option(const OrderCmd& cmd,
+                                                                const Exposure& exposure) const noexcept {
+        const bool buy = cmd.side == Side::Buy;
+        const auto before = open_lots(exposure.position_lots, exposure.working_buy_lots, exposure.working_sell_lots);
+        const auto after = open_lots(exposure.position_lots,
+                                     buy ? exposure.working_buy_lots + cmd.qty : exposure.working_buy_lots,
+                                     buy ? exposure.working_sell_lots : exposure.working_sell_lots + cmd.qty);
+        if (after <= before) {
+            return {};
+        }
+        if (!config_.max_option_open_lots.is_undef() && after > config_.max_option_open_lots.raw) {
+            return std::unexpected{
+                RiskRefusal{.why = RiskReject::OptionLots, .limit = config_.max_option_open_lots.raw, .value = after}};
+        }
+        if (config_.max_option_premium.is_undef()) {
+            return {};
+        }
+        if (exposure.instrument == nullptr) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::Unpriceable}};
+        }
+        const auto at = cmd.order_type == OrderType::Limit ? cmd.price : buy ? exposure.ask : exposure.bid;
+        const auto premium = notional(*exposure.instrument, at, cmd.qty, exposure.underlying_price);
+        if (!premium.has_value()) {
+            return std::unexpected{RiskRefusal{.why = reject_of(premium.error())}};
+        }
+        if (const auto e9 = to_e9(*premium); e9 > config_.max_option_premium) {
+            return std::unexpected{RiskRefusal{.why = RiskReject::OptionPremium,
+                                               .limit = config_.max_option_premium.raw,
+                                               .value = e9.raw,
+                                               .order_notional = e9}};
+        }
+        return {};
+    }
+
     [[nodiscard]] std::expected<void, RiskRefusal> check_notional(const OrderCmd& cmd,
                                                                   const Exposure& exposure) const noexcept {
         if (exposure.instrument == nullptr) {
@@ -231,10 +297,9 @@ private:
         }
         const bool buy = cmd.side == Side::Buy;
         const auto at = cmd.order_type == OrderType::Limit ? cmd.price : buy ? exposure.ask : exposure.bid;
-        const auto order = notional(*exposure.instrument, at, cmd.qty);
+        const auto order = notional(*exposure.instrument, at, cmd.qty, exposure.underlying_price);
         if (!order.has_value()) {
-            return std::unexpected{RiskRefusal{
-                .why = order.error() == NotionalError::NoPrice ? RiskReject::NoPrice : RiskReject::Unpriceable}};
+            return std::unexpected{RiskRefusal{.why = reject_of(order.error())}};
         }
         // an order that does not grow the worst case is never held back, so a reduction always passes, even
         // one whose exit price puts it past the per-order cap the entry fitted under
@@ -253,7 +318,8 @@ private:
                                                .order_notional = order_e9}};
         }
         // the instrument's whole worst case is valued at this order's price
-        const auto held_e9 = to_e9(notional(*exposure.instrument, at, QtyLots::from_raw(after)).value_or(*order));
+        const auto held_e9 = to_e9(
+            notional(*exposure.instrument, at, QtyLots::from_raw(after), exposure.underlying_price).value_or(*order));
         if (!config_.max_instrument_notional.is_undef() && held_e9 > config_.max_instrument_notional) {
             return std::unexpected{RiskRefusal{.why = RiskReject::InstrumentNotional,
                                                .limit = config_.max_instrument_notional.raw,

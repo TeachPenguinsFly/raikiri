@@ -29,6 +29,7 @@ std::expected<void, WireError> read_order(wire::ondemand::object& obj, WireOrder
                                       {"fillPx", &out.fill_px},
                                       {"fillSz", &out.fill_sz},
                                       {"fillFee", &out.fill_fee},
+                                      {"fillFeeCcy", &out.fill_fee_ccy},
                                       {"tradeId", &out.trade_id},
                                       {"execType", &out.exec_type},
                                       {"cancelSource", &out.cancel_source},
@@ -65,6 +66,7 @@ std::expected<void, WireError> read_fill(wire::ondemand::object& obj, WireFill& 
                                       {"fillPx", &out.fill_px},
                                       {"fillSz", &out.fill_sz},
                                       {"fee", &out.fee},
+                                      {"feeCcy", &out.fee_ccy},
                                       {"execType", &out.exec_type}});
         !ok.has_value()) {
         return std::unexpected(ok.error());

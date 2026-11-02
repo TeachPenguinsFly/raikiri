@@ -38,6 +38,7 @@ struct ChildOrder {
     Side side{Side::Buy};
     std::int64_t lots{0};
     FixedE9 limit{};
+    ChildTif tif{ChildTif::Ioc};
 };
 
 enum class SinkError : std::uint8_t { NotRunning, Risk, Refused };
@@ -53,7 +54,16 @@ public:
     // the child's client order id, raw
     [[nodiscard]] virtual std::expected<std::uint64_t, SinkError> submit(const ChildOrder& order) noexcept = 0;
 
+    // the answer comes later as a close or a refusal; only that frees the child's slot
     virtual void cancel(std::uint64_t child_id) noexcept = 0;
+
+    // a new price at the child's own size; false when it cannot go, and a cancel and a new child do instead
+    [[nodiscard]] virtual bool modify(std::uint64_t child_id, InstrumentId instrument, FixedE9 limit) noexcept {
+        (void)child_id;
+        (void)instrument;
+        (void)limit;
+        return false;
+    }
 
 protected:
     ~OrderSink() = default;

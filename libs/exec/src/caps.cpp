@@ -11,19 +11,20 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Binance)] = {
         .venue = VenueId::Binance,
-        // spot and options are market data only
+        // spot is market data only; options trade over rest on eapi
         .markets = {.spot = true, .perp = true, .option = true},
         .ws_order_entry = true, // ws-fapi (futures) and ws-api (spot)
         .fix_order_entry = false,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,     // futures batch endpoints
-        .amend_order = true,      // futures LIMIT modify
+        .amend_order = true,      // futures LIMIT modify; eapi has none and refuses it per order
         .native_post_only = true, // timeInForce GTX
         .book_checksum = false,
-        .position_pull = {.perp = true},
-        .order_pull = {.perp = true},
-        .fill_pull = {.perp = true},
-        .balance_pull = {.perp = true},
+        .position_pull = {.perp = true, .option = true},
+        .order_pull = {.perp = true, .option = true},
+        .fill_pull = {.perp = true, .option = true},
+        // the options wallet is its own account on eapi
+        .balance_pull = {.perp = true, .option = true},
         .funding_charge = {.perp = true},
         // polled from /fapi/v1/ticker/24hr; the mark-price stream has no turnover
         .ticker_stats = true, // volume (base) / quoteVolume
@@ -42,9 +43,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true,
         .book_checksum = false,
         // the position endpoint has no spot category; spot inventory is the wallet balance
-        .position_pull = {.perp = true},
-        .order_pull = {.spot = true, .perp = true},
-        .fill_pull = {.spot = true, .perp = true},
+        .position_pull = {.perp = true, .option = true},
+        .order_pull = {.spot = true, .perp = true, .option = true},
+        .fill_pull = {.spot = true, .perp = true, .option = true},
         // unified account: one wallet behind both markets
         .balance_pull = {.spot = true, .perp = true},
         // spot transaction log carries fees only
@@ -65,9 +66,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true,
         .book_checksum = false,
         // a spot holding is not a position
-        .position_pull = {.perp = true},
-        .order_pull = {.spot = true, .perp = true},
-        .fill_pull = {.spot = true, .perp = true},
+        .position_pull = {.perp = true, .option = true},
+        .order_pull = {.spot = true, .perp = true, .option = true},
+        .fill_pull = {.spot = true, .perp = true, .option = true},
         // one trading account funds both markets
         .balance_pull = {.spot = true, .perp = true},
         // /api/v5/account/bills: type 8 funding, 2 fees; spot carries fees only
@@ -81,7 +82,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     };
     table[static_cast<std::size_t>(VenueId::Gate)] = {
         .venue = VenueId::Gate,
-        // options are market data only
+        // options trade over rest
         .markets = {.spot = true, .perp = true, .option = true},
         .ws_order_entry = true, // futures.order_place and spot ws
         .fix_order_entry = false,
@@ -91,11 +92,11 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true,
         .book_checksum = false,
         // a spot balance is not a position
-        .position_pull = {.perp = true},
-        .order_pull = {.spot = true, .perp = true},
-        .fill_pull = {.spot = true, .perp = true},
+        .position_pull = {.perp = true, .option = true},
+        .order_pull = {.spot = true, .perp = true, .option = true},
+        .fill_pull = {.spot = true, .perp = true, .option = true},
         // spot wallets are on another endpoint
-        .balance_pull = {.perp = true},
+        .balance_pull = {.perp = true, .option = true},
         // /futures/{settle}/account_book
         .funding_charge = {.perp = true},
         .ticker_stats = true, // volume_24h_base / volume_24h_quote
@@ -233,10 +234,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .amend_order = true,
         .native_post_only = true,
-        // spot is refused at the builder; balances are not implemented
+        // spot is refused at the builder
         .position_pull = {.perp = true, .future = true, .option = true},
         .order_pull = {.perp = true, .future = true, .option = true},
         .fill_pull = {.perp = true, .future = true, .option = true},
+        // the per-currency account backs futures too; read once, on the option gateway
+        .balance_pull = {.option = true},
         // transaction-log settlement rows: total_interest_pl is the session's funding, in the settlement coin
         .funding_charge = {.perp = true},
         .ticker_stats = true, // stats.volume (base) / stats.volume_usd (quote)

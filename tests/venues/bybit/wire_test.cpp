@@ -442,6 +442,7 @@ TEST(BybitBalances, WalletFiguresCrossIntoTheDomainAndSilenceStaysUndef) {
     const auto usdt = map_coin_balance((*coins)[1], ts);
     ASSERT_TRUE(usdt.has_value());
     EXPECT_EQ(usdt->asset.view(), "USDT");
+    EXPECT_EQ(usdt->wallet, WalletKind::Unified) << "one wallet behind every bybit gateway";
     EXPECT_EQ(usdt->total.raw, 1'284'307'194'650);
     EXPECT_EQ(usdt->unrealized.raw, -1'234'567'890);
     // undef: bybit publishes no per-coin availability on unified accounts

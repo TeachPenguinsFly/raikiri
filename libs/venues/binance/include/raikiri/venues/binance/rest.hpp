@@ -34,7 +34,7 @@ public:
     explicit RequestBuilder(const net::Signer& signer, MarketType market = MarketType::Perp) noexcept
         : signer_{&signer}, spot_{market == MarketType::Spot}, option_{market == MarketType::Option} {}
 
-    // the public reads; orders and the account stay on the futures api
+    // an option builder signs and reads on eapi; the rest stay on the futures api
 
     [[nodiscard]] net::RestRequest instruments() noexcept;
     // the settlement schedule is stated nowhere else
@@ -68,6 +68,10 @@ public:
 
     // wallet rows and the margin mode that qualifies them, in one answer
     [[nodiscard]] std::expected<net::RestRequest, BuildError> account(UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> option_account(UnixNanos now, bool margin = false);
+
+    // the account's money movements; each trade's premium and fee rows name its symbol
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> option_bill(UnixNanos since, UnixNanos now);
 
     // listen key: header auth only, unsigned
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_create();

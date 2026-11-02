@@ -148,9 +148,8 @@ std::expected<std::string_view, BuildError> td_mode_of(MarketType market) noexce
         return "cash";
     case MarketType::Perp:
     case MarketType::Future:
-        return "cross";
     case MarketType::Option:
-        return std::unexpected{BuildError::UnsupportedMarket};
+        return "cross";
     }
     return std::unexpected{BuildError::UnsupportedMarket};
 }
@@ -386,8 +385,11 @@ RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& t
         }
         break;
     case MarketType::Option:
-        // unreachable: td_mode_of already refused options
-        return std::unexpected{BuildError::UnsupportedMarket};
+        // an option takes limit types only, and reduceOnly is a margin and futures field
+        if (cmd.order_type == OrderType::Market) {
+            return std::unexpected{BuildError::UnsupportedMarket};
+        }
+        break;
     }
     json.obj_end();
 

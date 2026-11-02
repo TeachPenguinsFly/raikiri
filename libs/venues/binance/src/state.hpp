@@ -36,13 +36,15 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
-    // spot is market data only, on its own hosts and weight pool
+    // spot is market data only, on its own hosts and weight pool; options trade on theirs
     MarketType market;
     // binance counts one weight pool per ip, shared with the account poller
     exec::RateBudget* budget{nullptr};
     // set for an account poller: no sockets are opened
     bool pulls_only{false};
     std::uint64_t order_answer_timeout_ns{0};
+    // the option wallet read; the account mode decides which of the two answers
+    bool option_margin_account{false};
 
     net::IoContext io;
     net::Signer signer;
@@ -107,8 +109,8 @@ struct VenueState {
 
     [[nodiscard]] bool spot() const noexcept { return market == MarketType::Spot; }
 
-    // spot and options stream market data and take no orders
-    [[nodiscard]] bool market_data_only() const noexcept { return market != MarketType::Perp; }
+    // spot streams market data and takes no orders
+    [[nodiscard]] bool market_data_only() const noexcept { return market == MarketType::Spot; }
 
     void add_stream(std::string_view stream) {
         for (const auto& existing : desired_streams) {

@@ -40,6 +40,9 @@ struct VenueSettings {
     // needs no rest seed
     std::string market_data_feed;
 
+    // binance options: "margin" reads /eapi/v1/marginAccount; empty or "account" reads /eapi/v1/account
+    std::string option_account;
+
     std::vector<RateLimitSettings> limits;
     std::vector<RateCostSettings> costs;
     std::uint32_t default_cost{1};

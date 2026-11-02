@@ -381,6 +381,9 @@ std::optional<OrderEvent> map_order_fill(const WireOrder& wire, const exec::Inst
     out.qty = *qty;
     out.leaves_qty = *leaves;
     out.fee = fee_of(wire.fill_fee);
+    if (base.id.market() == MarketType::Option) {
+        out.fee_asset = to_fee_asset(wire.fill_fee_ccy);
+    }
     out.ts_event = ms_to_unix(wire.fill_ms != 0 ? wire.fill_ms : wire.u_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -505,6 +508,9 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     out.price = *price;
     out.qty = *qty;
     out.fee = fee_of(wire.fee);
+    if (base.id.market() == MarketType::Option) {
+        out.fee_asset = to_fee_asset(wire.fee_ccy);
+    }
     out.liquidity = liquidity_from(wire.exec_type);
     out.ts_venue = ms_to_unix(wire.fill_ms, UnixNanos{});
     return out;
@@ -539,6 +545,8 @@ std::optional<BalanceReport> map_balance(const WireCurrencyBalance& wire, Accoun
     }
     BalanceReport out{};
     out.asset = *asset;
+    // one trading account funds every market outside spot mode
+    out.wallet = mode == AccountMode::Spot ? WalletKind::Spot : WalletKind::Unified;
     // fields stay undef where okx sent an empty string
     if (const auto total = to_amount(wire.cash_bal); total.has_value()) {
         out.total = *total;

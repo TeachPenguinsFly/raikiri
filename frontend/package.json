@@ -13,7 +13,8 @@
     "preview": "npm run preview -w raikiri-terminal --",
     "types": "openapi-typescript ../schema/admin-api.yaml -o packages/terminal/src/api/types.ts",
     "typecheck": "tsc -b --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:mock": "playwright test -c playwright.mock.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

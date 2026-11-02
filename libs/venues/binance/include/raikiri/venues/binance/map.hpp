@@ -14,6 +14,9 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string_view>
+#include <vector>
 
 namespace raikiri::venues::binance {
 
@@ -49,6 +52,13 @@ map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table,
 // drops rows with no asset or all zeros and keeps undef figures;
 // multi_assets_margin must come from the same answer as the row
 [[nodiscard]] std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool multi_assets_margin);
+
+// equity as the total; nullopt for a nameless row or one with nothing held
+[[nodiscard]] std::optional<BalanceReport> map_option_balance(const WireOptionAsset& wire, UnixNanos ts_venue);
+
+// every option the bill or a held position names, once each; the views are into the two inputs' bodies
+[[nodiscard]] std::vector<std::string_view> option_traded_symbols(std::span<const WireOptionBill> bill,
+                                                                  std::span<const WirePositionRisk> positions);
 
 // a zero vol or an empty figure leaves that field undefined
 [[nodiscard]] std::optional<OptionGreeks>

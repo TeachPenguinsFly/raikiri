@@ -19,6 +19,7 @@ struct FillReport {
     QtyLots qty{};
     FixedE9 fee{};
     Liquidity liquidity{Liquidity::Unknown};
+    FeeAsset fee_asset{}; // rides padding
     UnixNanos ts_venue{};
 };
 

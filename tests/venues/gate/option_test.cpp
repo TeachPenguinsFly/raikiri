@@ -1,12 +1,19 @@
 #include <raikiri/domain/asset_class.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/net/signer.hpp>
+#include <raikiri/oms/attribution.hpp>
 #include <raikiri/options/chain.hpp>
 #include <raikiri/options/key.hpp>
+#include <raikiri/portfolio/reconcile.hpp>
+#include <raikiri/venues/gate/account.hpp>
 #include <raikiri/venues/gate/book.hpp>
 #include <raikiri/venues/gate/catalogue.hpp>
 #include <raikiri/venues/gate/envelope.hpp>
 #include <raikiri/venues/gate/map.hpp>
 #include <raikiri/venues/gate/market_data.hpp>
+#include <raikiri/venues/gate/orders.hpp>
+#include <raikiri/venues/gate/positions.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 #include <raikiri/venues/gate/ws.hpp>
 
@@ -243,6 +250,279 @@ TEST(GateOptionStream, SubscribesByUnderlyingOnTheOptionHost) {
     RequestBuilder builder;
     EXPECT_EQ(builder.option_contracts("BTC_USDT").target, "/api/v4/options/contracts?underlying=BTC_USDT");
     EXPECT_EQ(builder.option_underlyings().target, "/api/v4/options/underlyings");
+}
+
+constexpr std::string_view k_coid = "01JBZ3NDEKTSV4RRFFQ69G5OPT";
+constexpr UnixNanos k_now{1'792'465'880'000'000'000ULL};
+
+OrderCmd option_order(const exec::InstrumentTable& table) {
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.instrument = base_of(*table.find(k_call)).id;
+    cmd.side = Side::Sell;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.flags = OrderFlags::PostOnly;
+    cmd.price = PriceTicks::from_raw(1500); // at a tick of 1
+    cmd.qty = QtyLots::from_raw(5);         // five contracts of 0.01 btc each
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from(k_coid);
+    return cmd;
+}
+
+struct Signed {
+    net::Signer signer;
+    std::unique_ptr<SignedRequestBuilder> builder;
+
+    Signed() {
+        signer.set_api_key("TESTKEY");
+        EXPECT_TRUE(signer.secret().assign("testsecret").has_value());
+        builder = std::make_unique<SignedRequestBuilder>(signer);
+    }
+};
+
+TEST(GateOptionOrders, CreateSendsWholeSignedContractsUnderTheQuotedContractName) {
+    const auto loaded = load_catalogue();
+    Signed up;
+    auto& builder = *up.builder;
+
+    const auto create = builder.create_order(option_order(loaded->table), loaded->table, k_now);
+    ASSERT_TRUE(create.has_value()) << to_string(create.error());
+    EXPECT_EQ(create->method, net::HttpMethod::Post);
+    EXPECT_EQ(create->target, "/api/v4/options/orders");
+    EXPECT_EQ(create->body,
+              R"({"contract":"BTC_USDT-20261225-90000-C","size":-5,"price":"1500","tif":"poc",)"
+              R"("text":"t-01JBZ3NDEKTSV4RRFFQ69G5OPT"})");
+    // futures want the decimal header; options sizes are integers
+    for (const auto& header : create->headers) {
+        EXPECT_NE(header.name, k_size_decimal_header.name);
+    }
+
+    auto reduce = option_order(loaded->table);
+    reduce.flags = OrderFlags::ReduceOnly;
+    reduce.tif = TimeInForce::Ioc;
+    reduce.side = Side::Buy;
+    const auto closing = builder.create_order(reduce, loaded->table, k_now);
+    ASSERT_TRUE(closing.has_value());
+    EXPECT_EQ(closing->body,
+              R"({"contract":"BTC_USDT-20261225-90000-C","size":5,"price":"1500","tif":"ioc",)"
+              R"("text":"t-01JBZ3NDEKTSV4RRFFQ69G5OPT","reduce_only":true})");
+
+    auto market = option_order(loaded->table);
+    market.flags = OrderFlags::None;
+    market.order_type = OrderType::Market;
+    const auto taken = builder.create_order(market, loaded->table, k_now);
+    ASSERT_TRUE(taken.has_value());
+    EXPECT_NE(taken->body.find(R"("price":"0","tif":"ioc")"), std::string_view::npos);
+
+    auto fok = option_order(loaded->table);
+    fok.flags = OrderFlags::None;
+    fok.tif = TimeInForce::Fok;
+    EXPECT_EQ(builder.create_order(fok, loaded->table, k_now).error(), BuildError::TifUnsupported);
+}
+
+TEST(GateOptionOrders, CancelAndAmendNeedTheVenueIdWhichTheDocsAloneName) {
+    const auto loaded = load_catalogue();
+    Signed up;
+    auto& builder = *up.builder;
+
+    auto cmd = option_order(loaded->table);
+    EXPECT_EQ(builder.cancel_order(cmd, loaded->table, k_now).error(), BuildError::NoOrderTarget);
+    EXPECT_EQ(builder.amend_order(cmd, loaded->table, k_now).error(), BuildError::NoOrderTarget);
+
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("12345");
+    const auto cancel = builder.cancel_order(cmd, loaded->table, k_now);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(cancel->method, net::HttpMethod::Delete);
+    EXPECT_EQ(cancel->target, "/api/v4/options/orders/12345");
+
+    cmd.price = PriceTicks::from_raw(1661);
+    cmd.qty = QtyLots::from_raw(10);
+    const auto amend = builder.amend_order(cmd, loaded->table, k_now);
+    ASSERT_TRUE(amend.has_value());
+    EXPECT_EQ(amend->method, net::HttpMethod::Put);
+    EXPECT_EQ(amend->target, "/api/v4/options/orders/12345");
+    EXPECT_EQ(amend->body, R"({"contract":"BTC_USDT-20261225-90000-C","price":"1661","size":-10})");
+}
+
+TEST(GateOptionOrders, PullsGoToTheOptionPaths) {
+    Signed up;
+    auto& builder = *up.builder;
+    EXPECT_EQ(builder.open_orders(MarketType::Option, k_now)->target, "/api/v4/options/orders?status=open&limit=100");
+    EXPECT_EQ(builder.positions(MarketType::Option, k_now)->target, "/api/v4/options/positions");
+    EXPECT_EQ(builder.option_account(k_now)->target, "/api/v4/options/accounts");
+    EXPECT_EQ(builder.option_my_trades("BTC_USDT", UnixNanos{1'792'000'000'000'000'000ULL}, k_now)->target,
+              "/api/v4/options/my_trades?underlying=BTC_USDT&limit=100&from=1792000000");
+    EXPECT_EQ(builder.my_trades(MarketType::Option, UnixNanos{}, k_now).error(), BuildError::UnknownInstrument);
+    EXPECT_EQ(builder.query_order(*ExchangeClientOrderId::from(k_coid), MarketType::Option, k_now).error(),
+              BuildError::UnknownInstrument);
+    OrderCmd none{};
+    none.instrument = InstrumentId::make(VenueId::Gate, MarketType::Option, SymbolId{0});
+    none.target_exchange_order_id = *ExchangeOrderId::from("1");
+    exec::InstrumentTable table;
+    EXPECT_EQ(builder.cancel_batch(std::span{&none, 1}, table, k_now).error(), BuildError::OptionsUnsupported);
+}
+
+TEST(GateOptionStream, ThePrivateChannelsAreTheOptionOnes) {
+    EXPECT_EQ(orders_channel(MarketType::Option), "options.orders");
+    EXPECT_EQ(user_trades_channel(MarketType::Option), "options.usertrades");
+    EXPECT_EQ(private_host(false, MarketType::Option), "op-ws.gateio.live");
+    EXPECT_EQ(private_path(false, MarketType::Option), "/v4/ws");
+    EXPECT_EQ(private_path(true, MarketType::Option), "/v4/ws/options");
+}
+
+TEST(GateOptionStream, OnlyAnUntouchedOpenOrderIsTheAckAndAFinishedOneCloses) {
+    const auto loaded = load_catalogue();
+    const auto id = base_of(*loaded->table.find(k_call)).id;
+    const auto frame = fixture("ws_option_orders.json");
+    const auto event = parse_event(frame);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::OrderUpdate);
+
+    OrderBuffer storage;
+    const auto rows = parse_ws_orders(frame, storage, MarketType::Option);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+
+    const auto accepted = map_order_event((*rows)[0], loaded->table, k_now);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->type, OrderEventType::Accepted);
+    EXPECT_EQ(accepted->instrument, id);
+    EXPECT_EQ(accepted->side, Side::Sell);
+    EXPECT_TRUE(has_flag(accepted->flags, OrderFlags::PostOnly));
+    EXPECT_EQ(accepted->price, PriceTicks::from_raw(1500));
+    EXPECT_EQ(accepted->qty, QtyLots::from_raw(5));
+    EXPECT_EQ(accepted->leaves_qty, QtyLots::from_raw(5));
+    EXPECT_EQ(accepted->exchange_client_order_id.view(), k_coid);
+    EXPECT_EQ(accepted->exchange_order_id.view(), "2");
+    EXPECT_EQ(accepted->ts_event.ns, 1'792'465'880'100'000'000ULL);
+
+    // a partial fill is left to the user trade; its leaves still reach the memo
+    EXPECT_FALSE(map_order_event((*rows)[1], loaded->table, k_now).has_value());
+    EXPECT_EQ(order_leaves((*rows)[1], loaded->table), QtyLots::from_raw(4));
+
+    const auto cancelled = map_order_event((*rows)[2], loaded->table, k_now);
+    ASSERT_TRUE(cancelled.has_value());
+    EXPECT_EQ(cancelled->type, OrderEventType::Canceled);
+    EXPECT_EQ(cancelled->leaves_qty, QtyLots::from_raw(2));
+}
+
+TEST(GateOptionStream, TheUserTradeCarriesFeeOrderAndClientId) {
+    const auto loaded = load_catalogue();
+    const auto frame = fixture("ws_option_usertrades.json");
+    EXPECT_EQ(parse_event(frame)->kind, EventKind::UserTrade);
+    UserTradeBuffer storage;
+    const auto rows = parse_ws_user_trades(frame, storage, MarketType::Option);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto fill = map_user_trade((*rows)[0], loaded->table, QtyLots::from_raw(4), {}, k_now);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->type, OrderEventType::Filled);
+    EXPECT_EQ(fill->side, Side::Sell);
+    EXPECT_EQ(fill->qty, QtyLots::from_raw(1));
+    EXPECT_EQ(fill->leaves_qty, QtyLots::from_raw(4));
+    EXPECT_EQ(fill->fee, e9("0.045"));
+    EXPECT_EQ(fill->liquidity, Liquidity::Maker);
+    EXPECT_EQ(fill->exec_id.view(), "o-557");
+    EXPECT_EQ(fill->exchange_order_id.view(), "2");
+    EXPECT_EQ(fill->exchange_client_order_id.view(), k_coid);
+    EXPECT_EQ(fill->ts_event.ns, 1'792'465'881'583'000'000ULL);
+}
+
+TEST(GateOptionRecon, OpenOrdersMapThroughTheQuotedName) {
+    const auto loaded = load_catalogue();
+    const auto body = fixture("rest_option_open_orders.json");
+    OrderBuffer storage;
+    const auto rows = parse_rest_orders(body, storage, MarketType::Option);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto report = map_open_order((*rows)[0], loaded->table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(report->qty, QtyLots::from_raw(5));
+    EXPECT_EQ(report->leaves, QtyLots::from_raw(2));
+    EXPECT_EQ(report->exchange_client_order_id.view(), k_coid);
+
+    const auto placed = fixture("rest_option_order.json");
+    const auto order = parse_rest_order(placed, MarketType::Option);
+    ASSERT_TRUE(order.has_value());
+    EXPECT_EQ(order->state, WireOrderState::Open);
+    EXPECT_TRUE(order->accepted);
+}
+
+TEST(GateOptionRecon, ThePulledHistoryFindsTheFillTheSocketMissedAndThePositionThenAgrees) {
+    const auto loaded = load_catalogue();
+    const auto id = base_of(*loaded->table.find(k_call)).id;
+    oms::SeenFills seen;
+    QtyLots local = QtyLots::from_raw(0);
+
+    const auto frame = fixture("ws_option_usertrades.json");
+    UserTradeBuffer stream_storage;
+    const auto pushed = map_user_trade((*parse_ws_user_trades(frame, stream_storage, MarketType::Option))[0],
+                                       loaded->table,
+                                       QtyLots::from_raw(4),
+                                       {},
+                                       k_now);
+    ASSERT_TRUE(pushed.has_value());
+    ASSERT_TRUE(seen.admit(pushed->exec_id.view(), k_now));
+    local = QtyLots::from_raw(local.raw - pushed->qty.raw);
+
+    const auto positions_body = fixture("rest_option_positions.json");
+    PositionBuffer position_storage;
+    const auto rows = parse_positions(positions_body, position_storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto venue = map_position((*rows)[0], loaded->table);
+    ASSERT_TRUE(venue.has_value());
+    EXPECT_EQ(venue->net_qty, QtyLots::from_raw(-3));
+    EXPECT_EQ(venue->avg_entry, PriceTicks::from_raw(1500));
+    EXPECT_EQ(portfolio::reconcile_position(true, venue, local).verdict, portfolio::ReconVerdict::Break);
+
+    const auto history_body = fixture("rest_option_my_trades.json");
+    UserTradeBuffer history_storage;
+    const auto history = parse_rest_user_trades(history_body, history_storage, MarketType::Option);
+    ASSERT_TRUE(history.has_value());
+    ASSERT_EQ(history->size(), 2U);
+    std::vector<OrderEvent> missed;
+    for (const auto& wire : *history) {
+        if (const auto event = map_user_trade(wire, loaded->table, QtyLots::undef(), {}, k_now);
+            event.has_value() && seen.admit(event->exec_id.view(), k_now)) {
+            missed.push_back(*event);
+        }
+    }
+    ASSERT_EQ(missed.size(), 1U);
+    EXPECT_EQ(missed[0].exec_id.view(), "o-558");
+    EXPECT_EQ(missed[0].instrument, id);
+    EXPECT_EQ(missed[0].side, Side::Sell);
+    EXPECT_EQ(missed[0].qty, QtyLots::from_raw(2));
+    EXPECT_EQ(missed[0].liquidity, Liquidity::Taker);
+    // the rest history states no fee
+    EXPECT_EQ(missed[0].fee.raw, 0);
+    local = QtyLots::from_raw(local.raw - missed[0].qty.raw);
+    EXPECT_EQ(portfolio::reconcile_position(true, venue, local).verdict, portfolio::ReconVerdict::Agree);
+}
+
+TEST(GateOptionAccount, TheOptionsAccountIsItsOwnWalletAndNamesTheUser) {
+    const auto body = fixture("rest_option_account.json");
+    EXPECT_EQ(parse_account_user_id(body), 666U);
+    const auto wire = parse_futures_account(body);
+    ASSERT_TRUE(wire.has_value());
+    const auto balance = map_option_account(*wire, UnixNanos{9});
+    ASSERT_TRUE(balance.has_value());
+    EXPECT_EQ(balance->asset.view(), "USDT");
+    EXPECT_EQ(balance->wallet, WalletKind::Options);
+    EXPECT_EQ(balance->total, e9("1650.443022"));
+    EXPECT_EQ(balance->available, e9("1514.901537"));
+    EXPECT_EQ(balance->unrealized, e9("-0.7811"));
+    EXPECT_EQ(balance->ts_venue.ns, 9U);
+}
+
+TEST(GateOptionCaps, PullsAreDeclaredForOptions) {
+    const auto caps = exec::caps_of(VenueId::Gate);
+    EXPECT_TRUE(caps.position_pull.has(MarketType::Option));
+    EXPECT_TRUE(caps.order_pull.has(MarketType::Option));
+    EXPECT_TRUE(caps.fill_pull.has(MarketType::Option));
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Option));
+    EXPECT_FALSE(caps.funding_charge.has(MarketType::Option));
 }
 
 } // namespace

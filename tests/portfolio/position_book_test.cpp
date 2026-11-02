@@ -1,6 +1,9 @@
+#include <raikiri/domain/fill_report.hpp>
 #include <raikiri/portfolio/position_book.hpp>
 
 #include <gtest/gtest.h>
+
+#include <cstddef>
 
 namespace raikiri::portfolio {
 namespace {
@@ -165,6 +168,94 @@ TEST(PositionBook, RestoreRespectsTheCapacityTheBookWasGiven) {
     EXPECT_TRUE(book.restore({1, base.id}, {}));
     EXPECT_FALSE(book.restore({2, base.id}, {}));
 }
+
+OptionInstrument coin_option(ContractKind kind) {
+    OptionInstrument option{};
+    option.base.id = InstrumentId::make(VenueId::Okx, MarketType::Option, SymbolId{7});
+    option.base.underlying = *UnderlyingText::from("BTC");
+    option.base.kind = kind;
+    option.base.tick_size = FixedE9::from_raw(100'000);         // 0.0001 btc
+    option.base.lot_size = FixedE9::from_raw(k_e9);             // one contract
+    option.base.contract_value = FixedE9::from_raw(k_e9 / 100); // 0.01 btc
+    option.premium = OptionUnit::Base;
+    option.greeks = OptionUnit::Quote;
+    return option;
+}
+
+OrderEvent option_fill(const OptionInstrument& option, Side side, std::int64_t ticks, std::string_view fee_asset) {
+    OrderEvent event{};
+    event.type = OrderEventType::Filled;
+    event.side = side;
+    event.instrument = option.base.id;
+    event.client_order_id = ClientOrderId::make(1, 1);
+    event.price = PriceTicks::from_raw(ticks);
+    event.qty = QtyLots::from_raw(10);
+    event.fee = FixedE9::from_raw(2'000); // 0.000002 of whatever fee_asset says
+    event.fee_asset = to_fee_asset(fee_asset);
+    event.ts_event = UnixNanos{5};
+    return event;
+}
+
+TEST(PositionBook, ACoinFeeJoinsTheSumsOfAnOptionCountedInThatCoin) {
+    // the inverse kind is okx's spelling and the linear one deribit's; both are premium in the coin
+    for (const auto kind : {ContractKind::Inverse, ContractKind::Linear}) {
+        PositionBook book{4};
+        const Instrument instrument{coin_option(kind)};
+        const auto& option = std::get<OptionInstrument>(instrument);
+        EXPECT_EQ(settle_side(instrument), SettleSide::Base);
+
+        // bought at 0.05 btc, sold at 0.06 btc: ten contracts of 0.01 btc make 0.001 btc
+        const auto bought = book.on_fill(instrument, option_fill(option, Side::Buy, 500, "BTC"), QtyLots::from_raw(10));
+        ASSERT_TRUE(bought.has_value());
+        EXPECT_EQ(bought->unbooked_fee.raw, 0);
+        const auto sold = book.on_fill(instrument, option_fill(option, Side::Sell, 600, "BTC"), QtyLots::from_raw(10));
+        ASSERT_TRUE(sold.has_value());
+        EXPECT_EQ(sold->realized, FixedE9::from_raw(1'000'000));
+
+        const auto* held = book.find({1, option.base.id});
+        ASSERT_NE(held, nullptr);
+        EXPECT_EQ(held->realized(), FixedE9::from_raw(1'000'000));
+        EXPECT_EQ(held->fees(), FixedE9::from_raw(4'000));
+        EXPECT_EQ(held->net_realized(), FixedE9::from_raw(996'000));
+    }
+}
+
+TEST(PositionBook, AFeeInAnotherCurrencyIsLeftOutAndReported) {
+    PositionBook book{4};
+    const Instrument instrument{coin_option(ContractKind::Inverse)};
+    const auto& option = std::get<OptionInstrument>(instrument);
+    const auto applied = book.on_fill(instrument, option_fill(option, Side::Buy, 500, "BNB"), QtyLots::from_raw(10));
+    ASSERT_TRUE(applied.has_value());
+    EXPECT_EQ(applied->unbooked_fee, FixedE9::from_raw(2'000));
+    EXPECT_EQ(applied->open_fee.raw, 0);
+    EXPECT_EQ(book.find({1, option.base.id})->fees().raw, 0);
+    EXPECT_EQ(book.find({1, option.base.id})->qty(), QtyLots::from_raw(10));
+}
+
+TEST(PositionBook, AQuoteOptionTakesAUsdFeeAndRefusesTheCoin) {
+    auto quoted = coin_option(ContractKind::Linear);
+    quoted.premium = OptionUnit::Quote;
+    const Instrument instrument{quoted};
+    EXPECT_EQ(settle_side(instrument), SettleSide::Quote);
+    EXPECT_TRUE(fee_joins_sums(quoted.base, SettleSide::Quote, to_fee_asset("usdt")));
+    EXPECT_TRUE(fee_joins_sums(quoted.base, SettleSide::Quote, to_fee_asset("USDC")));
+    EXPECT_FALSE(fee_joins_sums(quoted.base, SettleSide::Quote, to_fee_asset("BTC")));
+    EXPECT_FALSE(fee_joins_sums(quoted.base, SettleSide::Base, to_fee_asset("USDT")));
+}
+
+TEST(PositionBook, AFillThatStatesNoCurrencyBooksAsItAlwaysDid) {
+    EXPECT_TRUE(to_fee_asset("").empty());
+    InstrumentBase perp{};
+    perp.kind = ContractKind::Linear;
+    EXPECT_TRUE(fee_joins_sums(perp, SettleSide::Quote, FeeAsset{}));
+    // too long to hold is held as a code no sum matches
+    EXPECT_EQ(to_fee_asset("FDUSDT").view(), "?");
+    EXPECT_FALSE(fee_joins_sums(perp, SettleSide::Quote, to_fee_asset("FDUSDT")));
+}
+
+static_assert(sizeof(OrderEvent) == 192);
+static_assert(offsetof(OrderEvent, exchange_order_id) == 56);
+static_assert(sizeof(FillReport) == 168);
 
 } // namespace
 } // namespace raikiri::portfolio

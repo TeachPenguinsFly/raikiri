@@ -11,14 +11,15 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-[[nodiscard]] std::expected<WireOrder, WireError> read_order(wire::ondemand::object& obj) {
+[[nodiscard]] std::expected<WireOrder, WireError> read_order(wire::ondemand::object& obj,
+                                                             std::string_view qty_key = "origQty") {
     WireOrder out{};
     const std::array<Wanted, 6> wanted{{{"symbol", &out.symbol},
                                         {"clientOrderId", &out.client_order_id},
                                         {"status", &out.status},
                                         {"side", &out.side},
                                         {"price", &out.price},
-                                        {"origQty", &out.orig_qty}}};
+                                        {qty_key, &out.orig_qty}}};
     if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
         return std::unexpected(ok.error());
     }
@@ -115,7 +116,10 @@ std::expected<WireOrder, WireError> parse_order(std::string_view body) {
     });
 }
 
-std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
+namespace {
+
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
+read_order_rows(std::string_view body, OrderBuffer& storage, std::string_view qty_key) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         auto& sess = session();
         auto array = sess.open_array(body);
@@ -131,7 +135,7 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
                 return std::unexpected(wire::map_error(ec));
             }
-            const auto order = read_order(obj);
+            const auto order = read_order(obj, qty_key);
             if (!order.has_value()) {
                 return std::unexpected(order.error());
             }
@@ -140,6 +144,16 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
         }
         return std::span<const WireOrder>{storage.orders.data(), count};
     });
+}
+
+} // namespace
+
+std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body, OrderBuffer& storage) {
+    return read_order_rows(body, storage, "origQty");
+}
+
+std::expected<std::span<const WireOrder>, WireError> parse_option_orders(std::string_view body, OrderBuffer& storage) {
+    return read_order_rows(body, storage, "quantity");
 }
 
 std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::string_view body, TradeBuffer& storage) {
@@ -177,6 +191,51 @@ std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::stri
             out.order_id = *order_id;
             out.time_ms = *time_ms;
             out.maker = *maker;
+            storage.trades[count] = out;
+            ++count;
+        }
+        return std::span<const WireTrade>{storage.trades.data(), count};
+    });
+}
+
+std::expected<std::span<const WireTrade>, WireError> parse_option_user_trades(std::string_view body,
+                                                                              TradeBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_trades) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireTrade out{};
+            std::string_view liquidity;
+            const std::array<Wanted, 7> wanted{{{"symbol", &out.symbol},
+                                                {"price", &out.price},
+                                                {"quantity", &out.qty},
+                                                {"fee", &out.commission},
+                                                {"quoteAsset", &out.commission_asset},
+                                                {"side", &out.side},
+                                                {"liquidity", &liquidity}}};
+            if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            const auto trade_id = wire::opt_u64(obj, "tradeId");
+            const auto order_id = wire::opt_u64(obj, "orderId");
+            const auto time_ms = wire::opt_u64(obj, "time");
+            if (!trade_id.has_value() || !order_id.has_value() || !time_ms.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.trade_id = *trade_id;
+            out.order_id = *order_id;
+            out.time_ms = *time_ms;
+            out.maker = liquidity == "MAKER";
             storage.trades[count] = out;
             ++count;
         }

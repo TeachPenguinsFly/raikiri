@@ -19,11 +19,12 @@ template <typename T> void overlay(std::optional<T>& into, const std::optional<T
 }
 
 [[nodiscard]] std::string check(const RiskSettings& settings) {
-    const std::array<std::pair<std::string_view, const std::optional<std::int64_t>*>, 4> positives{{
+    const std::array<std::pair<std::string_view, const std::optional<std::int64_t>*>, 5> positives{{
         {"max_order_notional", &settings.max_order_notional},
         {"max_instrument_notional", &settings.max_instrument_notional},
         {"max_strategy_notional", &settings.max_strategy_notional},
         {"max_price_band_bp", &settings.max_price_band_bp},
+        {"max_option_premium", &settings.max_option_premium},
     }};
     for (const auto& [name, slot] : positives) {
         const auto& value = *slot;
@@ -31,8 +32,11 @@ template <typename T> void overlay(std::optional<T>& into, const std::optional<T
             return std::string{name} + " must be positive and below " + std::to_string(k_max_whole);
         }
     }
-    for (const auto* lots :
-         {&settings.max_lots.spot, &settings.max_lots.perp, &settings.max_lots.future, &settings.max_lots.option}) {
+    for (const auto* lots : {&settings.max_lots.spot,
+                             &settings.max_lots.perp,
+                             &settings.max_lots.future,
+                             &settings.max_lots.option,
+                             &settings.max_option_open_lots}) {
         if (lots->has_value() && **lots <= 0) {
             return "a lot ceiling must be positive";
         }
@@ -88,6 +92,8 @@ RiskSettings risk_for(const RiskFile& file, std::string_view name, std::uint16_t
     internal::overlay(out.max_lots.perp, over.max_lots.perp);
     internal::overlay(out.max_lots.future, over.max_lots.future);
     internal::overlay(out.max_lots.option, over.max_lots.option);
+    internal::overlay(out.max_option_premium, over.max_option_premium);
+    internal::overlay(out.max_option_open_lots, over.max_option_open_lots);
     return out;
 }
 
@@ -104,6 +110,8 @@ oms::RiskConfig to_risk_config(const RiskSettings& settings) noexcept {
                     .perp = internal::lots(settings.max_lots.perp),
                     .future = internal::lots(settings.max_lots.future),
                     .option = internal::lots(settings.max_lots.option)};
+    out.max_option_premium = internal::whole_e9(settings.max_option_premium);
+    out.max_option_open_lots = internal::lots(settings.max_option_open_lots);
     return out;
 }
 

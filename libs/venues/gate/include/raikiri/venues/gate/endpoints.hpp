@@ -77,5 +77,11 @@ inline constexpr std::string_view k_server_time = "/api/v4/spot/time";
 inline constexpr std::string_view k_option_underlyings = "/api/v4/options/underlyings";
 // one underlying per call: ?underlying=BTC_USDT
 inline constexpr std::string_view k_option_contracts = "/api/v4/options/contracts";
+// post places; an order id appended, delete cancels and put amends
+inline constexpr std::string_view k_option_orders = "/api/v4/options/orders";
+// one underlying per call, like the contracts
+inline constexpr std::string_view k_option_my_trades = "/api/v4/options/my_trades";
+inline constexpr std::string_view k_option_positions = "/api/v4/options/positions";
+inline constexpr std::string_view k_option_accounts = "/api/v4/options/accounts";
 
 } // namespace raikiri::venues::gate::ep

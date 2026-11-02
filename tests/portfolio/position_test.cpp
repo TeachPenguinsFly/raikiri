@@ -204,5 +204,41 @@ TEST(Position, AFillWithoutAFeeChargesNothing) {
     EXPECT_EQ(position.net_realized().raw, 0);
 }
 
+// the row okx lists for BTC-USD-261009-75000-P: inverse, ctVal 1, ctMult 0.01, tick 0.0001, lot 1
+InstrumentBase okx_coin_option() {
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Okx, MarketType::Option, SymbolId{3});
+    base.kind = ContractKind::Inverse;
+    base.tick_size = *parse_decimal_e9("0.0001");
+    base.lot_size = *parse_decimal_e9("1");
+    base.contract_value = *parse_decimal_e9("0.01");
+    return base;
+}
+
+// by hand: 10 contracts of 0.01 btc are 0.1 btc of underlying, so each 0.01 btc of premium is 0.001 btc
+TEST(Position, AnOkxCoinOptionRoundTripIsPremiumTimesSizeInTheCoin) {
+    const auto base = okx_coin_option();
+    const auto lots = QtyLots::from_raw(10);
+    const auto fee = FixedE9::from_raw(0);
+
+    Position longed{{1, base.id}, UnixNanos{1}};
+    (void)longed.apply_fill(base, Side::Buy, lots, PriceTicks::from_raw(500), fee, UnixNanos{2});
+    EXPECT_EQ(longed.cost(), *parse_decimal_e9("0.005"));
+    EXPECT_EQ(longed.avg_entry_price(base), *parse_decimal_e9("0.05"));
+    EXPECT_EQ(unrealized_pnl(base, longed, PriceTicks::from_raw(550)), *parse_decimal_e9("0.0005"));
+    const auto closed = longed.apply_fill(base, Side::Sell, lots, PriceTicks::from_raw(600), fee, UnixNanos{3});
+    EXPECT_EQ(closed.realized, *parse_decimal_e9("0.001"));
+    EXPECT_EQ(longed.realized(), *parse_decimal_e9("0.001"));
+    EXPECT_TRUE(longed.flat());
+
+    Position shorted{{1, base.id}, UnixNanos{1}};
+    (void)shorted.apply_fill(base, Side::Sell, lots, PriceTicks::from_raw(600), fee, UnixNanos{2});
+    EXPECT_EQ(unrealized_pnl(base, shorted, PriceTicks::from_raw(550)), *parse_decimal_e9("0.0005"));
+    (void)shorted.apply_fill(base, Side::Buy, QtyLots::from_raw(4), PriceTicks::from_raw(500), fee, UnixNanos{3});
+    EXPECT_EQ(shorted.realized(), *parse_decimal_e9("0.0004"));
+    (void)shorted.apply_fill(base, Side::Buy, QtyLots::from_raw(6), PriceTicks::from_raw(700), fee, UnixNanos{4});
+    EXPECT_EQ(shorted.realized(), *parse_decimal_e9("-0.0002"));
+}
+
 } // namespace
 } // namespace raikiri::portfolio

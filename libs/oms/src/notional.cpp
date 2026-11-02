@@ -16,21 +16,20 @@ constexpr int128_t k_saturated = static_cast<int128_t>(~uint128_t{0} >> 1);
 } // namespace internal
 
 std::expected<Notional128, NotionalError>
-notional(const Instrument& instrument, PriceTicks price, QtyLots lots) noexcept {
+notional(const Instrument& instrument, PriceTicks price, QtyLots lots, FixedE9 underlying) noexcept {
     const auto& base = base_of(instrument);
     if (lots.is_undef() || base.lot_size.raw <= 0 || base.contract_value.is_undef() || base.contract_value.raw <= 0) {
         return std::unexpected{NotionalError::Unpriceable};
     }
     const auto* option = std::get_if<OptionInstrument>(&instrument);
-    if (option != nullptr ? option->premium != OptionUnit::Quote || base.kind != ContractKind::Linear
-                          : base.kind == ContractKind::Unknown) {
+    if (option != nullptr ? option->premium == OptionUnit::Unknown : base.kind == ContractKind::Unknown) {
         return std::unexpected{NotionalError::Unpriceable};
     }
     const int128_t magnitude = lots.raw < 0 ? -static_cast<int128_t>(lots.raw) : lots.raw;
     const auto units = internal::mul_saturated(magnitude, base.lot_size.raw);
-    // base units for linear, quote units for inverse
+    // base units for linear and every option, quote units for an inverse future or perp
     const auto face = internal::mul_saturated(units, base.contract_value.raw) / k_e9;
-    if (base.kind == ContractKind::Inverse) {
+    if (option == nullptr && base.kind == ContractKind::Inverse) {
         return Notional128{face};
     }
     if (price.is_undef() || price.raw <= 0) {
@@ -40,7 +39,14 @@ notional(const Instrument& instrument, PriceTicks price, QtyLots lots) noexcept 
     if (px <= 0) {
         return std::unexpected{NotionalError::Unpriceable};
     }
-    return Notional128{internal::mul_saturated(face, px) / k_e9};
+    const auto value = internal::mul_saturated(face, px) / k_e9;
+    if (option == nullptr || option->premium == OptionUnit::Quote) {
+        return Notional128{value};
+    }
+    if (underlying.is_undef() || underlying.raw <= 0) {
+        return std::unexpected{NotionalError::NoUnderlying};
+    }
+    return Notional128{internal::mul_saturated(value, underlying.raw) / k_e9};
 }
 
 FixedE9 to_e9(Notional128 value) noexcept {

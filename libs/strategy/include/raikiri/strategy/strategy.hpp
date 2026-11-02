@@ -41,6 +41,14 @@ public:
 
     virtual bool cancel(ClientOrderId id) noexcept = 0;
 
+    // a new price at the order's own size, answered by Updated or ModifyRejected; false when it did
+    // not go out, which is every venue's answer unless the kernel implements it
+    virtual bool amend(ClientOrderId id, PriceTicks price) noexcept {
+        (void)id;
+        (void)price;
+        return false;
+    }
+
     virtual void cancel_all(InstrumentId instrument) noexcept = 0;
 
     // Latest known state; nullopt before the first tick.

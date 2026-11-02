@@ -7,10 +7,13 @@ type Quote = components['schemas']['Quote']
 type Funding = components['schemas']['Funding']
 type Ticker = components['schemas']['Ticker']
 type Book = components['schemas']['Book']
+type Greeks = components['schemas']['Greeks']
 
 type Request =
-  | { channel: 'quotes' | 'funding' | 'ticker'; instruments: string[] }
+  | { channel: RowChannel; instruments: string[] }
   | { channel: 'book'; instrument: string; levels: number }
+
+type RowChannel = 'quotes' | 'funding' | 'ticker' | 'greeks'
 
 type Entry = { id: string; request: Request; listeners: Set<(frame: Frame) => void> }
 
@@ -158,9 +161,13 @@ function useFeed<T>(request: Request | null, read: (frame: Frame) => T | null): 
   return value
 }
 
-/** a frame carries only what moved, so rows merge by instrument */
+/** the server refuses more per subscription, so a long list goes as several */
+const k_max_instruments = 500
+
+/** a frame carries only what moved, so rows merge by instrument; frames landing inside one animation frame
+ *  are merged into one render */
 function useRows<T extends { instrument_id: string }>(
-  channel: 'quotes' | 'funding' | 'ticker',
+  channel: RowChannel,
   instruments: string[],
   read: (frame: Frame) => T[] | null,
 ): Map<string, T> {
@@ -171,15 +178,35 @@ function useRows<T extends { instrument_id: string }>(
   useEffect(() => {
     setRows((prev) => (prev.size === 0 ? prev : new Map()))
     if (signature === null) return
-    return socket.subscribe(JSON.parse(signature) as Request, (frame) => {
-      const next = read(frame)
-      if (next === null) return
+    const request = JSON.parse(signature) as { channel: RowChannel; instruments: string[] }
+    let pending = new Map<string, T>()
+    let scheduled = 0
+    const flush = () => {
+      scheduled = 0
+      const batch = pending
+      pending = new Map()
       setRows((prev) => {
         const merged = new Map(prev)
-        for (const row of next) merged.set(row.instrument_id, row)
+        for (const [id, row] of batch) merged.set(id, row)
         return merged
       })
-    })
+    }
+    const stops: Array<() => void> = []
+    for (let i = 0; i < request.instruments.length; i += k_max_instruments) {
+      const chunk = { channel: request.channel, instruments: request.instruments.slice(i, i + k_max_instruments) }
+      stops.push(
+        socket.subscribe(chunk, (frame) => {
+          const next = read(frame)
+          if (next === null) return
+          for (const row of next) pending.set(row.instrument_id, row)
+          if (scheduled === 0) scheduled = requestAnimationFrame(flush)
+        }),
+      )
+    }
+    return () => {
+      cancelAnimationFrame(scheduled)
+      for (const stop of stops) stop()
+    }
   }, [signature])
 
   return rows
@@ -188,6 +215,7 @@ function useRows<T extends { instrument_id: string }>(
 const readQuotes = (frame: Frame) => (frame.type === 'quotes' ? frame.quotes : null)
 const readFunding = (frame: Frame) => (frame.type === 'funding' ? frame.funding : null)
 const readTicker = (frame: Frame) => (frame.type === 'ticker' ? frame.ticker : null)
+const readGreeks = (frame: Frame) => (frame.type === 'greeks' ? frame.greeks : null)
 const readBook = (frame: Frame) => (frame.type === 'book' ? frame.book : null)
 
 export function useQuotes(instruments: string[]): Map<string, Quote> {
@@ -200,6 +228,10 @@ export function useFunding(instruments: string[]): Map<string, Funding> {
 
 export function useTicker(instruments: string[]): Map<string, Ticker> {
   return useRows('ticker', instruments, readTicker)
+}
+
+export function useGreeks(instruments: string[]): Map<string, Greeks> {
+  return useRows('greeks', instruments, readGreeks)
 }
 
 export function useBook(instrument: string | null, levels: number): Book | null {

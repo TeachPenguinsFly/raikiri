@@ -38,4 +38,8 @@ struct WirePositionRisk {
 [[nodiscard]] std::expected<std::span<const WirePositionRisk>, WireError>
 parse_position_risk(std::string_view body, std::span<WirePositionRisk> storage);
 
+// /eapi/v1/position: quantity is signed, in contracts
+[[nodiscard]] std::expected<std::span<const WirePositionRisk>, WireError>
+parse_option_positions(std::string_view body, std::span<WirePositionRisk> storage);
+
 } // namespace raikiri::venues::binance

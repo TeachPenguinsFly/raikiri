@@ -103,6 +103,10 @@ public:
         return api_.position_reports(market);
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
+        return api_.balance_reports(market);
+    }
+
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 

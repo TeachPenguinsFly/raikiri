@@ -805,10 +805,7 @@ TEST(OkxRest, EveryMarketIsAnsweredAndOptionsRefuseByName) {
     EXPECT_EQ(td_mode_of(MarketType::Perp).value(), "cross");
     EXPECT_EQ(td_mode_of(MarketType::Future).value(), "cross");
 
-    // options are refused by name
-    const auto option = td_mode_of(MarketType::Option);
-    ASSERT_FALSE(option.has_value());
-    EXPECT_EQ(option.error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(td_mode_of(MarketType::Option).value(), "cross");
 }
 
 TEST(OkxRest, CancelAndAmendTargetTheOrderByWhicheverIdIsPresent) {

@@ -16,7 +16,7 @@ std::string describe(const RiskRefusal& refusal) {
     std::string out{to_string(refusal.why)};
     if (refusal.limit != 0) {
         const bool lots = refusal.why == RiskReject::QtyTooLarge || refusal.why == RiskReject::LongLimit ||
-                          refusal.why == RiskReject::ShortLimit;
+                          refusal.why == RiskReject::ShortLimit || refusal.why == RiskReject::OptionLots;
         const auto shown = [&](std::int64_t v) { return lots ? std::to_string(v) + " lots" : internal::quote(v); };
         out += " " + shown(refusal.limit) + ", would reach " + shown(refusal.value);
     }

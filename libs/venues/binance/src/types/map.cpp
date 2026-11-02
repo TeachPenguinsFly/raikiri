@@ -3,6 +3,7 @@
 #include <raikiri/options/convention.hpp>
 #include <raikiri/venues/binance/map.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <optional>
 
@@ -370,7 +371,7 @@ namespace {
     if (text == "PARTIALLY_FILLED") {
         return OrderStatus::PartiallyFilled;
     }
-    if (text == "CANCELED") {
+    if (text == "CANCELED" || text == "CANCELLED") {
         return OrderStatus::Canceled;
     }
     if (text == "EXPIRED") {
@@ -401,6 +402,33 @@ map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, 
     out.ts_init = ts_init;
     return out;
 }
+
+namespace {
+
+// tradeId counts per symbol on options, and the order id alone repeats across a partial fill;
+// the two together name one execution across the account, and both a push and a pull carry them
+[[nodiscard]] ExecId option_exec_id(std::uint64_t trade_id, std::uint64_t order_id) noexcept {
+    std::array<char, 48> text{};
+    const auto end = text.data() + text.size();
+    auto [stop, ec] = std::to_chars(text.data(), end, trade_id);
+    if (ec != std::errc{} || stop == end) {
+        return {};
+    }
+    *stop++ = '-';
+    const auto [tail, tail_ec] = std::to_chars(stop, end, order_id);
+    if (tail_ec != std::errc{}) {
+        return {};
+    }
+    const auto id = ExecId::from({text.data(), static_cast<std::size_t>(tail - text.data())});
+    return id.has_value() ? *id : ExecId{};
+}
+
+// negative is a charge on eapi, where the book counts a charge as positive
+[[nodiscard]] FixedE9 option_fee(std::string_view text) {
+    return FixedE9::from_raw(-to_e9(text).raw);
+}
+
+} // namespace
 
 std::optional<OrderEvent>
 map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
@@ -450,11 +478,16 @@ map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table,
         out.price = PriceTicks::from_raw(*price);
         out.qty = QtyLots::from_raw(*qty);
         out.leaves_qty = QtyLots::from_raw(cum.has_value() && total.has_value() ? *total - *cum : 0);
-        out.fee = to_e9(wire.commission);
         out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;
+        const bool option = base.id.market() == MarketType::Option;
+        out.fee = option ? option_fee(wire.commission) : to_e9(wire.commission);
+        if (option) {
+            out.fee_asset = to_fee_asset(wire.commission_asset);
+            out.exec_id = option_exec_id(wire.trade_id, wire.order_id);
+        }
         std::array<char, 24> exec_text{};
         if (const auto [stop, ec] = std::to_chars(exec_text.data(), exec_text.data() + exec_text.size(), wire.trade_id);
-            ec == std::errc{}) {
+            !option && ec == std::errc{}) {
             if (const auto id = ExecId::from({exec_text.data(), static_cast<std::size_t>(stop - exec_text.data())});
                 id.has_value()) {
                 out.exec_id = *id;
@@ -523,11 +556,16 @@ std::optional<exec::FillReport> map_user_trade(const WireTrade& wire, const exec
     out.side = side_from(wire.side);
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
-    out.fee = to_e9(wire.commission);
     out.liquidity = wire.maker ? Liquidity::Maker : Liquidity::Taker;
+    const bool option = base.id.market() == MarketType::Option;
+    out.fee = option ? option_fee(wire.commission) : to_e9(wire.commission);
+    if (option) {
+        out.fee_asset = to_fee_asset(wire.commission_asset);
+        out.exec_id = option_exec_id(wire.trade_id, wire.order_id);
+    }
     std::array<char, 24> text{};
     if (const auto [stop, ec] = std::to_chars(text.data(), text.data() + text.size(), wire.trade_id);
-        ec == std::errc{}) {
+        !option && ec == std::errc{}) {
         if (const auto id = ExecId::from({text.data(), static_cast<std::size_t>(stop - text.data())}); id.has_value()) {
             out.exec_id = *id;
         }
@@ -555,6 +593,32 @@ namespace {
 }
 
 } // namespace
+
+std::optional<BalanceReport> map_option_balance(const WireOptionAsset& wire, UnixNanos ts_venue) {
+    const auto asset = to_asset_code(wire.asset);
+    if (!asset.has_value() || asset->empty()) {
+        return std::nullopt;
+    }
+    const auto equity = to_amount(wire.equity);
+    const auto unrealized = to_amount(wire.unrealized_pnl);
+    if (equity.has_value() && equity->raw == 0 && !has_value_other_than_zero(unrealized)) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    out.wallet = WalletKind::Options;
+    if (equity.has_value()) {
+        out.total = *equity;
+    }
+    if (const auto available = to_amount(wire.available); available.has_value()) {
+        out.available = *available;
+    }
+    if (unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    out.ts_venue = ts_venue;
+    return out;
+}
 
 std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool multi_assets_margin) {
     const auto asset = to_asset_code(wire.asset);
@@ -585,6 +649,25 @@ std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool mult
         }
     }
     out.ts_venue = ms_to_unix(wire.update_ms, UnixNanos{0});
+    return out;
+}
+
+std::vector<std::string_view> option_traded_symbols(std::span<const WireOptionBill> bill,
+                                                    std::span<const WirePositionRisk> positions) {
+    std::vector<std::string_view> out;
+    out.reserve(bill.size() + positions.size());
+    for (const auto& row : bill) {
+        if (!row.symbol.empty()) {
+            out.push_back(row.symbol);
+        }
+    }
+    for (const auto& row : positions) {
+        if (!row.symbol.empty()) {
+            out.push_back(row.symbol);
+        }
+    }
+    std::ranges::sort(out);
+    out.erase(std::ranges::unique(out).begin(), out.end());
     return out;
 }
 

@@ -41,6 +41,7 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
     state->budget = config.budget;
     state->pulls_only = config.pulls_only;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
+    state->option_margin_account = config.option_account == "margin";
 
     const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env}
                                        .key([&](std::string_view value) { state->signer.set_api_key(value); })
@@ -49,13 +50,16 @@ exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink
 
     exec::VenueAdapter adapter{};
     adapter.credential_errors = config::describe(credential_errors);
+    if (!config.option_account.empty() && config.option_account != "account" && config.option_account != "margin") {
+        adapter.credential_errors.emplace_back("option_account must be account or margin");
+    }
     adapter.caps = exec::caps_of(VenueId::Binance);
-    const bool spot = config.market == MarketType::Spot;
     adapter.clock.emplace(
-        exec::ServerTimeQuery{
-            .host = std::string{ep::rest_host(config.testnet, spot ? MarketType::Spot : MarketType::Perp)},
-            .target = spot ? "/api/v3/time" : "/fapi/v1/time",
-            .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
+        exec::ServerTimeQuery{.host = std::string{ep::rest_host(config.testnet, config.market)},
+                              .target = std::string{config.market == MarketType::Spot     ? ep::k_spot_server_time
+                                                    : config.market == MarketType::Option ? ep::k_option_server_time
+                                                                                          : ep::k_server_time},
+                              .parse = [](std::string_view body) { return exec::ms_to_ns(parse_server_time(body)); }},
         std::shared_ptr<std::int64_t>{state, &state->clock_offset_ns});
     adapter.data = make_data_client(state);
     adapter.execution = make_execution_client(state);

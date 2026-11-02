@@ -101,6 +101,7 @@ TEST(Malformed, Deribit) {
                     (void)parse_response(f);
                     (void)parse_order_ack(f, trades);
                 }},
+               {"rest_account_summary*", [](std::string_view f) { (void)parse_account_summary(f); }},
                {"rest_error_*", [](std::string_view f) { (void)parse_response(f); }},
            });
 }

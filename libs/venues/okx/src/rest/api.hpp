@@ -47,9 +47,8 @@ public:
         case MarketType::Spot:
         case MarketType::Perp:
         case MarketType::Future:
-            return std::nullopt;
         case MarketType::Option:
-            return exec::not_implemented("okx options order entry");
+            return std::nullopt;
         }
         return exec::not_implemented("okx order entry for an unknown market");
     }
@@ -201,13 +200,12 @@ public:
         switch (market) {
         case MarketType::Perp:
         case MarketType::Future:
+        case MarketType::Option:
             break;
         case MarketType::Spot:
             // positions refuses instType SPOT; spot inventory is a per-currency balance
             return std::unexpected{exec::not_implemented("okx spot positions: the venue reports balances, not "
                                                          "positions")};
-        case MarketType::Option:
-            return std::unexpected{exec::not_implemented("okx options order entry")};
         }
         const auto body = pull(builder_.positions(market, state_->venue_now()));
         if (!body.has_value()) {

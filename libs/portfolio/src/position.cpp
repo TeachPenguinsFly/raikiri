@@ -55,9 +55,8 @@ Position::Applied Position::apply_fill(
         const std::int64_t sum = detail::checked_add(released, proceeds);
 
         // a long inverse position's base value shrinks as price rises
-        realized_ = FixedE9::from_raw(
-            detail::checked_add(realized_.raw, base.kind == ContractKind::Inverse ? sum : -sum));
-        out.realized = FixedE9::from_raw(base.kind == ContractKind::Inverse ? sum : -sum);
+        realized_ = FixedE9::from_raw(detail::checked_add(realized_.raw, values_inverse(base) ? sum : -sum));
+        out.realized = FixedE9::from_raw(values_inverse(base) ? sum : -sum);
         cost_ = FixedE9::from_raw(detail::checked_sub(cost_.raw, released));
     }
 
@@ -83,7 +82,7 @@ FixedE9 Position::avg_entry_price(const InstrumentBase& base) const noexcept {
         return FixedE9::undef();
     }
     const auto abs_cost = magnitude(cost_.raw);
-    if (base.kind == ContractKind::Inverse) {
+    if (values_inverse(base)) {
         // value = units * cv / price, so price = units * cv / value.
         const auto units = detail::checked_mul(magnitude(qty_.raw), base.lot_size.raw);
         return FixedE9::from_raw(mul_div(units, base.contract_value.raw, abs_cost));
@@ -106,8 +105,8 @@ FixedE9 unrealized_pnl(const InstrumentBase& base, const Position& position, Pri
     }
     const std::int64_t marked = qty.raw > 0 ? value.raw : -value.raw;
     const std::int64_t cost = position.cost().raw;
-    return FixedE9::from_raw(base.kind == ContractKind::Inverse ? detail::checked_sub(cost, marked)
-                                                                : detail::checked_sub(marked, cost));
+    return FixedE9::from_raw(values_inverse(base) ? detail::checked_sub(cost, marked)
+                                                  : detail::checked_sub(marked, cost));
 }
 
 } // namespace raikiri::portfolio

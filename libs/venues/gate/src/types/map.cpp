@@ -500,8 +500,21 @@ bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) noexcept 
 
 } // namespace
 
+namespace {
+
+// an option comes over the wire as BTC_USDT-... and is held as BTC-...
+[[nodiscard]] const Instrument* find_contract(const exec::InstrumentTable& table, std::string_view contract) {
+    if (const auto* instrument = table.find(contract); instrument != nullptr) {
+        return instrument;
+    }
+    const auto symbol = option_symbol(contract);
+    return symbol.has_value() ? table.find(symbol->view()) : nullptr;
+}
+
+} // namespace
+
 std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::InstrumentTable& table) {
-    const auto* instrument = table.find(wire.contract);
+    const auto* instrument = find_contract(table, wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
     }
@@ -510,7 +523,7 @@ std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::Instrumen
 
 std::optional<OrderEvent>
 map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    const auto* instrument = table.find(wire.contract);
+    const auto* instrument = find_contract(table, wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
     }
@@ -572,7 +585,7 @@ std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
                                          QtyLots leaves,
                                          const ExchangeClientOrderId& known_client_id,
                                          UnixNanos ts_init) {
-    const auto* instrument = table.find(wire.contract);
+    const auto* instrument = find_contract(table, wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
     }
@@ -595,7 +608,16 @@ std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
         return std::nullopt;
     }
     if (!wire.trade_id.empty()) {
-        const auto exec_id = ExecId::from(wire.trade_id);
+        // option fill ids count apart from futures ones, and one process dedupes across both
+        std::array<char, 48> prefixed{};
+        auto key = wire.trade_id;
+        if (base.id.market() == MarketType::Option && key.size() + 2 <= prefixed.size()) {
+            prefixed[0] = 'o';
+            prefixed[1] = '-';
+            key.copy(prefixed.data() + 2, key.size());
+            key = {prefixed.data(), key.size() + 2};
+        }
+        const auto exec_id = ExecId::from(key);
         if (!exec_id.has_value()) {
             return std::nullopt; // a dedupe key we cannot store is not one
         }
@@ -611,7 +633,7 @@ std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
 }
 
 std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire, const exec::InstrumentTable& table) {
-    const auto* instrument = table.find(wire.contract);
+    const auto* instrument = find_contract(table, wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
     }
@@ -680,8 +702,17 @@ std::optional<BalanceReport> map_futures_account(const WireFuturesAccount& wire)
     return out;
 }
 
+std::optional<BalanceReport> map_option_account(const WireFuturesAccount& wire, UnixNanos ts_venue) {
+    auto out = map_futures_account(wire);
+    if (out.has_value()) {
+        out->wallet = WalletKind::Options;
+        out->ts_venue = ts_venue;
+    }
+    return out;
+}
+
 std::optional<exec::PositionReport> map_position(const WirePosition& wire, const exec::InstrumentTable& table) {
-    const auto* instrument = table.find(wire.contract);
+    const auto* instrument = find_contract(table, wire.contract);
     if (instrument == nullptr) {
         return std::nullopt;
     }

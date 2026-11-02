@@ -453,4 +453,17 @@ SignedRequestBuilder::positions(MarketType market, std::string_view currency, Un
     return sign(target.view(), now);
 }
 
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::account_summary(std::string_view currency,
+                                                                                  UnixNanos now) {
+    if (currency.empty()) {
+        return std::unexpected{BuildError::UnknownCurrency};
+    }
+    Appender target{target_};
+    target << ep::k_account_summary << "?currency=" << currency;
+    if (!target.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(target.view(), now);
+}
+
 } // namespace raikiri::venues::deribit

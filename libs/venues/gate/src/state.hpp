@@ -60,7 +60,7 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // the futures private socket needs this first in every subscribe payload; spot does not
+    // the futures and option private sockets need this first in every subscribe payload; spot does not
     std::uint64_t futures_user_id{0};
 
     // leaves and client id from the orders channel, keyed by venue order id, for fills that carry neither

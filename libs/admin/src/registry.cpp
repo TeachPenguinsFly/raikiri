@@ -433,6 +433,7 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
                               .venue = std::string{to_string(gw.account.venue)},
                               .reported_at = std::nullopt,
                               .stale = false,
+                              .wallet = std::nullopt,
                               .assets = {}};
         if (gw.channels.balances == nullptr) {
             out.push_back(std::move(entry));
@@ -455,6 +456,9 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
             const auto& row = snapshot.rows.at(i);
             if (!row.has_asset()) {
                 continue;
+            }
+            if (!entry.wallet.has_value() && row.wallet != WalletKind::Unknown) {
+                entry.wallet = std::string{to_string(row.wallet)};
             }
             Balance balance{.asset = std::string{row.asset.view()},
                             .total = std::nullopt,

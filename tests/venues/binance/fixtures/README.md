@@ -89,3 +89,13 @@ that sent a `SUBSCRIBE` after connecting.
 | `ws_option_book_ticker.json` | `/public/stream`, `btc-261225-85000-c@bookTicker` |
 | `ws_option_trade.json` | `/public/stream`, `btcusdt@optionTrade`, which carries every BTC option's prints |
 
+## option order fixtures, written from documentation
+
+These are not captures. No key has placed a binance option order from here, so each is written from the
+example in binance's published options reference (the OpenAPI schema at
+`developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-options/api/rest-api/1.0.0/schema.yaml`
+and the user data stream pages), with the symbol, sizes and fees changed to fit the catalogue fixture.
+
+`rest_option_order.json`, `rest_option_open_orders.json`, `rest_option_user_trades.json`,
+`rest_option_positions.json`, `rest_option_margin_account.json` (figures as documented), `rest_option_bill.json`,
+`ws_option_order_new.json`, `ws_option_order_fill.json`.

@@ -139,12 +139,12 @@ TEST(Malformed, Okx) {
                     static OrderBuffer orders;
                     (void)parse_orders(f, orders);
                 }},
-               {"rest_fills.json",
+               {"rest_fills*.json",
                 [](std::string_view f) {
                     static FillBuffer fills;
                     (void)parse_fills(f, fills);
                 }},
-               {"rest_positions.json",
+               {"rest_positions*.json",
                 [](std::string_view f) {
                     static PositionBuffer positions;
                     (void)parse_positions(f, positions);

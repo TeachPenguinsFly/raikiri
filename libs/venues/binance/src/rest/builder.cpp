@@ -180,7 +180,8 @@ RequestBuilder::finish(net::HttpMethod method, std::string_view path, std::size_
     request.method = method;
     request.target = target.view();
     request.body = {};
-    request.content_type = k_form;
+    // eapi wants no content type on a get
+    request.content_type = option_ && method == net::HttpMethod::Get ? std::string_view{} : k_form;
     request.headers = {{k_hdr_key, signer_->api_key()}};
     return request;
 }
@@ -203,6 +204,10 @@ RequestBuilder::create_order(const OrderCmd& cmd, const InstrumentBase& instrume
     if (cmd.order_type == OrderType::Market && has_flag(cmd.flags, OrderFlags::PostOnly)) {
         return std::unexpected{BuildError::UnsupportedOrderType};
     }
+    // eapi takes limit orders only
+    if (option_ && cmd.order_type != OrderType::Limit) {
+        return std::unexpected{BuildError::UnsupportedOrderType};
+    }
 
     Appender q{query_};
     q << "symbol=";
@@ -222,7 +227,7 @@ RequestBuilder::create_order(const OrderCmd& cmd, const InstrumentBase& instrume
             return std::unexpected{BuildError::BadValue};
         }
     }
-    q << "&newClientOrderId=" << cmd.exchange_client_order_id.view();
+    q << (option_ ? "&clientOrderId=" : "&newClientOrderId=") << cmd.exchange_client_order_id.view();
     if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
         q << "&reduceOnly=true";
     }
@@ -231,7 +236,7 @@ RequestBuilder::create_order(const OrderCmd& cmd, const InstrumentBase& instrume
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Post, ep::k_order, q.size());
+    return finish(net::HttpMethod::Post, option_ ? ep::k_option_order : ep::k_order, q.size());
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -245,20 +250,23 @@ RequestBuilder::cancel_order(const OrderCmd& cmd, const InstrumentBase& instrume
     if (!cmd.target_exchange_order_id.empty()) {
         q << "&orderId=" << cmd.target_exchange_order_id.view();
     } else {
-        q << "&origClientOrderId=" << cmd.exchange_client_order_id.view();
+        q << (option_ ? "&clientOrderId=" : "&origClientOrderId=") << cmd.exchange_client_order_id.view();
     }
     q << "&recvWindow=" << std::uint64_t{k_recv_window_ms};
     q << "&timestamp=" << to_ms(now);
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Delete, ep::k_order, q.size());
+    return finish(net::HttpMethod::Delete, option_ ? ep::k_option_order : ep::k_order, q.size());
 }
 
 std::expected<net::RestRequest, BuildError>
 RequestBuilder::amend_order(const OrderCmd& cmd, const InstrumentBase& instrument, UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
+    }
+    if (option_) {
+        return std::unexpected{BuildError::UnsupportedOrderType};
     }
     Appender q{query_};
     q << "symbol=";
@@ -294,7 +302,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(UnixNano
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, ep::k_open_orders, q.size());
+    return finish(net::HttpMethod::Get, option_ ? ep::k_option_open_orders : ep::k_open_orders, q.size());
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -335,6 +343,9 @@ RequestBuilder::user_trades(std::string_view symbol, UnixNanos since, UnixNanos 
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
+    if (option_ && symbol.empty()) {
+        return std::unexpected{BuildError::BadValue};
+    }
     // an empty symbol asks for the whole account
     Appender q{query_};
     if (!symbol.empty()) {
@@ -344,11 +355,14 @@ RequestBuilder::user_trades(std::string_view symbol, UnixNanos since, UnixNanos 
     if (since.ns != 0) {
         q << "startTime=" << to_ms(since) << "&";
     }
+    if (option_) {
+        q << "limit=1000&";
+    }
     q << "recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, ep::k_user_trades, q.size());
+    return finish(net::HttpMethod::Get, option_ ? ep::k_option_user_trades : ep::k_user_trades, q.size());
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::position_risk(UnixNanos now) {
@@ -360,7 +374,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::position_risk(UnixNa
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, ep::k_position_risk, q.size());
+    return finish(net::HttpMethod::Get, option_ ? ep::k_option_position : ep::k_position_risk, q.size());
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::account(UnixNanos now) {
@@ -375,25 +389,54 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::account(UnixNanos no
     return finish(net::HttpMethod::Get, ep::k_account, q.size());
 }
 
+std::expected<net::RestRequest, BuildError> RequestBuilder::option_bill(UnixNanos since, UnixNanos now) {
+    if (!signer_->has_credentials()) {
+        return std::unexpected{BuildError::NoCredentials};
+    }
+    Appender q{query_};
+    // the only currency this endpoint takes
+    q << "currency=USDT&limit=1000";
+    if (since.ns != 0) {
+        q << "&startTime=" << to_ms(since);
+    }
+    q << "&recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (!q.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return finish(net::HttpMethod::Get, ep::k_option_bill, q.size());
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::option_account(UnixNanos now, bool margin) {
+    if (!signer_->has_credentials()) {
+        return std::unexpected{BuildError::NoCredentials};
+    }
+    Appender q{query_};
+    q << "recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (!q.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return finish(net::HttpMethod::Get, margin ? ep::k_option_margin_account : ep::k_option_account, q.size());
+}
+
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_create() {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    return header_only(net::HttpMethod::Post, ep::k_listen_key);
+    return header_only(net::HttpMethod::Post, option_ ? ep::k_option_listen_key : ep::k_listen_key);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_keepalive() {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    return header_only(net::HttpMethod::Put, ep::k_listen_key);
+    return header_only(net::HttpMethod::Put, option_ ? ep::k_option_listen_key : ep::k_listen_key);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_close() {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    return header_only(net::HttpMethod::Delete, ep::k_listen_key);
+    return header_only(net::HttpMethod::Delete, option_ ? ep::k_option_listen_key : ep::k_listen_key);
 }
 
 } // namespace raikiri::venues::binance

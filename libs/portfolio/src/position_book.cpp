@@ -27,12 +27,29 @@ std::expected<Position*, BookError> PositionBook::open(PositionKey key, UnixNano
 
 std::expected<Position::Applied, BookError>
 PositionBook::on_fill(const InstrumentBase& base, const OrderEvent& event, QtyLots delta) {
+    return book_fill(base, settle_side(base.kind), event, delta);
+}
+
+std::expected<Position::Applied, BookError>
+PositionBook::on_fill(const Instrument& instrument, const OrderEvent& event, QtyLots delta) {
+    return book_fill(base_of(instrument), settle_side(instrument), event, delta);
+}
+
+std::expected<Position::Applied, BookError>
+PositionBook::book_fill(const InstrumentBase& base, SettleSide side, const OrderEvent& event, QtyLots delta) {
     const PositionKey key{event.client_order_id.strategy_id(), event.instrument};
     auto position = open(key, event.ts_event);
     if (!position.has_value()) {
         return std::unexpected{position.error()};
     }
-    return (*position)->apply_fill(base, event.side, delta, event.price, event.fee, event.ts_event);
+    if (fee_joins_sums(base, side, event.fee_asset)) {
+        return (*position)->apply_fill(base, event.side, delta, event.price, event.fee, event.ts_event);
+    }
+    auto applied = (*position)->apply_fill(base, event.side, delta, event.price, FixedE9::from_raw(0), event.ts_event);
+    if (!event.fee.is_undef()) {
+        applied.unbooked_fee = event.fee;
+    }
+    return applied;
 }
 
 bool PositionBook::restore(PositionKey key, const Position::Restored& state) {

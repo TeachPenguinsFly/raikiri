@@ -72,10 +72,10 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "options.contract_tickers") {
         return EventKind::Ticker;
     }
-    if (channel == "futures.orders" || channel == "spot.orders") {
+    if (channel == "futures.orders" || channel == "spot.orders" || channel == "options.orders") {
         return EventKind::OrderUpdate;
     }
-    if (channel == "futures.usertrades" || channel == "spot.usertrades") {
+    if (channel == "futures.usertrades" || channel == "spot.usertrades" || channel == "options.usertrades") {
         return EventKind::UserTrade;
     }
     return EventKind::Unknown;
