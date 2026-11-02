@@ -694,8 +694,12 @@ public:
                        std::string_view why) noexcept {
         std::array<char, 24> actor{};
         const auto owner = cmd.client_order_id.strategy_id();
-        const auto named = owner == k_manual_strategy_id
-                               ? fmt::format_to_n(actor.data(), actor.size(), "desk")
+        const auto kind = books != nullptr ? books->kind_of(owner) : BookKind::Unknown;
+        const auto named = kind == BookKind::Manual || owner == k_manual_strategy_id
+                               ? fmt::format_to_n(actor.data(), actor.size(), "manual:{}", owner)
+                           : kind == BookKind::Client ? fmt::format_to_n(actor.data(), actor.size(), "client:{}", owner)
+                           : kind == BookKind::Hedge
+                               ? fmt::format_to_n(actor.data(), actor.size(), "hedge:{}", owner)
                                : fmt::format_to_n(actor.data(), actor.size(), "strategy:{}", owner);
         std::array<char, 40> subject{};
         const auto about = fmt::format_to_n(subject.data(), subject.size(), "order:{}", cmd.client_order_id.raw);

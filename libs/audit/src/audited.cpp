@@ -41,7 +41,7 @@ http::Handler audited(http::Handler inner, Sink& sink, const Clock& clock, std::
             internal::quote_json(detail, "answer", answer.body);
             detail.push_back('}');
             sink.append({.ts = clock.wall(),
-                         .actor = actor,
+                         .actor = req.login.empty() ? std::string_view{actor} : req.login,
                          .action = command->action,
                          .subject = command->subject,
                          .detail_json = detail});

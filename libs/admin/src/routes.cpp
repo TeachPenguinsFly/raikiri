@@ -393,7 +393,7 @@ http::Response joe(const std::map<std::string, std::uint16_t>& upstreams, const 
         target += req.query.empty() ? '?' : '&';
         target += "default_book=" + own;
     }
-    const auto answer = http::fetch("127.0.0.1", found->second, target, 250, req.method, req.body);
+    const auto answer = http::fetch("127.0.0.1", found->second, target, 250, req.method, req.body, req.login);
     if (!answer.has_value()) {
         return problem(503, "strategyd is not answering", "joe's state is unknown until it does");
     }
