@@ -4,6 +4,9 @@ raikiri follows [semantic versioning](https://semver.org). Until 1.0 a minor rel
 shared-memory layout; each such change is listed under its release. The version lives in [`VERSION`](VERSION) and
 every binary prints it with `--version`.
 
+Every push to master that passes the build publishes Linux x86-64 binaries. A new `VERSION` gets its own release
+and tag, with its section below as the notes; any other push replaces the `edge` pre-release.
+
 ## 0.1.0-beta.1 (2026-10-11)
 
 The first public beta.

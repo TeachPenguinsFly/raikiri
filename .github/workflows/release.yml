@@ -1,0 +1,111 @@
+name: release
+
+# runs once build has passed on a push to master
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+    branches: [master]
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  APPS: gatewayd strategyd admind persisterd refd reftop replay
+
+jobs:
+  release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build gcc-14 g++-14
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Conan
+        run: pip install --disable-pip-version-check 'conan~=2.31'
+
+      # same key as build.yml's gcc-14 rel entry, to share its cache
+      - name: Cache Conan packages
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.conan2
+          key: conan2-${{ runner.os }}-linux-gcc14-relwithdebinfo-${{ hashFiles('conanfile.py', 'profiles/linux-gcc14') }}
+          restore-keys: |
+            conan2-${{ runner.os }}-linux-gcc14-relwithdebinfo-
+
+      - name: Install dependencies
+        run: make deps PRESET=rel PROFILE=profiles/linux-gcc14
+
+      # haswell for simdjson's avx2 kernel, as deploy/build-linux.sh builds
+      - name: Build
+        run: |
+          cmake --preset rel -DRAIKIRI_MARCH=haswell
+          cmake --build --preset rel --target $APPS
+
+      - name: Package
+        id: package
+        run: |
+          version=$(cat VERSION)
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+              tag=edge
+          else
+              tag=v$version
+          fi
+          name=raikiri-$version-${SHA:0:8}-linux-x86_64
+          mkdir -p "dist/$name" dist/debug
+          for app in $APPS; do
+              objcopy --only-keep-debug "build/rel/apps/$app/$app" "dist/debug/$app.debug"
+              objcopy --strip-debug --strip-unneeded "build/rel/apps/$app/$app" "dist/$name/$app"
+              objcopy --add-gnu-debuglink="dist/debug/$app.debug" "dist/$name/$app"
+          done
+          cp VERSION RELEASES.md LICENSE COPYING "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          tar -C dist/debug -czf "dist/$name-debug.tar.gz" .
+          (cd dist && sha256sum "$name.tar.gz" "$name-debug.tar.gz" > SHA256SUMS)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      # a new VERSION gets its own release with its RELEASES.md section; any other push replaces edge
+      - name: Publish
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          TAG: ${{ steps.package.outputs.tag }}
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          assets=("dist/$NAME.tar.gz" "dist/$NAME-debug.tar.gz" dist/SHA256SUMS)
+          prerelease=()
+          if [ "$TAG" = edge ]; then
+              gh release delete edge --yes --cleanup-tag || true
+              printf 'Built from %s on master, after the last release %s.\n' "$SHA" "$VERSION" > notes.md
+              gh release create edge "${assets[@]}" --target "$SHA" --prerelease --latest=false \
+                  --title "raikiri edge" --notes-file notes.md
+              exit 0
+          fi
+          awk -v want="## $VERSION " 'index($0, want) == 1 {on = 1; next} on && /^## / {exit} on' RELEASES.md > notes.md
+          case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" "${assets[@]}" --target "$SHA" "${prerelease[@]}" \
+              --title "raikiri $VERSION" --notes-file notes.md
