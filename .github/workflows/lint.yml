@@ -33,6 +33,22 @@ jobs:
       - name: Check formatting
         run: git ls-files '*.hpp' '*.cpp' | xargs clang-format-18 --dry-run --Werror
 
+  # the e2e tests skip themselves here; they need an apid binary
+  python-sdk:
+    name: python sdk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run ruff check src tests
+      - run: uv run mypy
+      - run: uv run pytest -q
+
   # strategies may include only domain, strategy api and portfolio headers; apps/strategyd is the boundary
   layering:
     name: include layering

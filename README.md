@@ -49,6 +49,7 @@ stay closed source.
   a command line; a risk gate checks every order against notional, band and open-order limits.
 - **Execution algos**: `joe` works parent orders across venues as TWAP, VWAP or smart-routed slices.
 - **Observable**: an HTTP and WebSocket admin API, Prometheus metrics, and a web terminal on top.
+- **Client API**: a signed, scoped REST and WebSocket API with Python and C++ SDKs, for programs outside the box.
 
 ## Terminal
 
@@ -86,6 +87,52 @@ Run the whole pipeline against the simulated venue, with a latency table at the 
 ```sh
 make demo
 ```
+
+## Client API
+
+`apid` lets a program on another machine trade through a deployment. It sits in front of admind, which stays on
+loopback, and adds what an open port needs: API keys with HMAC request signing, per-key permissions (`read`, `trade`,
+`algo`), allowed accounts and symbols, rate limits, an IP allowlist, idempotency on every mutating call, and an audit
+log. Orders still go through admind's desk and strategyd's risk gate. The contract is
+[`schema/client-api.yaml`](schema/client-api.yaml).
+
+```python
+from raikiri import Client
+
+client = Client()  # RAIKIRI_API_URL, RAIKIRI_API_KEY, RAIKIRI_API_SECRET
+btc = client.market.find("BTC/USDT", account="binance")
+order = client.orders.limit(btc, "buy", "0.001", "60000")
+print(client.orders.get(order.id).status)
+```
+
+```cpp
+#include <raikiri/sdk/client.hpp>
+using namespace raikiri::sdk::literals;
+
+int main() {
+    auto client = *raikiri::sdk::Client::from_env();
+    auto btc = *client.market().find("BTC/USDT", "binance");
+    auto order = client.orders().limit(btc, raikiri::sdk::Side::Buy, "0.001"_d, "60000"_d);
+}
+```
+
+Both SDKs have the same surface: orders, algos with live progress, account, market data, the option chain, and streams
+that reconnect and resume from their last sequence number. Prices and quantities are exact decimals in both; neither
+takes a float. See [`sdk/python`](sdk/python/README.md) and [`sdk/cpp`](sdk/cpp/README.md).
+
+[`examples/`](examples/README.md) has the same eight programs in each language, and a paper deployment to run them
+against: a real `apid` in front of an in-memory backend, with no venue and no money.
+
+```sh
+cmake --build build/dev-asan --target apid
+cd sdk/python && uv sync && cd ../..
+uv run --project sdk/python python examples/paper/paper.py
+```
+
+Three things differ from what the names might suggest. `amend` is a confirmed cancel followed by a new order, because
+the desk has no modify, so it loses queue position. A client's positions are folded from its own fills, not read from the
+venue, since a shared account's venue position belongs to no one client. And balances are account-level: clients on one
+account see the same numbers. Running it for real clients is in [`deploy/README.md`](deploy/README.md#client-api).
 
 ## Write a strategy
 

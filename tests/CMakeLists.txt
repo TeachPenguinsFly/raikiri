@@ -280,3 +280,6 @@ raikiri_add_test(joe_restart_test SRCS joe/restart_test.cpp LIBS raikiri::joe ra
 raikiri_add_test(reference_mid_test SRCS reference/mid_test.cpp LIBS raikiri::reference)
 raikiri_add_test(reference_segment_test SRCS reference/segment_test.cpp
   LIBS raikiri::reference_shm raikiri::reference_http)
+
+raikiri_add_test(clientapi_test SRCS clientapi/guards_test.cpp clientapi/router_test.cpp LIBS raikiri::clientapi raikiri::net)
+raikiri_add_test(clientapi_integration_test SRCS clientapi/integration_test.cpp LIBS raikiri::clientapi raikiri::audit_file raikiri::http raikiri::net raikiri::log Boost::headers)

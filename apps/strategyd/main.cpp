@@ -13,6 +13,7 @@
 #include <raikiri/common/version.hpp>
 #include <raikiri/config/risk.hpp>
 #include <raikiri/config/settings.hpp>
+#include <raikiri/domain/refusal_codes.hpp>
 #include <raikiri/http/server.hpp>
 #include <raikiri/joe/desk.hpp>
 #include <raikiri/joe/parent_journal.hpp>
@@ -206,6 +207,7 @@ public:
         if (const auto earlier = repeats.held(shape, cmd.ts_created, gate.config().duplicate_window_ns);
             earlier.has_value()) {
             ++duplicates_refused;
+            last_refusal_code_ = k_refused_duplicate;
             audit_refused(
                 cmd, {}, oms::RiskRefusal{.value = static_cast<std::int64_t>(earlier->raw)}, "duplicate_order");
             return std::unexpected{strategy::RejectReason::Duplicate};
@@ -243,11 +245,13 @@ public:
                           allowed.error(),
                           oms::to_string(allowed.error().why));
             book_risk->refused(id.strategy_id(), allowed.error());
+            last_refusal_code_ = refusal_code_of(allowed.error().why);
             return std::unexpected{strategy::RejectReason::Risk};
         }
         if (const auto created = store_->create(cmd, cmd.exchange_client_order_id); !created.has_value()) {
             const bool same_id = created.error() == oms::StoreError::Duplicate;
             audit_refused(cmd, {}, oms::RiskRefusal{}, same_id ? "duplicate_order_id" : "order_store_full");
+            last_refusal_code_ = same_id ? k_refused_duplicate : k_refused_capacity;
             return std::unexpected{same_id ? strategy::RejectReason::Duplicate : strategy::RejectReason::Capacity};
         }
         trail.command("order.created", cmd, cmd.ts_created);
@@ -259,6 +263,7 @@ public:
             (void)store_->apply_event(never_sent);
             journal_event(never_sent);
             audit_refused(cmd, {}, oms::RiskRefusal{}, "ring_full");
+            last_refusal_code_ = k_refused_venue_down;
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
         book_risk->sent(id.strategy_id(), cmd, exposure);
@@ -728,6 +733,24 @@ public:
                     {detail.data(), std::min(wrote.size, detail.size())});
     }
 
+    [[nodiscard]] static constexpr std::int32_t refusal_code_of(oms::RiskReject why) noexcept {
+        switch (why) {
+        case oms::RiskReject::NakedShort:
+            return k_refused_naked_short;
+        case oms::RiskReject::ShortMarginUnknown:
+            return k_refused_short_margin_unknown;
+        case oms::RiskReject::ShortMargin:
+            return k_refused_short_margin;
+        case oms::RiskReject::ShortGreeks:
+            return k_refused_short_greeks;
+        default:
+            return k_refused_risk;
+        }
+    }
+
+    // set where a submit refuses, read by journal_refusal right after it on the same thread
+    std::int32_t last_refusal_code_{0};
+
     [[nodiscard]] OrderEvent denied_of(const OrderCmd& cmd) const noexcept {
         OrderEvent event{};
         // denied, since the venue never saw it
@@ -750,8 +773,15 @@ public:
     // journal a desk order the risk gate refused so /v1/orders/{id} can answer
     void journal_refusal(const OrderCmd& cmd, strategy::RejectReason why, const OrderOrigin& origin) noexcept {
         journal_cmd(cmd, origin);
-        journal_event(denied_of(cmd));
-        (void)why;
+        auto denied = denied_of(cmd);
+        // the gate's own reason where it gave one; a refusal from before the gate has only its kind
+        denied.reject_code = last_refusal_code_ != 0                    ? last_refusal_code_
+                             : why == strategy::RejectReason::Risk      ? k_refused_risk
+                             : why == strategy::RejectReason::Duplicate ? k_refused_duplicate
+                             : why == strategy::RejectReason::Capacity  ? k_refused_capacity
+                                                                        : k_refused_venue_down;
+        last_refusal_code_ = 0;
+        journal_event(denied);
     }
 
     // a gateway journals what the venue pushed, often without our id; this copy carries it once attributed

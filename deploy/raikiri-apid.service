@@ -1,0 +1,26 @@
+[Unit]
+Description=raikiri apid
+After=network-online.target raikiri-admind.service
+Wants=network-online.target
+ConditionPathExists=/etc/raikiri/client-keys.json
+
+[Service]
+Type=simple
+User=raikiri
+WorkingDirectory=/opt/raikiri
+Restart=always
+RestartSec=5s
+
+Environment=RAIKIRI_RUNTIME_DIR=/run/raikiri
+Environment=RAIKIRI_DATA_DIR=/var/lib/raikiri
+EnvironmentFile=-/etc/raikiri/raikiri.env
+
+# plain http on loopback; caddy holds tls and is the one trusted hop for X-Forwarded-For
+ExecStart=/opt/raikiri/bin/apid --keys /etc/raikiri/client-keys.json --state-dir /var/lib/raikiri/apid --port 8900 --admin-port 8787 --admin-stream-port 8788 --trust-proxy 127.0.0.1 --audit /var/lib/raikiri/audit/apid $RAIKIRI_APID_ARGS
+ExecReload=/bin/kill -HUP $MAINPID
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/raikiri /run/raikiri

@@ -1,0 +1,24 @@
+{
+  "keys": [
+    {
+      "id": "acme-1",
+      "client_id": "acme",
+      "secret": "file:/etc/raikiri/client-secrets/acme-1",
+      "permissions": ["read", "trade", "algo"],
+      "accounts": ["*"],
+      "symbols": ["BTC/*", "ETH/USDT"],
+      "rate": { "requests_per_second": 20, "burst": 40, "mutations_per_second": 5, "mutation_burst": 10 },
+      "ip_allowlist": ["203.0.113.4", "198.51.100.0/24"],
+      "max_streams": 4
+    },
+    {
+      "id": "acme-read",
+      "client_id": "acme",
+      "secret": "env:RAIKIRI_ACME_READ_SECRET",
+      "permissions": ["read"],
+      "accounts": ["binance", "okx"],
+      "symbols": ["*"]
+    }
+  ],
+  "extensions": []
+}

@@ -1,0 +1,1045 @@
+openapi: 3.1.0
+info:
+  title: raikiri client API
+  version: 1.0.0
+  description: |
+    What a client program calls. `apid` serves it, in front of admind, which stays on loopback.
+
+    ## Signing
+
+    Every call except `/time` and `/health` carries three headers:
+
+        X-Raikiri-Key: <key id>
+        X-Raikiri-Timestamp: <unix milliseconds>
+        X-Raikiri-Signature: <lowercase hex hmac-sha256>
+
+    The signature is over these five fields joined by a newline, with the path and query exactly as sent:
+
+        timestamp \n METHOD \n /api/v1/path \n query-without-the-question-mark \n body
+
+    The timestamp must be within the window (5 seconds either way by default). A signature is taken once, so a client
+    must not send the same bytes twice in one millisecond; both SDKs keep their timestamps strictly increasing.
+
+    A wrong key and a wrong signature answer the same way. 30 of those from one address in a burst earn a 429.
+
+    ## Idempotency
+
+    Every POST and DELETE needs `Idempotency-Key`, 8 to 128 printable characters, stable across retries of one intent,
+    and scoped to the client. A repeat answers the first result with `Idempotent-Replay: true` and does nothing. The
+    same key with a different request is a 422. A refusal frees the key. A call the backend took and never answered
+    leaves the key `outcome-unknown` for 24 hours: look at your orders and use a new key.
+
+    ## Errors
+
+    Everything that is not 2xx is `application/problem+json`, a `Problem`. Program against `code`.
+
+    ## Limits
+
+    Each key has a request bucket and a tighter one for mutations. Every signed response carries `RateLimit-Limit`,
+    `RateLimit-Remaining` and `RateLimit-Reset`; a 429 adds `Retry-After`.
+
+    ## Ownership
+
+    Each client has one book, `client:<client_id>`, opened on its first order. Every order and algo goes to it, and a
+    body naming a book is refused. Another client's order, fill or algo answers as if it did not exist. Positions are folded from the client's own fills with the same accounting strategyd uses. A key narrowed
+    to some accounts cannot start an algo, because the router picks venues across all of them.
+
+    ## Paging
+
+    `cursor` is opaque; take it from `next_cursor`. A page can be short, even empty, and still have a `next_cursor`.
+
+    ## Stream
+
+    See `x-channels` below for the WebSocket at `GET /api/v1/stream`.
+servers:
+  - url: http://127.0.0.1:8900
+    description: The paper deployment from examples/paper/paper.py
+
+security:
+  - signature: []
+
+x-channels:
+  url: /api/v1/stream
+  description: |
+    A WebSocket on the same port. The upgrade is a signed GET of the path with an empty query and body, and needs the
+    `read` permission. A key holds at most `max_streams` of them. The server pings; a client may also send
+    `{"op":"ping","id":"x"}` and get a `pong`.
+  on_connect:
+    frame: Hello
+  client_messages:
+    subscribe_private:
+      summary: This client's own events, in one sequence. Seq increases, and skips what this subscription filters out.
+      example: '{"op":"subscribe","id":"p","channels":["orders","fills","positions","balances","algos"],"resume_from":"118","epoch":"1793000000000"}'
+      fields:
+        channels: orders, fills, positions, balances, algos
+        resume_from: Optional. The last seq you processed; everything after it that is still held is sent first.
+        epoch: From the hello you were resuming. If the server's differs it started over, and you get a gap.
+    subscribe_market:
+      summary: Current values, passed through from the backend. A slow reader gets fewer of them, not older ones.
+      example: '{"op":"subscribe","id":"q1","quotes":["1001","2001"],"hz":5}'
+      fields:
+        quotes: Instrument ids.
+        book: One instrument id; `levels` caps each side.
+        greeks: Instrument ids.
+        funding: Instrument ids.
+        ticker: Instrument ids.
+        hz: Asked cadence, capped by the server.
+    unsubscribe:
+      example: '{"op":"unsubscribe","id":"q1"}'
+    ping:
+      example: '{"op":"ping","id":"x"}'
+  server_messages:
+    hello: { $ref: "#/components/schemas/Hello" }
+    heartbeat:
+      description: Every `heartbeat_ms`. Reconnect after three missed.
+      example: '{"type":"heartbeat","ts":"1793000000000000000","seq":"118"}'
+    ack:
+      example: '{"type":"ack","id":"p","seq":"118"}'
+    order:
+      example: '{"type":"order","seq":"119","order_event":{}}'
+      payload: { $ref: "#/components/schemas/OrderEvent" }
+    fill:
+      example: '{"type":"fill","seq":"120","fill":{}}'
+      payload: { $ref: "#/components/schemas/Fill" }
+    position:
+      example: '{"type":"position","seq":"121","position":{}}'
+      payload: { $ref: "#/components/schemas/Position" }
+    balance:
+      example: '{"type":"balance","seq":"122","balance":{}}'
+      payload: { $ref: "#/components/schemas/AccountBalances" }
+    algo:
+      description: On each change of status, filled, working or slices fired.
+      example: '{"type":"algo","seq":"123","algo":{}}'
+      payload: { $ref: "#/components/schemas/Algo" }
+    algo_lost:
+      description: The execution service restarted and forgot this algo. Its children remain ordinary orders.
+      example: '{"type":"algo_lost","seq":"124","algo_lost":{"id":"9","reason":"..."}}'
+    gap:
+      description: |
+        Events are gone. With `from` and `to`, a resume asked for what is no longer held. With `seq` and `reason`, the
+        backend's feed lost events before they reached this sequence. Either way refetch over REST. Fills are recovered
+        by the server's own pull within seconds.
+      example: '{"type":"gap","from":"12","to":"88","reason":"these events are gone; refetch over rest"}'
+    quotes:
+      example: '{"type":"quotes","id":"q1","ts":"1","quotes":[{"instrument_id":"1001","bid":"1","bid_size":"1","ask":"2","ask_size":"1","ts_event":"1"}]}'
+    book:
+      example: '{"type":"book","id":"b1","ts":"1","book":{"instrument_id":"1001","bids":[],"asks":[],"ts_event":"1"}}'
+    greeks: { description: 'As admin-api.yaml Greeks.' }
+    funding: { description: 'As admin-api.yaml Funding.' }
+    ticker: { description: 'As admin-api.yaml Ticker.' }
+    problem:
+      description: A refused subscribe or message, or `key-revoked` just before the socket closes.
+      example: '{"type":"problem","id":"q2","problem":{"type":"urn:raikiri:problem:not-found","title":"no such instrument","status":404,"code":"not-found"}}'
+
+paths:
+  /api/v1/time:
+    get:
+      operationId: serverTime
+      security: []
+      summary: The server's clock, for measuring your offset
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [server_time_ms]
+                properties:
+                  server_time_ms: { type: string }
+
+  /api/v1/health:
+    get:
+      operationId: health
+      security: []
+      responses:
+        "200":
+          description: This process is up; it says nothing about what is behind it
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+
+  /api/v1/whoami:
+    get:
+      operationId: whoami
+      summary: What this key is allowed
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Whoami" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/accounts:
+    get:
+      operationId: accounts
+      summary: Accounts within this key's scope
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountList"
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/balances:
+    get:
+      operationId: balances
+      summary: Balances of the accounts within scope, as each venue last reported them
+      description: Account-level. Clients sharing an account see the same balances.
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BalanceList" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/positions:
+    get:
+      operationId: positions
+      summary: This client's non-flat positions
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - { $ref: "#/components/parameters/InstrumentFilter" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Position" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/fills:
+    get:
+      operationId: fills
+      summary: This client's fills, newest first
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - { $ref: "#/components/parameters/InstrumentFilter" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Fill" }
+                  next_cursor: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/instruments:
+    get:
+      operationId: instruments
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [spot, perp, future, option] }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Instrument" }
+                  next_cursor: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/instruments/{instrument_id}:
+    get:
+      operationId: instrument
+      parameters:
+        - name: instrument_id
+          in: path
+          required: true
+          schema: { type: string, pattern: '^\d+$' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Instrument" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/markets:
+    get:
+      operationId: markets
+      summary: Each asset with its listings across venues
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      description: As admin-api.yaml Market, with listings outside this key's scope removed.
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/options/underlyings:
+    get:
+      operationId: optionUnderlyings
+      description: As admin-api.yaml; needs a key with every symbol.
+      responses:
+        "200":
+          description: A bare array of admin-api.yaml OptionUnderlying
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/options/chain:
+    get:
+      operationId: optionChain
+      description: |
+        As admin-api.yaml OptionChain. A key with a symbol list needs a pattern naming the underlying's base asset,
+        such as `BTC/*`.
+      parameters:
+        - name: underlying
+          in: query
+          required: true
+          schema: { type: string }
+        - name: expiry
+          in: query
+          required: true
+          schema: { type: string, description: YYYYMMDD }
+        - name: venue
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/options/surface:
+    get:
+      operationId: optionSurface
+      description: As admin-api.yaml OptionSurface, with the same scope rule as the chain.
+      parameters:
+        - name: underlying
+          in: query
+          required: true
+          schema: { type: string }
+        - name: venue
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/orders:
+    get:
+      operationId: listOrders
+      summary: This client's orders, newest first
+      parameters:
+        - name: open
+          in: query
+          schema: { type: boolean }
+        - { $ref: "#/components/parameters/Account" }
+        - { $ref: "#/components/parameters/InstrumentFilter" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Order" }
+                  next_cursor: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: placeOrder
+      summary: Queue an order
+      description: |
+        202 means the desk took it, not that a venue did; follow the order or the stream. Needs `trade`. The account
+        must be the one listing the instrument. Unknown fields are refused. Risk checks run in strategyd, after this
+        answer: a refused order reads `denied` over REST, with the reason as a problem in its `refusal`. Its `code` is
+        one of `risk-refused`, `duplicate-order`, `naked-short`, `short-margin-unknown`, `short-margin`, `short-greeks`,
+        `venue-unavailable` or `order-store-full`. The stream's `order` channel does not carry a denial.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewOrder" }
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderAck" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/orders/cancel-all:
+    post:
+      operationId: cancelAll
+      summary: Cancel this client's open orders, leaving algo children to their algos
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                account: { type: string }
+                instrument_id: { type: string }
+      responses:
+        "200":
+          description: Which cancels were queued, and which were refused
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [canceled, failed]
+                properties:
+                  canceled: { type: array, items: { type: string } }
+                  failed: { type: array, items: { type: string } }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/orders/{client_order_id}:
+    parameters:
+      - { $ref: "#/components/parameters/OrderId" }
+    get:
+      operationId: getOrder
+      responses:
+        "200":
+          description: |
+            OK. An order placed a moment ago and not yet persisted answers `submitted`, from what was asked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: cancelOrder
+      summary: Queue a cancel; the order can still fill meanwhile
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [client_order_id, status]
+                properties:
+                  client_order_id: { type: string }
+                  status: { type: string, const: cancel_queued }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/orders/{client_order_id}/events:
+    parameters:
+      - { $ref: "#/components/parameters/OrderId" }
+    get:
+      operationId: listOrderEvents
+      responses:
+        "200":
+          description: Every lifecycle event, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/OrderEvent" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/orders/{client_order_id}/amend:
+    parameters:
+      - { $ref: "#/components/parameters/OrderId" }
+    post:
+      operationId: amendOrder
+      summary: Cancel, wait for the cancel to be confirmed, then place what remains
+      description: |
+        Not a venue-side modify: the backend's desk has none. The new order has a new id and loses queue position, and
+        nothing rests between the two steps. `qty` is the new total and counts what already filled. If the cancel is
+        not confirmed in 2 seconds the answer is 409 `amend-unconfirmed` and nothing new was placed. If what filled
+        already covers `qty`, the answer has `status: canceled` and no new order.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                price: { $ref: "#/components/schemas/Decimal" }
+                qty: { $ref: "#/components/schemas/Decimal" }
+      responses:
+        "202":
+          description: The replacement, or the canceled original
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderAck" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/algos:
+    get:
+      operationId: listAlgos
+      summary: This client's algos, newest first
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Algo" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: startAlgo
+      summary: Start a parent order; needs `algo` and a key with every account
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewAlgo" }
+      responses:
+        "201":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Algo" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/algos/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/AlgoId" }
+    get:
+      operationId: getAlgo
+      responses:
+        "200":
+          description: With its children
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Algo" }
+        "410":
+          description: The execution service restarted and forgot it (`algo-lost`)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/algos/{id}/cancel:
+    parameters:
+      - { $ref: "#/components/parameters/AlgoId" }
+    post:
+      operationId: cancelAlgo
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200":
+          description: The parent after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Algo" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/algos/{id}/pause:
+    parameters:
+      - { $ref: "#/components/parameters/AlgoId" }
+    post:
+      operationId: pauseAlgo
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200":
+          description: The parent after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Algo" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/algos/{id}/resume:
+    parameters:
+      - { $ref: "#/components/parameters/AlgoId" }
+    post:
+      operationId: resumeAlgo
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200":
+          description: The parent after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Algo" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /api/v1/x/{extension}/{path}:
+    get:
+      operationId: extensionGet
+      summary: A route of a loopback service the owner listed in the key file
+      description: |
+        Only listed routes are reachable. The service's record must carry the client in the listed field: a list is
+        filtered to this client, a record reached by id must be this client's, and a POST has the client set from the
+        key. A body naming another client is refused, as is a `symbol` outside the key's scope.
+      parameters:
+        - { name: extension, in: path, required: true, schema: { type: string } }
+        - { name: path, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The service's own answer
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: extensionPost
+      parameters:
+        - { name: extension, in: path, required: true, schema: { type: string } }
+        - { name: path, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200":
+          description: The service's own answer
+        default: { $ref: "#/components/responses/Problem" }
+
+components:
+  securitySchemes:
+    signature:
+      type: apiKey
+      in: header
+      name: X-Raikiri-Signature
+      description: With X-Raikiri-Key and X-Raikiri-Timestamp; see the description above.
+  responses:
+    Problem:
+      description: Refused
+      headers:
+        Retry-After: { schema: { type: integer } }
+        RateLimit-Limit: { schema: { type: integer } }
+        RateLimit-Remaining: { schema: { type: integer } }
+        RateLimit-Reset: { schema: { type: integer } }
+        X-Request-Id: { schema: { type: string } }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    Account:
+      name: account
+      in: query
+      schema: { type: string }
+    InstrumentFilter:
+      name: instrument_id
+      in: query
+      schema: { type: string, pattern: '^\d+$' }
+    Since:
+      name: since
+      in: query
+      description: Lower bound on the row's time, unix nanoseconds as digits.
+      schema: { type: string, pattern: '^\d+$' }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    OrderId:
+      name: client_order_id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^\d+$' }
+    AlgoId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^\d+$' }
+  schemas:
+    Decimal:
+      type: string
+      pattern: '^-?\d+(\.\d{1,9})?$'
+      description: Exact. Up to nine places and about nine billion in magnitude.
+    Nanos:
+      type: string
+      pattern: '^\d+$'
+      description: Unix nanoseconds, as digits.
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, examples: ["urn:raikiri:problem:rate-limited"] }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        request_id: { type: string }
+        code:
+          type: string
+          description: Stable. Program against this.
+          enum:
+            - auth-failed
+            - auth-failures
+            - timestamp-skew
+            - replayed
+            - ip-not-allowed
+            - key-revoked
+            - permission-denied
+            - out-of-scope
+            - rate-limited
+            - too-many-streams
+            - too-many-subscriptions
+            - not-found
+            - method-not-allowed
+            - bad-request
+            - bad-cursor
+            - bad-gateway
+            - too-large
+            - idempotency-key-required
+            - idempotency-in-flight
+            - idempotency-mismatch
+            - outcome-unknown
+            - ledger-unavailable
+            - backend-unavailable
+            - backend-timeout
+            - backend-refused
+            - unknown-instrument
+            - account-mismatch
+            - bad-qty
+            - order-refused
+            - cancel-refused
+            - not-amendable
+            - amend-unconfirmed
+            - order-closed
+            - algo-child
+            - algo-refused
+            - algo-lost
+            - extension-refused
+            - book-refused
+            - external-ref-too-long
+            - risk-refused
+            - duplicate-order
+            - venue-unavailable
+            - order-store-full
+            - naked-short
+            - short-margin-unknown
+            - short-margin
+            - short-greeks
+    Hello:
+      type: object
+      required: [type, epoch, seq, heartbeat_ms, client_id]
+      properties:
+        type: { type: string, const: hello }
+        epoch: { type: string, description: This run of the server. A sequence from another epoch means nothing. }
+        seq: { type: string, description: The latest sequence for this client. }
+        heartbeat_ms: { type: integer }
+        client_id: { type: string }
+    Whoami:
+      type: object
+      required: [key_id, client_id, permissions, accounts, symbols, rate, max_streams]
+      properties:
+        key_id: { type: string }
+        client_id: { type: string }
+        permissions: { type: array, items: { type: string, enum: [read, trade, algo] } }
+        accounts: { type: array, items: { type: string } }
+        symbols: { type: array, items: { type: string } }
+        rate:
+          type: object
+          required: [requests_per_second, burst, mutations_per_second, mutation_burst]
+          properties:
+            requests_per_second: { type: integer }
+            burst: { type: integer }
+            mutations_per_second: { type: integer }
+            mutation_burst: { type: integer }
+        max_streams: { type: integer }
+    AccountList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [account, venue, market, alive]
+            properties:
+              account: { type: string }
+              venue: { type: string }
+              market: { type: string }
+              alive: { type: boolean }
+    BalanceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AccountBalances" }
+    AccountBalances:
+      type: object
+      required: [account, venue, stale, assets]
+      properties:
+        account: { type: string }
+        venue: { type: string }
+        reported_at: { $ref: "#/components/schemas/Nanos" }
+        stale: { type: boolean }
+        wallet: { type: string }
+        assets:
+          type: array
+          items:
+            type: object
+            required: [asset]
+            properties:
+              asset: { type: string }
+              total: { $ref: "#/components/schemas/Decimal" }
+              available: { $ref: "#/components/schemas/Decimal" }
+              unrealized: { $ref: "#/components/schemas/Decimal" }
+    Instrument:
+      type: object
+      required: [instrument_id, account, venue, market, exchange_symbol, local_symbol, tick_size, lot_size,
+                 min_notional, contract_value, contract_kind, asset_class]
+      properties:
+        instrument_id: { type: string }
+        account: { type: string }
+        venue: { type: string }
+        market: { type: string }
+        exchange_symbol: { type: string }
+        local_symbol: { type: string }
+        tick_size: { $ref: "#/components/schemas/Decimal" }
+        lot_size: { $ref: "#/components/schemas/Decimal" }
+        min_notional: { $ref: "#/components/schemas/Decimal" }
+        contract_value: { $ref: "#/components/schemas/Decimal" }
+        contract_kind: { type: string }
+        asset_class: { type: string }
+        asset_key: { type: string }
+        expiry: { $ref: "#/components/schemas/Nanos" }
+        strike: { $ref: "#/components/schemas/Decimal" }
+        put_call: { type: string, enum: [put, call] }
+    NewOrder:
+      type: object
+      additionalProperties: false
+      required: [instrument_id, side, order_type, qty]
+      properties:
+        account:
+          type: string
+          description: If given it must be the account listing the instrument.
+        instrument_id: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        order_type: { type: string, enum: [limit, market] }
+        tif: { type: string, enum: [gtc, ioc, fok], default: gtc }
+        price: { $ref: "#/components/schemas/Decimal" }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        post_only: { type: boolean, default: false }
+        reduce_only: { type: boolean, default: false }
+        external_ref: { type: string, maxLength: 40, description: Your own reference; it comes back on the order. }
+    OrderAck:
+      type: object
+      required: [client_order_id, status, client_id]
+      properties:
+        client_order_id: { type: string }
+        status: { type: string, enum: [queued, canceled] }
+        client_id: { type: string }
+        replaces: { type: string, description: On an amend, the order this took over from. }
+    Order:
+      type: object
+      required: [client_order_id, instrument_id, side, order_type, tif, qty, status, ts_created, ts_updated]
+      properties:
+        client_order_id: { type: string }
+        exchange_order_id: { type: string }
+        instrument_id: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        order_type: { type: string, enum: [limit, market] }
+        tif: { type: string, enum: [gtc, ioc, fok] }
+        post_only: { type: boolean }
+        reduce_only: { type: boolean }
+        price: { $ref: "#/components/schemas/Decimal" }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        leaves: { $ref: "#/components/schemas/Decimal" }
+        status:
+          type: string
+          enum: [initialized, denied, submitted, accepted, partially_filled, filled, canceled, rejected, expired,
+                 triggered, pending_update, pending_cancel]
+        reject_class: { type: string }
+        reject_code: { type: integer }
+        ts_created: { $ref: "#/components/schemas/Nanos" }
+        ts_updated: { $ref: "#/components/schemas/Nanos" }
+        client_id: { type: string }
+        account: { type: string }
+        symbol: { type: string }
+        parent_id: { type: string, description: The algo this is a child of. }
+        book: { type: string, description: "`client:<client_id>`." }
+        external_ref: { type: string }
+        refusal:
+          type: object
+          description: On a denied order, why, in the shape of a Problem.
+          required: [type, title, status, code]
+          properties:
+            type: { type: string }
+            title: { type: string }
+            status: { type: integer }
+            code: { type: string }
+    OrderEvent:
+      type: object
+      required: [client_order_id, instrument_id, event_type, ts_event]
+      properties:
+        client_order_id: { type: string }
+        instrument_id: { type: string }
+        event_type: { type: string }
+        price: { $ref: "#/components/schemas/Decimal" }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        leaves: { $ref: "#/components/schemas/Decimal" }
+        fee: { $ref: "#/components/schemas/Decimal" }
+        exec_id: { type: string }
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+        client_id: { type: string }
+        account: { type: string }
+        symbol: { type: string }
+        parent_id: { type: string }
+    Fill:
+      type: object
+      required: [venue, exec_id, instrument_id, side, price, qty, ts_event]
+      properties:
+        venue: { type: string }
+        exec_id: { type: string }
+        client_order_id: { type: string }
+        exchange_order_id: { type: string }
+        instrument_id: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        price: { $ref: "#/components/schemas/Decimal" }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        fee: { $ref: "#/components/schemas/Decimal" }
+        liquidity: { type: string, enum: [maker, taker, unknown] }
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+        client_id: { type: string }
+        account: { type: string }
+        symbol: { type: string }
+        parent_id: { type: string }
+    Position:
+      type: object
+      required: [client_id, account, symbol, instrument_id, qty, realized, fees, ts_updated]
+      properties:
+        client_id: { type: string }
+        account: { type: string }
+        symbol: { type: string }
+        instrument_id: { type: string }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        avg_entry_price: { $ref: "#/components/schemas/Decimal" }
+        realized: { $ref: "#/components/schemas/Decimal" }
+        fees: { $ref: "#/components/schemas/Decimal" }
+        ts_updated: { $ref: "#/components/schemas/Nanos" }
+    NewAlgo:
+      type: object
+      additionalProperties: false
+      required: [symbol, side]
+      description: Give `qty` or `notional`.
+      properties:
+        symbol: { type: string }
+        market: { type: string, enum: [perp, spot], default: perp }
+        side: { type: string, enum: [buy, sell] }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        notional: { $ref: "#/components/schemas/Decimal" }
+        limit: { $ref: "#/components/schemas/Decimal" }
+        algo: { type: string, enum: [sor, twap, vwap, pov], default: twap }
+        horizon_s: { type: integer }
+        slices: { type: integer }
+        jitter_bp: { type: integer }
+        catchup_pct: { type: integer }
+        profile: { type: string, enum: [flat, u, recorded] }
+        pov_bp: { type: integer }
+        max_child_notional: { $ref: "#/components/schemas/Decimal" }
+        external_ref: { type: string, maxLength: 40 }
+    Algo:
+      type: object
+      required: [id, symbol, market, side, algo, profile, status, qty, filled, working, fees, horizon_s, slices,
+                 slices_fired, pov_bp, created, child_count]
+      properties:
+        id: { type: string }
+        symbol: { type: string }
+        market: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        algo: { type: string }
+        profile: { type: string }
+        status: { type: string, enum: [pending, working, paused, done, cancelled, failed] }
+        reason: { type: string }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        filled: { $ref: "#/components/schemas/Decimal" }
+        working: { $ref: "#/components/schemas/Decimal" }
+        limit: { $ref: "#/components/schemas/Decimal" }
+        arrival: { $ref: "#/components/schemas/Decimal" }
+        avg_price: { $ref: "#/components/schemas/Decimal" }
+        market_vwap: { $ref: "#/components/schemas/Decimal" }
+        slippage_arrival_bp: { $ref: "#/components/schemas/Decimal" }
+        slippage_vwap_bp: { $ref: "#/components/schemas/Decimal" }
+        fees: { $ref: "#/components/schemas/Decimal" }
+        horizon_s: { type: integer }
+        slices: { type: integer }
+        slices_fired: { type: integer }
+        pov_bp: { type: integer }
+        created: { $ref: "#/components/schemas/Nanos" }
+        started: { $ref: "#/components/schemas/Nanos" }
+        ended: { $ref: "#/components/schemas/Nanos" }
+        child_count: { type: integer }
+        children:
+          type: array
+          description: Only on a single algo.
+          items: { type: object }
+        client_id: { type: string }
+        book: { type: string }
+        external_ref: { type: string }
