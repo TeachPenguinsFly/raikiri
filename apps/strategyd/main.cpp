@@ -776,10 +776,7 @@ public:
     [[nodiscard]] oms::RiskConfig base_defaults() const { return config::to_risk_config(risk_file_.defaults); }
 
     [[nodiscard]] std::size_t open_count_of(std::uint16_t strategy_id) const noexcept {
-        std::size_t out = 0;
-        store_->for_each_open(
-            [&](const oms::Order& open) { out += open.client_order_id().strategy_id() == strategy_id ? 1U : 0U; });
-        return out;
+        return store_->open_count_of(strategy_id);
     }
 
     portfolio::PositionBook positions;
@@ -1066,10 +1063,7 @@ private:
                 out[position.key().instrument.packed].position = position.qty();
             }
         }
-        store_->for_each_open([&](const oms::Order& open) {
-            if (open.client_order_id().strategy_id() != strategy_id) {
-                return;
-            }
+        store_->for_each_open_of(strategy_id, [&](const oms::Order& open) {
             auto& held = out[open.instrument().packed];
             auto& side = open.side() == Side::Buy ? held.buy : held.sell;
             side = side + open.leaves();

@@ -12,8 +12,10 @@ RepeatGuard::held(const OrderShape& shape, UnixNanos now, std::uint64_t window_n
         return std::nullopt;
     }
     // newest first, and only as far back as the window
-    for (std::size_t back = 1; back <= sent_.size(); ++back) {
-        const auto& one = sent_[(next_ + sent_.size() - back) % sent_.size()];
+    auto at = next_;
+    for (std::size_t back = 0; back < sent_.size(); ++back) {
+        at = at == 0 ? sent_.size() - 1 : at - 1;
+        const auto& one = sent_[at];
         if (one.at_ns == 0 || now.ns - one.at_ns >= window_ns) {
             return std::nullopt;
         }
@@ -30,9 +32,13 @@ void RepeatGuard::sent(const OrderShape& shape, ClientOrderId id, UnixNanos now)
 }
 
 void RepeatGuard::withdrawn(ClientOrderId id) noexcept {
-    for (auto& one : sent_) {
-        if (one.id == id) {
-            one.withdrawn = true;
+    // newest first: an id goes out once, and most orders end soon after they are sent
+    auto at = next_;
+    for (std::size_t back = 0; back < sent_.size(); ++back) {
+        at = at == 0 ? sent_.size() - 1 : at - 1;
+        if (sent_[at].id == id) {
+            sent_[at].withdrawn = true;
+            return;
         }
     }
 }

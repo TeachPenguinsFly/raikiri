@@ -6,6 +6,11 @@
 
 #include <array>
 #include <cstdint>
+#include <iterator>
+#include <map>
+#include <random>
+#include <set>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -76,6 +81,43 @@ protected:
     IdGen ids_{7, 42};
     UnixNanos wall_{1'700'000'000'000'000'000ULL};
 };
+
+TEST(OrderStoreBooks, EachBookListsItsOwnOpenOrdersAsTheyComeAndGo) {
+    OrderStore store{32};
+    std::map<std::uint16_t, std::set<std::uint64_t>> expected;
+    std::mt19937 random{7};
+    std::uint64_t seq = 0;
+    const auto check = [&] {
+        for (const std::uint16_t book : {std::uint16_t{1}, std::uint16_t{2}, std::uint16_t{3}}) {
+            std::set<std::uint64_t> listed;
+            store.for_each_open_of(book, [&](const Order& open) {
+                EXPECT_EQ(open.client_order_id().strategy_id(), book);
+                listed.insert(open.client_order_id().raw);
+            });
+            EXPECT_EQ(listed, expected[book]);
+            EXPECT_EQ(store.open_count_of(book), expected[book].size());
+        }
+    };
+    for (int round = 0; round < 2000; ++round) {
+        const auto book = static_cast<std::uint16_t>(1 + random() % 3);
+        if (store.open_count() < 32 && random() % 2 == 0) {
+            const auto id = ClientOrderId::make(book, ++seq);
+            const auto exchange = ExchangeClientOrderId::from("E" + std::to_string(seq));
+            ASSERT_TRUE(store.create(make_cmd(id), *exchange).has_value());
+            expected[book].insert(id.raw);
+        } else if (!expected[book].empty()) {
+            auto it = expected[book].begin();
+            std::advance(it, static_cast<std::ptrdiff_t>(random() % expected[book].size()));
+            OrderEvent denied{};
+            denied.type = OrderEventType::Denied;
+            denied.client_order_id = ClientOrderId{*it};
+            ASSERT_TRUE(store.apply_event(denied).has_value());
+            expected[book].erase(it);
+        }
+        check();
+    }
+    EXPECT_EQ(store.open_count_of(9), 0U);
+}
 
 TEST_F(OrderStoreTest, CreateInitializesFromCmd) {
     Order* order = mk(10);

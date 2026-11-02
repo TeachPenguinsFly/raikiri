@@ -192,6 +192,28 @@ TEST(RepeatGuard, RefusesTheSameOrderInsideTheWindowOnly) {
     EXPECT_FALSE(guard.held(shape(), UnixNanos{k_now.ns + k_window}, k_window).has_value());
 }
 
+TEST(RepeatGuard, WithdrawingFindsAnOrderAcrossTheRingsWrap) {
+    RepeatGuard guard{4};
+    const OrderShape shape{.book = 7, .qty = QtyLots::from_raw(1)};
+    const UnixNanos now{1'000};
+    for (std::uint64_t i = 1; i <= 6; ++i) {
+        auto other = shape;
+        other.repeat_key = i;
+        guard.sent(other, ClientOrderId{i}, now);
+    }
+    auto oldest = shape;
+    oldest.repeat_key = 3;
+    ASSERT_TRUE(guard.held(oldest, now, 100).has_value());
+    guard.withdrawn(ClientOrderId{3});
+    EXPECT_FALSE(guard.held(oldest, now, 100).has_value());
+    auto newest = shape;
+    newest.repeat_key = 6;
+    EXPECT_EQ(guard.held(newest, now, 100)->raw, 6U);
+    auto gone = shape;
+    gone.repeat_key = 2;
+    EXPECT_FALSE(guard.held(gone, now, 100).has_value());
+}
+
 TEST(RepeatGuard, ADifferenceInAnyFieldIsAnotherOrder) {
     RepeatGuard guard{8};
     guard.sent(shape(), k_id, k_now);

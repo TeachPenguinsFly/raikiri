@@ -8,7 +8,7 @@ constexpr std::size_t k_npos = static_cast<std::size_t>(-1);
 
 } // namespace
 
-OrderStore::OrderStore(std::size_t capacity) : slots_(capacity) {
+OrderStore::OrderStore(std::size_t capacity) : slots_(capacity), links_(capacity) {
     free_.reserve(capacity);
     for (std::size_t i = capacity; i > 0; --i) {
         free_.push_back(i - 1);
@@ -31,6 +31,14 @@ std::expected<Order*, StoreError> OrderStore::create(const OrderCmd& cmd,
     slots_[slot] = Order{cmd, exchange_client_order_id};
     by_client_.emplace(cmd.client_order_id, slot);
     by_exchange_client_.emplace(exchange_client_order_id, slot);
+    auto& book = books_[cmd.client_order_id.strategy_id()];
+    const auto at = static_cast<std::uint32_t>(slot);
+    links_[slot] = {.prev = k_no_slot, .next = book.first};
+    if (book.first != k_no_slot) {
+        links_[book.first].prev = at;
+    }
+    book.first = at;
+    ++book.count;
     return &slots_[slot];
 }
 
@@ -107,6 +115,17 @@ void OrderStore::retire(std::size_t slot) noexcept {
     if (!order.exchange_order_id().empty()) {
         by_exchange_.erase(order.exchange_order_id());
     }
+    auto& book = books_[order.client_order_id().strategy_id()];
+    const auto link = links_[slot];
+    if (link.prev != k_no_slot) {
+        links_[link.prev].next = link.next;
+    } else {
+        book.first = link.next;
+    }
+    if (link.next != k_no_slot) {
+        links_[link.next].prev = link.prev;
+    }
+    --book.count;
     free_.push_back(slot);
 }
 

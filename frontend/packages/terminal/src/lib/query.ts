@@ -53,10 +53,17 @@ export function useQuery<T>(
       )
     }
     fetchOnce()
-    const timer = refreshMs === undefined ? undefined : setInterval(fetchOnce, refreshMs)
+    if (refreshMs === undefined) return () => void (live = false)
+    // a tab nobody is looking at asks nothing of the box, and catches up when it is shown again
+    const whenShown = () => {
+      if (!document.hidden) fetchOnce()
+    }
+    const timer = setInterval(whenShown, refreshMs)
+    document.addEventListener('visibilitychange', whenShown)
     return () => {
       live = false
       clearInterval(timer)
+      document.removeEventListener('visibilitychange', whenShown)
     }
   }, deps)
 

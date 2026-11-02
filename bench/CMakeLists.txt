@@ -17,3 +17,12 @@ target_link_libraries(option_board
 add_executable(order_trail order_trail.cpp)
 target_link_libraries(order_trail
   PRIVATE fmt::fmt raikiri::audit_file raikiri::log raikiri::oms_trail raikiri::warnings)
+
+add_executable(trading_path trading_path.cpp)
+target_link_libraries(trading_path
+  PRIVATE benchmark::benchmark raikiri::audit_file raikiri::bookrisk raikiri::joe raikiri::journal raikiri::log raikiri::oms raikiri::oms_journal raikiri::oms_trail raikiri::observ raikiri::portfolio raikiri::shm raikiri::warnings)
+
+add_executable(client_path client_path.cpp)
+target_include_directories(client_path PRIVATE ${PROJECT_SOURCE_DIR}/tests/clientapi)
+target_link_libraries(client_path
+  PRIVATE benchmark::benchmark raikiri::clientapi raikiri::log raikiri::net raikiri::warnings)

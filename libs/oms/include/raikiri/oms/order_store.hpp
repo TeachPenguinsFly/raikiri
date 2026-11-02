@@ -58,7 +58,35 @@ public:
         }
     }
 
+    // one book's open orders, so that a submit does not walk every other book's
+    template <typename F> void for_each_open_of(std::uint16_t book, F&& fn) const {
+        const auto it = books_.find(book);
+        if (it == books_.end()) {
+            return;
+        }
+        for (auto slot = it->second.first; slot != k_no_slot; slot = links_[slot].next) {
+            fn(slots_[slot]);
+        }
+    }
+
+    [[nodiscard]] std::size_t open_count_of(std::uint16_t book) const noexcept {
+        const auto it = books_.find(book);
+        return it == books_.end() ? 0 : it->second.count;
+    }
+
 private:
+    static constexpr std::uint32_t k_no_slot = 0xFFFF'FFFFU;
+
+    struct Link {
+        std::uint32_t prev{k_no_slot};
+        std::uint32_t next{k_no_slot};
+    };
+
+    struct BookOrders {
+        std::uint32_t first{k_no_slot};
+        std::uint32_t count{0};
+    };
+
     [[nodiscard]] std::size_t route(const OrderEvent& event) const noexcept;
     void retire(std::size_t slot) noexcept;
 
@@ -67,6 +95,8 @@ private:
     std::unordered_map<ClientOrderId, std::size_t> by_client_;
     std::unordered_map<ExchangeClientOrderId, std::size_t> by_exchange_client_;
     std::unordered_map<ExchangeOrderId, std::size_t> by_exchange_;
+    std::vector<Link> links_;
+    std::unordered_map<std::uint16_t, BookOrders> books_;
 };
 
 // includes submitted orders the venue has not acknowledged, since those can still fill
