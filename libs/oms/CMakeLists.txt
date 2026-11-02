@@ -1,5 +1,6 @@
 add_library(raikiri_oms STATIC
   src/attribution.cpp
+  src/cross_record.cpp
   src/exec_path.cpp
   src/fee_ledger.cpp
   src/funding_identity.cpp

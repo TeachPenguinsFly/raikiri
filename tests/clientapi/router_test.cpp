@@ -682,6 +682,39 @@ TEST(Algos, AReusedParentIdIsNotTheClientsParent) {
     EXPECT_TRUE(rig.backend.actions.empty());
 }
 
+TEST(Feed, AnInternalFillIsMarkedAndTellsTheOrderItsState) {
+    Rig rig;
+    const auto id = rig.place();
+    const auto before = rig.hub.head("acme");
+    rig.feed.on_fill({.venue = "binance",
+                      .exec_id = "ixab",
+                      .client_order_id = id,
+                      .instrument_id = "1",
+                      .side = "buy",
+                      .price = "100",
+                      .qty = "1",
+                      .liquidity = "internal",
+                      .ts_event = "6"});
+    // the fill, the position, and the order state no gateway would have sent
+    EXPECT_EQ(rig.hub.head("acme"), before + 3);
+    const auto fills = rig.call("GET", "/api/v1/fills");
+    EXPECT_NE(fills.response.body.find("\"internal\":true"), std::string::npos);
+    EXPECT_NE(fills.response.body.find("\"liquidity\":\"internal\""), std::string::npos);
+    rig.feed.on_fill({.venue = "binance",
+                      .exec_id = "v1",
+                      .client_order_id = id,
+                      .instrument_id = "1",
+                      .side = "buy",
+                      .price = "100",
+                      .qty = "1",
+                      .liquidity = "taker",
+                      .ts_event = "7"});
+    const auto both = rig.call("GET", "/api/v1/fills");
+    const auto venue = both.response.body.find("\"exec_id\":\"v1\"");
+    ASSERT_NE(venue, std::string::npos);
+    EXPECT_EQ(both.response.body.substr(venue, 200).find("\"internal\":true"), std::string::npos);
+}
+
 TEST(Feed, RoutesEventsToTheirOwnerAndFoldsPositions) {
     Rig rig;
     rig.keys.add(full_key("other", "globex"));

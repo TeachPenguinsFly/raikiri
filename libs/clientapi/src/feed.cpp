@@ -70,6 +70,10 @@ bool PrivateFeed::deliver(const FillRow& fill) {
     row.account = owned->account;
     row.symbol = owned->symbol;
     row.parent_id = owned->parent_id;
+    const bool crossed = row.liquidity == "internal";
+    if (crossed) {
+        row.internal = true;
+    }
     const auto position = book_->record_fill({.fill = row,
                                               .scale = {.tick_size = listing->tick_size,
                                                         .lot_size = listing->lot_size,
@@ -80,6 +84,19 @@ bool PrivateFeed::deliver(const FillRow& fill) {
     }
     hub_->publish(owned->client_id, mask_of(Channel::Fills), owned->account, owned->symbol, std::move(row));
     hub_->publish(owned->client_id, mask_of(Channel::Positions), owned->account, owned->symbol, *position);
+    if (crossed) {
+        // no gateway saw this, so the live feed never says what it did to the order
+        const auto order = backend_->order(*fill.client_order_id);
+        (void)deliver(OrderEventRow{.client_order_id = *fill.client_order_id,
+                                    .instrument_id = fill.instrument_id,
+                                    .event_type = "filled",
+                                    .price = fill.price,
+                                    .qty = fill.qty,
+                                    .leaves = order.has_value() ? std::optional{order->leaves} : std::nullopt,
+                                    .fee = fill.fee,
+                                    .exec_id = fill.exec_id,
+                                    .ts_event = fill.ts_event});
+    }
     return true;
 }
 

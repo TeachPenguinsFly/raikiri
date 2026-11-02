@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from raikiri import AlgoOrder, Order, OrderStatus, Quote, Side, sign, to_decimal
+from raikiri import AlgoOrder, Fill, Order, OrderStatus, Quote, Side, sign, to_decimal
 from raikiri._calls import place, start_algo
 from raikiri.models import build
 
@@ -117,3 +117,26 @@ def test_quote_mid_and_algo_progress_are_exact():
     )
     assert algo.progress == Decimal("0.25")
     assert not algo.done
+
+
+def test_a_crossed_fill_says_it_is_internal() -> None:
+    fill = build(
+        Fill,
+        {
+            "venue": "binance",
+            "exec_id": "ixab",
+            "instrument_id": "1",
+            "side": "buy",
+            "price": "100",
+            "qty": "1",
+            "ts_event": "6",
+            "liquidity": "internal",
+            "internal": True,
+        },
+    )
+    assert fill.internal is True
+    venue_fill = build(
+        Fill,
+        {"venue": "binance", "exec_id": "v", "instrument_id": "1", "side": "buy", "price": "100", "qty": "1", "ts_event": "6"},
+    )
+    assert venue_fill.internal is False

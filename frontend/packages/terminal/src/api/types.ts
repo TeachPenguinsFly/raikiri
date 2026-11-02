@@ -746,6 +746,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/risk/internal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Internal crossing, its switches, volume and what the desk carries */
+        get: operations["getInternalCross"];
+        put?: never;
+        /**
+         * Set the crossing switches
+         * @description Off by default. Turning it on or widening it needs `confirm`, and every change is audited.
+         */
+        post: operations["setInternalCross"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/risk/internal/books/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set one client book's crossing, fee and allowed instruments */
+        post: operations["setInternalCrossBook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/risk/books/{id}": {
         parameters: {
             query?: never;
@@ -1131,6 +1169,85 @@ export interface components {
             open_orders: number;
             row: components["schemas"]["BookRiskRow"];
             pnl: components["schemas"]["BookRiskPnl"];
+        };
+        InternalCrossBook: {
+            book: string;
+            enabled: boolean;
+            /** Format: int64 */
+            fee_bp: number;
+            /** @description <local symbol>:<market>, as BTC/USDT:perp */
+            instruments: string[];
+        };
+        InternalCrossStats: {
+            /** Format: int64 */
+            crosses: number;
+            /** Format: int64 */
+            against_clients: number;
+            /** Format: int64 */
+            against_desk: number;
+            notional: components["schemas"]["Decimal"];
+            /** @description Estimate: half the spread and the taker fee, on both legs */
+            venue_cost_saved: components["schemas"]["Decimal"];
+            fees: components["schemas"]["Decimal"];
+            refused: {
+                [key: string]: number;
+            };
+        };
+        InternalCrossVolume: {
+            book_id: number;
+            book: string;
+            notional: components["schemas"]["Decimal"];
+        };
+        InternalCrossLiability: {
+            instrument_id: string;
+            symbol: string;
+            client_long_lots: string;
+            client_short_lots: string;
+            hedge_lots: string;
+            other_lots: string;
+            /** @description What reconciliation compares with the venue */
+            book_sum_lots: string;
+            /** @description Client lots backed only by another client's opposite position on this desk */
+            offset_lots: string;
+            /** @description The venue's own figure */
+            venue_lots?: string;
+        };
+        InternalCrossDesk: {
+            enabled: boolean;
+            /** @description Clients may also trade against the hedge book, only shrinking it */
+            against_desk: boolean;
+            /** Format: int64 */
+            max_spread_bp: number;
+            /** Format: int64 */
+            max_quote_age_ms: number;
+            /** Format: int64 */
+            hold_ms: number;
+            books: components["schemas"]["InternalCrossBook"][];
+            stats: components["schemas"]["InternalCrossStats"];
+            volume_by_book: components["schemas"]["InternalCrossVolume"][];
+            liability: components["schemas"]["InternalCrossLiability"][];
+        };
+        InternalCrossGlobalChange: {
+            enabled?: boolean;
+            against_desk?: boolean;
+            /** Format: int64 */
+            max_spread_bp?: number;
+            /** Format: int64 */
+            max_quote_age_ms?: number;
+            /** Format: int64 */
+            hold_ms?: number;
+            by: string;
+            reason?: string;
+            confirm?: boolean;
+        };
+        InternalCrossBookChange: {
+            enabled: boolean;
+            /** Format: int64 */
+            fee_bp?: number;
+            instruments?: string[];
+            by: string;
+            reason?: string;
+            confirm?: boolean;
         };
         BookRiskDesk: {
             /** @description Absent until a person declares it, and no new order passes until then. */
@@ -2247,7 +2364,7 @@ export interface components {
             qty: components["schemas"]["Decimal"];
             fee?: components["schemas"]["Decimal"];
             /** @enum {string} */
-            liquidity?: "maker" | "taker" | "unknown";
+            liquidity?: "maker" | "taker" | "internal" | "unknown";
             ts_event: components["schemas"]["Nanos"];
         };
         Position: {
@@ -2868,6 +2985,15 @@ export interface components {
         StreamFrame: components["schemas"]["StreamAck"] | components["schemas"]["StreamQuotes"] | components["schemas"]["StreamBook"] | components["schemas"]["StreamGreeks"] | components["schemas"]["StreamFunding"] | components["schemas"]["StreamTicker"] | components["schemas"]["StreamPositions"] | components["schemas"]["StreamHealth"] | components["schemas"]["StreamEvent"] | components["schemas"]["StreamGap"] | components["schemas"]["StreamProblem"];
     };
     responses: {
+        /** @description Crossing as it stands */
+        InternalCrossDesk: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["InternalCrossDesk"];
+            };
+        };
         /** @description The desk after the change */
         BookRiskDesk: {
             headers: {
@@ -4101,6 +4227,58 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["BookRiskDesk"];
+            409: components["responses"]["BookRiskNeedsConfirm"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    getInternalCross: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["InternalCrossDesk"];
+        };
+    };
+    setInternalCross: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InternalCrossGlobalChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["InternalCrossDesk"];
+            409: components["responses"]["BookRiskNeedsConfirm"];
+            422: components["responses"]["BookRiskProblem"];
+            503: components["responses"]["BookRiskProblem"];
+        };
+    };
+    setInternalCrossBook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InternalCrossBookChange"];
+            };
+        };
+        responses: {
+            200: components["responses"]["InternalCrossDesk"];
             409: components["responses"]["BookRiskNeedsConfirm"];
             422: components["responses"]["BookRiskProblem"];
             503: components["responses"]["BookRiskProblem"];

@@ -965,7 +965,8 @@ components:
         price: { $ref: "#/components/schemas/Decimal" }
         qty: { $ref: "#/components/schemas/Decimal" }
         fee: { $ref: "#/components/schemas/Decimal" }
-        liquidity: { type: string, enum: [maker, taker, unknown] }
+        liquidity: { type: string, enum: [maker, taker, internal, unknown] }
+        internal: { type: boolean, description: Crossed inside the desk rather than at a venue }
         ts_event: { $ref: "#/components/schemas/Nanos" }
         client_id: { type: string }
         account: { type: string }

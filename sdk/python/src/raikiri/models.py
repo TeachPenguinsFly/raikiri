@@ -234,6 +234,8 @@ class Fill:
     exchange_order_id: str | None = None
     fee: Decimal | None = None
     liquidity: str | None = None
+    # crossed inside the desk: no venue saw it, and the desk stands behind the position
+    internal: bool = False
     client_id: str | None = None
     account: str | None = None
     symbol: str | None = None

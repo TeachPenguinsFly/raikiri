@@ -237,6 +237,8 @@ public:
     std::unique_ptr<websocket::stream<beast::tcp_stream>> open_stream(asio::io_context& ioc, bool sign_it = true) {
         auto ws = std::make_unique<websocket::stream<beast::tcp_stream>>(ioc);
         beast::get_lowest_layer(*ws).connect(tcp::endpoint{asio::ip::make_address("127.0.0.1"), edge_->port()});
+        // the replay guard refuses a second signature in one millisecond, as a client's own clock would never send
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
         const auto ts = std::to_string(clock_.wall().ns / 1'000'000ULL);
         const auto signature = test::sign(canonical_request(ts, "GET", k_stream_path, "", ""));
         if (sign_it) {

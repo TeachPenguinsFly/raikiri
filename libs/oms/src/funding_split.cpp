@@ -36,4 +36,33 @@ split_funding(std::span<const FundingHolder> holders, FixedE9 amount, std::uint1
     return shares;
 }
 
+std::vector<FundingShare>
+split_funding_net(std::span<const FundingHolder> holders, FixedE9 amount, std::uint16_t unheld_strategy_id) {
+    if (amount.raw == 0 || amount.is_undef()) {
+        return {};
+    }
+    std::int64_t net = 0;
+    const FundingHolder* last = nullptr;
+    for (const auto& held : holders) {
+        if (held.lots != 0) {
+            net += held.lots;
+            last = &held;
+        }
+    }
+    if (net == 0) {
+        return split_funding(holders, amount, unheld_strategy_id);
+    }
+    std::vector<FundingShare> shares;
+    std::int64_t paid = 0;
+    for (const auto& held : holders) {
+        if (held.lots == 0) {
+            continue;
+        }
+        const auto share = &held == last ? amount.raw - paid : mul_div(amount.raw, held.lots, net);
+        paid += share;
+        shares.push_back({.strategy_id = held.strategy_id, .amount = FixedE9{share}});
+    }
+    return shares;
+}
+
 } // namespace raikiri::oms

@@ -40,6 +40,8 @@ std::string_view to_string(Liquidity liquidity) noexcept {
         return "maker";
     case Liquidity::Taker:
         return "taker";
+    case Liquidity::Internal:
+        return "internal";
     }
     return "unknown";
 }

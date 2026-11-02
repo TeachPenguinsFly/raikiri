@@ -134,6 +134,9 @@ struct ClientOrderId {
 
     std::uint64_t raw{0};
 
+    // the hedge book's side of an internal cross: nobody placed it, so its numbers stay out of every book's own count
+    static constexpr std::uint64_t k_internal_leg_bit = 1ULL << 46;
+
     [[nodiscard]] static constexpr ClientOrderId make(std::uint16_t strategy_id, std::uint64_t seq) noexcept {
         return {(static_cast<std::uint64_t>(strategy_id) << 48) | (seq & 0xFFFF'FFFF'FFFFULL)};
     }
@@ -146,6 +149,15 @@ struct ClientOrderId {
     [[nodiscard]] constexpr std::uint16_t strategy_id() const noexcept { return static_cast<std::uint16_t>(raw >> 48); }
 
     [[nodiscard]] constexpr bool is_child() const noexcept { return (raw & k_child_bit) != 0; }
+
+    [[nodiscard]] static constexpr ClientOrderId make_internal_leg(std::uint16_t strategy_id,
+                                                                   std::uint64_t seq) noexcept {
+        return make(strategy_id, seq | k_internal_leg_bit);
+    }
+
+    [[nodiscard]] constexpr bool is_internal_leg() const noexcept {
+        return !is_child() && (raw & k_internal_leg_bit) != 0;
+    }
 
     [[nodiscard]] constexpr std::uint64_t seq() const noexcept { return raw & 0xFFFF'FFFF'FFFFULL; }
 

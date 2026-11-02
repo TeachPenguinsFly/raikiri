@@ -12,7 +12,7 @@
 
 namespace raikiri::schema {
 
-inline constexpr std::uint16_t k_schema_version = 7; // keep in sync with journal.xml
+inline constexpr std::uint16_t k_schema_version = 8; // keep in sync with journal.xml
 
 // encodes one message on the stack and appends it
 template <typename MsgTag, typename Fill>

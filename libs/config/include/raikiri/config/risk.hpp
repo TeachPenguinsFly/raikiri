@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace raikiri::config {
 
@@ -45,12 +46,29 @@ struct RiskSettings {
     std::optional<std::int64_t> short_margin_buffer_bp{};
 };
 
+struct CrossBookSettings {
+    bool enabled{false};
+    std::int64_t fee_bp{0};
+    std::vector<std::string> instruments{};
+};
+
+// the desk matching its own clients: off unless named here or on the risk page, whose saved word then wins
+struct CrossSettings {
+    bool enabled{false};
+    std::int64_t max_spread_bp{20};
+    std::uint64_t max_quote_age_ms{1000};
+    std::uint64_t hold_ms{0};
+    bool against_desk{false};
+    std::map<std::string, CrossBookSettings> books{};
+};
+
 // `strategies` is keyed by strategy name or id; a set field there replaces the default
 struct RiskFile {
     RiskSettings defaults{};
     std::map<std::string, RiskSettings> strategies{};
     // a credential reference (env:, file:, op:), never the url itself; unset sends nothing
     std::optional<std::string> notify_webhook{};
+    CrossSettings internal_cross{};
 };
 
 [[nodiscard]] std::expected<RiskFile, std::string> load_risk(std::string_view path);

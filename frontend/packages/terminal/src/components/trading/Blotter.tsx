@@ -479,7 +479,7 @@ function Trades({ rows, catalogue }: { rows: Fill[]; catalogue: Catalogue }) {
           <td className="num px-3 text-right text-fg-mid">
             {t.fee === undefined || t.fee === null ? <Silent /> : t.fee}
           </td>
-          <td className="px-3 text-fg-mid capitalize">{t.liquidity ?? 'unknown'}</td>
+          <td className={t.liquidity === 'internal' ? 'px-3 font-medium text-accent capitalize' : 'px-3 text-fg-mid capitalize'} data-testid={t.liquidity === 'internal' ? 'fill-internal' : undefined} title={t.liquidity === 'internal' ? 'crossed inside the desk; no venue saw it' : undefined}>{t.liquidity ?? 'unknown'}</td>
           <td className="num px-3 text-right text-xs text-fg-mid">
             <When nanos={t.ts_event} />
           </td>

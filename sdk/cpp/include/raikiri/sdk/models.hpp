@@ -184,6 +184,8 @@ struct Fill {
     std::optional<std::string> account{};
     std::optional<std::string> symbol{};
     std::optional<std::string> parent_id{};
+    // crossed inside the desk: no venue saw it, and the desk stands behind the position
+    std::optional<bool> internal{};
 };
 
 struct Position {

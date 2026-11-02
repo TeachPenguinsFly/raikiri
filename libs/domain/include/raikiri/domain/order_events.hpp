@@ -41,6 +41,7 @@ enum class Liquidity : std::uint8_t {
     Unknown = 0, // the venue did not say
     Maker,
     Taker,
+    Internal, // crossed inside the desk; no venue saw it
 };
 
 [[nodiscard]] std::string_view to_string(Liquidity liquidity) noexcept;

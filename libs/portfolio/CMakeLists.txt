@@ -13,3 +13,9 @@ target_include_directories(raikiri_portfolio PUBLIC
 target_link_libraries(raikiri_portfolio
   PUBLIC raikiri::domain
   PRIVATE raikiri::warnings)
+
+add_library(raikiri_portfolio_journal STATIC src/journal.cpp)
+add_library(raikiri::portfolio_journal ALIAS raikiri_portfolio_journal)
+target_link_libraries(raikiri_portfolio_journal
+  PUBLIC raikiri::portfolio raikiri::journal raikiri::schema
+  PRIVATE raikiri::warnings)

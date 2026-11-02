@@ -12,7 +12,7 @@
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="raikiri.journal"
                    id="1"
-                   version="7"
+                   version="8"
                    semanticVersion="0.1.0"
                    description="raikiri journal records"
                    byteOrder="littleEndian">
@@ -165,6 +165,7 @@
       <validValue name="Unknown">0</validValue>
       <validValue name="Maker">1</validValue>
       <validValue name="Taker">2</validValue>
+      <validValue name="Internal">3</validValue>
     </enum>
 
     <enum name="contractKindEnum" encodingType="uint8">
@@ -363,5 +364,38 @@
     <field name="tsLoaded" id="10" type="timestampNs"/>
     <field name="assetClass" id="11" type="assetClassEnum" sinceVersion="5"/>
     <field name="underlying" id="12" type="underlyingText" sinceVersion="5"/>
+  </sbe:message>
+  <!-- One crossing of two orders inside the desk, whole in one frame: a crash between two frames must not leave one
+       leg of a zero-sum move booked, so this carries both legs and both positions as they stand after it. -->
+  <sbe:message name="InternalCrossMsg" id="13" description="Two orders crossed inside the desk" sinceVersion="8">
+    <field name="instrument" id="1" type="instrumentId"/>
+    <field name="symbol" id="2" type="symbolText"/>
+    <field name="price" id="3" type="priceTicks"/>
+    <field name="qty" id="4" type="qtyLots"/>
+    <field name="refBid" id="5" type="fixedE9"/>
+    <field name="refAsk" id="6" type="fixedE9"/>
+    <field name="notional" id="7" type="fixedE9"/>
+    <field name="saved" id="8" type="fixedE9"/>
+    <field name="tsEvent" id="9" type="timestampNs"/>
+    <field name="buyOrder" id="10" type="clientOrderId"/>
+    <field name="buyLeaves" id="11" type="qtyLots"/>
+    <field name="buyFee" id="12" type="fixedE9"/>
+    <field name="buyNetQty" id="13" type="qtyLots"/>
+    <field name="buyCost" id="14" type="fixedE9"/>
+    <field name="buyRealized" id="15" type="fixedE9"/>
+    <field name="buyFees" id="16" type="fixedE9"/>
+    <field name="buyFillCount" id="17" type="uint32"/>
+    <field name="buyTsOpened" id="18" type="timestampNs"/>
+    <field name="sellOrder" id="19" type="clientOrderId"/>
+    <field name="sellLeaves" id="20" type="qtyLots"/>
+    <field name="sellFee" id="21" type="fixedE9"/>
+    <field name="sellNetQty" id="22" type="qtyLots"/>
+    <field name="sellCost" id="23" type="fixedE9"/>
+    <field name="sellRealized" id="24" type="fixedE9"/>
+    <field name="sellFees" id="25" type="fixedE9"/>
+    <field name="sellFillCount" id="26" type="uint32"/>
+    <field name="sellTsOpened" id="27" type="timestampNs"/>
+    <field name="sellIsDesk" id="28" type="uint8" description="1 when the seller is the hedge book"/>
+    <field name="buyIsDesk" id="29" type="uint8" description="1 when the buyer is the hedge book"/>
   </sbe:message>
 </sbe:messageSchema>

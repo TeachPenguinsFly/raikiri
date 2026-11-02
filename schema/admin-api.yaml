@@ -1024,6 +1024,47 @@ paths:
         "422": { $ref: "#/components/responses/BookRiskProblem" }
         "503": { $ref: "#/components/responses/BookRiskProblem" }
 
+  /v1/risk/internal:
+    get:
+      tags: [risk]
+      summary: Internal crossing, its switches, volume and what the desk carries
+      operationId: getInternalCross
+      responses:
+        "200": { $ref: "#/components/responses/InternalCrossDesk" }
+    post:
+      tags: [risk]
+      summary: Set the crossing switches
+      description: Off by default. Turning it on or widening it needs `confirm`, and every change is audited.
+      operationId: setInternalCross
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InternalCrossGlobalChange" }
+      responses:
+        "200": { $ref: "#/components/responses/InternalCrossDesk" }
+        "409": { $ref: "#/components/responses/BookRiskNeedsConfirm" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
+  /v1/risk/internal/books/{name}:
+    post:
+      tags: [risk]
+      summary: Set one client book's crossing, fee and allowed instruments
+      operationId: setInternalCrossBook
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InternalCrossBookChange" }
+      responses:
+        "200": { $ref: "#/components/responses/InternalCrossDesk" }
+        "409": { $ref: "#/components/responses/BookRiskNeedsConfirm" }
+        "422": { $ref: "#/components/responses/BookRiskProblem" }
+        "503": { $ref: "#/components/responses/BookRiskProblem" }
+
   /v1/risk/books/{id}:
     get:
       tags: [risk]
@@ -1412,6 +1453,11 @@ components:
       schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
 
   responses:
+    InternalCrossDesk:
+      description: Crossing as it stands
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/InternalCrossDesk" }
     BookRiskDesk:
       description: The desk after the change
       content:
@@ -1574,6 +1620,87 @@ components:
         open_orders: { type: integer }
         row: { $ref: "#/components/schemas/BookRiskRow" }
         pnl: { $ref: "#/components/schemas/BookRiskPnl" }
+
+    InternalCrossBook:
+      type: object
+      required: [book, enabled, fee_bp, instruments]
+      properties:
+        book: { type: string }
+        enabled: { type: boolean }
+        fee_bp: { type: integer, format: int64 }
+        instruments: { type: array, items: { type: string }, description: "<local symbol>:<market>, as BTC/USDT:perp" }
+
+    InternalCrossStats:
+      type: object
+      required: [crosses, against_clients, against_desk, notional, venue_cost_saved, fees, refused]
+      properties:
+        crosses: { type: integer, format: int64 }
+        against_clients: { type: integer, format: int64 }
+        against_desk: { type: integer, format: int64 }
+        notional: { $ref: "#/components/schemas/Decimal" }
+        venue_cost_saved: { $ref: "#/components/schemas/Decimal", description: "Estimate: half the spread and the taker fee, on both legs" }
+        fees: { $ref: "#/components/schemas/Decimal" }
+        refused: { type: object, additionalProperties: { type: integer, format: int64 } }
+
+    InternalCrossVolume:
+      type: object
+      required: [book_id, book, notional]
+      properties:
+        book_id: { type: integer }
+        book: { type: string }
+        notional: { $ref: "#/components/schemas/Decimal" }
+
+    InternalCrossLiability:
+      type: object
+      required: [instrument_id, symbol, client_long_lots, client_short_lots, hedge_lots, other_lots, book_sum_lots, offset_lots]
+      properties:
+        instrument_id: { type: string }
+        symbol: { type: string }
+        client_long_lots: { type: string }
+        client_short_lots: { type: string }
+        hedge_lots: { type: string }
+        other_lots: { type: string }
+        book_sum_lots: { type: string, description: What reconciliation compares with the venue }
+        offset_lots: { type: string, description: Client lots backed only by another client's opposite position on this desk }
+        venue_lots: { type: string, description: The venue's own figure, absent until it has answered }
+
+    InternalCrossDesk:
+      type: object
+      required: [enabled, against_desk, max_spread_bp, max_quote_age_ms, hold_ms, books, stats, volume_by_book, liability]
+      properties:
+        enabled: { type: boolean }
+        against_desk: { type: boolean, description: "Clients may also trade against the hedge book, only shrinking it" }
+        max_spread_bp: { type: integer, format: int64 }
+        max_quote_age_ms: { type: integer, format: int64 }
+        hold_ms: { type: integer, format: int64 }
+        books: { type: array, items: { $ref: "#/components/schemas/InternalCrossBook" } }
+        stats: { $ref: "#/components/schemas/InternalCrossStats" }
+        volume_by_book: { type: array, items: { $ref: "#/components/schemas/InternalCrossVolume" } }
+        liability: { type: array, items: { $ref: "#/components/schemas/InternalCrossLiability" } }
+
+    InternalCrossGlobalChange:
+      type: object
+      required: [by]
+      properties:
+        enabled: { type: boolean }
+        against_desk: { type: boolean }
+        max_spread_bp: { type: integer, format: int64 }
+        max_quote_age_ms: { type: integer, format: int64 }
+        hold_ms: { type: integer, format: int64 }
+        by: { type: string }
+        reason: { type: string }
+        confirm: { type: boolean }
+
+    InternalCrossBookChange:
+      type: object
+      required: [enabled, by]
+      properties:
+        enabled: { type: boolean }
+        fee_bp: { type: integer, format: int64 }
+        instruments: { type: array, items: { type: string } }
+        by: { type: string }
+        reason: { type: string }
+        confirm: { type: boolean }
 
     BookRiskDesk:
       type: object
@@ -2997,7 +3124,7 @@ components:
         price: { $ref: "#/components/schemas/Decimal" }
         qty: { $ref: "#/components/schemas/Decimal" }
         fee: { $ref: "#/components/schemas/Decimal" }
-        liquidity: { type: string, enum: [maker, taker, unknown] }
+        liquidity: { type: string, enum: [maker, taker, internal, unknown] }
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
     Position:

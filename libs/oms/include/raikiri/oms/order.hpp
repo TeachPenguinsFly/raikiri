@@ -56,6 +56,9 @@ public:
         // a fill reported after a refusal moves nothing; one after a cancel still counts
         if (event.type == OrderEventType::Filled && status_ != OrderStatus::Rejected &&
             status_ != OrderStatus::Denied) {
+            if (event.liquidity == Liquidity::Internal) {
+                internal_filled_ = QtyLots::from_raw(internal_filled_.raw + (leaves_.raw - remaining.raw));
+            }
             leaves_ = remaining;
             filled_ = qty_ - leaves_;
         }
@@ -96,6 +99,9 @@ public:
 
     [[nodiscard]] QtyLots filled() const noexcept { return filled_; }
 
+    // the size the venue was told: lots crossed inside the desk never reached it
+    [[nodiscard]] QtyLots venue_qty() const noexcept { return QtyLots::from_raw(qty_.raw - internal_filled_.raw); }
+
     [[nodiscard]] QtyLots leaves() const noexcept { return leaves_; }
 
     [[nodiscard]] OrderStatus status() const noexcept { return status_; }
@@ -133,6 +139,7 @@ private:
     QtyLots qty_{};
     QtyLots filled_{};
     QtyLots leaves_{};
+    QtyLots internal_filled_{QtyLots::from_raw(0)};
     ClientOrderId client_order_id_{};
     ExchangeClientOrderId exchange_client_order_id_{};
     ExchangeOrderId exchange_order_id_{}; // empty until the venue's ack binds it
