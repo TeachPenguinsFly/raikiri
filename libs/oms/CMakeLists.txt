@@ -4,6 +4,7 @@ add_library(raikiri_oms STATIC
   src/exec_path.cpp
   src/fee_ledger.cpp
   src/funding_identity.cpp
+  src/funding_schedule.cpp
   src/funding_split.cpp
   src/notional.cpp
   src/order_commands.cpp

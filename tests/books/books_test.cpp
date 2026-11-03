@@ -38,6 +38,9 @@ TEST(BookNames, EachNameMeansItsKind) {
     EXPECT_EQ(reserved_kind("manual:vova"), BookKind::Manual);
     EXPECT_EQ(reserved_kind("client:acme"), BookKind::Client);
     EXPECT_EQ(reserved_kind("hedge"), BookKind::Hedge);
+    EXPECT_EQ(reserved_kind("desk"), BookKind::Desk);
+    // the store writes a kind as text and must read the same kind back
+    EXPECT_EQ(book_kind_from_string(to_string(BookKind::Desk)), BookKind::Desk);
     EXPECT_EQ(reserved_kind("joe"), BookKind::Unknown);
     EXPECT_EQ(reserved_kind("client:"), BookKind::Unknown);
     EXPECT_EQ(reserved_kind("client:a b"), BookKind::Unknown);

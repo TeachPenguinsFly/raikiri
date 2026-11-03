@@ -34,6 +34,9 @@ BookKind reserved_kind(std::string_view name) noexcept {
     if (name == k_hedge) {
         return BookKind::Hedge;
     }
+    if (name == k_desk) {
+        return BookKind::Desk;
+    }
     if (name.starts_with(k_manual_prefix) && valid_label(name.substr(k_manual_prefix.size()))) {
         return BookKind::Manual;
     }

@@ -2215,7 +2215,7 @@ export interface components {
             ack_max_ns?: components["schemas"]["Nanos"];
         };
         /** @enum {string} */
-        BookKind: "strategy" | "manual" | "client" | "hedge";
+        BookKind: "strategy" | "manual" | "client" | "hedge" | "desk";
         BookRecord: {
             id: number;
             kind: components["schemas"]["BookKind"];

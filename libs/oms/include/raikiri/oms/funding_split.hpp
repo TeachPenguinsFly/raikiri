@@ -28,9 +28,13 @@ struct FundingShare {
 split_funding(std::span<const FundingHolder> holders, FixedE9 amount, std::uint16_t unheld_strategy_id);
 
 // the venue charged the account's net, while books crossed inside the desk hold both sides of it: each book owes what
-// the rate would charge its own size, so a short earns what a long pays. shares sum to `amount` exactly; with a net of
-// zero there is no rate to read from the charge, and it falls back to split_funding
+// the rate would charge its own size, so a short earns what a long pays. shares sum to `amount` exactly; books netting
+// to zero are settled from the published rate, so a charge then belongs to none of them and goes to the unheld book
 [[nodiscard]] std::vector<FundingShare>
 split_funding_net(std::span<const FundingHolder> holders, FixedE9 amount, std::uint16_t unheld_strategy_id);
+
+// books netting to exactly zero: the venue charges nothing, and the longs owe the shorts. `long_side` is what the longs
+// together owe, negative for paid; shares sum to zero exactly. empty when the books do not net to zero
+[[nodiscard]] std::vector<FundingShare> split_funding_flat(std::span<const FundingHolder> holders, FixedE9 long_side);
 
 } // namespace raikiri::oms

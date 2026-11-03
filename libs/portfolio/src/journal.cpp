@@ -1,6 +1,10 @@
 #include <raikiri/portfolio/journal.hpp>
 #include <raikiri/portfolio/pnl.hpp>
 
+#include <algorithm>
+#include <array>
+#include <string_view>
+
 namespace raikiri::portfolio {
 
 namespace internal {
@@ -26,6 +30,34 @@ void append_pnl(journal::JournalWriter& writer,
         m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
         m.execIdField().assign_range(
             fill_identity(event.client_order_id, event.leaves_qty, event.exec_id.view()).view());
+        m.amount(jt::fixedE9{amount.raw});
+        m.tsEvent(jt::timestampNs{event.ts_event.ns});
+    });
+}
+
+void append_desk_fee(journal::JournalWriter& writer,
+                     std::uint16_t desk_book,
+                     const OrderEvent& event,
+                     const Instrument& listed,
+                     FixedE9 amount) noexcept {
+    if (amount.raw == 0 || amount.is_undef()) {
+        return;
+    }
+    const auto& base = base_of(listed);
+    const auto fill = fill_identity(event.client_order_id, event.leaves_qty, event.exec_id.view());
+    // a cross's id leaves room for the prefix, and only a cross has a desk fee
+    std::array<char, ExecId{}.data.size()> identity{'d', '.'};
+    const auto length = std::min(fill.view().size(), identity.size() - 2);
+    std::copy_n(fill.view().data(), length, identity.data() + 2);
+    (void)schema::append_msg<internal::msgs::PnlIncrementMsg>(writer, event.ts_event.ns, [&](auto m) {
+        namespace jt = raikiri_journal::types;
+        m.kind(jt::pnlKindEnum::Fee);
+        m.settleSide(settle_side(listed) == SettleSide::Base ? jt::settleSideEnum::Base : jt::settleSideEnum::Quote);
+        m.strategyId(desk_book);
+        m.instrument(jt::instrumentId{event.instrument.packed});
+        m.symbol().assign_range(base.exchange_symbol.view());
+        m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
+        m.execIdField().assign_range(std::string_view{identity.data(), 2 + length});
         m.amount(jt::fixedE9{amount.raw});
         m.tsEvent(jt::timestampNs{event.ts_event.ns});
     });

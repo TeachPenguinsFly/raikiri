@@ -35,6 +35,7 @@
 #include <raikiri/oms/exec_path.hpp>
 #include <raikiri/oms/fee_ledger.hpp>
 #include <raikiri/oms/funding_identity.hpp>
+#include <raikiri/oms/funding_schedule.hpp>
 #include <raikiri/oms/funding_split.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/kernel_gate.hpp>
@@ -1637,6 +1638,35 @@ void journal_funding(journal::JournalWriter& writer,
     }
 }
 
+// the settlement a venue charges nothing for, since the books on it net to exactly zero; true when it was booked
+bool journal_funding_flat(journal::JournalWriter& writer,
+                          const portfolio::PositionBook& book,
+                          const oms::DueFunding& due,
+                          const InstrumentBase& base) noexcept {
+    std::vector<oms::FundingHolder> holders;
+    std::int64_t long_lots = 0;
+    for (const auto& position : book.all()) {
+        if (position.key().instrument == due.instrument && position.qty().raw != 0) {
+            holders.push_back({.strategy_id = position.key().strategy_id, .lots = position.qty().raw});
+            long_lots += std::max<std::int64_t>(position.qty().raw, 0);
+        }
+    }
+    if (long_lots == 0 || due.mark.is_undef()) {
+        return false;
+    }
+    const auto value = portfolio::settlement_value(base, due.mark, QtyLots::from_raw(long_lots));
+    if (value.is_undef()) {
+        return false;
+    }
+    const auto long_side = FixedE9::from_raw(-mul_div(due.rate.raw, value.raw, 1'000'000'000));
+    const auto shares = oms::split_funding_flat(holders, long_side);
+    const LedgerEntry charge{.instrument = due.instrument, .kind = LedgerKind::Funding, .settled_at = due.settled_at};
+    for (const auto& share : shares) {
+        write_funding_row(writer, charge, base, share.strategy_id, share.amount);
+    }
+    return !shares.empty();
+}
+
 Restoration restore_book(portfolio::PositionBook& book,
                          std::span<const shm::CatalogueTable* const> catalogues,
                          const std::string& dir) {
@@ -2115,7 +2145,12 @@ int main(int argc, char** argv) {
         touch_gateways.push_back({.account = gw.account, .channels = gw.ch});
     }
     KernelCross kernel_cross{ctx, store, book_registry, std::move(touch_gateways), clock};
-    internalcross::JournalCrossLog cross_log{*journal_writer};
+    const auto desk_book = book_registry.open(books::k_desk);
+    if (!desk_book.has_value()) {
+        RLOG_WARN("strategyd: no desk book ({}): internal fees reach no book", books::to_string(desk_book.error()));
+    }
+    internalcross::JournalCrossLog cross_log{*journal_writer,
+                                             desk_book.has_value() ? std::optional{desk_book->id} : std::nullopt};
     internalcross::CrossDesk cross_desk{
         kernel_cross, cross_log, store, ctx.exec, ctx.positions, ctx.trail, **audit_sink};
     internalcross::FileSettingsStore cross_store{data_dir + "/risk/internal_cross.json"};
@@ -2285,6 +2320,9 @@ int main(int argc, char** argv) {
     std::uint64_t unattributed_fills = 0;
     std::uint64_t funding_overruns = 0;
     std::uint64_t funding_charges = 0;
+    std::uint64_t funding_flat = 0;
+    oms::FundingSchedule funding_schedule;
+    std::uint64_t funding_due_ns = 0;
     std::uint64_t pulled_fills = 0;
     std::uint64_t duplicate_pushes = 0;
     std::uint64_t late_fills = 0;
@@ -2629,12 +2667,29 @@ int main(int argc, char** argv) {
                 if (gw.ch.funding->read(sym, funding) != 0) {
                     gw.funding_seen[sym] = version;
                     ++funding_ticks;
+                    funding_schedule.on_update(funding);
                     live.on_funding(funding);
                 }
             }
         }
         risk_desk.tick();
         const auto now_ns = clock.mono().ns;
+        if (now_ns >= funding_due_ns) {
+            funding_due_ns = now_ns + 1'000'000'000ULL;
+            for (const auto& due : funding_schedule.due(clock.wall())) {
+                if (!cross_desk.has_crossed_or_may()) {
+                    continue;
+                }
+                for (auto& gw : gateways) {
+                    if (const auto* instrument = gw.ch.catalogue->find(due.instrument); instrument != nullptr) {
+                        funding_flat += journal_funding_flat(*journal_writer, ctx.positions, due, base_of(*instrument))
+                                            ? 1U
+                                            : 0U;
+                        break;
+                    }
+                }
+            }
+        }
         for (auto& window : contexts) {
             window.fire_due_timers(now_ns, [&live, &window](std::uint32_t timer_id) {
                 // through the registry so a timer on a torn-down instance lands nowhere
@@ -2761,7 +2816,11 @@ int main(int argc, char** argv) {
                    to_string(view.phase),
                    view.orders_cancelled_on_stop);
     }
-    fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);
+    fmt::print("funding: charges-booked={}  ring-overruns={}  flat-at-rate={}  flat-missed={}\n",
+               funding_charges,
+               funding_overruns,
+               funding_flat,
+               funding_schedule.missed());
     fmt::print("pulled fills: applied={}  ring-overruns={}  remembered={}\n",
                pulled_fills,
                fill_overruns,

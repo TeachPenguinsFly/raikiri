@@ -14,6 +14,7 @@ namespace raikiri::books {
 
 inline constexpr std::string_view k_shared_manual = "manual";
 inline constexpr std::string_view k_hedge = "hedge";
+inline constexpr std::string_view k_desk = "desk";
 inline constexpr std::string_view k_manual_prefix = "manual:";
 inline constexpr std::string_view k_client_prefix = "client:";
 
@@ -44,7 +45,7 @@ enum class BookError : std::uint8_t {
 // what a person may log in as and a client may be called; it travels in a query string and a header
 [[nodiscard]] bool valid_label(std::string_view label) noexcept;
 
-// the kind a name means, Unknown when it is none of `manual`, `manual:<login>`, `client:<name>`, `hedge`
+// the kind a name means, Unknown when it is none of `manual`, `manual:<login>`, `client:<name>`, `hedge`, `desk`
 [[nodiscard]] BookKind reserved_kind(std::string_view name) noexcept;
 
 // the book a login places under; a missing or unusable login has the shared book

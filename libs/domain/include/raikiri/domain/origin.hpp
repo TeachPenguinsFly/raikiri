@@ -9,7 +9,8 @@
 
 namespace raikiri {
 
-enum class BookKind : std::uint8_t { Unknown = 0, Strategy, Manual, Client, Hedge };
+// a desk book holds what the desk earned on internal fills; no order is ever placed under one
+enum class BookKind : std::uint8_t { Unknown = 0, Strategy, Manual, Client, Hedge, Desk };
 
 [[nodiscard]] constexpr std::string_view to_string(BookKind kind) noexcept {
     switch (kind) {
@@ -21,6 +22,8 @@ enum class BookKind : std::uint8_t { Unknown = 0, Strategy, Manual, Client, Hedg
         return "client";
     case BookKind::Hedge:
         return "hedge";
+    case BookKind::Desk:
+        return "desk";
     case BookKind::Unknown:
         break;
     }
@@ -28,7 +31,7 @@ enum class BookKind : std::uint8_t { Unknown = 0, Strategy, Manual, Client, Hedg
 }
 
 [[nodiscard]] constexpr BookKind book_kind_from_string(std::string_view text) noexcept {
-    for (const auto kind : {BookKind::Strategy, BookKind::Manual, BookKind::Client, BookKind::Hedge}) {
+    for (const auto kind : {BookKind::Strategy, BookKind::Manual, BookKind::Client, BookKind::Hedge, BookKind::Desk}) {
         if (to_string(kind) == text) {
             return kind;
         }

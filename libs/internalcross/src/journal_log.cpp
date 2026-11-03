@@ -19,6 +19,10 @@ void JournalCrossLog::crossed(const oms::CrossRecord& record,
         portfolio::append_pnl(*writer_, leg->event, listed, jt::pnlKindEnum::Realized, leg->applied.realized);
         const auto fee = FixedE9::from_raw(-(leg->applied.close_fee.raw + leg->applied.open_fee.raw));
         portfolio::append_pnl(*writer_, leg->event, listed, jt::pnlKindEnum::Fee, fee);
+        if (desk_book_.has_value()) {
+            // what the client paid, so that every book together adds up to the venue account
+            portfolio::append_desk_fee(*writer_, *desk_book_, leg->event, listed, FixedE9::from_raw(-fee.raw));
+        }
         if (leg->position != nullptr) {
             portfolio::append_position(*writer_, *leg->position, listed);
         }

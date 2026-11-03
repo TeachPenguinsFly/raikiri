@@ -58,7 +58,7 @@ public:
 
     [[nodiscard]] std::vector<Book> list() const;
 
-    // `manual:<login>`, `client:<name>` or `hedge`, made if missing
+    // `manual:<login>`, `client:<name>`, `hedge` or `desk`, made if missing
     [[nodiscard]] std::expected<Book, BookError> open(std::string_view name);
 
     // the book a named order goes to: `manual:<login>` and `hedge` are made on first use, a client must have been

@@ -12,6 +12,7 @@
 #include <raikiri/oms/replay.hpp>
 #include <raikiri/oms/risk.hpp>
 #include <raikiri/portfolio/reconcile.hpp>
+#include <raikiri/schema/codec.hpp>
 
 #include <gtest/gtest.h>
 
@@ -143,9 +144,9 @@ private:
 
 class Rig {
 public:
-    explicit Rig(const std::filesystem::path& dir)
+    explicit Rig(const std::filesystem::path& dir, std::optional<std::uint16_t> desk_book = {})
         : writer{*journal::JournalWriter::open(dir.string(), "journal")}, exec{store}, trail{sink},
-          kernel{store, positions}, log{writer}, desk{kernel, log, store, exec, positions, trail, sink} {}
+          kernel{store, positions}, log{writer, desk_book}, desk{kernel, log, store, exec, positions, trail, sink} {}
 
     Sink sink;
     oms::OrderStore store;
@@ -307,6 +308,51 @@ TEST_F(CrossTest, TwoClientsCrossAndBothOrdersAndBooksMove) {
     ASSERT_EQ(due.size(), 1U);
     EXPECT_EQ(due[0], buyer);
     EXPECT_FALSE(rig.desk.holds(buyer));
+}
+
+TEST_F(CrossTest, AnInternalFeeCostsTheClientsWhatTheDeskBookEarns) {
+    constexpr std::uint16_t k_desk_book = 900;
+    FixedE9 charged{};
+    {
+        Rig rig{dir_, k_desk_book};
+        Settings settings{.enabled = true, .hold_ms = 100, .against_desk = true};
+        for (const auto* name : {"client:alice", "client:bob"}) {
+            settings.books[name] = {.enabled = true, .fee_bp = 2, .instruments = {"BTC/USDT:perp"}};
+        }
+        rig.desk.configure(settings);
+        // a fee must stay inside the touch
+        rig.kernel.bid = FixedE9::from_raw(49'990'000'000'000);
+        rig.kernel.ask = FixedE9::from_raw(50'011'000'000'000);
+        const auto buyer = rig.place(k_alice, 1, Side::Buy, 10);
+        (void)rig.desk.on_arrival(buyer, rig.btc(), k_now);
+        const auto seller = rig.place(k_bob, 1, Side::Sell, 10);
+        ASSERT_EQ(rig.desk.on_arrival(seller, rig.btc(), k_now).crossed.raw, 10);
+        charged = rig.desk.stats().fees;
+        ASSERT_GT(charged.raw, 0);
+    }
+    using msgs = raikiri_journal::schema::messages;
+    auto reader = journal::JournalReader::open(dir_.string(), "journal");
+    ASSERT_TRUE(reader.has_value());
+    std::map<std::uint16_t, std::int64_t> fees;
+    std::vector<std::string> identities;
+    journal::FrameView frame{};
+    while (reader->next(frame) == journal::ReadResult::Item) {
+        if (frame.schema_id != raikiri::schema::message_id<msgs::PnlIncrementMsg>()) {
+            continue;
+        }
+        const auto m = raikiri::schema::view_msg<msgs::PnlIncrementMsg>(frame.payload);
+        if (m.kind() == raikiri_journal::types::pnlKindEnum::Fee) {
+            fees[m.strategyId().value()] += m.amount().value();
+            const auto field = m.execIdField();
+            const std::string_view raw{reinterpret_cast<const char*>(field.data()), field.size()};
+            identities.emplace_back(raw.substr(0, raw.find('\0')));
+        }
+    }
+    EXPECT_EQ(fees[k_desk_book], charged.raw);
+    EXPECT_EQ(fees[k_alice] + fees[k_bob] + fees[k_desk_book], 0);
+    // the store keeps one row per exec id, so a desk row sharing the client's would be dropped
+    std::ranges::sort(identities);
+    EXPECT_EQ(std::ranges::adjacent_find(identities), identities.end());
 }
 
 TEST_F(CrossTest, ZeroWindowHoldsNothing) {
@@ -520,12 +566,13 @@ TEST_F(CrossTest, FundingOnTheNetIsSplitByEachBooksOwnSize) {
     EXPECT_EQ(shares[0].amount.raw, 100);
     EXPECT_EQ(shares[1].amount.raw, -40);
     EXPECT_EQ(shares[0].amount.raw + shares[1].amount.raw, 60);
-    // books facing each other net to nothing, and a stray charge still lands somewhere
+    // books facing each other net to nothing and settle from the published rate, so a stray charge is neither's
     const std::array flat{oms::FundingHolder{.strategy_id = k_alice, .lots = 4},
                           oms::FundingHolder{.strategy_id = k_bob, .lots = -4}};
-    const auto fallback = oms::split_funding_net(flat, FixedE9::from_raw(10), 1);
-    ASSERT_EQ(fallback.size(), 2U);
-    EXPECT_EQ(fallback[0].amount.raw + fallback[1].amount.raw, 10);
+    const auto stray = oms::split_funding_net(flat, FixedE9::from_raw(10), 1);
+    ASSERT_EQ(stray.size(), 1U);
+    EXPECT_EQ(stray[0].strategy_id, 1);
+    EXPECT_EQ(stray[0].amount.raw, 10);
 }
 
 TEST_F(CrossTest, ARestartGetsTheSameAnswer) {
