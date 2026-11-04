@@ -80,6 +80,10 @@ struct ParentSpec {
     Profile profile{Profile::Flat};
     std::uint32_t pov_bp{0};
     FixedE9 max_child_notional{FixedE9::from_raw(20 * k_e9)};
+    // a child takes at most this share of its own venue's depth within depth_band_bp of that venue's touch, at least
+    // what the venue will take; zero is no such limit
+    std::uint32_t depth_share_bp{0};
+    FixedE9 depth_band_bp{FixedE9::from_raw(10 * k_e9)};
     IcebergSpec iceberg{};
     PegSpec peg{};
     // where a resting algo sits; invalid takes the sor's best venue for each new child
@@ -102,6 +106,7 @@ enum class SpecError : std::uint8_t {
     NoHorizon,
     NoRate,
     NoChildCap,
+    BadDepthShare,
     BadExpiry,
     NoRestLimit,
     NoShow,

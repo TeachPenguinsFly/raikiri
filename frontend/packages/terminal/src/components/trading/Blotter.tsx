@@ -250,6 +250,7 @@ const k_kind_colour: Record<BookRecord['kind'], string> = {
   manual: 'text-fg',
   client: 'text-accent',
   hedge: 'text-amber',
+  desk: 'text-fg-mid',
 }
 
 /** a number with nothing on record shows as the number: every order has a book, however old */

@@ -43,6 +43,8 @@ struct NewParentBody {
     std::string profile{"flat"};
     std::uint32_t pov_bp{0};
     std::optional<std::string> max_child_notional{};
+    std::uint32_t depth_share_bp{0};
+    std::optional<std::string> depth_band_bp{};
     std::optional<IcebergBody> iceberg{};
     std::optional<PeggedBody> pegged{};
     std::optional<std::string> venue{};
@@ -453,6 +455,14 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     spec.limit = *limit;
     if (!cap->is_undef()) {
         spec.max_child_notional = *cap;
+    }
+    spec.depth_share_bp = in.depth_share_bp;
+    const auto band = read_decimal(in.depth_band_bp);
+    if (!band.has_value()) {
+        return std::unexpected{std::string{"depth_band_bp is a decimal as text"}};
+    }
+    if (!band->is_undef()) {
+        spec.depth_band_bp = *band;
     }
     if (in.algo == "sor") {
         spec.algo = Algo::Sor;

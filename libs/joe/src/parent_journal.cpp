@@ -40,6 +40,8 @@ struct Row {
     std::uint8_t profile{0};
     std::uint32_t pov_bp{0};
     std::int64_t max_child_notional{0};
+    std::uint32_t depth_share_bp{0};
+    std::int64_t depth_band_bp{10 * k_e9};
     std::int64_t show{0};
     std::uint32_t variance_bp{0};
     std::uint8_t refill{0};
@@ -82,6 +84,8 @@ std::string encode_parent_record(const ParentRecord& record) {
                          .profile = static_cast<std::uint8_t>(spec.profile),
                          .pov_bp = spec.pov_bp,
                          .max_child_notional = spec.max_child_notional.raw,
+                         .depth_share_bp = spec.depth_share_bp,
+                         .depth_band_bp = spec.depth_band_bp.raw,
                          .show = spec.iceberg.show.raw,
                          .variance_bp = spec.iceberg.variance_bp,
                          .refill = static_cast<std::uint8_t>(spec.iceberg.refill),
@@ -140,6 +144,8 @@ std::optional<ParentRecord> decode_parent_record(std::string_view text) {
     spec.profile = static_cast<Profile>(row.profile);
     spec.pov_bp = row.pov_bp;
     spec.max_child_notional = FixedE9::from_raw(row.max_child_notional);
+    spec.depth_share_bp = row.depth_share_bp;
+    spec.depth_band_bp = FixedE9::from_raw(row.depth_band_bp);
     spec.iceberg = {
         .show = FixedE9::from_raw(row.show), .variance_bp = row.variance_bp, .refill = static_cast<Refill>(row.refill)};
     spec.peg = {.to = static_cast<PegTo>(row.peg_to),

@@ -1996,6 +1996,10 @@ export interface components {
             pov_bp: number;
             /** @description The most one child may be worth; 20 by default, as the risk gate's order limit. */
             max_child_notional?: components["schemas"]["Decimal"];
+            /** @description A child takes at most this share of its own venue's depth near that venue's touch, at least what the venue will take; zero is no such limit. */
+            depth_share_bp?: number;
+            /** @description How far from the touch `depth_share_bp` counts depth; 10 by default. */
+            depth_band_bp?: components["schemas"]["Decimal"];
             iceberg?: components["schemas"]["IcebergParams"];
             pegged?: components["schemas"]["PeggedParams"];
             /** @description Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child. */

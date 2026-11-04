@@ -137,6 +137,14 @@ def test_a_crossed_fill_says_it_is_internal() -> None:
     assert fill.internal is True
     venue_fill = build(
         Fill,
-        {"venue": "binance", "exec_id": "v", "instrument_id": "1", "side": "buy", "price": "100", "qty": "1", "ts_event": "6"},
+        {
+            "venue": "binance",
+            "exec_id": "v",
+            "instrument_id": "1",
+            "side": "buy",
+            "price": "100",
+            "qty": "1",
+            "ts_event": "6",
+        },
     )
     assert venue_fill.internal is False

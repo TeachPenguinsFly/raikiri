@@ -36,6 +36,7 @@ struct Touch {
     bool post_only{true};
     bool fresh{true};
     FixedE9 taker_fee{FixedE9::from_raw(0)};
+    FixedE9 depth{d("1")};
 };
 
 class Market final : public MarketView {
@@ -47,7 +48,7 @@ public:
                 out.push_back({.instrument = on(venue),
                                .taker_fee = touch.taker_fee,
                                .lot = d("0.001"),
-                               .levels = {{side == Side::Buy ? touch.ask : touch.bid, d("1")}},
+                               .levels = {{side == Side::Buy ? touch.ask : touch.bid, touch.depth}},
                                .amend = touch.amend,
                                .post_only = touch.post_only});
             }
@@ -221,6 +222,66 @@ TEST(JoeRestingSize, ShowsStayInTheirBandAndNeverExceedWhatIsLeft) {
     // a show under one lot still sends one
     iceberg = {.show = d("0.0001")};
     EXPECT_EQ(next_show(iceberg, d("0.001"), 10, random), 1);
+}
+
+TEST(JoeDepthShare, EachVenueGivesUpItsOwnShareAndEveryChildNamesItsParent) {
+    Fixture f;
+    f.market.touches = {{VenueId::Binance, {.bid = d("99.98"), .ask = d("100"), .depth = d("10")}},
+                        {VenueId::Okx, {.bid = d("99.98"), .ask = d("100"), .depth = d("0.4")}}};
+    ParentSpec spec{};
+    spec.listing = btc();
+    spec.qty = d("5");
+    spec.algo = Algo::Sor;
+    spec.max_child_notional = d("1000");
+    spec.depth_share_bp = 2500;
+    spec.external_ref = "rfq-7";
+    const auto id = f.desk.start(spec);
+    ASSERT_TRUE(id.has_value());
+    f.pass(k_s);
+    // a quarter of what each venue holds, not a quarter of the thinnest: 2.5 and 0.1, a lot being 0.001
+    ASSERT_GE(f.sink.sent.size(), 2U);
+    std::map<std::uint64_t, std::int64_t> lots;
+    for (const auto& child : f.sink.sent) {
+        // the first batch; a later one sends what this one left
+        lots.try_emplace(child.instrument.packed, child.lots);
+        EXPECT_EQ(child.origin.parent, *id) << "a child must lead back to the order that made it";
+        EXPECT_EQ(child.origin.external_ref.view(), "rfq-7");
+    }
+    EXPECT_EQ(lots[on(VenueId::Binance).packed], 2500);
+    EXPECT_EQ(lots[on(VenueId::Okx).packed], 100);
+}
+
+TEST(JoeDepthShare, AThinBookStillGetsOneLotAndOffLeavesTheCapAlone) {
+    Fixture f;
+    f.book().depth = d("0.001");
+    ParentSpec spec{};
+    spec.listing = btc();
+    spec.qty = d("0.001");
+    spec.algo = Algo::Sor;
+    spec.max_child_notional = d("1000");
+    spec.depth_share_bp = 2500;
+    ASSERT_TRUE(f.desk.start(spec).has_value());
+    f.pass(k_s);
+    ASSERT_EQ(f.sink.sent.size(), 1U);
+    EXPECT_EQ(f.sink.sent[0].lots, 1);
+
+    Fixture off;
+    off.book().depth = d("10");
+    spec.qty = d("5");
+    spec.depth_share_bp = 0;
+    ASSERT_TRUE(off.desk.start(spec).has_value());
+    off.pass(k_s);
+    ASSERT_EQ(off.sink.sent.size(), 1U);
+    EXPECT_EQ(off.sink.sent[0].lots, 5000);
+}
+
+TEST(JoeDepthShare, ABadShareIsRefused) {
+    ParentSpec spec{};
+    spec.listing = btc();
+    spec.qty = d("1");
+    spec.algo = Algo::Sor;
+    spec.depth_share_bp = 10'001;
+    EXPECT_EQ(validate(spec).error(), SpecError::BadDepthShare);
 }
 
 TEST(JoeRestingSize, LotsFitTheVenueMinimumAndTheChildCap) {

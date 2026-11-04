@@ -4,6 +4,7 @@
 #include <array>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace raikiri::joe {
 namespace internal {
@@ -35,6 +36,47 @@ constexpr std::string_view k_stopped = "stopped";
 // a slice repeats its siblings on purpose; only the same slice sent twice is a duplicate
 [[nodiscard]] std::uint64_t repeat_key(const Parent& parent) noexcept {
     return (parent.id() << 32) | ((parent.child_count() + 1) & 0xFFFF'FFFFULL);
+}
+
+// the lots the depth share leaves a child on this venue: at least what the venue will take, however thin the book
+[[nodiscard]] std::int64_t depth_lots(const ParentSpec& spec,
+                                      InstrumentId instrument,
+                                      std::span<const VenueBook> books,
+                                      FixedE9 per_lot) noexcept {
+    const auto book = std::ranges::find(books, instrument, &VenueBook::instrument);
+    if (spec.depth_share_bp == 0 || per_lot.raw <= 0 || book == books.end()) {
+        return std::numeric_limits<std::int64_t>::max();
+    }
+    const auto share = static_cast<int128_t>(depth_within(spec.side, *book, spec.depth_band_bp).raw) *
+                       spec.depth_share_bp / 10'000;
+    const auto least = book->min_notional.is_undef() || book->min_notional.raw <= 0
+                           ? std::int64_t{1}
+                           : (book->min_notional.raw + per_lot.raw - 1) / per_lot.raw;
+    return std::max(static_cast<std::int64_t>(share / per_lot.raw), least);
+}
+
+// each book cut to what a child may take from it, so the route spreads a batch across venues by price rather than
+// sending it all to the best one and leaving the cap to hold the rest back
+[[nodiscard]] std::vector<VenueBook> within_share(const ParentSpec& spec, std::span<const VenueBook> books) {
+    std::vector<VenueBook> out{books.begin(), books.end()};
+    for (auto& book : out) {
+        if (book.levels.empty()) {
+            continue;
+        }
+        const auto lots = depth_lots(spec, book.instrument, books, value_of(book.lot, book.levels.front().price));
+        auto left = static_cast<int128_t>(lots) * book.lot.raw;
+        std::size_t kept = 0;
+        for (auto& level : book.levels) {
+            if (left <= 0) {
+                break;
+            }
+            level.qty = FixedE9::from_raw(static_cast<std::int64_t>(std::min<int128_t>(level.qty.raw, left)));
+            left -= level.qty.raw;
+            ++kept;
+        }
+        book.levels.resize(kept);
+    }
+    return out;
 }
 
 [[nodiscard]] OrderOrigin origin_of(const Parent& parent) noexcept {
@@ -447,7 +489,9 @@ void Desk::work(Parent& parent, UnixNanos now) {
 
 void Desk::send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, UnixNanos now) {
     const auto& spec = parent.spec();
-    const auto planned = route(spec.side, want, spec.limit, books);
+    const auto planned = spec.depth_share_bp == 0
+                             ? route(spec.side, want, spec.limit, books)
+                             : route(spec.side, want, spec.limit, internal::within_share(spec, books));
     bool too_big = !planned.legs.empty();
     for (const auto& leg : planned.legs) {
         const auto per_lot = value_of(leg.lot, leg.limit);
@@ -633,7 +677,9 @@ void Desk::place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos
     const auto lot = book.lot;
     auto& slot = parent.slot();
     const auto left_lots = lots_in(FixedE9::from_raw(parent.qty().raw - parent.filled().raw), lot);
-    const auto want = spec.algo == Algo::Iceberg ? next_show(spec.iceberg, lot, left_lots, slot.random) : left_lots;
+    const auto shown = spec.algo == Algo::Iceberg ? next_show(spec.iceberg, lot, left_lots, slot.random) : left_lots;
+    const auto want = std::min(shown,
+                               internal::depth_lots(spec, book.instrument, std::span{&book, 1}, value_of(lot, price)));
     const auto lots = fit_lots(want, left_lots, lot, price, book.min_notional, spec.max_child_notional);
     if (lots == 0) {
         const auto per_lot = value_of(lot, price);

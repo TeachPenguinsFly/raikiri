@@ -90,6 +90,8 @@ std::string_view to_string(SpecError error) noexcept {
         return "an external reference is at most 40 characters";
     case SpecError::NoChildCap:
         return "max_child_notional must be positive";
+    case SpecError::BadDepthShare:
+        return "depth_share_bp is at most 10000 and depth_band_bp must be positive";
     case SpecError::BadExpiry:
         return "a resting algo's horizon is zero for none, or between one second and a week";
     case SpecError::NoRestLimit:
@@ -178,6 +180,9 @@ std::expected<void, SpecError> validate(const ParentSpec& spec) noexcept {
     }
     if (!positive(spec.max_child_notional)) {
         return std::unexpected{SpecError::NoChildCap};
+    }
+    if (spec.depth_share_bp > 10'000 || !positive(spec.depth_band_bp)) {
+        return std::unexpected{SpecError::BadDepthShare};
     }
     if (spec.client_tag.size() > 64) {
         return std::unexpected{SpecError::TagTooLong};

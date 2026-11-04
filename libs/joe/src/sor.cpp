@@ -1,6 +1,9 @@
+#include <raikiri/joe/order.hpp>
 #include <raikiri/joe/sor.hpp>
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <optional>
 
 namespace raikiri::joe {
@@ -193,6 +196,25 @@ const VenueBook* best_venue(Side side, std::span<const VenueBook> books, bool po
         }
     }
     return best;
+}
+
+FixedE9 depth_within(Side side, const VenueBook& book, FixedE9 band_bp) noexcept {
+    if (book.levels.empty()) {
+        return FixedE9::from_raw(0);
+    }
+    constexpr int128_t k_whole = 10'000 * static_cast<int128_t>(k_e9);
+    const int128_t touch = book.levels.front().price.raw;
+    const int128_t move = touch * band_bp.raw / k_whole;
+    const auto edge = side == Side::Buy ? touch + move : touch - move;
+    int128_t near = 0;
+    for (const auto& level : book.levels) {
+        if (side == Side::Buy ? level.price.raw > edge : level.price.raw < edge) {
+            break;
+        }
+        near += value_of(level.qty, level.price).raw;
+    }
+    return FixedE9::from_raw(
+        static_cast<std::int64_t>(std::min<int128_t>(near, std::numeric_limits<std::int64_t>::max() - 1)));
 }
 
 } // namespace raikiri::joe

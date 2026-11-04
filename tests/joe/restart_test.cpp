@@ -64,7 +64,9 @@ public:
 
 class RestartTest : public testing::Test {
 protected:
-    RestartTest() : dir_{std::filesystem::temp_directory_path() / (std::string{"joe_restart_"} + testing::UnitTest::GetInstance()->current_test_info()->name())} {
+    RestartTest()
+        : dir_{std::filesystem::temp_directory_path() /
+               (std::string{"joe_restart_"} + testing::UnitTest::GetInstance()->current_test_info()->name())} {
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(dir_);
     }
@@ -114,6 +116,8 @@ TEST_F(RestartTest, ARecordSurvivesItsEncoding) {
     ParentRecord in{.kind = ParentRecord::Kind::Created, .parent = 9, .ts = UnixNanos{5}, .spec = twap("tag-1")};
     in.spec.peg.offset_bp = -2;
     in.spec.venue = VenueId::Okx;
+    in.spec.depth_share_bp = 2500;
+    in.spec.depth_band_bp = d("15");
     in.child = {
         .id = 4, .instrument = k_instrument, .lot = d("0.001"), .lots = 3, .limit = d("100"), .tif = ChildTif::Gtc};
     in.times = {UnixNanos{7}};
@@ -127,6 +131,8 @@ TEST_F(RestartTest, ARecordSurvivesItsEncoding) {
     EXPECT_TRUE(out->spec.limit.is_undef());
     EXPECT_EQ(out->spec.peg.offset_bp, -2);
     EXPECT_EQ(out->spec.venue, VenueId::Okx);
+    EXPECT_EQ(out->spec.depth_share_bp, 2500U);
+    EXPECT_EQ(out->spec.depth_band_bp, d("15"));
     EXPECT_EQ(out->child.lots, 3);
     EXPECT_EQ(out->child.tif, ChildTif::Gtc);
     EXPECT_EQ(out->times.at(0).ns, 7U);

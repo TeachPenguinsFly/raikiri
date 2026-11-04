@@ -47,6 +47,9 @@ struct Route {
 
 // the book with the best touch after the taker fee, null when none quotes; a resting child's limit
 // is its own, so the parent's does not narrow this
+// what one venue's book holds within `band_bp` of its own touch, by value
+[[nodiscard]] FixedE9 depth_within(Side side, const VenueBook& book, FixedE9 band_bp) noexcept;
+
 [[nodiscard]] const VenueBook* best_venue(Side side, std::span<const VenueBook> books, bool post_only) noexcept;
 
 } // namespace raikiri::joe

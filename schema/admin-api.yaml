@@ -2667,6 +2667,12 @@ components:
         max_child_notional:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: The most one child may be worth; 20 by default, as the risk gate's order limit.
+        depth_share_bp:
+          type: integer
+          description: A child takes at most this share of its own venue's depth near that venue's touch, at least what the venue will take; zero is no such limit.
+        depth_band_bp:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: How far from the touch `depth_share_bp` counts depth; 10 by default.
         iceberg: { $ref: "#/components/schemas/IcebergParams" }
         pegged: { $ref: "#/components/schemas/PeggedParams" }
         venue:
@@ -2941,7 +2947,7 @@ components:
 
     BookKind:
       type: string
-      enum: [strategy, manual, client, hedge]
+      enum: [strategy, manual, client, hedge, desk]
 
     BookRecord:
       type: object
