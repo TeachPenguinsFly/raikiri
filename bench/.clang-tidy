@@ -1,0 +1,6 @@
+# a benchmark's loop variable is never read and the allocation counters must call malloc
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-no-malloc,
+  -clang-analyzer-deadcode.DeadStores,
+  -bugprone-implicit-widening-of-multiplication-result

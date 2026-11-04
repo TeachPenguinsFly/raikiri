@@ -20,7 +20,8 @@ defaults:
 env:
   # halt_on_error so a ubsan finding fails ctest
   UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-  ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1
+  # the allocation counting tests replace the global new and delete, and libc++abi frees its exception text with free
+  ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1:alloc_dealloc_mismatch=0
   TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
 
 jobs:

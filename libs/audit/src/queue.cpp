@@ -37,7 +37,10 @@ bool EntryQueue::try_push(const Entry& entry, bool& truncated) noexcept {
     const auto label = [&out, &truncated](std::string_view text) {
         const auto kept = std::min(text.size(), k_max_label_bytes);
         truncated = truncated || kept != text.size();
-        std::memcpy(out, text.data(), kept);
+        // an empty view may hold a null pointer, which memcpy may not be handed even for zero bytes
+        if (kept != 0) {
+            std::memcpy(out, text.data(), kept);
+        }
         out += kept;
         return static_cast<std::uint16_t>(kept);
     };
@@ -48,7 +51,9 @@ bool EntryQueue::try_push(const Entry& entry, bool& truncated) noexcept {
     header->subject = label(entry.subject);
     const auto room = static_cast<std::size_t>(bytes_.get() + ((pos & mask_) * slot_bytes_) + slot_bytes_ - out);
     if (entry.detail_json.size() <= room) {
-        std::memcpy(out, entry.detail_json.data(), entry.detail_json.size());
+        if (!entry.detail_json.empty()) {
+            std::memcpy(out, entry.detail_json.data(), entry.detail_json.size());
+        }
         header->detail = static_cast<std::uint32_t>(entry.detail_json.size());
     } else {
         truncated = true;

@@ -42,7 +42,8 @@ jobs:
     env:
       RAIKIRI_PG_DSN: postgresql://postgres:postgres@localhost:5432/raikiri_ci
       UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-      ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1
+      # the allocation counting tests replace the global new and delete, and libc++abi frees its exception text with free
+      ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1:alloc_dealloc_mismatch=0
 
     steps:
       - uses: actions/checkout@v4
