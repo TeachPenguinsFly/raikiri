@@ -130,7 +130,10 @@ public:
     bool on(KernelEvent event, UnixNanos at) noexcept {
         const auto next = step(now_, event);
         const bool moved = next.state != now_.state;
-        if (next.state != KernelState::Running && !next.recon_agreed) {
+        // a late heartbeat loses nothing: fills still come down the ring when the gateway catches up, so the next
+        // agreement clears it. Asking for a newer pull too held a venue that pulls rarely out of the market after any
+        // 200 ms hiccup: the sim's demo placed nothing for its whole run on a slow runner (2026-11-04)
+        if (next.state != KernelState::Running && !next.recon_agreed && event != KernelEvent::GatewayStalled) {
             doubted_since_ = at;
         }
         if (moved) {

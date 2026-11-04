@@ -1,3 +1,4 @@
+#include <raikiri/common/sanitizer.hpp>
 #include <raikiri/internalcross/domain/match.hpp>
 #include <raikiri/internalcross/domain/settings.hpp>
 
@@ -13,6 +14,7 @@ namespace {
 std::atomic<std::uint64_t> g_allocations{0};
 }
 
+#if !RAIKIRI_TSAN
 // gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
@@ -33,6 +35,7 @@ void operator delete(void* block) noexcept {
 void operator delete(void* block, std::size_t) noexcept {
     std::free(block);
 }
+#endif
 
 namespace raikiri::internalcross {
 namespace {

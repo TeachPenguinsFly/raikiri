@@ -107,6 +107,24 @@ TEST(KernelGate, AStalledGatewayStopsNewOrdersUntilTheVenueAgreesAgain) {
     EXPECT_EQ(step({.state = Halted, .recon_agreed = true}, GatewayStalled).state, Halted);
 }
 
+TEST(KernelGate, AnOlderSnapshotClearsAStallButNotARestoreOrAnOverrun) {
+    KernelGate stalled;
+    (void)stalled.on(GatewayStalled, UnixNanos{10});
+    EXPECT_TRUE(stalled.answers_doubt(UnixNanos{5})) << "nothing was lost, the gateway was only late";
+
+    KernelGate restored;
+    (void)restored.on(Restored, UnixNanos{10});
+    EXPECT_FALSE(restored.answers_doubt(UnixNanos{5}));
+    EXPECT_TRUE(restored.answers_doubt(UnixNanos{10}));
+
+    KernelGate overrun;
+    (void)overrun.on(ExecOverrun, UnixNanos{10});
+    EXPECT_FALSE(overrun.answers_doubt(UnixNanos{5}));
+    // a stall on top of a doubt leaves that doubt standing
+    (void)overrun.on(GatewayStalled, UnixNanos{20});
+    EXPECT_FALSE(overrun.answers_doubt(UnixNanos{5}));
+}
+
 TEST(KernelGate, TheReasonAndTheInstantSurviveForAScreenToShow) {
     KernelGate gate;
     gate.on(ExecOverrun, UnixNanos{100});

@@ -1,5 +1,6 @@
 #include <raikiri/audit/file_sink.hpp>
 #include <raikiri/audit/verify.hpp>
+#include <raikiri/common/sanitizer.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/oms/order_trail.hpp>
 
@@ -17,6 +18,7 @@ namespace {
 thread_local std::uint64_t t_allocations = 0;
 } // namespace
 
+#if !RAIKIRI_TSAN
 // gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
@@ -37,6 +39,7 @@ void operator delete(void* block) noexcept {
 void operator delete(void* block, std::size_t) noexcept {
     std::free(block);
 }
+#endif
 
 namespace raikiri::oms {
 namespace {

@@ -1,4 +1,5 @@
 #include <raikiri/bookrisk/track.hpp>
+#include <raikiri/common/sanitizer.hpp>
 #include <raikiri/oms/risk.hpp>
 
 #include <gtest/gtest.h>
@@ -13,6 +14,7 @@ std::atomic<std::uint64_t> g_allocations{0};
 } // namespace
 
 // counted across the whole test binary; only the gate tests read it
+#if !RAIKIRI_TSAN
 // gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
@@ -33,6 +35,7 @@ void operator delete(void* at) noexcept {
 void operator delete(void* at, std::size_t) noexcept {
     std::free(at);
 }
+#endif
 
 namespace raikiri::bookrisk {
 namespace {
