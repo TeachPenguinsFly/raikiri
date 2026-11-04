@@ -23,6 +23,11 @@ thread_local std::uint64_t t_allocs = 0;
 
 } // namespace
 
+// gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 void* operator new(std::size_t n) {
     ++t_allocs;
     if (void* p = std::malloc(n); p != nullptr) {
