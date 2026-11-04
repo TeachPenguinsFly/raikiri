@@ -7,6 +7,7 @@
 #include <raikiri/clientapi/application/hub.hpp>
 #include <raikiri/clientapi/presentation/frames.hpp>
 #include <raikiri/clientapi/presentation/router.hpp>
+#include <raikiri/common/sanitizer.hpp>
 
 #include <benchmark/benchmark.h>
 
@@ -23,6 +24,7 @@ thread_local std::uint64_t t_allocs = 0;
 
 } // namespace
 
+#if !RAIKIRI_TSAN
 // gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
@@ -43,6 +45,7 @@ void operator delete(void* p) noexcept {
 void operator delete(void* p, std::size_t) noexcept {
     std::free(p);
 }
+#endif
 
 namespace {
 

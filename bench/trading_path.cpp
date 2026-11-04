@@ -5,6 +5,7 @@
 #include <raikiri/audit/file_sink.hpp>
 #include <raikiri/bookrisk/desk.hpp>
 #include <raikiri/bookrisk/value.hpp>
+#include <raikiri/common/sanitizer.hpp>
 #include <raikiri/joe/desk.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
@@ -35,6 +36,7 @@ thread_local std::uint64_t t_allocs = 0;
 
 } // namespace
 
+#if !RAIKIRI_TSAN
 // gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
@@ -55,6 +57,7 @@ void operator delete(void* p) noexcept {
 void operator delete(void* p, std::size_t) noexcept {
     std::free(p);
 }
+#endif
 
 namespace {
 

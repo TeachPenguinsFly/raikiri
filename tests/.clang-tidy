@@ -1,6 +1,9 @@
-# assertions guard the optionals here, which tidy does not follow; vectors and loops are small
+# the allocation counters must call malloc behind the global new; assertions guard the optionals here, which tidy does not follow; vectors and loops are small
 InheritParentConfig: true
 Checks: >
   -bugprone-unchecked-optional-access,
   -performance-inefficient-vector-operation,
-  -clang-analyzer-security.FloatLoopCounter
+  -clang-analyzer-security.FloatLoopCounter,
+  -cppcoreguidelines-no-malloc,
+  -clang-analyzer-cplusplus.NewDelete,
+  -bugprone-implicit-widening-of-multiplication-result

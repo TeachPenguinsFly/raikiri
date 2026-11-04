@@ -188,7 +188,7 @@ public:
         cmd.order_type = limit == 0 ? OrderType::Market : OrderType::Limit;
         cmd.instrument = id();
         cmd.client_order_id = ClientOrderId::make(book, seq);
-        cmd.exchange_client_order_id = ids.next_exchange_client_id(k_now);
+        cmd.exchange_client_order_id = ids_.next_exchange_client_id(k_now);
         cmd.price = limit == 0 ? PriceTicks::undef() : PriceTicks::from_raw(limit);
         cmd.qty = QtyLots::from_raw(lots);
         cmd.ts_created = k_now;
@@ -210,7 +210,7 @@ public:
         event.type = OrderEventType::Filled;
         event.side = side;
         event.instrument = id();
-        event.client_order_id = ClientOrderId::make(book, 9000 + (++venue_fills));
+        event.client_order_id = ClientOrderId::make(book, 9000 + (++venue_fills_));
         event.price = PriceTicks::from_raw(500'000);
         event.qty = QtyLots::from_raw(lots);
         event.fee = FixedE9::from_raw(0);
@@ -240,11 +240,14 @@ public:
     }
 
 private:
-    oms::IdGen ids{1, 42};
-    std::uint64_t venue_fills{0};
+    oms::IdGen ids_{1, 42};
+    std::uint64_t venue_fills_{0};
 };
 
 class CrossTest : public testing::Test {
+public:
+    ~CrossTest() override { std::filesystem::remove_all(dir_); }
+
 protected:
     CrossTest()
         : dir_{std::filesystem::temp_directory_path() /
@@ -253,8 +256,6 @@ protected:
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(dir_);
     }
-
-    ~CrossTest() override { std::filesystem::remove_all(dir_); }
 
     std::filesystem::path dir_;
 };

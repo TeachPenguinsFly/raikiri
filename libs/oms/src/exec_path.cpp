@@ -1,6 +1,7 @@
 #include <raikiri/oms/exec_path.hpp>
 
 #include <algorithm>
+#include <ranges>
 
 namespace raikiri::oms {
 
@@ -14,12 +15,12 @@ void ClosedOrders::note(const Order& order, QtyLots left, UnixNanos at) {
 }
 
 ClosedOrder* ClosedOrders::find(const OrderEvent& event) noexcept {
-    for (auto it = closed_.rbegin(); it != closed_.rend(); ++it) {
-        if ((event.client_order_id.valid() && it->id == event.client_order_id) ||
+    for (auto& closed : closed_ | std::views::reverse) {
+        if ((event.client_order_id.valid() && closed.id == event.client_order_id) ||
             (!event.exchange_client_order_id.empty() &&
-             it->exchange_client_order_id == event.exchange_client_order_id) ||
-            (!event.exchange_order_id.empty() && it->exchange_order_id == event.exchange_order_id)) {
-            return &*it;
+             closed.exchange_client_order_id == event.exchange_client_order_id) ||
+            (!event.exchange_order_id.empty() && closed.exchange_order_id == event.exchange_order_id)) {
+            return &closed;
         }
     }
     return nullptr;
