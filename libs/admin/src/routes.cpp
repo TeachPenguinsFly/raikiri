@@ -409,7 +409,8 @@ http::Response book_risk(const std::map<std::string, std::uint16_t>& upstreams, 
         return problem(405, "method not allowed");
     }
     const auto target = std::string{"/risk"} + std::string{req.path.substr(k_risk_prefix.size())};
-    const auto answer = http::fetch("127.0.0.1", found->second, target, k_risk_timeout_ms, req.method, req.body, req.login);
+    const auto answer = http::fetch(
+        "127.0.0.1", found->second, target, k_risk_timeout_ms, req.method, req.body, req.login);
     if (!answer.has_value()) {
         return problem(503, "strategyd is not answering", "no change was confirmed; read the state again");
     }

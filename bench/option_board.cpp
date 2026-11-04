@@ -48,7 +48,8 @@ double cdf(double x) {
 std::vector<OptionQuote> board(int strikes_per_expiry) {
     std::vector<OptionQuote> out;
     std::uint32_t symbol = 1;
-    const VenueId venues[]{VenueId::Deribit, VenueId::Derive, VenueId::Okx, VenueId::Bybit, VenueId::Binance, VenueId::Gate};
+    const VenueId venues[]{
+        VenueId::Deribit, VenueId::Derive, VenueId::Okx, VenueId::Bybit, VenueId::Binance, VenueId::Gate};
     const int days[]{1, 2, 3, 7, 14, 21, 30, 60, 90, 120, 180, 240, 300, 365};
     int salt = 0;
     for (const auto venue : venues) {
@@ -126,6 +127,7 @@ void bm_chain_use_case(benchmark::State& state) {
         benchmark::DoNotOptimize(chain({.underlying = "BTC", .expiry = expiry}));
     }
 }
+
 BENCHMARK(bm_chain_use_case)->Arg(50)->Arg(100)->Unit(benchmark::kMicrosecond);
 
 void bm_chain_route(benchmark::State& state) {
@@ -141,6 +143,7 @@ void bm_chain_route(benchmark::State& state) {
         benchmark::DoNotOptimize(res);
     }
 }
+
 BENCHMARK(bm_chain_route)->Arg(50)->Arg(100)->Unit(benchmark::kMicrosecond);
 
 void bm_surface_fit(benchmark::State& state) {
@@ -152,6 +155,7 @@ void bm_surface_fit(benchmark::State& state) {
         benchmark::DoNotOptimize(surface("BTC", {}));
     }
 }
+
 BENCHMARK(bm_surface_fit)->Arg(25)->Arg(50)->Arg(100)->Unit(benchmark::kMillisecond)->Iterations(3);
 
 } // namespace

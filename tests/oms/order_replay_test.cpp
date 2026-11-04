@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+
 #include <filesystem>
 #include <string>
 
@@ -19,7 +21,8 @@ class OrderReplayTest : public testing::Test {
 protected:
     OrderReplayTest()
         : dir_{std::filesystem::temp_directory_path() /
-               ("order_replay_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)))} {
+               (std::string{"order_replay_"} + std::to_string(::getpid()) + "_" +
+                testing::UnitTest::GetInstance()->current_test_info()->name())} {
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(dir_);
     }

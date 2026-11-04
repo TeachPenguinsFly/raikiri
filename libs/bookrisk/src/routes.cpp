@@ -128,7 +128,6 @@ namespace internal {
     return req.login.empty() ? typed : std::string{req.login};
 }
 
-
 [[nodiscard]] std::string text(FixedE9 value) {
     std::array<char, 32> buf{};
     return std::string{format_e9(value, buf.data(), buf.size())};
@@ -311,7 +310,8 @@ std::optional<http::Response> RiskRoutes::operator()(const http::Request& req) c
         if (!capital.has_value()) {
             return http::problem(422, "capital is a decimal as text");
         }
-        return done(desk_->set_capital(*capital, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
+        return done(desk_->set_capital(
+            *capital, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
     }
     if (req.path == "/risk/defaults") {
         LimitsBody body{};
@@ -322,14 +322,16 @@ std::optional<http::Response> RiskRoutes::operator()(const http::Request& req) c
         if (!patch.has_value()) {
             return http::problem(422, "refused", patch.error());
         }
-        return done(desk_->set_defaults(*patch, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
+        return done(desk_->set_defaults(
+            *patch, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
     }
     if (req.path == "/risk/kill") {
         ChangeBody body{};
         if (glz::read<k_read>(body, req.body)) {
             return http::problem(400, "malformed body");
         }
-        const auto killed = desk_->kill(std::nullopt, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm});
+        const auto killed = desk_->kill(
+            std::nullopt, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm});
         return killed.has_value() ? internal::answer(KillAnswer{.cancelled = *killed})
                                   : internal::refused(killed.error());
     }
@@ -338,7 +340,8 @@ std::optional<http::Response> RiskRoutes::operator()(const http::Request& req) c
         if (glz::read<k_read>(body, req.body)) {
             return http::problem(400, "malformed body");
         }
-        return done(desk_->resume_desk({.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
+        return done(
+            desk_->resume_desk({.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
     }
     constexpr std::string_view k_books = "/risk/books/";
     if (!req.path.starts_with(k_books)) {
@@ -360,7 +363,8 @@ std::optional<http::Response> RiskRoutes::operator()(const http::Request& req) c
         if (!patch.has_value()) {
             return http::problem(422, "refused", patch.error());
         }
-        return done(desk_->set_limits(*book, *patch, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
+        return done(desk_->set_limits(
+            *book, *patch, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
     }
     if (verb == "state") {
         StateBody body{};
@@ -371,14 +375,16 @@ std::optional<http::Response> RiskRoutes::operator()(const http::Request& req) c
         if (!state.has_value()) {
             return http::problem(422, "state is active or reducing");
         }
-        return done(desk_->set_state(*book, *state, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
+        return done(desk_->set_state(
+            *book, *state, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm}));
     }
     if (verb == "kill") {
         ChangeBody body{};
         if (glz::read<k_read>(body, req.body)) {
             return http::problem(400, "malformed body");
         }
-        const auto killed = desk_->kill(book, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm});
+        const auto killed = desk_->kill(
+            book, {.by = internal::who(req, body.by), .reason = body.reason, .confirm = body.confirm});
         return killed.has_value() ? internal::answer(KillAnswer{.cancelled = *killed})
                                   : internal::refused(killed.error());
     }

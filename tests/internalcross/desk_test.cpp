@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -30,6 +32,11 @@
 namespace {
 std::atomic<std::uint64_t> g_allocations{0};
 }
+
+// gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
 
 void* operator new(std::size_t size) {
     g_allocations.fetch_add(1, std::memory_order_relaxed);
@@ -238,7 +245,8 @@ class CrossTest : public testing::Test {
 protected:
     CrossTest()
         : dir_{std::filesystem::temp_directory_path() /
-               ("internal_cross_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)))} {
+               (std::string{"internal_cross_"} + std::to_string(::getpid()) + "_" +
+                testing::UnitTest::GetInstance()->current_test_info()->name())} {
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(dir_);
     }

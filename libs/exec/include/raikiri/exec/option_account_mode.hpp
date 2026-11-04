@@ -4,7 +4,6 @@
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/order.hpp>
-
 #include <raikiri/exec/execution_client.hpp>
 
 #include <expected>

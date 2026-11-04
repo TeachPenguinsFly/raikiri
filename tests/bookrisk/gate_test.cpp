@@ -13,6 +13,11 @@ std::atomic<std::uint64_t> g_allocations{0};
 } // namespace
 
 // counted across the whole test binary; only the gate tests read it
+// gcc pairs this malloc with the libc free below and reads a mismatch once they inline together
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 void* operator new(std::size_t size) {
     g_allocations.fetch_add(1, std::memory_order_relaxed);
     if (void* out = std::malloc(size); out != nullptr) {

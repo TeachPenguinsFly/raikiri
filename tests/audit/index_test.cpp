@@ -32,7 +32,9 @@ public:
 
 class AuditIndexTest : public testing::Test {
 protected:
-    AuditIndexTest() : root_{std::filesystem::temp_directory_path() / (std::string{"audit_index_test_"} + testing::UnitTest::GetInstance()->current_test_info()->name())} {
+    AuditIndexTest()
+        : root_{std::filesystem::temp_directory_path() /
+                (std::string{"audit_index_test_"} + testing::UnitTest::GetInstance()->current_test_info()->name())} {
         std::filesystem::remove_all(root_);
         std::filesystem::create_directories(stream());
     }

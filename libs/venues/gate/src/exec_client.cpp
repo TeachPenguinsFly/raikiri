@@ -194,9 +194,7 @@ public:
         return api_.fill_reports(market, since);
     }
 
-    std::expected<std::string, exec::VenueError> option_account_mode() override {
-        return api_.option_account_mode();
-    }
+    std::expected<std::string, exec::VenueError> option_account_mode() override { return api_.option_account_mode(); }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) override {
         return api_.balance_reports(market);

@@ -2173,7 +2173,7 @@ int main(int argc, char** argv) {
         cross_desk.restore(record);
     }
     // a wall-clock start as for any book, so a lost journal cannot mint a leg an earlier run used
-    cross_desk.legs_start_after(std::max(replay.last_internal_leg(), clock.wall().ns / 1'000'000ULL));
+    cross_desk.legs_start_after(std::max<std::uint64_t>(replay.last_internal_leg(), clock.wall().ns / 1'000'000ULL));
     for (const auto& leg : replay.unechoed_legs()) {
         ctx.journal_event(leg);
     }
