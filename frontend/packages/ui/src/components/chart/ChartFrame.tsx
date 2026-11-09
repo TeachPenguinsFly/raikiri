@@ -17,7 +17,7 @@ interface ChartFrameProps {
   onLegendHover?: ((key: string | null) => void) | undefined
   readout?: ReactNode | undefined
   height?: number | undefined
-  placeholder?: string | undefined
+  placeholder?: ReactNode
   children: (size: { width: number; height: number }) => ReactNode
 }
 
