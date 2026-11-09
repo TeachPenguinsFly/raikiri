@@ -283,6 +283,8 @@ raikiri_add_test(reference_segment_test SRCS reference/segment_test.cpp
   LIBS raikiri::reference_shm raikiri::reference_http)
 
 raikiri_add_test(clientapi_test SRCS clientapi/guards_test.cpp clientapi/router_test.cpp LIBS raikiri::clientapi raikiri::net)
+raikiri_add_test(http_deferred_test SRCS http/deferred_test.cpp LIBS raikiri::http raikiri::net)
+raikiri_add_test(pg_pool_test POSTGRES SRCS pg/pool_test.cpp LIBS raikiri::pg raikiri::net)
 raikiri_add_test(clientapi_integration_test SRCS clientapi/integration_test.cpp LIBS raikiri::clientapi raikiri::audit_file raikiri::http raikiri::net raikiri::log Boost::headers)
 
 raikiri_add_test(internalcross_match_test SRCS internalcross/match_test.cpp LIBS raikiri::internalcross)

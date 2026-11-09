@@ -35,11 +35,28 @@ struct Response {
 // anything the handler throws becomes a 500 with an rfc 9457 body
 using Handler = std::function<Response(const Request&)>;
 
+// the answer to one request, given later: from any thread, once; later calls do nothing, and a reply dropped without
+// an answer sends a 500. The connection reads nothing more until it is answered
+class Reply {
+public:
+    struct Pending;
+    explicit Reply(std::shared_ptr<Pending> pending) noexcept;
+    void operator()(Response response) const;
+
+private:
+    std::shared_ptr<Pending> pending_;
+};
+
+// for an answer that waits on something else, such as a database; the request's views die when the handler returns,
+// so it copies what it keeps
+using DeferredHandler = std::function<void(const Request&, Reply)>;
+
 class Server {
 public:
     Server(std::string address, std::uint16_t port, Handler handler);
     // runs on `io` so one wait serves both
     Server(net::IoContext& io, std::string address, std::uint16_t port, Handler handler);
+    Server(net::IoContext& io, std::string address, std::uint16_t port, DeferredHandler handler);
     ~Server();
     Server(const Server&) = delete;
     Server& operator=(const Server&) = delete;

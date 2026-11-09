@@ -2,9 +2,12 @@
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <utility>
 
 namespace raikiri::http {
@@ -33,11 +36,24 @@ std::string_view reason_of(int status) noexcept {
     }
 }
 
+Response failed() {
+    return {.status = 500,
+            .content_type = "application/problem+json",
+            .body = R"({"title":"handler failed","status":500})"};
+}
+
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    Session(tcp::socket socket, const Handler& handler) : stream_{std::move(socket)}, handler_{&handler} {}
+    Session(tcp::socket socket, const DeferredHandler& handler) : stream_{std::move(socket)}, handler_{&handler} {}
 
     void run() { read(); }
+
+    // an answer given after the handler returned, from whichever thread gave it
+    void answer_later(Response answer) {
+        boost::asio::post(stream_.get_executor(), [self = shared_from_this(), answer = std::move(answer)]() mutable {
+            self->write(std::move(answer));
+        });
+    }
 
 private:
     void read() {
@@ -54,31 +70,7 @@ private:
         });
     }
 
-    void dispatch() {
-        const auto target = std::string_view{request_->get().target()};
-        const auto split = target.find('?');
-        const auto& parsed = request_->get();
-        const auto idempotency = parsed.find("Idempotency-Key");
-        const auto login = parsed.find("X-Raikiri-Login");
-        const Request req{
-            .method = std::string_view{parsed.method_string()},
-            .path = target.substr(0, split),
-            .query = split == std::string_view::npos ? std::string_view{} : target.substr(split + 1),
-            .body = std::string_view{parsed.body()},
-            .idempotency_key = idempotency == parsed.end() ? std::string_view{}
-                                                           : std::string_view{idempotency->value()},
-            .login = login == parsed.end() ? std::string_view{} : std::string_view{login->value()},
-        };
-        Response answer{};
-        try {
-            answer = (*handler_)(req);
-        } catch (...) {
-            answer = {.status = 500,
-                      .content_type = "application/problem+json",
-                      .body = R"({"title":"handler failed","status":500})"};
-        }
-        write(std::move(answer));
-    }
+    void dispatch();
 
     void write(Response answer) {
         response_ = std::make_shared<http::response<http::string_body>>(static_cast<http::status>(answer.status),
@@ -112,13 +104,87 @@ private:
     beast::flat_buffer buffer_;
     std::unique_ptr<http::request_parser<http::string_body>> request_;
     std::shared_ptr<http::response<http::string_body>> response_;
-    const Handler* handler_;
+    const DeferredHandler* handler_;
 };
 
 } // namespace
 
+struct Reply::Pending {
+    explicit Pending(std::shared_ptr<Session> s) : session{std::move(s)} {}
+
+    ~Pending() {
+        if (!answered) {
+            session->answer_later(failed());
+        }
+    }
+
+    Pending(const Pending&) = delete;
+    Pending& operator=(const Pending&) = delete;
+
+    void answer(Response response) {
+        const std::scoped_lock lock{mutex};
+        if (answered) {
+            return;
+        }
+        answered = true;
+        if (in_handler) {
+            held = std::move(response);
+        } else {
+            session->answer_later(std::move(response));
+        }
+    }
+
+    std::optional<Response> close_window() {
+        const std::scoped_lock lock{mutex};
+        in_handler = false;
+        return std::exchange(held, std::nullopt);
+    }
+
+    std::shared_ptr<Session> session;
+    std::mutex mutex;
+    bool in_handler{true};
+    bool answered{false};
+    std::optional<Response> held;
+};
+
+Reply::Reply(std::shared_ptr<Pending> pending) noexcept : pending_{std::move(pending)} {}
+
+void Reply::operator()(Response response) const {
+    pending_->answer(std::move(response));
+}
+
+namespace {
+
+void Session::dispatch() {
+    const auto target = std::string_view{request_->get().target()};
+    const auto split = target.find('?');
+    const auto& parsed = request_->get();
+    const auto idempotency = parsed.find("Idempotency-Key");
+    const auto login = parsed.find("X-Raikiri-Login");
+    const Request req{
+        .method = std::string_view{parsed.method_string()},
+        .path = target.substr(0, split),
+        .query = split == std::string_view::npos ? std::string_view{} : target.substr(split + 1),
+        .body = std::string_view{parsed.body()},
+        .idempotency_key = idempotency == parsed.end() ? std::string_view{} : std::string_view{idempotency->value()},
+        .login = login == parsed.end() ? std::string_view{} : std::string_view{login->value()},
+    };
+    auto pending = std::make_shared<Reply::Pending>(shared_from_this());
+    try {
+        (*handler_)(req, Reply{pending});
+    } catch (...) {
+        Reply{pending}(failed());
+    }
+    // an answer given while the handler ran goes out now, as a plain handler's always did
+    if (auto answer = pending->close_window()) {
+        write(std::move(*answer));
+    }
+}
+
+} // namespace
+
 struct Server::Impl {
-    Impl(void* shared, std::string addr, std::uint16_t p, Handler h)
+    Impl(void* shared, std::string addr, std::uint16_t p, DeferredHandler h)
         : owned{shared == nullptr ? std::make_unique<boost::asio::io_context>(1) : nullptr},
           ioc{shared == nullptr ? *owned : *static_cast<boost::asio::io_context*>(shared)}, address{std::move(addr)},
           port{p}, handler{std::move(h)}, acceptor{ioc} {}
@@ -138,15 +204,26 @@ struct Server::Impl {
     boost::asio::io_context& ioc;
     std::string address;
     std::uint16_t port;
-    Handler handler;
+    DeferredHandler handler;
     tcp::acceptor acceptor;
     bool running{false};
 };
 
+namespace {
+
+DeferredHandler deferred(Handler handler) {
+    return [handler = std::move(handler)](const Request& request, const Reply& reply) { reply(handler(request)); };
+}
+
+} // namespace
+
 Server::Server(std::string address, std::uint16_t port, Handler handler)
-    : impl_{std::make_unique<Impl>(nullptr, std::move(address), port, std::move(handler))} {}
+    : impl_{std::make_unique<Impl>(nullptr, std::move(address), port, deferred(std::move(handler)))} {}
 
 Server::Server(net::IoContext& io, std::string address, std::uint16_t port, Handler handler)
+    : impl_{std::make_unique<Impl>(io.native(), std::move(address), port, deferred(std::move(handler)))} {}
+
+Server::Server(net::IoContext& io, std::string address, std::uint16_t port, DeferredHandler handler)
     : impl_{std::make_unique<Impl>(io.native(), std::move(address), port, std::move(handler))} {}
 
 Server::~Server() = default;
