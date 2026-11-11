@@ -134,7 +134,7 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
     }
     if (recover) {
         // Segment size on disk is authoritative when re-opening.
-        struct stat st {};
+        struct stat st{};
 
         if (::fstat(fd_, &st) != 0 || st.st_size < static_cast<off_t>(k_header_bytes)) {
             return std::unexpected{JournalError::OpenFailed};
@@ -214,8 +214,15 @@ std::expected<std::uint64_t, JournalError> JournalWriter::append(std::uint16_t s
 }
 
 void JournalWriter::flush() noexcept {
-    if (fd_ < 0 || synced_seq_ == next_seq_) {
-        return;
+    (void)sync();
+}
+
+bool JournalWriter::sync() noexcept {
+    if (fd_ < 0) {
+        return false;
+    }
+    if (synced_seq_ == next_seq_) {
+        return true;
     }
 #if defined(__APPLE__)
     const int rc = ::fcntl(fd_, F_FULLFSYNC);
@@ -226,6 +233,7 @@ void JournalWriter::flush() noexcept {
     if (rc == 0) {
         synced_seq_ = next_seq_;
     }
+    return rc == 0;
 }
 
 } // namespace raikiri::journal

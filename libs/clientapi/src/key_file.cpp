@@ -42,6 +42,8 @@ struct ExtensionFile {
     std::optional<std::string> permission{};
     std::optional<std::string> client_field{};
     std::vector<std::string> routes{};
+    std::vector<std::string> required_accounts{};
+    std::vector<std::string> required_symbols{};
 };
 
 struct KeyFile {
@@ -146,6 +148,8 @@ std::expected<std::size_t, std::string> KeyFileDirectory::load() {
     for (const auto& item : file.extensions.value_or(std::vector<wire::ExtensionFile>{})) {
         Extension extension{.name = item.name, .port = item.port, .client_field = item.client_field.value_or("client")};
         extension.permission = permission_of(item.permission.value_or("trade")).value_or(Permission::Trade);
+        extension.required_accounts = item.required_accounts;
+        extension.required_symbols = item.required_symbols;
         for (const auto& route : item.routes) {
             const auto space = route.find(' ');
             if (space == std::string::npos || route.size() < space + 2 || route[space + 1] != '/') {

@@ -41,7 +41,7 @@ public:
 };
 
 struct Rig {
-    Rig()
+    explicit Rig(std::vector<std::string> required_accounts = {}, std::vector<std::string> required_symbols = {})
         : auth{keys, wall, {.skew_ms = 5'000}}, book{ledger, 86'400ULL * 1'000'000'000ULL}, hub{"e1", 16},
           instruments{backend, wall},
           desk{backend,
@@ -64,7 +64,9 @@ struct Rig {
                             .routes = {{.method = "POST", .path = "/requests"},
                                        {.method = "GET", .path = "/requests"},
                                        {.method = "GET", .path = "/requests/*"},
-                                       {.method = "POST", .path = "/requests/*/accept"}}}}} {
+                                       {.method = "POST", .path = "/requests/*/accept"}},
+                            .required_accounts = std::move(required_accounts),
+                            .required_symbols = std::move(required_symbols)}}} {
         backend.listings["1"] = test::listing("1", "binance", "BTC/USDT");
         backend.listings["2"] = test::listing("2", "okx", "ETH/USDT");
         keys.add(full_key());
@@ -926,6 +928,31 @@ TEST(Extensions, OnlyListedRoutesAreReachable) {
     EXPECT_TRUE(rig.extension.calls.empty());
 }
 
+TEST(Extensions, MultiVenueAccessRequiresEveryConfiguredAccountBeforeForwarding) {
+    Rig rig{{"polymarket", "novig"}};
+    auto key = full_key();
+    key.accounts = {"polymarket"};
+    rig.keys.add(key);
+    const auto refused = rig.call("POST", "/api/v1/x/desk/requests", R"({"symbol":"BTC/USDT"})");
+    EXPECT_EQ(refused.response.status, 403);
+    EXPECT_TRUE(has_code(refused.response, "out-of-scope"));
+    EXPECT_TRUE(rig.extension.calls.empty());
+    key.accounts = {"polymarket", "novig"};
+    rig.keys.add(key);
+    rig.extension.replies["POST /requests"] = {.status = 201, .body = R"({"id":"r1","client":"acme"})"};
+    EXPECT_EQ(rig.call("POST", "/api/v1/x/desk/requests", R"({"symbol":"BTC/USDT"})").response.status, 201);
+    EXPECT_EQ(rig.extension.calls.size(), 1U);
+}
+
+TEST(Extensions, AScopedSymbolKeyCannotBypassItsScopeThroughADomainCatalogue) {
+    Rig rig{{"polymarket", "novig"}, {"*"}};
+    auto key = full_key();
+    key.symbols = {"BTC/*"};
+    rig.keys.add(key);
+    EXPECT_EQ(rig.call("POST", "/api/v1/x/desk/requests", "{}").response.status, 403);
+    EXPECT_TRUE(rig.extension.calls.empty());
+}
+
 TEST(Extensions, TheClientIsSetByTheKeyNotTheBody) {
     Rig rig;
     rig.extension.replies["POST /requests"] = {.status = 201, .body = R"({"id":"r1","client":"acme"})"};
@@ -937,6 +964,15 @@ TEST(Extensions, TheClientIsSetByTheKeyNotTheBody) {
         has_code(rig.call("POST", "/api/v1/x/desk/requests", R"({"client":"globex","symbol":"BTC/USDT"})").response,
                  "out-of-scope"));
     EXPECT_GE(rig.audit.count("x.desk.POST"), 2U);
+}
+
+TEST(Extensions, DomainRefusalCodeSurvivesTheClientApi) {
+    Rig rig;
+    rig.extension.replies["POST /requests"] = {
+        .status = 409, .body = R"({"title":"pair refused","code":"risk-rejected","detail":"daily loss budget"})"};
+    const auto sent = rig.call("POST", "/api/v1/x/desk/requests", "{}");
+    EXPECT_EQ(sent.response.status, 409);
+    EXPECT_TRUE(has_code(sent.response, "risk-rejected"));
 }
 
 TEST(Extensions, ListsAreFilteredAndARecordOfAnotherClientIsHidden) {

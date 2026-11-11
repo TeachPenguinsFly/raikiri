@@ -48,6 +48,9 @@ public:
     // skipped when nothing was appended since the last one that succeeded.
     void flush() noexcept;
 
+    // A pre-send durability barrier: false means the caller must not send an external mutation.
+    [[nodiscard]] bool sync() noexcept;
+
     [[nodiscard]] std::uint64_t syncs() const noexcept { return syncs_; }
 
     [[nodiscard]] std::uint64_t next_seq() const noexcept { return next_seq_; }

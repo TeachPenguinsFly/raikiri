@@ -56,6 +56,7 @@ struct CancelAllBody {
 
 struct ExtensionProblem {
     std::string title{};
+    std::string code{};
     std::optional<std::string> detail{};
 };
 
@@ -811,6 +812,18 @@ EdgeResponse ApiRouter::handle_extension(const EdgeRequest& request,
         return refuse({.status = 403, .code = "permission-denied", .title = "this key lacks the permission for that"},
                       action);
     }
+    if (std::ranges::any_of(extension->required_accounts,
+                            [&](const std::string& account) { return !allows_account(key, account); })) {
+        return refuse({.status = 403,
+                       .code = "out-of-scope",
+                       .title = "this key cannot use every account required by the extension"},
+                      action);
+    }
+    if (std::ranges::any_of(extension->required_symbols,
+                            [&](const std::string& symbol) { return !allows_symbol(key, symbol); })) {
+        return refuse({.status = 403, .code = "out-of-scope", .title = "this key cannot use the extension's symbols"},
+                      action);
+    }
     const auto star = route->path.find('*');
     const auto base = star == std::string::npos
                           ? std::string_view{}
@@ -960,11 +973,13 @@ ApiRouter::Reply ApiRouter::call_extension(const Extension& extension,
     if (answer->status >= 400) {
         wire::ExtensionProblem problem{};
         (void)internal::from_backend(problem, answer->body);
-        return std::unexpected(Refusal{.status = answer->status,
-                                       .code = answer->status == 503 ? "backend-unavailable" : "extension-refused",
-                                       .title = problem.title.empty() ? "refused" : problem.title,
-                                       .detail = problem.detail.value_or(std::string{}),
-                                       .retry_after_s = answer->status == 503 ? 1U : 0U});
+        return std::unexpected(
+            Refusal{.status = answer->status,
+                    .code = problem.code.empty() ? (answer->status == 503 ? "backend-unavailable" : "extension-refused")
+                                                 : problem.code,
+                    .title = problem.title.empty() ? "refused" : problem.title,
+                    .detail = problem.detail.value_or(std::string{}),
+                    .retry_after_s = answer->status == 503 ? 1U : 0U});
     }
     if (request.method != "GET" || !wildcard_base.empty()) {
         return std::pair{answer->status, answer->body};

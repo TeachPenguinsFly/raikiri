@@ -97,6 +97,10 @@ struct Extension {
     Permission permission{Permission::Trade};
     std::string client_field{"client"};
     std::vector<ExtensionRoute> routes{};
+    // A multi-account extension must be reachable only by keys permitted to use every account it can trade.
+    std::vector<std::string> required_accounts{};
+    // Domain catalogues that do not use raikiri symbols can require "*" until their own market ACL is available.
+    std::vector<std::string> required_symbols{};
 };
 
 struct RawReply {
