@@ -14,7 +14,7 @@ constexpr int k_tries = 2;
 
 } // namespace
 
-void Backfill::add(Gap gap) {
+void Backfill::add(const Gap& gap) {
     if (gap.to <= gap.from) {
         return;
     }

@@ -26,7 +26,6 @@
 #include <exception>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -96,9 +95,9 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 
-    std::optional<candles::Store> store;
+    std::unique_ptr<candles::Store> store;
     try {
-        store.emplace(dsn);
+        store = std::make_unique<candles::Store>(dsn);
     } catch (const std::exception& e) {
         RLOG_ERROR("candled: cannot open the database: {}", e.what());
         return 1;
@@ -251,17 +250,17 @@ int main(int argc, char** argv) {
         if (unwritten.empty()) {
             return;
         }
+        // kept for the next flush; a database that stays away costs memory, not candles
         try {
+            if (!store) {
+                store = std::make_unique<candles::Store>(dsn);
+            }
             store->write(unwritten);
             written += unwritten.size();
             unwritten.clear();
         } catch (const std::exception& e) {
-            // kept for the next flush; a database that stays away costs memory, not candles
             RLOG_WARN("candled: write of {} minutes failed, kept for the next try: {}", unwritten.size(), e.what());
-            try {
-                store.emplace(dsn);
-            } catch (const std::exception&) {
-            }
+            store.reset();
         }
     };
 
@@ -333,7 +332,7 @@ int main(int argc, char** argv) {
             mend_due = mono + k_mend_ns;
             mend();
         }
-        if (mono >= prune_due) {
+        if (mono >= prune_due && store != nullptr) {
             prune_due = mono + k_prune_ns;
             try {
                 const auto before = candles::minute_of(clock.wall()) - keep_days * 24 * 60;

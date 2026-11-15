@@ -62,16 +62,14 @@ struct MarketState {
 // `forward` and `rate` answer where the quote's own greeks do not
 [[nodiscard]] MarketState market_of(const optiondata::OptionQuote& quote, FixedE9 forward, FixedE9 rate) noexcept;
 
-enum Flag : std::uint16_t {
-    k_mark_missing = 1U << 0U,
-    k_mark_stale = 1U << 1U,
-    k_mark_model = 1U << 2U, // no quoted mark; the model priced it at the venue's iv
-    k_greeks_missing = 1U << 3U,
-    k_greeks_stale = 1U << 4U,
-    k_position_stale = 1U << 5U,
-    k_entry_missing = 1U << 6U,
-    k_rate_missing = 1U << 7U,
-};
+inline constexpr std::uint16_t k_mark_missing = 1U << 0U;
+inline constexpr std::uint16_t k_mark_stale = 1U << 1U;
+inline constexpr std::uint16_t k_mark_model = 1U << 2U; // no quoted mark; the model priced it at the venue's iv
+inline constexpr std::uint16_t k_greeks_missing = 1U << 3U;
+inline constexpr std::uint16_t k_greeks_stale = 1U << 4U;
+inline constexpr std::uint16_t k_position_stale = 1U << 5U;
+inline constexpr std::uint16_t k_entry_missing = 1U << 6U;
+inline constexpr std::uint16_t k_rate_missing = 1U << 7U;
 
 struct Staleness {
     std::uint64_t mark_ns{60'000'000'000ULL};

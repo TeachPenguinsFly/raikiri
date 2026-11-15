@@ -12,7 +12,7 @@ using namespace raikiri::admin;
 
 namespace {
 
-Listing listing(std::string venue, double mid, double volume = 0.0, std::string market = "perp") {
+Listing listing(const std::string& venue, double mid, double volume = 0.0, std::string market = "perp") {
     return {.instrument_id = "1",
             .account = venue,
             .venue = venue,

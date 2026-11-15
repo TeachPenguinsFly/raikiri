@@ -56,7 +56,8 @@ public:
             return std::unexpected{std::string{body.substr(0, 160)}};
         }
         std::vector<Candle> out;
-        for (const auto row : root.get_array().value_unsafe()) {
+        const auto row_list = root.get_array().value_unsafe();
+        for (const auto row : row_list) {
             std::string_view stamp;
             std::int64_t open_ms{0};
             if (row["createdAtTimestamp"].get_string().get(stamp) != simdjson::SUCCESS ||

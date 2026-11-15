@@ -42,7 +42,8 @@ public:
             if (!field.value.is_array()) {
                 continue;
             }
-            for (const auto row : field.value.get_array().value_unsafe()) {
+            const auto row_list = field.value.get_array().value_unsafe();
+            for (const auto row : row_list) {
                 if (!row.is_array() || row.get_array().value_unsafe().size() < 8) {
                     continue;
                 }

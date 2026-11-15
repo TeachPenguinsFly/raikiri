@@ -13,7 +13,7 @@ namespace raikiri::candles::venues {
 namespace {
 
 // bithumb reads `to` in korean time and refuses a zone suffix
-constexpr std::int64_t k_kst_minutes = 9 * 60;
+constexpr std::int64_t k_kst_minutes = 9LL * 60;
 
 // unix minutes as "yyyy-mm-ddThh:mm:00"
 std::string clock_text(std::int64_t minute) {
@@ -81,7 +81,8 @@ public:
             return std::unexpected{std::string{body.substr(0, 160)}};
         }
         std::vector<Candle> out;
-        for (const auto row : root.get_array().value_unsafe()) {
+        const auto row_list = root.get_array().value_unsafe();
+        for (const auto row : row_list) {
             std::string_view stamp;
             simdjson::dom::element o;
             simdjson::dom::element h;

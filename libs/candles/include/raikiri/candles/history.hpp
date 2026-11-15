@@ -54,7 +54,7 @@ public:
     };
 
     // a venue without history support is skipped; each gap is cut into calls of the venue's size
-    void add(Gap gap);
+    void add(const Gap& gap);
 
     // one call for each venue whose pace allows it at `mono_ns`; a stretch reaching past the last closed minute waits
     struct Due {

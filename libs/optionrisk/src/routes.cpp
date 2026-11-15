@@ -204,14 +204,14 @@ const auto k_hundred = FixedE9::from_raw(100 * k_e9);
 }
 
 [[nodiscard]] std::vector<std::string> flag_names(std::uint16_t flags) {
-    constexpr std::array<std::pair<Flag, std::string_view>, 8> k_names{{{k_mark_missing, "mark_missing"},
-                                                                        {k_mark_stale, "mark_stale"},
-                                                                        {k_mark_model, "mark_model"},
-                                                                        {k_greeks_missing, "greeks_missing"},
-                                                                        {k_greeks_stale, "greeks_stale"},
-                                                                        {k_position_stale, "position_stale"},
-                                                                        {k_entry_missing, "entry_missing"},
-                                                                        {k_rate_missing, "rate_missing"}}};
+    constexpr std::array<std::pair<std::uint16_t, std::string_view>, 8> k_names{{{k_mark_missing, "mark_missing"},
+                                                                                 {k_mark_stale, "mark_stale"},
+                                                                                 {k_mark_model, "mark_model"},
+                                                                                 {k_greeks_missing, "greeks_missing"},
+                                                                                 {k_greeks_stale, "greeks_stale"},
+                                                                                 {k_position_stale, "position_stale"},
+                                                                                 {k_entry_missing, "entry_missing"},
+                                                                                 {k_rate_missing, "rate_missing"}}};
     std::vector<std::string> out;
     for (const auto& [flag, name] : k_names) {
         if ((flags & flag) != 0U) {
