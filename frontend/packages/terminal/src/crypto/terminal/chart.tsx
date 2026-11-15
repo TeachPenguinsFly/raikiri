@@ -15,15 +15,78 @@ import {
 } from 'lightweight-charts'
 import { cn, venueLabel } from '@raikiri/ui'
 import { candles, Empty, Glyph, Seg, type Candle } from '@raikiri/ui/v3'
+import { api } from '../api/client'
 import { tapeOf } from '../api/stream'
 import { bp, px, touchOf, venueColor } from '../lib/market'
 import { useTerminal } from './state'
 
-// candles of the mid on one venue, drawn from the moves the quote stream carried since the page opened: the venues'
-// trades and history are not served here. The volume pane counts those moves
+// one venue's candles: a minute and up come from the history candled keeps since the stack started, with the bar in
+// progress drawn on from the quote stream; under a minute only the stream since the page opened draws them. The volume
+// pane counts prints in history and moves of the quote after it
 
-type Interval = '1s' | '5s' | '15s' | '1m' | '5m'
-const k_interval_s: Record<Interval, number> = { '1s': 1, '5s': 5, '15s': 15, '1m': 60, '5m': 300 }
+type Interval = '1s' | '5s' | '15s' | '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
+const k_interval_s: Record<Interval, number> = {
+  '1s': 1,
+  '5s': 5,
+  '15s': 15,
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '1h': 3_600,
+  '4h': 14_400,
+  '1d': 86_400,
+}
+const k_history_ms = 30_000
+const k_none: Candle[] = []
+
+/** the server's bars for a minute and longer, refreshed as minutes close */
+const toBar = (c: { t: number; o: string; h: string; l: string; c: string; n: number }): Candle => ({
+  time: c.t,
+  open: Number(c.o),
+  high: Number(c.h),
+  low: Number(c.l),
+  close: Number(c.c),
+  ticks: c.n,
+})
+
+/** the server's bars for a minute and longer for each instrument, refreshed as minutes close */
+function useHistories(ids: readonly string[], interval: Interval): Map<string, Candle[]> {
+  const [bars, setBars] = useState<Map<string, Candle[]>>(new Map())
+  const key = ids.join(',')
+  useEffect(() => {
+    setBars(new Map())
+    if (ids.length === 0 || k_interval_s[interval] < 60) return
+    let live = true
+    const load = () =>
+      Promise.all(
+        ids.map((id) =>
+          api.candles(id, interval).then(
+            (page) => [id, page.candles.map(toBar)] as const,
+            () => [id, [] as Candle[]] as const,
+          ),
+        ),
+      ).then((rows) => live && setBars(new Map(rows)))
+    void load()
+    const t = setInterval(load, k_history_ms)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  }, [key, interval])
+  return bars
+}
+
+/** history, then the stream's bars on top: a bar both have keeps history's open and takes the stream's close */
+function merged(history: Candle[], stream: Candle[]): Candle[] {
+  if (history.length === 0) return stream
+  const out = new Map(history.map((b) => [b.time, { ...b }]))
+  for (const b of stream) {
+    const h = out.get(b.time)
+    if (h === undefined) out.set(b.time, b)
+    else out.set(b.time, { ...h, high: Math.max(h.high, b.high), low: Math.min(h.low, b.low), close: b.close })
+  }
+  return [...out.values()].sort((a, b) => a.time - b.time)
+}
 const k_max_candles = 3_000
 const k_redraw_ms = 1_000
 
@@ -33,7 +96,7 @@ const k_accent = '#38bdf8'
 
 export function ChartWidget() {
   const { pair, leg, quotes, hiddenLines: hidden, toggleLine } = useTerminal()
-  const [interval, setSpan] = useState<Interval>('5s')
+  const [interval, setSpan] = useState<Interval>('1m')
   const [kind, setKind] = useState<'candles' | 'area'>('candles')
 
   const box = useRef<HTMLDivElement>(null)
@@ -53,9 +116,12 @@ export function ChartWidget() {
   const id = leg?.id ?? ''
   const seconds = k_interval_s[interval]
   const live = quotes.get(id)
+  const legIds = useMemo(() => (pair?.legs ?? []).map((l) => l.id), [pair])
+  const histories = useHistories(legIds, interval)
+  const history = histories.get(id) ?? k_none
   const bars = useMemo(
-    () => (id === '' ? [] : candles(tapeOf(id), seconds, Date.now(), k_max_candles)),
-    [id, seconds, tick, live],
+    () => merged(history, id === '' ? [] : candles(tapeOf(id), seconds, Date.now(), k_max_candles)),
+    [history, id, seconds, tick, live],
   )
   const rest = useMemo(() => (pair?.legs ?? []).filter((l) => l.id !== id && !hidden.has(l.venue)), [pair, id, hidden])
 
@@ -193,13 +259,13 @@ export function ChartWidget() {
         others.current.set(l.id, s)
       }
       s.setData(
-        candles(tapeOf(l.id), seconds, Date.now(), k_max_candles).map((k) => ({
+        merged(histories.get(l.id) ?? k_none, candles(tapeOf(l.id), seconds, Date.now(), k_max_candles)).map((k) => ({
           time: k.time as UTCTimestamp,
           value: k.close,
         })),
       )
     }
-  }, [rest, seconds, tick, places])
+  }, [rest, seconds, tick, places, histories])
 
   const zoom = (k: number) => {
     const ts = chart.current?.timeScale()

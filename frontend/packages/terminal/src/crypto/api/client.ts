@@ -6,6 +6,7 @@ export type Account = Schema<'Account'>
 export type Health = Schema<'Health'>
 export type VenueMetrics = Schema<'VenueMetrics'>
 export type Market = Schema<'Market'>
+export type CandlePage = Schema<'CandlePage'>
 export type Instrument = Schema<'Instrument'>
 export type Quote = Schema<'Quote'>
 export type Book = Schema<'Book'>
@@ -62,6 +63,8 @@ export const api = {
   health: () => get<Health>('/v1/health'),
   metrics: () => get<VenueMetrics[]>('/v1/venues/metrics'),
   markets: () => get<Market[]>('/v1/markets'),
+  candles: (id: string, interval: string, limit = 1000) =>
+    get<CandlePage>('/v1/candles', { instrument_id: id, interval, limit: String(limit) }),
   instruments,
   positions: () => get<Position[]>('/v1/positions'),
   orders: () => get<Orders>('/v1/orders', { open: 'true' }),
