@@ -134,7 +134,7 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
     }
     if (recover) {
         // Segment size on disk is authoritative when re-opening.
-        struct stat st{};
+        struct stat st {};
 
         if (::fstat(fd_, &st) != 0 || st.st_size < static_cast<off_t>(k_header_bytes)) {
             return std::unexpected{JournalError::OpenFailed};
