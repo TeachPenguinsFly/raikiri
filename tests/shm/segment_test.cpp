@@ -6,8 +6,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <array>
+#include <chrono>
 #include <csignal>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace raikiri::shm {
@@ -312,6 +315,68 @@ TEST(ReaderSlots, KilledReaderSlotReclaimed) {
     int status = 0;
     ASSERT_EQ(::waitpid(child, &status, 0), child);
     EXPECT_TRUE(fill(1)) << "a dead pid's slot is taken over";
+}
+
+TEST(Segment, NotifyWakesAReaderSleepingOnTheSegment) {
+    const auto path = test_path("notify");
+    auto owner = SegmentOwner::create(path, 1 << 20, 1, 1000);
+    ASSERT_TRUE(owner.has_value());
+    owner->publish();
+    auto client = SegmentClient::attach(path);
+    ASSERT_TRUE(client.has_value());
+    const auto seen = client->changes();
+    std::chrono::steady_clock::duration slept{};
+    std::thread reader{[&] {
+        const auto begun = std::chrono::steady_clock::now();
+        const std::array<SegmentClient::Awaited, 1> on{{{.client = &*client, .seen = seen}}};
+        SegmentClient::wait_changes(on, 5'000'000'000ULL);
+        slept = std::chrono::steady_clock::now() - begun;
+    }};
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    owner->notify();
+    reader.join();
+    EXPECT_NE(client->changes(), seen);
+    EXPECT_LT(slept, std::chrono::seconds{2}) << "the notify woke the reader, not its timeout";
+}
+
+TEST(Segment, WaitChangesWakesOnAnyOfSeveralSegments) {
+    const auto first_path = test_path("notify-a");
+    const auto second_path = test_path("notify-b");
+    auto first = SegmentOwner::create(first_path, 1 << 20, 1, 1000);
+    auto second = SegmentOwner::create(second_path, 1 << 20, 1, 1000);
+    ASSERT_TRUE(first.has_value() && second.has_value());
+    first->publish();
+    second->publish();
+    auto a = SegmentClient::attach(first_path);
+    auto b = SegmentClient::attach(second_path);
+    ASSERT_TRUE(a.has_value() && b.has_value());
+    const std::array<SegmentClient::Awaited, 2> on{
+        {{.client = &*a, .seen = a->changes()}, {.client = &*b, .seen = b->changes()}}};
+    std::chrono::steady_clock::duration slept{};
+    std::thread reader{[&] {
+        const auto begun = std::chrono::steady_clock::now();
+        SegmentClient::wait_changes(on, 5'000'000'000ULL);
+        slept = std::chrono::steady_clock::now() - begun;
+    }};
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    second->notify();
+    reader.join();
+    EXPECT_LT(slept, std::chrono::seconds{2});
+}
+
+TEST(Segment, WaitChangesReturnsAtOnceOnANotifyItHasNotSeen) {
+    const auto path = test_path("notify-missed");
+    auto owner = SegmentOwner::create(path, 1 << 20, 1, 1000);
+    ASSERT_TRUE(owner.has_value());
+    owner->publish();
+    auto client = SegmentClient::attach(path);
+    ASSERT_TRUE(client.has_value());
+    const auto seen = client->changes();
+    owner->notify();
+    const auto begun = std::chrono::steady_clock::now();
+    const std::array<SegmentClient::Awaited, 1> on{{{.client = &*client, .seen = seen}}};
+    SegmentClient::wait_changes(on, 5'000'000'000ULL);
+    EXPECT_LT(std::chrono::steady_clock::now() - begun, std::chrono::seconds{1});
 }
 
 } // namespace

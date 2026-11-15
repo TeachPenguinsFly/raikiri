@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <expected>
 #include <new>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -76,6 +77,11 @@ struct SegmentHeader {
     alignas(64) std::atomic<std::uint64_t> heartbeat_ns{0};
     // subscriptions the venue refused; shares the heartbeat's cache line
     std::atomic<std::uint64_t> subscribe_refusals{0};
+    // bumped by the owner's notify(), so a reader can sleep until the owner writes instead of polling; the readers
+    // sleeping on it, so a notify with nobody asleep costs no system call. Still the heartbeat's line: older binaries
+    // leave both at zero, and their readers poll as before
+    std::atomic<std::uint32_t> changes{0};
+    std::atomic<std::uint32_t> sleepers{0};
     alignas(64) ChannelDesc channels[k_max_channels]{};
     ReaderSlot readers[k_max_readers]{};
 };
@@ -115,6 +121,9 @@ public:
 
     // subscriptions refused by the venue, published beside the heartbeat
     void publish_refusals(std::uint64_t count) noexcept;
+
+    // after a batch of writes: wakes the readers sleeping in wait_changes(); a system call only while one sleeps
+    void notify() noexcept;
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
 
@@ -173,6 +182,18 @@ public:
 
     // the owner's process still runs, whatever its heartbeat says
     [[nodiscard]] bool owner_running() const noexcept;
+
+    // the owner's notify count; read it before looking at the channels and hand it to wait_changes
+    [[nodiscard]] std::uint32_t changes() const noexcept { return header_->changes.load(std::memory_order_seq_cst); }
+
+    struct Awaited {
+        const SegmentClient* client{nullptr};
+        std::uint32_t seen{0};
+    };
+
+    // sleeps until any of the segments' owners notifies past what was seen, or `timeout_ns` passes; an owner built
+    // before notify() never wakes it, so the timeout is the old poll interval at worst
+    static void wait_changes(std::span<const Awaited> segments, std::uint64_t timeout_ns) noexcept;
 
 private:
     SegmentClient() = default;

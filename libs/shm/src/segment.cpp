@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <utility>
@@ -197,6 +198,31 @@ void SegmentOwner::beat(std::uint64_t now_ns) noexcept {
 
 void SegmentOwner::publish_refusals(std::uint64_t count) noexcept {
     header_->subscribe_refusals.store(count, std::memory_order_release);
+}
+
+// the count goes up before the sleepers are read and a reader joins the sleepers before it reads the count, both
+// sequentially consistent: either the owner sees the sleeper and wakes it, or the reader sees the new count and
+// does not sleep
+void SegmentOwner::notify() noexcept {
+    header_->changes.fetch_add(1, std::memory_order_seq_cst);
+    if (header_->sleepers.load(std::memory_order_seq_cst) != 0) {
+        platform::wake_word(&header_->changes);
+    }
+}
+
+void SegmentClient::wait_changes(std::span<const Awaited> segments, std::uint64_t timeout_ns) noexcept {
+    constexpr std::size_t k_most = 8;
+    std::array<platform::Watch, k_most> watches{};
+    const auto n = std::min(segments.size(), k_most);
+    for (std::size_t i = 0; i < n; ++i) {
+        auto* header = segments[i].client->header_;
+        header->sleepers.fetch_add(1, std::memory_order_seq_cst);
+        watches[i] = {.word = &header->changes, .seen = segments[i].seen};
+    }
+    platform::wait_words(std::span{watches}.first(n), timeout_ns);
+    for (std::size_t i = 0; i < n; ++i) {
+        segments[i].client->header_->sleepers.fetch_sub(1, std::memory_order_seq_cst);
+    }
 }
 
 SegmentClient::SegmentClient(SegmentClient&& other) noexcept
