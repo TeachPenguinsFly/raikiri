@@ -676,6 +676,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CacheLatencies" }
 
+  /cache/jobs:
+    get:
+      tags: [cache]
+      summary: The work admind does on its own schedule
+      description: |
+        Each job admind runs on its loop to keep an answer warm, such as the ranked market list behind
+        GET /v1/markets: its period, how many times it ran, how long the last run took and how long ago.
+      operationId: getCacheJobs
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Job" }
+
   /cache/latency/{account}:
     get:
       tags: [cache]
@@ -2436,6 +2453,22 @@ components:
         local_symbol:
           type: string
           description: 'Venue-neutral, keeping a HIP-3 deployer prefix: "xyz:TSLA/USDC".'
+        volume_24h_usd:
+          type: number
+          description: The venue's 24h turnover where the quote is a dollar; zero for any other quote.
+        mid:
+          type: number
+          description: The middle of the venue's touch when the list was last ranked; zero when a side is missing.
+
+    Job:
+      type: object
+      required: [name, period_ms, runs, last_ms, age_ms]
+      properties:
+        name: { type: string, examples: ["markets"] }
+        period_ms: { type: integer }
+        runs: { type: integer }
+        last_ms: { type: number, description: How long the last run took. }
+        age_ms: { type: integer, description: Since the last run; -1 before the first. }
 
     Market:
       type: object
@@ -2454,6 +2487,11 @@ components:
         listings:
           type: array
           items: { $ref: "#/components/schemas/Listing" }
+        volume_24h_usd:
+          type: number
+          description: |
+            The listings' 24h turnover summed, counting only listings quoted in a dollar. The list is ranked by it,
+            markets that two or more venues list ahead of those only one does.
 
     Instrument:
       type: object

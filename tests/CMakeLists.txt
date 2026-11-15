@@ -63,6 +63,8 @@ raikiri_add_test(admin_test SRCS admin/admin_test.cpp LIBS raikiri::admin)
 target_link_libraries(admin_test
   PRIVATE glaze::glaze)
 
+raikiri_add_test(admin_warm_test SRCS admin/warm_test.cpp LIBS raikiri::admin)
+
 raikiri_add_test(gatewayd_private_pulls_test SRCS gatewayd/private_pulls_test.cpp LIBS raikiri::domain)
 target_include_directories(gatewayd_private_pulls_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/gatewayd)
 

@@ -249,11 +249,18 @@ int main(int argc, char** argv) {
     const optionrisk::RiskRoutes option_risk_routes{option_risk};
     const books::BookRoutes book_routes{book_registry};
 
+    // what admind keeps warm on its own schedule; GET /cache/jobs says when each last ran and how long it took
+    admin::MarketsCache markets_cache{registry};
+    admin::Jobs jobs;
+    jobs.add("markets", std::chrono::seconds{15}, [&markets_cache] { markets_cache.refresh(); });
+
     net::IoContext io;
     http::Server server{io,
                         address,
                         port,
-                        [cache,
+                        [&jobs,
+                         &clock,
+                         cache,
                          metrics,
                          token_route,
                          reference_route,
@@ -268,7 +275,11 @@ int main(int argc, char** argv) {
                              [&clock] { return clock.mono(); },
                              [&clock] { return clock.wall(); },
                              upstreams,
-                             &book_registry)](const http::Request& req) {
+                             &book_registry,
+                             &markets_cache)](const http::Request& req) {
+                            if (auto answer = jobs.route(req, clock.mono()); answer.has_value()) {
+                                return std::move(*answer);
+                            }
                             if (auto answer = cache(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
@@ -326,15 +337,18 @@ int main(int argc, char** argv) {
                     RLOG_INFO("admind: attached to {} — {} instruments", account.account, account.gateway.instruments);
                 }
                 attached = found;
+                // a new gateway's listings belong in the ranked list now, not at the next scheduled run
+                jobs.run_now("markets", clock.mono());
             }
         }
         if (const auto mono = clock.mono().ns; mono >= option_sweep_due) {
             option_sweep_due = mono + k_option_sweep_ns;
             option_risk.sweep();
         }
+        const auto jobs_due = jobs.tick(clock.mono()).ns;
         (void)stream.poll();
         const auto mono = clock.mono().ns;
-        const auto until = std::min({stream.next_due().ns, rescan_due, mono + k_idle_ns});
+        const auto until = std::min({stream.next_due().ns, rescan_due, jobs_due, mono + k_idle_ns});
         if (until > mono) {
             (void)server.run_for(std::chrono::nanoseconds{until - mono});
         }

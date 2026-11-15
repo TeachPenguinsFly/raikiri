@@ -339,7 +339,68 @@ namespace {
     return false;
 }
 
+// whether a local symbol's quote is a dollar, so its quote volume reads as usd: BTC/USDT, ETH/USDC:USDC, SOL/USD
+bool dollar_quoted(std::string_view symbol) noexcept {
+    const auto slash = symbol.find('/');
+    if (slash == std::string_view::npos) {
+        return false;
+    }
+    auto quote = symbol.substr(slash + 1);
+    quote = quote.substr(0, quote.find(':'));
+    return quote.starts_with("USD") || quote == "FDUSD" || quote == "PYUSD" || quote == "DAI";
+}
+
+double usd_volume(const shm::GatewayChannels& channels, const InstrumentBase& base, std::string_view symbol) noexcept {
+    const std::size_t cell = base.id.symbol().raw;
+    if (channels.ticker_stats == nullptr || cell >= shm::k_ticker_cells || !dollar_quoted(symbol)) {
+        return 0.0;
+    }
+    TickerStats stats{};
+    if (channels.ticker_stats->read(cell, stats) == 0 || stats.volume_24h_quote.is_undef()) {
+        return 0.0;
+    }
+    return static_cast<double>(stats.volume_24h_quote.raw) / 1e6;
+}
+
+double mid_of(const shm::GatewayChannels& channels, const InstrumentBase& base) noexcept {
+    const std::size_t cell = base.id.symbol().raw;
+    if (channels.bbo == nullptr || cell >= shm::k_bbo_cells) {
+        return 0.0;
+    }
+    Bbo bbo{};
+    if (channels.bbo->read(cell, bbo) == 0 || bbo.bid.is_undef() || bbo.ask.is_undef()) {
+        return 0.0;
+    }
+    const auto bid = static_cast<double>(base.ticks_to_price(bbo.bid).raw) / 1e9;
+    const auto ask = static_cast<double>(base.ticks_to_price(bbo.ask).raw) / 1e9;
+    return bid > 0 && ask > 0 ? (bid + ask) / 2 : 0.0;
+}
+
 } // namespace
+
+void Registry::rank(std::vector<Market>& markets) {
+    // markets on two venues or more first, each group by turnover: one venue's own volume can be inflated (bitget's
+    // tokenised stocks report billions), while an asset several venues list has turnover that adds up
+    const auto venues = [](const Market& m) {
+        std::size_t n = 0;
+        for (std::size_t i = 0; i < m.listings.size(); ++i) {
+            n += static_cast<std::size_t>(i == 0 || m.listings[i].venue != m.listings[i - 1].venue);
+        }
+        return n;
+    };
+    std::ranges::sort(markets, [&venues](const Market& a, const Market& b) {
+        if (const bool wide_a = venues(a) > 1, wide_b = venues(b) > 1; wide_a != wide_b) {
+            return wide_a;
+        }
+        if (a.volume_24h_usd != b.volume_24h_usd) {
+            return a.volume_24h_usd > b.volume_24h_usd;
+        }
+        if (a.listings.size() != b.listings.size()) {
+            return a.listings.size() > b.listings.size();
+        }
+        return a.key < b.key;
+    });
+}
 
 std::vector<Market> Registry::markets(std::string_view query, std::size_t limit) const {
     std::unordered_map<std::string, Market> by_key;
@@ -362,7 +423,9 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
                                        .venue = std::string{to_string(gw.account.venue)},
                                        .market = std::string{to_string(gw.account.market)},
                                        .exchange_symbol = std::string{base.exchange_symbol.view()},
-                                       .local_symbol = symbol});
+                                       .local_symbol = symbol,
+                                       .volume_24h_usd = usd_volume(gw.channels, base, symbol),
+                                       .mid = mid_of(gw.channels, base)});
         }
     }
 
@@ -373,6 +436,7 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
         std::unordered_map<std::string, std::size_t> uses;
         std::size_t most = 0;
         for (const auto& listing : market.listings) {
+            market.volume_24h_usd += listing.volume_24h_usd;
             if (const auto n = ++uses[listing.local_symbol]; n > most) {
                 most = n;
                 market.symbol = listing.local_symbol;
@@ -380,12 +444,7 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
         }
         out.push_back(std::move(market));
     }
-    std::ranges::sort(out, [](const Market& a, const Market& b) {
-        if (a.listings.size() != b.listings.size()) {
-            return a.listings.size() > b.listings.size();
-        }
-        return a.key < b.key;
-    });
+    rank(out);
     if (out.size() > limit) {
         out.resize(limit);
     }

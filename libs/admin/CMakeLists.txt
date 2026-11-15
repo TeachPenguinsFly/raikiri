@@ -6,6 +6,7 @@ add_library(raikiri_admin STATIC
   src/routes.cpp
   src/stream.cpp
   src/stream_token.cpp
+  src/warm.cpp
 )
 add_library(raikiri::admin ALIAS raikiri_admin)
 

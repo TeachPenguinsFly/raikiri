@@ -48,6 +48,8 @@ public:
     [[nodiscard]] std::vector<Instrument> instruments(std::string_view account, std::optional<MarketType> market) const;
 
     // grouped by canonical symbol, filtered by case-insensitive substring, ordered by venue count then name
+    // markets on two venues or more first, each group by 24h turnover
+    static void rank(std::vector<Market>& markets);
     [[nodiscard]] std::vector<Market> markets(std::string_view query, std::size_t limit) const;
 
     [[nodiscard]] std::optional<Instrument> instrument(InstrumentId id) const;

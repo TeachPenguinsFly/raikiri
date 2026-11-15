@@ -427,14 +427,16 @@ http::Handler make_router(const Registry& registry,
                           std::function<MonoNanos()> now,
                           std::function<UnixNanos()> wall,
                           std::map<std::string, std::uint16_t> upstreams,
-                          books::Registry* books) {
+                          books::Registry* books,
+                          const MarketsCache* markets) {
     return [&registry,
             history,
             desk,
             now = std::move(now),
             wall = std::move(wall),
             upstreams = std::move(upstreams),
-            books](const http::Request& req) -> http::Response {
+            books,
+            markets](const http::Request& req) -> http::Response {
         if (req.method == "POST" && req.path == "/v1/orders") {
             return place_order(desk, books, req, wall());
         }
@@ -508,7 +510,9 @@ http::Handler make_router(const Registry& registry,
         if (req.path == "/v1/markets") {
             const auto query = http::query_param(req.query, "q");
             // no limit by default; the board browses the whole catalogue
-            return json(registry.markets(query, read_markets_limit(http::query_param(req.query, "limit"))));
+            const auto limit = read_markets_limit(http::query_param(req.query, "limit"));
+            // kept warm by a job, so the board's list costs a filter rather than a walk of every catalogue
+            return json(markets != nullptr ? markets->query(query, limit) : registry.markets(query, limit));
         }
 
         if (req.path == "/v1/instruments") {

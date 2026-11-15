@@ -134,6 +134,10 @@ struct Listing {
     std::string market;
     std::string exchange_symbol;
     std::string local_symbol; // keeps a hip-3 deployer's prefix: "xyz:TSLA/USDC"
+    // the venue's 24h turnover where it is quoted in a dollar; zero for any other quote or a silent venue
+    double volume_24h_usd{0.0};
+    // the touch's middle when the list was last ranked; zero when one side is missing
+    double mid{0.0};
 };
 
 // one asset across every venue listing it, grouped server-side by its market key
@@ -141,6 +145,7 @@ struct Market {
     std::string key;    // "equity:TSLA/USD*"; an unclassified listing keys on its local symbol
     std::string symbol; // the local symbol most of its listings use
     std::vector<Listing> listings;
+    double volume_24h_usd{0.0}; // the listings' sum, which the list is ranked by
 };
 
 struct Quote {

@@ -3,6 +3,7 @@
 #include <raikiri/admin/desk.hpp>
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
+#include <raikiri/admin/warm.hpp>
 #include <raikiri/http/server.hpp>
 
 #include <map>
@@ -18,7 +19,8 @@ namespace raikiri::admin {
                                         std::function<MonoNanos()> now,
                                         std::function<UnixNanos()> wall,
                                         std::map<std::string, std::uint16_t> upstreams = {},
-                                        books::Registry* books = nullptr);
+                                        books::Registry* books = nullptr,
+                                        const MarketsCache* markets = nullptr);
 
 // rfc 9457 problem response
 [[nodiscard]] http::Response problem(int status, std::string_view title, std::string_view detail = {});

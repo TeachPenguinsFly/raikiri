@@ -506,6 +506,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cache/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The work admind does on its own schedule
+         * @description Each job admind runs on its loop to keep an answer warm, such as the ranked market list behind
+         *     GET /v1/markets: its period, how many times it ran, how long the last run took and how long ago.
+         */
+        get: operations["getCacheJobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cache/latency/{account}": {
         parameters: {
             query?: never;
@@ -1808,6 +1829,20 @@ export interface components {
             exchange_symbol: string;
             /** @description Venue-neutral, keeping a HIP-3 deployer prefix: "xyz:TSLA/USDC". */
             local_symbol: string;
+            /** @description The venue's 24h turnover where the quote is a dollar; zero for any other quote. */
+            volume_24h_usd?: number;
+            /** @description The middle of the venue's touch when the list was last ranked; zero when a side is missing. */
+            mid?: number;
+        };
+        Job: {
+            /** @example markets */
+            name: string;
+            period_ms: number;
+            runs: number;
+            /** @description How long the last run took. */
+            last_ms: number;
+            /** @description Since the last run; -1 before the first. */
+            age_ms: number;
         };
         Market: {
             /**
@@ -1823,6 +1858,11 @@ export interface components {
              */
             symbol: string;
             listings: components["schemas"]["Listing"][];
+            /**
+             * @description The listings' 24h turnover summed, counting only listings quoted in a dollar. The list is ranked by it,
+             *     markets that two or more venues list ahead of those only one does.
+             */
+            volume_24h_usd?: number;
         };
         Instrument: {
             instrument_id: components["schemas"]["InstrumentId"];
@@ -3800,6 +3840,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CacheLatencies"];
+                };
+            };
+        };
+    };
+    getCacheJobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"][];
                 };
             };
         };
