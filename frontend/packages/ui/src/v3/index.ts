@@ -1,5 +1,6 @@
 export * from './book'
 export * from './candles'
+export * from './coin'
 export * from './dash'
 export * from './dock'
 export * from './format'
