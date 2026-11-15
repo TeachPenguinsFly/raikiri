@@ -7,6 +7,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '../lib/format'
 
 // the small parts every v3 panel shares; the effects follow aceternity ui's, drawn in css so the app takes no
@@ -365,6 +366,13 @@ const k_glyph: Record<string, ReactNode> = {
       <circle cx="12" cy="8" r=".75" />
     </>
   ),
+  info: (
+    <>
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M8 7.25v3.5M8 5.1v.15" />
+    </>
+  ),
+  check: <path d="m3.75 8.25 2.75 2.75 5.75-6" />,
   tools: (
     <path d="M9.5 3.25a3 3 0 0 0-3.6 3.9L2.75 10.3a1.3 1.3 0 0 0 1.85 1.85l3.15-3.15a3 3 0 0 0 3.9-3.6L9.75 7.3 8.4 7.1l-.2-1.35z" />
   ),
@@ -384,5 +392,207 @@ export function Glyph({ name, className = 'size-3.5' }: { name: keyof typeof k_g
     >
       {k_glyph[name]}
     </svg>
+  )
+}
+
+/** a floating card under an anchor, drawn on the body so a panel's overflow does not clip it */
+function Float({
+  anchor,
+  open,
+  width,
+  children,
+}: {
+  anchor: HTMLElement | null
+  open: boolean
+  width: number
+  children: ReactNode
+}) {
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!open || anchor === null) return
+    const r = anchor.getBoundingClientRect()
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - width / 2), window.innerWidth - width - 8)
+    setAt({ left, top: r.bottom + 6 })
+  }, [open, anchor, width])
+  if (!open || at === null) return null
+  return createPortal(
+    <div
+      role="tooltip"
+      style={{ left: at.left, top: at.top, width }}
+      className="v3 v3-pop pointer-events-none fixed z-[100] rounded-md bg-raised px-3 py-2.5 text-xs leading-relaxed text-fg-mid shadow-[0_0_0_1px_var(--color-line),0_16px_40px_-10px_rgb(0_0_0/0.9)]"
+    >
+      {children}
+    </div>,
+    document.body,
+  )
+}
+
+/** an (i) beside a title or a number that says what it is and why it matters, instead of small print on the screen */
+export function Info({
+  children,
+  width = 280,
+  className,
+}: {
+  children: ReactNode
+  width?: number
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLButtonElement>(null)
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        aria-label="What is this"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className={cn(
+          'inline-grid size-4 shrink-0 cursor-help place-items-center rounded-full align-middle text-fg-dim transition-colors hover:text-fg focus-visible:text-fg',
+          className,
+        )}
+      >
+        <Glyph name="info" className="size-3.5" />
+      </button>
+      <Float anchor={ref.current} open={open} width={width}>
+        {children}
+      </Float>
+    </>
+  )
+}
+
+export interface PickItem<K extends string = string> {
+  key: K
+  label: ReactNode
+  /** text the search box matches; the key when absent */
+  text?: string
+  /** a figure or a word at the right of the row */
+  hint?: ReactNode
+  /** a heading drawn above this row */
+  group?: string
+}
+
+/** a button that drops a list to choose from, for anything longer than a handful of options; with `multi` the list
+ *  stays open and every row toggles */
+export function Picker<K extends string>({
+  label,
+  items,
+  selected,
+  onPick,
+  multi = false,
+  search = false,
+  width = 260,
+  align = 'left',
+  footer,
+  className,
+}: {
+  label: ReactNode
+  items: readonly PickItem<K>[]
+  selected: readonly K[]
+  onPick: (key: K) => void
+  multi?: boolean
+  search?: boolean
+  width?: number
+  align?: 'left' | 'right'
+  footer?: ReactNode
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const off = (e: MouseEvent) => box.current !== null && !box.current.contains(e.target as Node) && setOpen(false)
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('mousedown', off)
+    window.addEventListener('keydown', esc)
+    return () => {
+      window.removeEventListener('mousedown', off)
+      window.removeEventListener('keydown', esc)
+    }
+  }, [open])
+  useEffect(() => setQuery(''), [open])
+  const q = query.trim().toLowerCase()
+  const shown = q === '' ? items : items.filter((i) => (i.text ?? i.key).toLowerCase().includes(q))
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'flex h-8 cursor-pointer items-center gap-2 rounded-md bg-raised/60 px-3 text-sm text-fg transition-colors hover:bg-hover',
+          open && 'bg-hover',
+          className,
+        )}
+      >
+        {label}
+        <Glyph name="down" className={cn('size-3.5 text-fg-dim transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div
+          style={{ width }}
+          className={cn(
+            'v3-pop absolute top-10 z-50 flex max-h-[min(28rem,70vh)] flex-col rounded-md bg-raised p-1 shadow-[0_0_0_1px_var(--color-line),0_20px_50px_-10px_rgb(0_0_0/0.9)]',
+            align === 'left' ? 'left-0' : 'right-0',
+          )}
+        >
+          {search && (
+            <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-2.5">
+              <Glyph name="search" className="size-3.5 text-fg-dim" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search"
+                className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-dim"
+              />
+            </div>
+          )}
+          <div className="min-h-0 overflow-y-auto py-1">
+            {shown.length === 0 && <div className="px-3 py-2 text-sm text-fg-dim">Nothing matches</div>}
+            {shown.map((item, i) => {
+              const on = selected.includes(item.key)
+              return (
+                <div key={item.key}>
+                  {item.group !== undefined && item.group !== shown[i - 1]?.group && (
+                    <div className="px-3 pt-2.5 pb-1 text-xs text-fg-dim">{item.group}</div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onPick(item.key)
+                      if (!multi) setOpen(false)
+                    }}
+                    className={cn(
+                      'flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left text-sm transition-colors',
+                      on ? 'bg-hover text-fg' : 'text-fg-mid hover:bg-hover hover:text-fg',
+                    )}
+                  >
+                    {multi && (
+                      <span
+                        className={cn(
+                          'grid size-4 shrink-0 place-items-center rounded-[4px] border',
+                          on ? 'border-accent bg-accent/20 text-accent' : 'border-line',
+                        )}
+                      >
+                        {on && <Glyph name="check" className="size-3" />}
+                      </span>
+                    )}
+                    <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{item.label}</span>
+                    {item.hint !== undefined && <span className="mono shrink-0 text-xs text-fg-dim">{item.hint}</span>}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          {footer !== undefined && (
+            <div className="shrink-0 border-t border-line px-3 py-2 text-xs text-fg-dim">{footer}</div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '../../lib/format'
+import { Info } from '../../v3/ui'
 import { useMeasuredWidth } from './scale'
 
 interface LegendEntry {
@@ -13,6 +14,8 @@ interface LegendEntry {
 interface ChartFrameProps {
   title: string
   note?: string | undefined
+  /** what the chart shows and why it matters, behind an (i) beside the title */
+  info?: ReactNode
   legend?: LegendEntry[] | undefined
   onLegendHover?: ((key: string | null) => void) | undefined
   readout?: ReactNode | undefined
@@ -24,6 +27,7 @@ interface ChartFrameProps {
 export function ChartFrame({
   title,
   note,
+  info,
   legend,
   onLegendHover,
   readout,
@@ -35,12 +39,15 @@ export function ChartFrame({
 
   return (
     <section className="panel">
-      <header data-drag-handle className="flex items-start justify-between gap-4 px-3 pt-3">
-        <div className="min-w-0">
-          <h2 className="panel-title">{title}</h2>
+      <header data-drag-handle className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5 px-3 pt-3">
+        <div className="min-w-[8rem] flex-1">
+          <h2 className="panel-title flex items-center gap-1.5">
+            {title}
+            {info !== undefined && <Info>{info}</Info>}
+          </h2>
           {note !== undefined && <p className="mt-1 text-xs text-fg-dim">{note}</p>}
         </div>
-        {readout !== undefined && <div className="shrink-0 text-right">{readout}</div>}
+        {readout !== undefined && <div className="max-w-full min-w-0">{readout}</div>}
       </header>
 
       {legend !== undefined && legend.length > 0 && (
@@ -76,9 +83,7 @@ export function ChartFrame({
 
       <div ref={ref} className="px-2 pt-3 pb-2" style={{ height }}>
         {placeholder !== undefined ? (
-          <div className="flex h-full items-center justify-center text-xs text-fg-dim">
-            {placeholder}
-          </div>
+          <div className="flex h-full items-center justify-center text-xs text-fg-dim">{placeholder}</div>
         ) : width > 0 ? (
           children({ width: width - 16, height: height - 12 })
         ) : null}

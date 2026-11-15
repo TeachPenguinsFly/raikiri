@@ -10,8 +10,18 @@
   --color-line: #1d1d22;
 
   --color-fg: #ededf2;
-  --color-fg-mid: #9b9ba8;
-  --color-fg-dim: #5f5f6b;
+  --color-fg-mid: #b3b3bf;
+  --color-fg-dim: #878793;
+
+  /* a step up from the dense defaults: nothing on these screens should need squinting */
+  --text-2xs: 0.75rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.375rem;
 
   --color-up: #2fd3a6;
   --color-down: #f2557d;
@@ -19,7 +29,6 @@
   --color-amber: #e7b24f;
 
   --v3-glow: 56 189 248;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 /* apart from .v3, which a portalled tooltip also carries: unlayered, these would beat its own background utility */
@@ -28,10 +37,10 @@
   color: var(--color-fg);
 }
 
+/* numbers stay in the text family; tabular figures keep the columns aligned */
 .v3 .mono {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.005em;
 }
 
 /* a faint dot grid under the page, brighter near the pointer where a panel asks for it */
@@ -359,4 +368,14 @@
   .penguin-slide {
     left: 30%;
   }
+}
+
+/* column heads read as plain words a step under the body text, not as small capitals */
+.v3 .col-head {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-fg-dim);
 }

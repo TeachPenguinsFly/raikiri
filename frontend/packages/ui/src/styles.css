@@ -4,6 +4,15 @@
 @source './';
 @source '../../terminal/src';
 
+/* shipped with the kit, so every machine draws the same family and not whatever the system falls back to */
+@font-face {
+  font-family: 'Inter';
+  src: url('./assets/fonts/InterVariable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* design tokens; green and red are reserved for direction */
 
 @theme {
