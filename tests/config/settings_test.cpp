@@ -191,8 +191,17 @@ TEST(Settings, HyperliquidCapsChannelsPerIpNotOnlyPerSocket) {
     const auto& hl = file->venues.at("hyperliquid");
     ASSERT_NE(find_limit(hl, "ws_streams"), nullptr);
     EXPECT_EQ(find_limit(hl, "ws_streams")->max, 1000U);
-    ASSERT_NE(find_limit(hl, "ws_channels"), nullptr) << "a second socket is refused past 1000";
-    EXPECT_EQ(find_limit(hl, "ws_channels")->max, 1000U);
+    // a second socket is refused past 1000, and the perp and spot gateways share the ip, so the two caps split it
+    std::uint64_t perp = 0;
+    std::uint64_t spot = 0;
+    for (const auto& limit : hl.limits) {
+        if (limit.kind == "ws_channels") {
+            (limit.market == "perp" ? perp : spot) += limit.max;
+            EXPECT_FALSE(limit.market.empty()) << "a cap for both markets would let each take the whole ip";
+        }
+    }
+    EXPECT_GT(perp, 537U) << "the perps' bbo, trades and depth";
+    EXPECT_EQ(perp + spot, 1000U);
 }
 
 TEST(Settings, ABadLimitIsRefusedNamingTheVenueAndTheLimit) {
