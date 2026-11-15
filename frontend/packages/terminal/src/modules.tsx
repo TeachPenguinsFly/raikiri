@@ -1,16 +1,17 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import type { AppModule } from '@raikiri/ui'
-import { DashboardPage } from './crypto/DashboardPage'
+import { Navigate } from 'react-router'
 import { OptionsPage } from './pages/OptionsPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 // the terminal and its chart library load only when it opens
 const TerminalPage = lazy(() => import('./crypto/terminal/TerminalPage').then((m) => ({ default: m.TerminalPage })))
 
-export const dashboardModule: AppModule = { path: '/', label: 'Dashboard', element: <DashboardPage /> }
 export const terminalModule: AppModule = {
-  path: '/terminal',
+  path: '/',
   label: 'Terminal',
+  // the address it had before it became the home screen
+  routes: [{ path: '/terminal', element: <Navigate to="/" replace /> }],
   element: (
     <Suspense fallback={<div className="h-full" />}>
       <TerminalPage />
@@ -42,4 +43,4 @@ export const settingsModule: AppModule = {
 }
 
 /** the public terminal's screens in nav order */
-export const terminalModules: readonly AppModule[] = [dashboardModule, terminalModule, optionsModule, settingsModule]
+export const terminalModules: readonly AppModule[] = [terminalModule, optionsModule, settingsModule]

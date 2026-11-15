@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import {
   ChartFrame,
   cn,
@@ -10,14 +11,14 @@ import {
   num,
   Pane,
   Split,
-  useDismiss,
   Venue,
   venueLabel,
   Workspace,
   XYPlot,
   type XYSeries,
 } from '@raikiri/ui'
-import { api, type OptionSurface, type OptionUnderlying } from '../api/client'
+import { CoinIcon, Info, Picker, Seg } from '@raikiri/ui/v3'
+import { api, type OptionChain, type OptionSurface, type OptionUnderlying } from '../api/client'
 import { crossing, instrumentsOf, liveChain, summary, type Crossing, type Leg, type Row } from '../lib/options'
 import { useQuery } from '../lib/query'
 import { useGreeks, useQuotes, useStreamDown } from '../lib/stream'
@@ -86,6 +87,23 @@ const k_call_order: Column[] = [
   'askSize',
 ]
 
+/** every column keeps its width whatever the digits in it, so a moving price never shifts the grid */
+const k_width: Record<Column, number> = {
+  oi: 64,
+  theta: 72,
+  vega: 72,
+  gamma: 88,
+  delta: 76,
+  bidSize: 76,
+  bidIv: 72,
+  bid: 104,
+  mark: 84,
+  ask: 104,
+  askIv: 72,
+  askSize: 76,
+}
+const k_strike_width = 168
+
 const k_default_columns: Column[] = ['bidIv', 'bid', 'mark', 'ask', 'askIv', 'delta', 'oi']
 
 /** per viewer; a failed read starts from the default */
@@ -124,24 +142,45 @@ const pct = (v: number | null, places = 1) => (v === null ? null : `${(v * 100).
 /** plain digits, since FlashPrice reads the string back as a number */
 function money(v: number, unit: Leg['unit']): string {
   // a coin premium far out of the money is a few ticks of 0.0001 or less
-  if (unit === 'base')
-    return v === 0 ? '0' : v.toFixed(Math.max(4, 1 - Math.floor(Math.log10(Math.abs(v)))))
+  if (unit === 'base') return v === 0 ? '0' : v.toFixed(Math.max(4, 1 - Math.floor(Math.log10(Math.abs(v)))))
   return v >= 1000 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)
 }
 
 const days = (years: string | undefined) => (years === undefined ? null : Number(years) * 365)
 
+const k_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const parts = (date: string) =>
+  [Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8))] as const
+
+/** 16 Nov, with the year only when it is not this one */
 function expiryLabel(date: string): string {
-  const d = new Date(
-    Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8))),
-  )
-  return d.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: '2-digit',
-    timeZone: 'UTC',
-  })
+  const [y, m, d] = parts(date)
+  const label = `${d} ${k_months[m]}`
+  return y === new Date().getUTCFullYear() ? label : `${label} '${String(y).slice(2)}`
 }
+
+const monthOf = (date: string) => {
+  const [y, m] = parts(date)
+  return `${k_months[m]} ${y}`
+}
+
+/** days to an expiry, which venues settle at 08:00 utc */
+function daysTo(date: string): number {
+  const [y, m, d] = parts(date)
+  return (Date.UTC(y, m, d, 8) - Date.now()) / 86_400_000
+}
+
+function lasting(days: number): string {
+  if (days < 2) {
+    const h = Math.max(0, Math.floor(days * 24))
+    const min = Math.max(0, Math.floor((days * 24 - h) * 60))
+    return h === 0 ? `${min} min` : `${h} h ${min} min`
+  }
+  return `${Math.round(days)} days`
+}
+
+const shortLasting = (days: number) => (days < 1 ? `${Math.max(0, Math.round(days * 24))}h` : `${Math.round(days)}d`)
 
 const crossTitle = (kind: string, c: Crossing) =>
   `${kind}: sell on ${venueLabel(c.sell)}, buy on ${venueLabel(c.buy)}, +${fixed(c.pct, 2)}% before fees`
@@ -149,12 +188,20 @@ const crossTitle = (kind: string, c: Crossing) =>
 export function OptionsPage() {
   const underlyings = useQuery(() => api.optionUnderlyings(), [], k_underlyings_refresh_ms)
   const list = underlyings.state === 'ready' ? underlyings.data : []
-  const [chosen, setChosen] = useState<string | null>(null)
+  // ?u= opens an underlying, e.g. from the terminal's market list
+  const [params, setParams] = useSearchParams()
+  const chosen = params.get('u')
+  const setChosen = (u: string) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('u', u)
+        return next
+      },
+      { replace: true },
+    )
   const underlying =
-    list.find((u) => u.underlying === chosen) ??
-    list.find((u) => u.underlying === 'BTC') ??
-    list[0] ??
-    null
+    list.find((u) => u.underlying === chosen) ?? list.find((u) => u.underlying === 'BTC') ?? list[0] ?? null
   const [pickedExpiry, setPickedExpiry] = useState<string | null>(null)
   const expiries = underlying?.expiries ?? []
   const expiry = expiries.find((e) => e.expiry === pickedExpiry) ?? expiries[0] ?? null
@@ -166,9 +213,7 @@ export function OptionsPage() {
 
   const name = underlying?.underlying ?? null
   const chain = useQuery(
-    name !== null && expiry !== null
-      ? () => api.optionChain(name, expiry.expiry, venueParam)
-      : null,
+    name !== null && expiry !== null ? () => api.optionChain(name, expiry.expiry, venueParam) : null,
     [name, expiry?.expiry, venueParam],
     k_chain_refresh_ms,
   )
@@ -179,9 +224,7 @@ export function OptionsPage() {
   )
   // an answer for the previous expiry is not drawn under the new tab
   const snapshot =
-    chain.state === 'ready' &&
-    chain.data.expiry === expiry?.expiry &&
-    chain.data.underlying === name
+    chain.state === 'ready' && chain.data.expiry === expiry?.expiry && chain.data.underlying === name
       ? chain.data
       : null
   const ids = useMemo(() => (snapshot === null ? [] : instrumentsOf(snapshot)), [snapshot])
@@ -213,48 +256,20 @@ export function OptionsPage() {
               }}
               expiry={expiry?.expiry ?? null}
               onExpiry={setPickedExpiry}
-              venues={venues}
-              onVenues={setVenues}
-              native={native}
-              onNative={setNative}
-              expandAll={expandAll}
-              onExpandAll={setExpandAll}
-              columns={columns}
-              streamDown={streamDown}
             />
-            {snapshot !== null && (
-              <div className="flex h-7 shrink-0 items-center gap-5 px-3 text-xs text-fg-dim">
-                <span>
-                  Forward{' '}
-                  <span className="num text-fg">
-                    {snapshot.forward ? fixed(Number(snapshot.forward), 1) : '—'}
-                  </span>{' '}
-                  <span className="text-2xs">{snapshot.forward_source}</span>
-                </span>
-                <span>
-                  ATM{' '}
-                  <span className="num text-fg">
-                    {snapshot.atm_strike ? compact(Number(snapshot.atm_strike)) : '—'}
-                  </span>
-                </span>
-                <span>
-                  Expires in{' '}
-                  <span className="num text-fg">
-                    {fixed(snapshot.seconds_to_expiry / 86_400, 2)}d
-                  </span>
-                </span>
-                <span className="ml-auto flex items-center gap-3">
-                  {snapshot.venues.map((v) => (
-                    <span key={v.venue} title="the rate a coin premium turns into usd at">
-                      {venueLabel(v.venue)} index{' '}
-                      <span className="num text-fg-mid">
-                        {v.index ? fixed(Number(v.index), 1) : '—'}
-                      </span>
-                    </span>
-                  ))}
-                </span>
-              </div>
-            )}
+            <ChainFacts snapshot={snapshot}>
+              <ChainControls
+                underlying={underlying}
+                venues={venues}
+                onVenues={setVenues}
+                native={native}
+                onNative={setNative}
+                expandAll={expandAll}
+                onExpandAll={setExpandAll}
+                columns={columns}
+                streamDown={streamDown}
+              />
+            </ChainFacts>
             <div className="min-h-0 flex-1 overflow-auto">
               {live !== null ? (
                 <ChainTable
@@ -310,59 +325,62 @@ export function OptionsPage() {
   )
 }
 
-function Tab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
+function Fact({ label, children, info }: { label: string; children: React.ReactNode; info?: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        'relative flex h-8 shrink-0 items-center gap-1.5 text-xs whitespace-nowrap transition-colors duration-150',
-        active
-          ? 'font-medium text-fg after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-accent'
-          : 'text-fg-dim hover:text-fg-mid',
-      )}
-    >
-      {children}
-    </button>
+    <span className="flex items-center gap-2 whitespace-nowrap">
+      <span className="text-fg-dim">{label}</span>
+      <span className="mono text-fg">{children}</span>
+      {info !== undefined && <Info>{info}</Info>}
+    </span>
   )
 }
 
-function Toggle({
-  on,
-  onClick,
-  children,
-  title,
-}: {
-  on: boolean
-  onClick: () => void
-  children: React.ReactNode
-  title?: string
-}) {
+/** the expiry's reference numbers: where the money is, how long is left, what each venue converts premiums at */
+function ChainFacts({ snapshot, children }: { snapshot: OptionChain | null; children: React.ReactNode }) {
+  if (snapshot === null)
+    return <div className="flex h-12 shrink-0 items-center justify-end border-t border-line px-3">{children}</div>
+  const indexes = snapshot.venues.filter((v) => v.index)
+  const mean = indexes.length === 0 ? null : indexes.reduce((a, v) => a + Number(v.index), 0) / indexes.length
   return (
-    <button
-      type="button"
-      title={title}
-      aria-pressed={on}
-      onClick={onClick}
-      className={cn(
-        'flex h-6 items-center gap-1.5 rounded-sm px-2 text-xs transition-colors duration-150',
-        on ? 'bg-active text-fg' : 'text-fg-dim hover:bg-hover hover:text-fg-mid',
+    <div className="flex h-12 shrink-0 items-center gap-7 border-t border-line pr-3 pl-4 text-sm">
+      <Fact
+        label="Forward"
+        info={
+          snapshot.forward_source === 'parity'
+            ? 'The price the market expects at expiry, implied from put-call parity: a call minus a put at the same strike, near the money.'
+            : `The price the market expects at expiry, taken from the ${snapshot.forward_source}.`
+        }
+      >
+        {snapshot.forward ? fixed(Number(snapshot.forward), 1) : '—'}
+      </Fact>
+      <Fact label="At the money">
+        {snapshot.atm_strike ? Number(snapshot.atm_strike).toLocaleString('en-US') : '—'}
+      </Fact>
+      <Fact label="Expires in">{lasting(snapshot.seconds_to_expiry / 86_400)}</Fact>
+      {mean !== null && (
+        <Fact
+          label="Index"
+          info={
+            <span className="flex flex-col gap-1">
+              <span>The rate each venue turns a coin premium into dollars at.</span>
+              {indexes.map((v) => (
+                <span key={v.venue} className="flex justify-between gap-4">
+                  <span>{venueLabel(v.venue)}</span>
+                  <span className="mono text-fg">{fixed(Number(v.index), 1)}</span>
+                </span>
+              ))}
+            </span>
+          }
+        >
+          {fixed(mean, 1)}
+        </Fact>
       )}
-    >
-      {children}
-    </button>
+      <span className="ml-auto">{children}</span>
+    </div>
   )
 }
+
+const k_quick_expiries = 8
 
 function ChainHeader({
   list,
@@ -370,6 +388,90 @@ function ChainHeader({
   onUnderlying,
   expiry,
   onExpiry,
+}: {
+  list: OptionUnderlying[]
+  underlying: OptionUnderlying | null
+  onUnderlying: (u: string) => void
+  expiry: string | null
+  onExpiry: (e: string) => void
+}) {
+  const count = (u: OptionUnderlying) => u.venues.reduce((a, v) => a + v.options, 0)
+  // the most widely listed first: those are the deep ones
+  const sorted = [...list].sort(
+    (a, b) => b.venues.length - a.venues.length || count(b) - count(a) || a.underlying.localeCompare(b.underlying),
+  )
+  const expiries = underlying?.expiries ?? []
+  const quick = expiries.slice(0, k_quick_expiries)
+  return (
+    <div data-drag-handle className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
+      <Picker
+        label={
+          <>
+            {underlying !== null && <CoinIcon symbol={underlying.underlying} className="size-5" />}
+            <span className="font-medium">{underlying?.underlying ?? 'Underlying'}</span>
+          </>
+        }
+        search
+        width={240}
+        items={sorted.map((u) => ({
+          key: u.underlying,
+          text: u.underlying,
+          label: (
+            <>
+              <CoinIcon symbol={u.underlying} className="size-5" />
+              {u.underlying}
+            </>
+          ),
+          hint: `${u.venues.length} ${u.venues.length === 1 ? 'venue' : 'venues'}`,
+        }))}
+        selected={underlying === null ? [] : [underlying.underlying]}
+        onPick={onUnderlying}
+      />
+      <div className="flex min-w-0 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Expiry">
+        {quick.map((e) => (
+          <button
+            key={e.expiry}
+            type="button"
+            role="tab"
+            aria-selected={e.expiry === expiry}
+            title={`${e.venues.length} ${e.venues.length === 1 ? 'venue' : 'venues'}`}
+            onClick={() => onExpiry(e.expiry)}
+            className={cn(
+              'flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm whitespace-nowrap transition-colors',
+              e.expiry === expiry ? 'bg-active text-fg' : 'text-fg-mid hover:bg-hover hover:text-fg',
+            )}
+          >
+            {expiryLabel(e.date)}
+            <span className="mono text-xs text-fg-dim">{shortLasting(daysTo(e.date))}</span>
+          </button>
+        ))}
+      </div>
+      {expiries.length > quick.length && (
+        <Picker
+          label={
+            quick.some((e) => e.expiry === expiry) || expiry === null ? (
+              'Later'
+            ) : (
+              <span className="text-fg">{expiryLabel(expiries.find((e) => e.expiry === expiry)?.date ?? '')}</span>
+            )
+          }
+          width={220}
+          items={expiries.map((e) => ({
+            key: e.expiry,
+            label: expiryLabel(e.date),
+            hint: shortLasting(daysTo(e.date)),
+            group: monthOf(e.date),
+          }))}
+          selected={expiry === null ? [] : [expiry]}
+          onPick={onExpiry}
+        />
+      )}
+    </div>
+  )
+}
+
+function ChainControls({
+  underlying,
   venues,
   onVenues,
   native,
@@ -379,11 +481,7 @@ function ChainHeader({
   columns,
   streamDown,
 }: {
-  list: OptionUnderlying[]
   underlying: OptionUnderlying | null
-  onUnderlying: (u: string) => void
-  expiry: string | null
-  onExpiry: (e: string) => void
   venues: Set<string>
   onVenues: (v: Set<string>) => void
   native: boolean
@@ -393,94 +491,76 @@ function ChainHeader({
   columns: { shown: Set<Column>; toggle: (c: Column) => void }
   streamDown: boolean
 }) {
-  const [chooser, setChooser] = useState(false)
-  const chooserRef = useRef<HTMLDivElement>(null)
-  useDismiss(chooserRef, chooser, setChooser)
+  const offered = underlying?.venues ?? []
+  const one = venues.size === 1 ? [...venues][0]! : null
   return (
-    <div data-drag-handle className="flex shrink-0 flex-col">
-      <div className="flex h-8 items-center gap-4 px-3" role="tablist" aria-label="Underlying">
-        {list.map((u) => (
-          <Tab
-            key={u.underlying}
-            active={u.underlying === underlying?.underlying}
-            onClick={() => onUnderlying(u.underlying)}
-          >
-            {u.underlying}
-            <span className="num text-2xs text-fg-dim">{u.venues.length}</span>
-          </Tab>
-        ))}
-        <div className="ml-auto flex items-center gap-1.5">
-          {(underlying?.venues ?? []).map((v) => (
-            <Toggle
-              key={v.venue}
-              on={venues.has(v.venue)}
-              title={`${v.options} options`}
-              onClick={() => {
-                const next = new Set(venues)
-                if (next.has(v.venue)) next.delete(v.venue)
-                else next.add(v.venue)
-                onVenues(next)
-              }}
-            >
-              <ExchangeIcon venue={v.venue} className="size-[13px]" />
+    <div className="flex items-center gap-2">
+      <Picker
+        multi
+        align="right"
+        width={280}
+        label={
+          one !== null ? (
+            <>
+              <ExchangeIcon venue={one} className="size-4" />
+              {venueLabel(one)}
+            </>
+          ) : venues.size === 0 ? (
+            'All venues'
+          ) : (
+            `${venues.size} venues`
+          )
+        }
+        items={offered.map((v) => ({
+          key: v.venue,
+          text: venueLabel(v.venue),
+          label: (
+            <>
+              <ExchangeIcon venue={v.venue} className="size-4" />
               {venueLabel(v.venue)}
-            </Toggle>
-          ))}
-          <span className="mx-1 h-4 w-px bg-line" />
-          <Toggle
-            on={!native}
-            onClick={() => onNative(!native)}
-            title="venue rows in usd or in each venue's premium unit"
-          >
-            {native ? 'Native' : 'USD'}
-          </Toggle>
-          <Toggle
-            on={expandAll}
-            onClick={() => onExpandAll(!expandAll)}
-            title="every venue under each strike"
-          >
-            Venues
-          </Toggle>
-          <div ref={chooserRef} className="relative">
-            <Toggle on={chooser} onClick={() => setChooser(!chooser)}>
-              Columns
-            </Toggle>
-            {chooser && (
-              <div className="absolute top-7 right-0 z-30 w-36 rounded-md bg-raised p-1.5 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7)]">
-                {k_columns.map((c) => (
-                  <label
-                    key={c.key}
-                    className="flex h-6 cursor-pointer items-center gap-2 rounded-sm px-1.5 text-xs text-fg-mid hover:bg-hover"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={columns.shown.has(c.key)}
-                      onChange={() => columns.toggle(c.key)}
-                    />
-                    {c.label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          <span
-            className={cn('ml-1 size-[5px] rounded-full', streamDown ? 'bg-down' : 'bg-up')}
-            title={streamDown ? 'stream unavailable' : 'live'}
-          />
-        </div>
-      </div>
-      <div
-        className="flex h-8 items-center gap-4 overflow-x-auto px-3"
-        role="tablist"
-        aria-label="Expiry"
+            </>
+          ),
+          hint: `${v.options.toLocaleString('en-US')} options`,
+        }))}
+        selected={[...venues]}
+        onPick={(venue) => {
+          const next = new Set(venues)
+          if (next.has(venue)) next.delete(venue)
+          else next.add(venue)
+          onVenues(next)
+        }}
+        footer="With more than one venue, every bid and ask is the best among them, and the logo beside it says which venue quotes it."
+      />
+      <Seg
+        size="md"
+        options={[
+          ['usd', 'USD'],
+          ['coin', 'Coin'],
+        ]}
+        value={native ? 'coin' : 'usd'}
+        onChange={(v) => onNative(v === 'coin')}
+      />
+      <button
+        type="button"
+        aria-pressed={expandAll}
+        onClick={() => onExpandAll(!expandAll)}
+        className={cn(
+          'h-8 rounded-md px-3 text-sm transition-colors',
+          expandAll ? 'bg-active text-fg' : 'bg-raised/60 text-fg-mid hover:bg-hover hover:text-fg',
+        )}
       >
-        {(underlying?.expiries ?? []).map((e) => (
-          <Tab key={e.expiry} active={e.expiry === expiry} onClick={() => onExpiry(e.expiry)}>
-            {expiryLabel(e.date)}
-            <span className="num text-2xs text-fg-dim">{e.venues.length}</span>
-          </Tab>
-        ))}
-      </div>
+        Every venue
+      </button>
+      <Picker
+        multi
+        align="right"
+        width={200}
+        label="Columns"
+        items={k_columns.map((c) => ({ key: c.key, label: c.label }))}
+        selected={[...columns.shown]}
+        onPick={columns.toggle}
+      />{' '}
+      {streamDown && <span className="text-sm text-amber">Stream down</span>}
     </div>
   )
 }
@@ -499,8 +579,10 @@ function Cell({
   /** in the money */
   shade?: boolean
 }) {
-  const unit = native ? leg.unit : 'quote'
-  const priced = (v: number | null, usdV: number | null) => (native ? v : usdV)
+  // Coin puts every venue in the coin: a dollar-premium venue converts at its own index
+  const unit = native ? 'base' : 'quote'
+  const priced = (v: number | null, usdV: number | null) =>
+    !native ? usdV : leg.unit === 'base' ? v : usdV === null || leg.rate === null ? null : usdV / leg.rate
   const tip = (v: number | null, usdV: number | null) =>
     leg.unit === 'base' && v !== null && usdV !== null && leg.rate !== null
       ? `${v.toFixed(4)} coin = ${fixed(usdV, 2)} usd at ${fixed(leg.rate, 1)}`
@@ -533,10 +615,7 @@ function Cell({
     case 'mark': {
       const v = priced(leg.mark, leg.markUsd)
       return (
-        <td
-          className={cn('num px-2 text-right text-fg', shade && 'bg-raised/25')}
-          title={tip(leg.mark, leg.markUsd)}
-        >
+        <td className={cn('num px-2 text-right text-fg', shade && 'bg-raised/25')} title={tip(leg.mark, leg.markUsd)}>
           {v === null ? dash : money(v, unit)}
         </td>
       )
@@ -546,11 +625,7 @@ function Cell({
       const v = column === 'bidIv' ? leg.bidIv : leg.askIv
       return (
         <td
-          className={cn(
-            'num px-2 text-right text-fg-mid',
-            shade && 'bg-raised/25',
-            model(leg.ivModel),
-          )}
+          className={cn('num px-2 text-right text-fg-mid', shade && 'bg-raised/25', model(leg.ivModel))}
           title={leg.ivModel ? 'implied here' : undefined}
         >
           {pct(v) ?? dash}
@@ -572,20 +647,10 @@ function Cell({
     case 'theta': {
       const v = leg[column]
       const text =
-        v === null
-          ? null
-          : column === 'delta'
-            ? v.toFixed(3)
-            : column === 'gamma'
-              ? v.toPrecision(3)
-              : fixed(v, 2)
+        v === null ? null : column === 'delta' ? v.toFixed(3) : column === 'gamma' ? v.toPrecision(3) : fixed(v, 2)
       return (
         <td
-          className={cn(
-            'num px-2 text-right text-fg-mid',
-            shade && 'bg-raised/25',
-            model(leg.greeksModel),
-          )}
+          className={cn('num px-2 text-right text-fg-mid', shade && 'bg-raised/25', model(leg.greeksModel))}
           title={leg.greeksModel ? 'black-76 on the forward' : undefined}
         >
           {text ?? dash}
@@ -628,9 +693,10 @@ const k_empty_leg: Leg = {
 }
 
 function BestVenue({ venue }: { venue: string | undefined }) {
-  if (venue === undefined) return null
   return (
-    <ExchangeIcon venue={venue} className="ml-1 inline-block size-[11px] align-[-1px] opacity-80" />
+    <span className="ml-1.5 inline-flex w-3.5 align-[-2px]" title={venue === undefined ? undefined : venueLabel(venue)}>
+      {venue !== undefined && <ExchangeIcon venue={venue} className="size-3.5" />}
+    </span>
   )
 }
 
@@ -659,14 +725,39 @@ function ChainTable({
   const span = calls.length + puts.length + 1
 
   return (
-    <table className="w-full border-collapse text-sm whitespace-nowrap">
+    <table
+      className="w-full table-fixed border-collapse text-sm whitespace-nowrap"
+      style={{ minWidth: [...calls, ...puts].reduce((a, c) => a + k_width[c], k_strike_width) }}
+    >
+      <colgroup>
+        {calls.map((c) => (
+          <col key={`c${c}`} style={{ width: k_width[c] }} />
+        ))}
+        <col style={{ width: k_strike_width }} />
+        {puts.map((c) => (
+          <col key={`p${c}`} style={{ width: k_width[c] }} />
+        ))}
+      </colgroup>
       <thead className="sticky top-0 z-10 bg-panel">
-        <tr className="h-6 text-2xs">
-          <th colSpan={calls.length} className="col-head px-2 text-center">
+        <tr className="h-8">
+          <th colSpan={calls.length} className="px-2 text-center text-sm font-medium text-fg-mid">
             Calls
           </th>
-          <th className="col-head px-2" />
-          <th colSpan={puts.length} className="col-head px-2 text-center">
+          <th className="px-2 text-center">
+            <Info width={320}>
+              <span className="flex flex-col gap-1.5">
+                <span>
+                  Each bid and ask is the best among the venues you chose, and the logo beside it says which venue
+                  quotes it. Pick one venue to see only its prices, or click a row to see every venue.
+                </span>
+                <span>
+                  A green figure beside a strike means one venue bids above another venue's ask for the same option,
+                  before fees.
+                </span>
+              </span>
+            </Info>
+          </th>
+          <th colSpan={puts.length} className="px-2 text-center text-sm font-medium text-fg-mid">
             Puts
           </th>
         </tr>
@@ -676,7 +767,7 @@ function ChainTable({
               {label(c)}
             </th>
           ))}
-          <th className="col-head bg-raised/60 px-3 text-center">Strike</th>
+          <th className="col-head bg-raised/60 px-3 text-center!">Strike</th>
           {puts.map((c) => (
             <th key={`p${c}`} className="col-head px-2 text-right">
               {label(c)}
@@ -689,9 +780,7 @@ function ChainTable({
           const call = summary(row.call) ?? k_empty_leg
           const put = summary(row.put) ?? k_empty_leg
           const expanded = expandAll || open.has(row.strike)
-          const venueNames = [
-            ...new Set([...row.call.legs, ...row.put.legs].map((l) => l.venue)),
-          ].sort()
+          const venueNames = [...new Set([...row.call.legs, ...row.put.legs].map((l) => l.venue))].sort()
           const itmCall = forward !== null && row.strike < forward
           const itmPut = forward !== null && row.strike > forward
           const callCross = crossing(row.call)
@@ -702,7 +791,7 @@ function ChainTable({
                 <tr className="h-5" data-forward>
                   <td colSpan={span} className="relative px-3">
                     <div className="absolute inset-x-0 top-1/2 h-px bg-accent/50" />
-                    <span className="relative mx-auto block w-fit rounded-sm bg-panel px-2 text-2xs text-accent">
+                    <span className="relative mx-auto block w-fit rounded-sm bg-panel px-2 text-xs text-accent">
                       Forward {fixed(forward, 1)}
                     </span>
                   </td>
@@ -725,14 +814,9 @@ function ChainTable({
                     leg={call}
                     column={c}
                     itm={itmCall}
-                    best={
-                      c === 'bid'
-                        ? row.call.bestBid?.venue
-                        : c === 'ask'
-                          ? row.call.bestAsk?.venue
-                          : undefined
-                    }
+                    best={c === 'bid' ? row.call.bestBid?.venue : c === 'ask' ? row.call.bestAsk?.venue : undefined}
                     multi={venueCount > 1}
+                    coin={native ? forward : null}
                   />
                 ))}
                 <td
@@ -748,9 +832,17 @@ function ChainTable({
                     .filter((t) => t !== null)
                     .join('\n')}
                 >
-                  {callCross !== null && <span className="mr-1.5 text-2xs text-up">◂ +{fixed(callCross.pct, 1)}%</span>}
-                  {row.strike.toLocaleString('en-US')}
-                  {putCross !== null && <span className="ml-1.5 text-2xs text-up">+{fixed(putCross.pct, 1)}% ▸</span>}
+                  <span className="relative inline-block">
+                    {callCross !== null && (
+                      <span className="absolute top-0 right-full mr-2 text-xs text-up">
+                        +{fixed(callCross.pct, 1)}%
+                      </span>
+                    )}
+                    {row.strike.toLocaleString('en-US')}
+                    {putCross !== null && (
+                      <span className="absolute top-0 left-full ml-2 text-xs text-up">+{fixed(putCross.pct, 1)}%</span>
+                    )}
+                  </span>
                 </td>
                 {puts.map((c) => (
                   <SummaryCell
@@ -758,14 +850,9 @@ function ChainTable({
                     leg={put}
                     column={c}
                     itm={itmPut}
-                    best={
-                      c === 'bid'
-                        ? row.put.bestBid?.venue
-                        : c === 'ask'
-                          ? row.put.bestAsk?.venue
-                          : undefined
-                    }
+                    best={c === 'bid' ? row.put.bestBid?.venue : c === 'ask' ? row.put.bestAsk?.venue : undefined}
                     multi={venueCount > 1}
+                    coin={native ? forward : null}
                   />
                 ))}
               </tr>
@@ -819,35 +906,38 @@ function SummaryCell({
   itm,
   best,
   multi,
+  coin,
 }: {
   leg: Leg
   column: Column
   itm: boolean
   best: string | undefined
   multi: boolean
+  /** the forward when premiums read in the coin: the best of several venues is in dollars, so it converts here */
+  coin: number | null
 }) {
+  const priced = column === 'bid' || column === 'ask' || column === 'mark'
+  if (!priced) return <Cell leg={leg} column={column} native={false} shade={itm} />
+  const usdValue = column === 'bid' ? leg.bidUsd : column === 'ask' ? leg.askUsd : leg.markUsd
+  const value = usdValue === null ? null : coin === null ? usdValue : usdValue / coin
+  const tone = column === 'bid' ? 'text-up' : column === 'ask' ? 'text-down' : 'text-fg'
   // the summary is the best across venues, so its quote carries the venue that set it
-  if ((column === 'bid' || column === 'ask') && multi && best !== undefined) {
-    const v = column === 'bid' ? leg.bidUsd : leg.askUsd
-    return (
-      <td
-        className={cn('px-2 text-right', itm && 'bg-raised/25')}
-        title={`best ${column} on ${venueLabel(best)}`}
-      >
-        {v === null ? (
-          <span className="text-fg-dim">—</span>
-        ) : (
-          <>
-            <span className={cn('num', column === 'bid' ? 'text-up' : 'text-down')}>
-              {money(v, 'quote')}
-            </span>
-            <BestVenue venue={best} />
-          </>
-        )}
-      </td>
-    )
-  }
-  return <Cell leg={leg} column={column} native={false} shade={itm} />
+  const mark = column !== 'mark' && multi && best !== undefined
+  return (
+    <td
+      className={cn('px-2 text-right', itm && 'bg-raised/25')}
+      title={mark ? `Best ${column} on ${venueLabel(best)}` : undefined}
+    >
+      {value === null ? (
+        <span className="text-fg-dim">—</span>
+      ) : (
+        <>
+          <span className={cn('num', tone)}>{money(value, coin === null ? 'quote' : 'base')}</span>
+          {mark && <BestVenue venue={best} />}
+        </>
+      )}
+    </td>
+  )
 }
 
 function useSlice(surface: OptionSurface | null, expiry: string | null) {
@@ -869,10 +959,7 @@ function SmileChart({
     if (slice === null) return []
     const byVenue = new Map<string, Array<{ x: number; y: number }>>()
     for (const p of slice.smile) {
-      byVenue.set(p.venue, [
-        ...(byVenue.get(p.venue) ?? []),
-        { x: Number(p.strike), y: Number(p.mid_iv) * 100 },
-      ])
+      byVenue.set(p.venue, [...(byVenue.get(p.venue) ?? []), { x: Number(p.strike), y: Number(p.mid_iv) * 100 }])
     }
     const out: XYSeries[] = [...byVenue].map(([venue, points]) => ({
       key: venue,
@@ -884,7 +971,7 @@ function SmileChart({
     if (slice.fitted.length > 1) {
       out.push({
         key: 'fit',
-        label: surface?.model ?? 'fit',
+        label: 'Fit',
         color: k_fit_color,
         points: slice.fitted.map((p) => ({ x: Number(p.strike), y: Number(p.vol) * 100 })),
         mode: 'line',
@@ -895,36 +982,28 @@ function SmileChart({
   const forward = num(slice?.forward)
   return (
     <ChartFrame
-      title="Smile"
-      note={
-        slice === null
-          ? undefined
-          : `${expiryLabel(slice.date)} · mid iv, out of the money · ${surface?.model ?? ''} fit`
-      }
+      title={slice === null ? 'Smile' : `Smile, ${expiryLabel(slice.date)}`}
+      info="Implied volatility across strikes for this expiry, from out-of-the-money options. Dots are venue quotes and the line is a smooth fit. A dot well above the line is expensive, one below it is cheap; on thin strikes check the bid and ask first."
       legend={series.map((s) => ({ key: s.key, label: s.label, color: s.color }))}
       onLegendHover={setHighlight}
       readout={
         slice === null ? undefined : (
-          <div className="flex gap-3 text-2xs text-fg-dim">
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-fg-dim">
             <span>
-              ATM <span className="num text-fg">{pct(num(slice.atm_iv)) ?? '—'}</span>
+              At the money <span className="mono text-fg">{pct(num(slice.atm_iv)) ?? '—'}%</span>
             </span>
             <span>
-              RR <span className="num text-fg">{pct(num(slice.rr25), 2) ?? '—'}</span>
+              Risk reversal <span className="mono text-fg">{pct(num(slice.rr25), 1) ?? '—'}</span>
             </span>
             <span>
-              BF <span className="num text-fg">{pct(num(slice.bf25), 2) ?? '—'}</span>
+              Butterfly <span className="mono text-fg">{pct(num(slice.bf25), 1) ?? '—'}</span>
             </span>
           </div>
         )
       }
       height={260}
       placeholder={
-        series.length === 0
-          ? surface === null
-            ? 'No surface yet'
-            : 'Nothing quoted on this expiry'
-          : undefined
+        series.length === 0 ? (surface === null ? 'No surface yet' : 'Nothing quoted on this expiry') : undefined
       }
     >
       {({ width, height }) => (
@@ -950,19 +1029,19 @@ function TermChart({ surface, expiry }: { surface: OptionSurface | null; expiry:
   const chosen = days(useSlice(surface, expiry)?.years)
   return (
     <ChartFrame
-      title="ATM term structure"
-      note="atm iv by days to expiry"
+      title="Term structure"
+      info="At-the-money implied volatility for each expiry, by days to expiry. It normally slopes up; when near expiries sit above far ones, the market is pricing stress now. Expiries off the line are rich or cheap against their neighbours."
       height={200}
       placeholder={points.length === 0 ? 'No surface yet' : undefined}
     >
       {({ width, height }) => (
         <XYPlot
-          series={[{ key: 'atm', label: 'ATM iv', color: '#4c9aff', points, mode: 'both' }]}
+          series={[{ key: 'atm', label: 'At-the-money volatility', color: '#4c9aff', points, mode: 'both' }]}
           width={width}
           height={height}
           formatX={(x) => `${x.toFixed(0)}d`}
           formatY={(y) => `${y.toFixed(1)}%`}
-          markers={chosen === null ? [] : [{ x: chosen, label: 'shown' }]}
+          markers={chosen === null ? [] : [{ x: chosen, label: 'this expiry' }]}
         />
       )}
     </ChartFrame>
@@ -980,14 +1059,26 @@ function SkewChart({ surface }: { surface: OptionSurface | null }) {
       .filter((p): p is { x: number; y: number } => p.x !== null && p.y !== null)
       .map((p) => ({ x: p.x, y: p.y * 100 })),
   })
-  const both = [
-    series('rr25', '25Δ risk reversal', '#a78bfa'),
-    series('bf25', '25Δ butterfly', '#f59e0b'),
-  ]
+  const both = [series('rr25', 'Risk reversal', '#a78bfa'), series('bf25', 'Butterfly', '#f59e0b')]
   return (
     <ChartFrame
-      title="25Δ RR and BF"
-      note="vol points by days to expiry"
+      title="Skew"
+      info={
+        <span className="flex flex-col gap-1.5">
+          <span>
+            Both in volatility points, by days to expiry, measured at 25 delta (options about one in four likely to
+            finish in the money).
+          </span>
+          <span>
+            Risk reversal: call volatility minus put volatility. Below zero, puts cost more and traders are paying for
+            downside protection; above zero, upside calls are in demand.
+          </span>
+          <span>
+            Butterfly: the average of call and put volatility minus at-the-money volatility. Higher means large moves
+            either way are priced richer than small ones.
+          </span>
+        </span>
+      }
       legend={both.map((s) => ({ key: s.key, label: s.label, color: s.color }))}
       height={200}
       placeholder={both.every((s) => s.points.length === 0) ? 'No fit yet' : undefined}

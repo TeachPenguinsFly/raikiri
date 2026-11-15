@@ -26,6 +26,10 @@ export interface Terminal {
   books: Map<string, Book>
   funding: Map<string, Funding>
   draft: Draft | undefined
+  /** venues whose price line is off the chart; the rest are drawn over the candles */
+  hiddenLines: Set<string>
+  toggleLine: (venue: string) => void
+  setHiddenLines: (venues: Set<string>) => void
   pick: (p: { market?: string; venue?: string }) => void
   setBookVenue: (v: BookVenue) => void
   setDraft: (d: Omit<Draft, 'n'>) => void
@@ -48,6 +52,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const down = useStreamDown()
   const [bookAll, setBookAll] = useState(false)
   const [draft, setDraftState] = useState<Draft | undefined>(undefined)
+  const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
 
   const cat = catalog.state === 'ready' ? catalog.data : undefined
   const key = params.get('m') ?? ''
@@ -92,6 +97,15 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     books,
     funding,
     draft,
+    hiddenLines,
+    setHiddenLines,
+    toggleLine: (venue) =>
+      setHiddenLines((prev) => {
+        const next = new Set(prev)
+        if (next.has(venue)) next.delete(venue)
+        else next.add(venue)
+        return next
+      }),
     pick,
     setBookVenue: (v) => {
       setBookAll(v === 'all')

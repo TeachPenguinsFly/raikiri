@@ -13,7 +13,7 @@ import {
   type SeriesType,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { cn, ExchangeIcon, venueLabel } from '@raikiri/ui'
+import { cn, venueLabel } from '@raikiri/ui'
 import { candles, Empty, Glyph, Seg, type Candle } from '@raikiri/ui/v3'
 import { tapeOf } from '../api/stream'
 import { bp, px, touchOf, venueColor } from '../lib/market'
@@ -32,10 +32,10 @@ const k_down = '#f2557d'
 const k_accent = '#38bdf8'
 
 export function ChartWidget() {
-  const { pair, leg, quotes, pick } = useTerminal()
+  const { pair, leg, quotes, hiddenLines: hidden, toggleLine } = useTerminal()
   const [interval, setSpan] = useState<Interval>('5s')
   const [kind, setKind] = useState<'candles' | 'area'>('candles')
-  const [compare, setCompare] = useState(true)
+
   const box = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   const main = useRef<ISeriesApi<SeriesType> | null>(null)
@@ -57,7 +57,7 @@ export function ChartWidget() {
     () => (id === '' ? [] : candles(tapeOf(id), seconds, Date.now(), k_max_candles)),
     [id, seconds, tick, live],
   )
-  const rest = useMemo(() => (compare ? (pair?.legs ?? []).filter((l) => l.id !== id) : []), [pair, id, compare])
+  const rest = useMemo(() => (pair?.legs ?? []).filter((l) => l.id !== id && !hidden.has(l.venue)), [pair, id, hidden])
 
   useEffect(() => {
     const el = box.current
@@ -67,7 +67,7 @@ export function ChartWidget() {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: '#6b6b78',
-        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        fontFamily: "'Inter', system-ui, sans-serif",
         fontSize: 10,
         attributionLogo: true,
         panes: {
@@ -184,7 +184,7 @@ export function ChartWidget() {
       if (s === undefined) {
         s = c.addSeries(LineSeries, {
           color: venueColor(l.venue),
-          lineWidth: 1,
+          lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: true,
           crosshairMarkerVisible: false,
@@ -222,23 +222,6 @@ export function ChartWidget() {
           onChange={setSpan}
           options={(Object.keys(k_interval_s) as Interval[]).map((i) => [i, i] as const)}
         />
-        {pair !== undefined && leg !== undefined && pair.legs.length > 1 && (
-          <Seg
-            size="xs"
-            value={leg.venue}
-            onChange={(v) => pick({ venue: v })}
-            options={pair.legs.map(
-              (l) =>
-                [
-                  l.venue,
-                  <span key={l.venue} className="flex items-center gap-1">
-                    <ExchangeIcon venue={l.venue} className="size-3" />
-                    {venueLabel(l.venue)}
-                  </span>,
-                ] as const,
-            )}
-          />
-        )}
         <Seg
           size="xs"
           value={kind}
@@ -269,23 +252,6 @@ export function ChartWidget() {
             </button>
           ))}
         </div>
-        {(pair?.legs.length ?? 0) > 1 && (
-          <button
-            type="button"
-            onClick={() => setCompare((x) => !x)}
-            className={cn(
-              'flex h-6 items-center gap-1.5 rounded-md px-2 text-2xs transition-colors',
-              compare ? 'bg-raised text-fg' : 'text-fg-dim hover:text-fg-mid',
-            )}
-          >
-            {pair?.legs
-              .filter((l) => l.id !== id)
-              .map((l) => (
-                <span key={l.venue} className="h-0.5 w-2.5 rounded-full" style={{ background: venueColor(l.venue) }} />
-              ))}
-            Venues
-          </button>
-        )}
       </div>
       <div className="relative min-h-0 flex-1">
         <div className="pointer-events-none absolute top-1 left-3 z-10 flex flex-col gap-0.5">
@@ -305,7 +271,7 @@ export function ChartWidget() {
             )}
           </span>
           {shown !== undefined && (
-            <span className="mono flex gap-2 text-[10px] text-fg-dim">
+            <span className="mono flex gap-2 text-xs text-fg-dim">
               {(['open', 'high', 'low', 'close'] as const).map((f) => (
                 <span key={f}>
                   {f[0]?.toUpperCase()} <span className="text-fg-mid">{px(shown[f], places)}</span>
@@ -319,6 +285,23 @@ export function ChartWidget() {
                   spread <span className="text-fg-mid">{bp(((touch.ask - touch.bid) / touch.mid) * 1e4, 2)}</span>
                 </span>
               )}
+            </span>
+          )}
+          {rest.length > 0 && (
+            <span className="pointer-events-auto mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+              {rest.map((l) => (
+                <button
+                  key={l.venue}
+                  type="button"
+                  title="Hide this line"
+                  onClick={() => toggleLine(l.venue)}
+                  className="flex items-center gap-1.5 text-fg-mid hover:text-fg"
+                >
+                  <span className="h-0.5 w-3 rounded-full" style={{ background: venueColor(l.venue) }} />
+                  {venueLabel(l.venue)}
+                  <span className="mono text-fg-dim">{px(touchOf(quotes.get(l.id), l)?.mid, l.places)}</span>
+                </button>
+              ))}
             </span>
           )}
         </div>

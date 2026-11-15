@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react'
-import { cn, EmptyState, nanosToMillis, PanelHeader, Venue } from '@raikiri/ui'
+import { cn, EmptyState, ExchangeIcon, nanosToMillis, venueLabel } from '@raikiri/ui'
 import { api, type Account } from '../api/client'
 import { useQuery } from '../lib/query'
 
@@ -10,6 +10,7 @@ const k_market_order = ['perp', 'spot', 'future', 'option']
 function since(millis: number | undefined, now: number): string {
   if (millis === undefined) return '—'
   const seconds = Math.max(0, (now - millis) / 1000)
+  if (seconds < 1) return 'just now'
   if (seconds < 10) return `${seconds.toFixed(1)}s ago`
   if (seconds < 60) return `${Math.round(seconds)}s ago`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
@@ -34,118 +35,85 @@ const marketRank = (market: string) => {
   return rank < 0 ? k_market_order.length : rank
 }
 
+const k_market: Record<string, string> = { perp: 'Perpetual', spot: 'Spot', option: 'Options', future: 'Futures' }
+
+/** the same words the top bar's feeds use */
+function stateOf(a: Account): { word: string; tone: string } {
+  if (!a.gateway.alive) return { word: 'Down', tone: 'bg-down' }
+  if (a.gateway.coverage_pct < 50) return { word: 'Warming up', tone: 'bg-amber' }
+  return { word: 'Live', tone: 'bg-up' }
+}
+
 export function SettingsPage() {
   const accounts = useQuery(() => api.accounts(), [], k_refresh_ms)
   const rows = useMemo(() => (accounts.state === 'ready' ? accounts.data : []), [accounts])
   const heartbeats = useHeartbeats(rows)
-  const alive = rows.filter((a) => a.gateway.alive).length
   const now = Date.now()
 
-  const venues = useMemo(() => {
-    const out = new Map<string, Account[]>()
-    for (const a of rows) out.set(a.venue, [...(out.get(a.venue) ?? []), a])
-    for (const list of out.values()) {
-      list.sort((a, b) => marketRank(a.market) - marketRank(b.market) || a.account.localeCompare(b.account))
-    }
-    return [...out].sort(([a], [b]) => a.localeCompare(b))
-  }, [rows])
+  const sorted = useMemo(
+    () =>
+      [...rows].sort(
+        (a, b) =>
+          venueLabel(a.venue).localeCompare(venueLabel(b.venue)) ||
+          marketRank(a.market) - marketRank(b.market) ||
+          a.account.localeCompare(b.account),
+      ),
+    [rows],
+  )
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      <section className="panel flex min-h-0 flex-1 flex-col">
-        <PanelHeader
-          title="Venues"
-          right={
-            accounts.state === 'ready' ? (
-              <span className="meta">
-                {venues.length} venues · {alive}/{rows.length} gateways answering
-              </span>
-            ) : null
-          }
-        />
-        <div className="min-h-0 flex-1 overflow-auto">
-          {accounts.state === 'loading' && <EmptyState title="Asking admind" />}
-
-          {accounts.state === 'failed' && (
-            <div className="px-3 py-6 text-xs">
-              <div className="text-down">
-                {accounts.status !== null && (
-                  <span className="num mr-2 text-fg-dim">{accounts.status}</span>
-                )}
-                {accounts.title}
-              </div>
-              {accounts.detail !== undefined && (
-                <div className="mt-1 text-fg-dim">{accounts.detail}</div>
-              )}
-            </div>
-          )}
-
-          {accounts.state === 'ready' && rows.length === 0 && (
-            <EmptyState
-              title="No gateway is attached"
-              hint="a venue whose key is missing or refused never attaches one"
-            />
-          )}
-
-          {accounts.state === 'ready' && rows.length > 0 && (
-            <table className="w-full border-collapse text-sm whitespace-nowrap">
-              <thead className="sticky top-0 z-10 bg-panel">
-                <tr className="h-6 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-                  <th className="col-head w-48 px-3 text-left">Venue</th>
-                  <th className="col-head w-24 px-3 text-left">Market</th>
-                  <th className="col-head px-3 text-left">Account</th>
-                  <th className="col-head w-32 px-3 text-left">Gateway</th>
-                  <th className="col-head w-28 px-3 text-right">Instruments</th>
-                  <th className="col-head w-24 px-3 text-right">Priced</th>
-                  <th className="col-head w-28 px-3 text-right">Heartbeat</th>
-                </tr>
-              </thead>
-              {venues.map(([venue, list]) => (
-                <tbody key={venue} className="border-t border-line/60 first-of-type:border-t-0">
-                  {list.map((a, i) => (
-                    <tr key={a.account} className="row">
-                      {i === 0 && (
-                        <td rowSpan={list.length} className="px-3 align-top">
-                          <div className="flex h-7 items-center gap-2">
-                            <Venue venue={venue} />
-                            {list.length > 1 && (
-                              <span className="num text-2xs text-fg-dim">{list.length}</span>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                      <td className="px-3 text-fg capitalize">{a.market}</td>
-                      <td className="px-3 text-xs text-fg-dim">{a.account}</td>
-                      <td className="px-3">
-                        {a.gateway.alive ? (
-                          <span className="text-up">alive</span>
-                        ) : (
-                          <span className="text-down">not answering</span>
-                        )}
-                      </td>
-                      <td className="num px-3 text-right text-fg-mid">
-                        {a.gateway.alive ? a.gateway.instruments.toLocaleString() : '—'}
-                      </td>
-                      <td
-                        className={cn(
-                          'num px-3 text-right',
-                          a.gateway.coverage_pct < 50 ? 'text-amber' : 'text-fg-mid',
-                        )}
-                        title={`${a.gateway.priced.toLocaleString()} of ${a.gateway.instruments.toLocaleString()} have quoted`}
-                      >
-                        {a.gateway.alive ? `${a.gateway.coverage_pct}%` : '—'}
-                      </td>
-                      <td className="num px-3 text-right text-xs text-fg-dim">
-                        {since(heartbeats.get(a.account), now)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              ))}
-            </table>
-          )}
+    <section className="panel h-full min-h-0 overflow-auto">
+      {accounts.state === 'loading' && <EmptyState title="Asking admind" />}
+      {accounts.state === 'failed' && (
+        <div className="px-4 py-6 text-sm text-down">
+          {accounts.title}
+          {accounts.detail !== undefined && <div className="mt-1 text-fg-dim">{accounts.detail}</div>}
         </div>
-      </section>
-    </div>
+      )}
+      {accounts.state === 'ready' && rows.length === 0 && (
+        <EmptyState title="No feeds running" hint="A venue whose key is missing or refused never starts one." />
+      )}
+      {accounts.state === 'ready' && rows.length > 0 && (
+        <table className="w-full border-collapse text-sm whitespace-nowrap">
+          <thead className="sticky top-0 z-10 bg-panel">
+            <tr className="h-10 shadow-[inset_0_-1px_0_0_var(--color-line)]">
+              <th className="col-head px-4 text-left">Feed</th>
+              <th className="col-head px-4 text-left">State</th>
+              <th className="col-head px-4 text-right">Markets priced</th>
+              <th className="col-head px-4 text-right">Last heard</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((a, i) => {
+              const state = stateOf(a)
+              const first = i === 0 || sorted[i - 1]!.venue !== a.venue
+              return (
+                <tr key={a.account} className={cn('row h-10', first && i > 0 && 'border-t border-line/60')}>
+                  <td className="px-4">
+                    <span className="flex items-center gap-2.5">
+                      <ExchangeIcon venue={a.venue} className={cn('size-4', !first && 'invisible')} />
+                      <span className={cn('w-28', first ? 'text-fg' : 'text-transparent')}>{venueLabel(a.venue)}</span>
+                      <span className="text-fg-mid">{k_market[a.market] ?? a.market}</span>
+                    </span>
+                  </td>
+                  <td className="px-4">
+                    <span className="flex items-center gap-2 text-fg-mid">
+                      <span className={cn('size-2 rounded-full', state.tone)} />
+                      {state.word}
+                    </span>
+                  </td>
+                  <td className="mono px-4 text-right text-fg-mid">
+                    {a.gateway.alive
+                      ? `${a.gateway.priced.toLocaleString('en-US')} of ${a.gateway.instruments.toLocaleString('en-US')}`
+                      : '—'}
+                  </td>
+                  <td className="mono px-4 text-right text-fg-dim">{since(heartbeats.get(a.account), now)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
   )
 }

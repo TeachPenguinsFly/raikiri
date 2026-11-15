@@ -1,8 +1,8 @@
-import { StrictMode, type ReactNode } from 'react'
+import { StrictMode, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { cn, ExchangeIcon, venueLabel, type AppModule } from '@raikiri/ui'
-import { Frame, Problem, type NavItem } from '@raikiri/ui/v3'
+import { Frame, Glyph, Problem, type NavItem } from '@raikiri/ui/v3'
 import { api } from './api/client'
 import { useQuery } from './lib/query'
 import { Login } from './routes/Login'
@@ -21,25 +21,94 @@ function useHealth() {
   return useQuery(() => api.health(), [], k_health_refresh_ms)
 }
 
-/** each venue's mark with a dot for whether its feed is up; the dashboard says more */
+const k_market: Record<string, string> = { perp: 'Perpetual', spot: 'Spot', option: 'Options', future: 'Futures' }
+
+type Feed = { state: 'live' | 'warming' | 'down'; word: string }
+
+/** one gateway's state in words: down, up but still subscribing, or live */
+function feedOf(g: { alive: boolean; coverage_pct: number }): Feed {
+  if (!g.alive) return { state: 'down', word: 'Down' }
+  if (g.coverage_pct < 50) return { state: 'warming', word: 'Warming up' }
+  return { state: 'live', word: 'Live' }
+}
+
+const k_tone: Record<Feed['state'], string> = { live: 'bg-up', warming: 'bg-amber', down: 'bg-down' }
+
+/** how many feeds are live, and behind it every gateway with its state and how much of its market is priced */
 function Feeds({ health }: { health: Health }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const off = (e: MouseEvent) => box.current !== null && !box.current.contains(e.target as Node) && setOpen(false)
+    window.addEventListener('mousedown', off)
+    return () => window.removeEventListener('mousedown', off)
+  }, [open])
+  if (health.state === 'failed') return <span className="text-sm text-amber">Offline</span>
   const gateways = health.state === 'ready' ? health.data.gateways : []
+  const feeds = gateways.map((g) => ({ g, f: feedOf(g.gateway) }))
+  const live = feeds.filter((x) => x.f.state === 'live').length
+  const worst = feeds.some((x) => x.f.state === 'down')
+    ? 'down'
+    : feeds.some((x) => x.f.state === 'warming')
+      ? 'warming'
+      : 'live'
+  const sorted = [...feeds].sort(
+    (a, b) => venueLabel(a.g.venue).localeCompare(venueLabel(b.g.venue)) || a.g.market.localeCompare(b.g.market),
+  )
   return (
-    <Link
-      to="/"
-      className="flex h-7 items-center gap-2.5 rounded-md px-2 text-2xs text-fg-dim transition-colors hover:bg-hover max-[700px]:hidden"
-    >
-      {health.state === 'failed' && <span className="text-amber">Offline</span>}
-      {gateways.map((g) => {
-        const live = g.gateway.alive && g.gateway.coverage_pct >= 50
-        return (
-          <span key={g.account} className="flex items-center gap-1" title={`${venueLabel(g.venue)} ${g.account}`}>
-            <ExchangeIcon venue={g.venue} className="size-3.5" />
-            <span className={cn('size-1.5 rounded-full', live ? 'bg-up' : g.gateway.alive ? 'bg-amber' : 'bg-down')} />
-          </span>
-        )
-      })}
-    </Link>
+    <div ref={box} className="relative max-[700px]:hidden">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-7 cursor-pointer items-center gap-2 rounded-md px-2.5 text-sm text-fg-mid transition-colors hover:bg-hover hover:text-fg"
+      >
+        <span className={cn('size-2 rounded-full', k_tone[worst])} />
+        Feeds
+        <span className="mono text-fg">
+          {live}/{feeds.length}
+        </span>
+        <Glyph name="down" className={cn('size-3.5 text-fg-dim transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="v3-pop absolute top-9 right-0 z-50 w-[27rem] rounded-md bg-raised p-1 shadow-[0_0_0_1px_var(--color-line),0_20px_50px_-10px_rgb(0_0_0/0.9)]">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 pt-2 pb-1.5 text-xs text-fg-dim">
+            <span>Venue</span>
+            <span className="text-right">Priced</span>
+            <span>State</span>
+          </div>
+          <div className="max-h-[min(30rem,70vh)] overflow-y-auto">
+            {sorted.map(({ g, f }) => (
+              <div
+                key={g.account}
+                className="grid h-9 grid-cols-[1fr_auto_auto] items-center gap-x-4 rounded-sm px-3 text-sm hover:bg-hover"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <ExchangeIcon venue={g.venue} className="size-4" />
+                  <span className="shrink-0 text-fg">{venueLabel(g.venue)}</span>
+                  <span className="text-fg-dim">{k_market[g.market] ?? g.market}</span>
+                </span>
+                <span className="mono text-right text-fg-mid">
+                  {g.gateway.priced.toLocaleString('en-US')} / {g.gateway.instruments.toLocaleString('en-US')}
+                </span>
+                <span className="flex w-24 items-center gap-1.5 text-fg-mid">
+                  <span className={cn('size-1.5 rounded-full', k_tone[f.state])} />
+                  {f.word}
+                </span>
+              </div>
+            ))}
+          </div>
+          <Link
+            to="/settings"
+            onClick={() => setOpen(false)}
+            className="mt-1 flex h-8 items-center justify-center rounded-sm border-t border-line text-sm text-fg-mid hover:bg-hover hover:text-fg"
+          >
+            Open settings
+          </Link>
+        </div>
+      )}
+    </div>
   )
 }
 

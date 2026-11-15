@@ -40,24 +40,22 @@ export function useBook(venue: BookVenue) {
 }
 
 export function BookTools() {
-  const { pair, bookVenue, setBookVenue } = useTerminal()
+  const { pair, leg, bookVenue, setBookVenue } = useTerminal()
   if (pair === undefined || pair.legs.length < 2) return null
   return (
     <Seg
       size="xs"
-      value={bookVenue}
-      onChange={setBookVenue}
+      value={bookVenue === 'all' ? 'all' : 'one'}
+      onChange={(v) => setBookVenue(v === 'all' ? 'all' : (leg?.venue ?? 'all'))}
       options={[
-        ...pair.legs.map(
-          (l) =>
-            [
-              l.venue,
-              <span key={l.venue} className="flex items-center">
-                <ExchangeIcon venue={l.venue} className="size-3" />
-              </span>,
-            ] as const,
-        ),
-        ['all', 'All'] as const,
+        [
+          'one',
+          <span key="one" className="flex items-center gap-1.5">
+            {leg !== undefined && <ExchangeIcon venue={leg.venue} className="size-3.5" />}
+            This venue
+          </span>,
+        ],
+        ['all', 'All venues'],
       ]}
     />
   )

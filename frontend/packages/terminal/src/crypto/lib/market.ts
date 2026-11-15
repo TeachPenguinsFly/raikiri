@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { compact, n } from '@raikiri/ui/v3'
-import { api, ApiError, type Instrument, type Quote, type Ticker } from '../api/client'
-import { useTicker } from '../api/stream'
+import { api, ApiError, type Instrument, type Quote } from '../api/client'
 
 export type Query<T> =
   | { state: 'loading' }
@@ -52,6 +51,8 @@ export interface Leg {
   tick: number
   /** what one unit of the venue's size is in the base asset */
   unit: number
+  /** the venue's 24h turnover in dollars, as admind last ranked it */
+  volume: number
 }
 
 export type Kind = 'perp' | 'spot'
@@ -64,6 +65,10 @@ export interface Pair {
   quote: string
   /** one listing per venue, the venues in k_venue_order */
   legs: Leg[]
+  /** the legs' 24h turnover summed */
+  volume: number
+  /** a listing admind split off for quoting far from the market its ticker names: not that coin */
+  stray: boolean
 }
 
 export const k_venue_order = ['binance', 'okx', 'hyperliquid', 'bybit', 'bitget', 'gate']
@@ -72,15 +77,20 @@ const rank = (v: string) => {
   return i < 0 ? k_venue_order.length : i
 }
 
+/** one hue per venue, far enough apart to tell lines apart on the chart and clear of the candles' green and red */
 export const k_venue_color: Record<string, string> = {
   binance: '#f0b90b',
-  okx: '#d4d4dc',
-  hyperliquid: '#5ee3c1',
-  bybit: '#f7a600',
-  bitget: '#1da2b4',
-  gate: '#2354e6',
+  okx: '#f4f4f5',
+  hyperliquid: '#60a5fa',
+  bybit: '#fb923c',
+  bitget: '#22d3ee',
+  gate: '#a78bfa',
+  deribit: '#a3e635',
 }
-export const venueColor = (v: string) => k_venue_color[v] ?? '#8b8b98'
+// the rest by a hash of the name, from hues the named venues leave free
+const k_spare = ['#f472b6', '#facc15', '#2dd4bf', '#c084fc', '#fca5a5', '#93c5fd', '#fdba74', '#d9f99d']
+export const venueColor = (v: string) =>
+  k_venue_color[v] ?? k_spare[[...v].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % k_spare.length]!
 
 /** the published taker rate at the base tier, in basis points */
 const k_taker_bp: Record<string, number> = { binance: 5, okx: 5, hyperliquid: 4.5, bybit: 5.5, bitget: 6, gate: 5 }
@@ -117,6 +127,7 @@ function pairsOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: 
           places: Math.min(8, decimals(ins?.tick_size ?? '0.01')),
           tick: n(ins?.tick_size) ?? 0.01,
           unit: n(ins?.contract_value) ?? 1,
+          volume: l.volume_24h_usd ?? 0,
         })
       }
       if (legs.size === 0) continue
@@ -128,6 +139,8 @@ function pairsOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: 
         base: m.symbol.split('/')[0] ?? m.symbol,
         quote: sorted[0]?.quote ?? '',
         legs: sorted,
+        volume: sorted.reduce((a, l) => a + l.volume, 0),
+        stray: m.key.includes('@'),
       })
     }
   }
@@ -157,18 +170,16 @@ export function useCatalog(): Query<Catalog> {
   )
 }
 
-/** the pairs by their 24h turnover summed over venues, busiest first */
+/** the pairs as admind ranks markets: those on two venues or more first, each group by 24h turnover. The volumes
+ *  come with the catalogue, so ranking costs no subscription to every instrument's ticker */
 export function useRanked(catalog: Catalog | undefined): Array<{ pair: Pair; volume: number }> {
-  const ids = useMemo(() => catalog?.pairs.flatMap((p) => p.legs.map((l) => l.id)) ?? [], [catalog])
-  const tickers = useTicker(ids)
   return useMemo(() => {
     if (catalog === undefined) return []
-    const volume = (p: Pair) => p.legs.reduce((s, l) => s + turnover(tickers.get(l.id)), 0)
-    return catalog.pairs.map((pair) => ({ pair, volume: volume(pair) })).sort((a, b) => b.volume - a.volume)
-  }, [catalog, tickers])
+    return catalog.pairs
+      .map((pair) => ({ pair, volume: pair.volume }))
+      .sort((a, b) => Number(b.pair.legs.length > 1) - Number(a.pair.legs.length > 1) || b.volume - a.volume)
+  }, [catalog])
 }
-
-const turnover = (t: Ticker | undefined) => n(t?.volume_24h_quote) ?? 0
 
 export interface Touch {
   bid: number
