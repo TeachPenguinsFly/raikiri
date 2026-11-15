@@ -113,6 +113,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/candles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart bars of one instrument from the minutes candled keeps
+         * @description One-minute candles folded from the gateways' trades since the stack started, and venue history where the feed
+         *     had a gap; longer bars are summed from them. The newest `limit` bars that end by `to`, oldest first. A minute
+         *     without prints has no bar.
+         */
+        get: operations["getCandles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/instruments": {
         parameters: {
             query?: never;
@@ -1834,6 +1856,23 @@ export interface components {
             /** @description The middle of the venue's touch when the list was last ranked; zero when a side is missing. */
             mid?: number;
         };
+        CandlePage: {
+            instrument_id: string;
+            interval: string;
+            candles: components["schemas"]["Candle"][];
+        };
+        Candle: {
+            /** @description The bar's start in unix seconds. */
+            t: number;
+            o: string;
+            h: string;
+            l: string;
+            c: string;
+            /** @description Quantity traded in the instrument's own units. */
+            v: string;
+            /** @description Prints. */
+            n: number;
+        };
         Job: {
             /** @example markets */
             name: string;
@@ -3220,6 +3259,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Market"][];
+                };
+            };
+        };
+    };
+    getCandles: {
+        parameters: {
+            query: {
+                instrument_id: string;
+                interval?: "1m" | "5m" | "15m" | "30m" | "1h" | "4h" | "1d";
+                limit?: number;
+                /** @description Unix seconds; now when absent. */
+                to?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandlePage"];
+                };
+            };
+            /** @description Bad instrument or interval */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

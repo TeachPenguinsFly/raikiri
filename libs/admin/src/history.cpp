@@ -818,6 +818,35 @@ PnlPage History::pnl(const PageQuery& query, std::optional<PnlKind> kind) const 
     });
 }
 
+std::vector<Candle>
+History::candles(InstrumentId instrument, std::int32_t minutes, std::int32_t to_minute, std::size_t limit) const {
+    // a bar's open is its first minute's, its close its last minute's; minutes without prints have no row
+    const auto from_minute = to_minute - static_cast<std::int32_t>(limit) * minutes;
+    return impl_->read(std::vector<Candle>{}, [&](pqxx::connection& conn) {
+        pqxx::read_transaction tx{conn};
+        const auto rows = tx.exec(
+            "SELECT (minute / $2) * $2 AS bar, (array_agg(open ORDER BY minute))[1], max(high), min(low),"
+            " (array_agg(close ORDER BY minute DESC))[1], sum(volume)::bigint, sum(trades)::integer"
+            " FROM raikiri.candles_1m WHERE instrument_id = $1 AND minute >= $3 AND minute < $4"
+            " GROUP BY 1 ORDER BY 1",
+            pqxx::params{static_cast<std::int64_t>(instrument.packed), minutes, from_minute, to_minute});
+        tx.commit();
+        std::vector<Candle> out;
+        out.reserve(static_cast<std::size_t>(rows.size()));
+        for (const auto& row : rows) {
+            const auto e9 = [&](int i) { return decimal(FixedE9::from_raw(row[i].as<std::int64_t>())); };
+            out.push_back({.t = static_cast<std::int64_t>(row[0].as<std::int32_t>()) * 60,
+                           .o = e9(1),
+                           .h = e9(2),
+                           .l = e9(3),
+                           .c = e9(4),
+                           .v = e9(5),
+                           .n = row[6].as<std::int32_t>()});
+        }
+        return out;
+    });
+}
+
 FundingPage History::funding(const PageQuery& query) const {
     const auto limit = clamp_limit(query.limit);
     Where where;

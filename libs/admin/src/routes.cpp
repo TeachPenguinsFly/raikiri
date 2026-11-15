@@ -584,6 +584,38 @@ http::Handler make_router(const Registry& registry,
             return json(*found);
         }
 
+        if (req.path == "/v1/candles") {
+            // 1m and the bars candled's minutes add up to; the newest `limit` that end by `to` (unix seconds)
+            static constexpr std::array<std::pair<std::string_view, std::int32_t>, 7> k_intervals{
+                {{"1m", 1}, {"5m", 5}, {"15m", 15}, {"1h", 60}, {"4h", 240}, {"1d", 1440}, {"30m", 30}}};
+            const auto id = read_digits(http::query_param(req.query, "instrument_id"));
+            if (!id.has_value()) {
+                return problem(400, "instrument_id is required", "digits");
+            }
+            const auto interval_text = http::query_param(req.query, "interval");
+            const auto interval = std::ranges::find(k_intervals,
+                                                    interval_text.empty() ? "1m" : interval_text,
+                                                    &std::pair<std::string_view, std::int32_t>::first);
+            if (interval == k_intervals.end()) {
+                return problem(400, "unknown interval", interval_text);
+            }
+            const auto limit = std::min<std::uint64_t>(
+                read_digits(http::query_param(req.query, "limit")).value_or(1000), 5000);
+            const auto to_text = http::query_param(req.query, "to");
+            const auto to_s = to_text.empty() ? wall().ns / 1'000'000'000ULL : read_digits(to_text).value_or(0);
+            // the bar the moment falls in counts, so the live one comes back as far as candled has it
+            const auto bar = static_cast<std::uint64_t>(interval->second);
+            const auto to_minute = static_cast<std::int32_t>(to_s / 60 / bar * bar) + interval->second;
+            if (history == nullptr) {
+                return no_database();
+            }
+            return json(
+                CandlePage{.instrument_id = std::string{http::query_param(req.query, "instrument_id")},
+                           .interval = std::string{interval->first},
+                           .candles = history->candles(
+                               InstrumentId{*id}, interval->second, to_minute, static_cast<std::size_t>(limit))});
+        }
+
         if (req.path == "/v1/positions") {
             std::optional<AccountId> account;
             if (const auto text = http::query_param(req.query, "account"); !text.empty()) {

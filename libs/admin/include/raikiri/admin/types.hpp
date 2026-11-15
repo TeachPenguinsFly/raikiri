@@ -148,6 +148,23 @@ struct Market {
     double volume_24h_usd{0.0}; // the listings' sum, which the list is ranked by
 };
 
+// one bar of a chart; open is the bar's start in unix seconds, prices decimal, volume in the instrument's own units
+struct Candle {
+    std::int64_t t{0};
+    std::string o;
+    std::string h;
+    std::string l;
+    std::string c;
+    std::string v;
+    std::int32_t n{0}; // prints
+};
+
+struct CandlePage {
+    std::string instrument_id;
+    std::string interval;
+    std::vector<Candle> candles; // oldest first
+};
+
 struct Quote {
     std::string instrument_id;
     std::string bid;

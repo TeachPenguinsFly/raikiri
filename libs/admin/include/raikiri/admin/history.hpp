@@ -222,6 +222,10 @@ public:
     [[nodiscard]] FundingPage funding(const PageQuery& query) const;
     [[nodiscard]] ReconBreakPage recon_breaks(const PageQuery& query) const;
 
+    // bars of `minutes` each from candled's one-minute rows, the newest `limit` that end by `to_minute`
+    [[nodiscard]] std::vector<Candle>
+    candles(InstrumentId instrument, std::int32_t minutes, std::int32_t to_minute, std::size_t limit) const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

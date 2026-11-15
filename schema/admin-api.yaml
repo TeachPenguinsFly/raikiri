@@ -133,6 +133,37 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Market" }
 
+  /v1/candles:
+    get:
+      tags: [markets]
+      summary: Chart bars of one instrument from the minutes candled keeps
+      description: |
+        One-minute candles folded from the gateways' trades since the stack started, and venue history where the feed
+        had a gap; longer bars are summed from them. The newest `limit` bars that end by `to`, oldest first. A minute
+        without prints has no bar.
+      operationId: getCandles
+      parameters:
+        - { name: instrument_id, in: query, required: true, schema: { type: string } }
+        - { name: interval, in: query, schema: { type: string, enum: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"], default: "1m" } }
+        - { name: limit, in: query, schema: { type: integer, default: 1000, maximum: 5000 } }
+        - { name: to, in: query, description: Unix seconds; now when absent., schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CandlePage" }
+        "400":
+          description: Bad instrument or interval
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: No database
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/instruments:
     get:
       tags: [catalogue]
@@ -2459,6 +2490,28 @@ components:
         mid:
           type: number
           description: The middle of the venue's touch when the list was last ranked; zero when a side is missing.
+
+    CandlePage:
+      type: object
+      required: [instrument_id, interval, candles]
+      properties:
+        instrument_id: { type: string }
+        interval: { type: string }
+        candles:
+          type: array
+          items: { $ref: "#/components/schemas/Candle" }
+
+    Candle:
+      type: object
+      required: [t, o, h, l, c, v, n]
+      properties:
+        t: { type: integer, description: The bar's start in unix seconds. }
+        o: { type: string }
+        h: { type: string }
+        l: { type: string }
+        c: { type: string }
+        v: { type: string, description: Quantity traded in the instrument's own units. }
+        n: { type: integer, description: Prints. }
 
     Job:
       type: object
