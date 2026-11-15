@@ -1,0 +1,6 @@
+{"result":[
+{"open_time":"1794765240000000000","close_time":"1794765300000000000","open":"64517.0","close":"64517.0","high":"64517.0","low":"64517.0","volume_b":"0.0","volume_q":"0.0","trades":0,"instrument":"BTC_USDT_Perp"},
+{"open_time":"1794765180000000000","close_time":"1794765240000000000","open":"64517.0","close":"64517.0","high":"64517.0","low":"64517.0","volume_b":"0.0","volume_q":"0.0","trades":0,"instrument":"BTC_USDT_Perp"},
+{"open_time":"1794765120000000000","close_time":"1794765180000000000","open":"64473.1","close":"64517.0","high":"64517.0","low":"64473.1","volume_b":"0.002","volume_q":"129.034","trades":1,"instrument":"BTC_USDT_Perp"},
+{"open_time":"1794765060000000000","close_time":"1794765120000000000","open":"64473.1","close":"64473.1","high":"64473.1","low":"64473.1","volume_b":"0.0","volume_q":"0.0","trades":0,"instrument":"BTC_USDT_Perp"},
+{"open_time":"1794765000000000000","close_time":"1794765060000000000","open":"64471.0","close":"64473.1","high":"64473.1","low":"64433.1","volume_b":"0.012","volume_q":"773.3428","trades":5,"instrument":"BTC_USDT_Perp"}]}

@@ -139,6 +139,13 @@ if [[ -n "${RAIKIRI_PG_DSN:-}" && -x "$BIN/persisterd/persisterd" ]]; then
     echo "  persisterd × $(wc -w <<< "$VENUES" | tr -d ' ') → Postgres"
 fi
 
+# every market's minutes from the trade rings, and the venues' history for what the database lacks
+if [[ -n "${RAIKIRI_PG_DSN:-}" && -x "$BIN/candled/candled" ]]; then
+    "$BIN/candled/candled" > "$RAIKIRI_DATA_DIR/candled.log" 2>&1 &
+    pids+=($!)
+    echo "  candled → Postgres, charts from the first minute"
+fi
+
 if [[ "${WEB:-}" == none ]]; then
     echo
     echo "  frontend not started — make web"

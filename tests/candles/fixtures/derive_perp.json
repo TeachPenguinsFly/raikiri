@@ -1,0 +1,4 @@
+{"id":"0","result":[
+{"timestamp":1794765000,"timestamp_bucket":1794765000,"open_price":"64410.5","high_price":"64472.0","low_price":"64388.25","close_price":"64455.1","volume_contracts":"1.264","volume_usd":"81431.27"},
+{"timestamp":1794765060,"timestamp_bucket":1794765060,"open_price":"64455.1","high_price":"64501.0","low_price":"64450.0","close_price":"64488.6","volume_contracts":"0.52","volume_usd":"33536.44"},
+{"timestamp":1794765120,"timestamp_bucket":1794765120,"open_price":"64488.6","high_price":"64490.0","low_price":"64470.3","close_price":"64472.9","volume_contracts":"0.075","volume_usd":"4835.6"}]}

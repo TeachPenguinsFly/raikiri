@@ -65,6 +65,47 @@ target_link_libraries(admin_test
 
 raikiri_add_test(admin_warm_test SRCS admin/warm_test.cpp LIBS raikiri::admin)
 
+raikiri_add_test(candles_test SRCS
+  candles/builder_test.cpp
+  candles/klines_apex_test.cpp
+  candles/klines_arcus_test.cpp
+  candles/klines_aster_test.cpp
+  candles/klines_backpack_test.cpp
+  candles/klines_binance_test.cpp
+  candles/klines_bingx_test.cpp
+  candles/klines_bitfinex_test.cpp
+  candles/klines_bitget_test.cpp
+  candles/klines_bithumb_test.cpp
+  candles/klines_bitstamp_test.cpp
+  candles/klines_bitunix_test.cpp
+  candles/klines_blofin_test.cpp
+  candles/klines_bullish_test.cpp
+  candles/klines_bybit_test.cpp
+  candles/klines_coinbase_test.cpp
+  candles/klines_cryptocom_test.cpp
+  candles/klines_deribit_test.cpp
+  candles/klines_derive_test.cpp
+  candles/klines_dydx_test.cpp
+  candles/klines_edgex_test.cpp
+  candles/klines_extended_test.cpp
+  candles/klines_gate_test.cpp
+  candles/klines_grvt_test.cpp
+  candles/klines_htx_test.cpp
+  candles/klines_hyperliquid_test.cpp
+  candles/klines_kraken_test.cpp
+  candles/klines_kucoin_test.cpp
+  candles/klines_lbank_test.cpp
+  candles/klines_mexc_test.cpp
+  candles/klines_okx_test.cpp
+  candles/klines_pacifica_test.cpp
+  candles/klines_phemex_test.cpp
+  candles/klines_toobit_test.cpp
+  candles/klines_upbit_test.cpp
+  candles/klines_weex_test.cpp
+  candles/klines_xt_test.cpp
+  LIBS raikiri::candles)
+target_compile_definitions(candles_test PRIVATE RAIKIRI_CANDLE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/candles/fixtures")
+
 raikiri_add_test(gatewayd_private_pulls_test SRCS gatewayd/private_pulls_test.cpp LIBS raikiri::domain)
 target_include_directories(gatewayd_private_pulls_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/gatewayd)
 
