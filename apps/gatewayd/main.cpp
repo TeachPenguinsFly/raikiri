@@ -1226,7 +1226,25 @@ int main(int argc, char** argv) {
         ++(ok ? row.accepted : row.refused);
         return ok;
     };
+    // a venue lists its oldest, busiest markets first, and a socket pool fills one socket before the next, so
+    // catalogue order would put every heavy market on the first socket: it then falls behind and the venue drops it.
+    // A fixed hash of the symbol spreads them over the pool instead
+    std::vector<const Instrument*> order;
+    order.reserve(catalogue.size());
     for (const auto& instrument : catalogue) {
+        order.push_back(&instrument);
+    }
+    const auto fnv = [](std::string_view text) {
+        std::uint64_t h = 1469598103934665603ULL;
+        for (const char c : text) {
+            h = (h ^ static_cast<unsigned char>(c)) * 1099511628211ULL;
+        }
+        return h;
+    };
+    std::ranges::stable_sort(
+        order, {}, [&](const auto* instrument) { return fnv(base_of(*instrument).exchange_symbol.view()); });
+    for (const auto* listed : order) {
+        const auto& instrument = *listed;
         const auto& base = base_of(instrument);
         const auto wanted = symbols.empty() || std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
                                 return s == base.exchange_symbol.view();

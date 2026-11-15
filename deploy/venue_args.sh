@@ -23,7 +23,9 @@ SPOT_CHANNELS="bbo,trades"
 # hyperliquid needs depth since bbo is silent on a book whose top does not move
 # hyperliquid gateways on one ip share 1000 channels; hip3 replaces the plain perp gateway
 # and reads perp funding over rest, so each coin takes three channels
-declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding [hyperliquid-hip3]=bbo,trades,depth,funding [okx-opt]=bbo,trades,funding [bybit-opt]=bbo,trades,funding [binance-opt]=bbo,trades,funding [gate-opt]=bbo,trades,funding [deribit-spot]=bbo )
+# lbank perps: a contract's trades take a topic of their own and lbank holds about 83 sockets from one ip, so with
+# trades the 847 contracts need 85 and it drops sockets in bursts; lbank takes no orders, so its perps carry no tape
+declare -A CHANNELS=( [lbank]=bbo,depth,funding [hyperliquid-spot]=bbo,depth,funding [hyperliquid-hip3]=bbo,trades,depth,funding [okx-opt]=bbo,trades,funding [bybit-opt]=bbo,trades,funding [binance-opt]=bbo,trades,funding [gate-opt]=bbo,trades,funding [deribit-spot]=bbo )
 
 # hyperliquid: the hip-3 dexes to load; kucoin: the unified feed
 declare -A FEED=( [hyperliquid-hip3]=xyz,para,io,mkts [kucoin]=uta )

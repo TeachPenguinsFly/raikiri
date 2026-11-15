@@ -5,8 +5,9 @@ venues:
     option_account: margin
     limits:
       - { name: weight, window_ms: 60000, max: 2160, reserve: 216, match: ["/fapi/"] }
-      - { name: ws_streams, kind: ws_streams, market: perp, max: 300 }
-      - { name: ws_sockets, kind: ws_sockets, market: perp, max: 8 }
+      # half binance's 1024 a socket and more sockets: a socket it thinks reads too slowly is reset with its 300 books
+      - { name: ws_streams, kind: ws_streams, market: perp, max: 150 }
+      - { name: ws_sockets, kind: ws_sockets, market: perp, max: 17 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, market: perp, window_ms: 250, max: 1 }
       - { name: ws_frame, kind: ws_frame, market: perp, max: 32 }
       - { name: spot_weight, window_ms: 60000, max: 5400, match: ["/api/v3/"] }
@@ -225,7 +226,8 @@ venues:
       - { name: private, window_ms: 2000, max: 18, reserve: 4, match: ["/api/v1/private/"] }
       - { name: ws_streams_perp, kind: ws_streams, market: perp, max: 512 }
       - { name: ws_streams_spot, kind: ws_streams, market: spot, max: 30 }
-      - { name: ws_sockets, kind: ws_sockets, max: 16 }
+      # spot takes two streams a pair at 30 a socket: 347 pairs need 24 sockets, and 16 refused a third of them
+      - { name: ws_sockets, kind: ws_sockets, max: 24 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
 
   hyperliquid:
