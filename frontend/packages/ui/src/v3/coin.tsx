@@ -36,7 +36,8 @@ export function CoinIcon({
   if (icon !== undefined) return <img src={icon} alt="" className={cn(c, 'object-cover')} />
   return (
     // the letter is drawn in the disc's own units so it scales with whatever size the disc is given
-    <svg viewBox="0 0 20 20" className={cn(c, 'bg-raised text-fg-mid')} aria-hidden="true">
+    <svg viewBox="0 0 20 20" className={cn(c, 'text-fg-mid')} aria-hidden="true">
+      <circle cx="10" cy="10" r="10" fill="currentColor" fillOpacity="0.14" />
       <text x="10" y="14" fontSize="11" fontWeight="600" textAnchor="middle" fill="currentColor">
         {bare(symbol).slice(0, 1)}
       </text>
