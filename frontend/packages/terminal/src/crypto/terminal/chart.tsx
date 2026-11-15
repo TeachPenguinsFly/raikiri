@@ -10,6 +10,7 @@ import {
   LineStyle,
   type IChartApi,
   type ISeriesApi,
+  type LineData,
   type SeriesType,
   type UTCTimestamp,
 } from 'lightweight-charts'
@@ -50,6 +51,18 @@ const toBar = (c: { t: number; o: string; h: string; l: string; c: string; n: nu
 })
 
 /** the server's bars for a minute and longer for each instrument, refreshed as minutes close */
+/** a venue's closes as a line that breaks where its feed went quiet, rather than a straight run across the gap; a
+ * market without trades for a few bars is ordinary, so only a longer silence breaks it. The library draws a segment in
+ * its first point's colour and joins across whitespace, so the point before a gap is made transparent */
+function broken(bars: readonly Candle[], seconds: number): LineData[] {
+  const limit = Math.max(5 * seconds, 300)
+  return bars.map((k, i) => {
+    const next = bars[i + 1]
+    const point: LineData = { time: k.time as UTCTimestamp, value: k.close }
+    return next !== undefined && next.time - k.time > limit ? { ...point, color: 'transparent' } : point
+  })
+}
+
 function useHistories(ids: readonly string[], interval: Interval): Map<string, Candle[]> {
   const [bars, setBars] = useState<Map<string, Candle[]>>(new Map())
   const key = ids.join(',')
@@ -259,10 +272,10 @@ export function ChartWidget() {
         others.current.set(l.id, s)
       }
       s.setData(
-        merged(histories.get(l.id) ?? k_none, candles(tapeOf(l.id), seconds, Date.now(), k_max_candles)).map((k) => ({
-          time: k.time as UTCTimestamp,
-          value: k.close,
-        })),
+        broken(
+          merged(histories.get(l.id) ?? k_none, candles(tapeOf(l.id), seconds, Date.now(), k_max_candles)),
+          seconds,
+        ),
       )
     }
   }, [rest, seconds, tick, places, histories])

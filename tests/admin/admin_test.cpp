@@ -304,7 +304,7 @@ TEST(AdminDeskBooks, ALoginPlacesInItsOwnBookAndNoLoginInTheSharedOne) {
         registry, nullptr, &desk, [] { return MonoNanos{1}; }, [] { return UnixNanos{1}; }, {}, &names);
 
     const auto instrument = std::to_string(InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0}).packed);
-    const auto place = [&](std::string_view login, std::string key, std::string extra = {}) {
+    const auto place = [&](std::string_view login, const std::string& key, const std::string& extra = {}) {
         const auto body = R"({"account":"sim","instrument_id":")" + instrument +
                           R"(","side":"buy","order_type":"limit","price":"1.00","qty":"0.001")" + extra + "}";
         return router({.method = "POST", .path = "/v1/orders", .body = body, .idempotency_key = key, .login = login});
@@ -417,6 +417,23 @@ TEST(AdminReattach, AStoppedGatewayIsLetGoOnceItsFileIsGone) {
     EXPECT_EQ(registry.discover(segment_dir(), 1), 0U) << "an unlinked segment is not held mapped";
     EXPECT_EQ(registry.find("sim"), nullptr);
     EXPECT_GT(registry.epoch(), epoch);
+}
+
+TEST(AdminReattach, AGatewayStartedAgainAfterItWasLetGoMovesTheEpoch) {
+    const SegmentDir dir;
+    auto run = start_gateway(1'000, {"AAA"});
+    ASSERT_TRUE(run.has_value());
+
+    Registry registry;
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    run.reset();
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 0U);
+    const auto epoch = registry.epoch();
+
+    const auto again = start_gateway(2'000, {"AAA"});
+    ASSERT_TRUE(again.has_value());
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    EXPECT_GT(registry.epoch(), epoch) << "a reader keyed on the epoch would never read the new run";
 }
 
 TEST(AdminReattach, ATargetBelongsToTheAttachmentItWasResolvedAgainst) {

@@ -124,6 +124,7 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
             continue; // the set of gateways did not change, so neither did its order
         }
         gateways_.push_back(std::make_unique<Gateway>(std::move(fresh)));
+        ++epoch_; // a gateway started after this one was, or started again after it was let go
     }
     std::ranges::sort(gateways_, {}, [](const auto& gw) { return gw->name; });
     return gateways_.size();
