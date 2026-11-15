@@ -1,280 +1,142 @@
-<div align="center">
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/wordmark-dark.svg">
+    <img src=".github/assets/wordmark-light.svg" alt="raikiri" width="400">
+  </picture>
+</p>
 
-<img src=".github/assets/lightning.gif" alt="raikiri lightning" width="640">
+<p align="center">
+  Open-source trading for crypto exchanges, centralised and on-chain.<br>
+  Live market data, order execution and a terminal for every venue, in one place.
+</p>
 
-# raikiri
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square" alt="LGPL-3.0"></a>
+  <img src="https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square" alt="C++23">
+  <a href="https://github.com/TeachPenguinsFly/raikiri/actions/workflows/build.yml"><img src="https://github.com/TeachPenguinsFly/raikiri/actions/workflows/build.yml/badge.svg" alt="build"></a>
+</p>
 
-> 雷切 — "lightning cutter", the sword said to have cut a bolt of lightning.
-> raikiri is a low-latency, multi-process crypto trading framework in C++23.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#venues">Venues</a> ·
+  <a href="ARCHITECTURE.md">How it works</a> ·
+  <a href="docs/README.md">Documentation</a>
+</p>
 
-[![Release](https://img.shields.io/badge/release-0.1.0--beta.1-orange?style=flat-square)](RELEASES.md)
-[![License](https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square)](LICENSE)
-[![Latency](https://img.shields.io/badge/cross--process%20p50-167%20ns-2da44e?style=flat-square)](docs/README.md#performance)
-[![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
-[![Venues](https://img.shields.io/badge/venues-43%20live-2da44e?style=flat-square)](#venues)
-[![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
-[![Tests](https://img.shields.io/badge/tests-2700%2B-2da44e?style=flat-square)](docs/README.md#build-and-test)
-[![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](docs/README.md#build-and-test)
+<p align="center">
+  <img src=".github/assets/terminal.png" alt="The raikiri terminal: one market's chart with every venue's price, the venues side by side and the order book" width="100%">
+</p>
 
-[Quick start](#quick-start) · [Write a strategy](#write-a-strategy) · [Terminal](#terminal) ·
-[Venues](#venues) · [Documentation](docs/README.md) · [Releases](RELEASES.md) ·
-[API contract](schema/admin-api.yaml)
-
-</div>
-
-## Introduction
-
-raikiri connects to crypto exchanges, normalises their market data and order flow, and hands both to
-your strategy through shared memory. Each exchange runs in its own gateway process; a single-threaded
-kernel holds one book across all of them, so a strategy reads every venue it trades and sends orders
-back without a socket, a broker or a lock on the way.
-
-It is written for people who build their own trading systems: the framework handles the parts every
-desk rewrites (connections, symbol mapping, rate limits, signing, reconciliation, journals) and stays
-out of the decision itself. Strategies are plain C++ classes, and the library is LGPL, so they can
-stay closed source.
+Most trading desks build the same plumbing before they can test an idea: exchange connections,
+symbol mapping, rate limits, order signing, bookkeeping. raikiri ships all of it, so you write only
+the strategy. A strategy is a plain C++ class, and it can stay closed source.
 
 ## Features
 
-- **Fast**: cross-process round trip p50 167 ns over SPSC rings; seqlock reads in under a nanosecond;
-  no allocation on the hot path.
-- **Many venues**: 43 CEX and DEX venues for market data, 23 with order entry, across spot, perpetuals,
-  futures and options.
-- **Exact**: money is fixed-point `int64` end to end, and a value off the venue's tick or lot grid is
-  refused, never rounded.
-- **Isolated**: one process per venue and market; a crashed or banned gateway takes nothing else down.
-- **Recorded**: every process writes an append-only SBE journal, copied into PostgreSQL off the
-  trading path.
-- **Safe with keys**: credentials are references (`env:`, `file:`, `exec:`, `op://`), never values on
-  a command line; a risk gate checks every order against notional, band and open-order limits.
-- **Execution algos**: `joe` works parent orders across venues as TWAP, VWAP or smart-routed slices.
-- **Observable**: an HTTP and WebSocket admin API, Prometheus metrics, and a web terminal on top.
-- **Client API**: a signed, scoped REST and WebSocket API with Python and C++ SDKs, for programs outside the box.
+### All venues on one screen
 
-## Terminal
+The terminal draws every venue's price for a market on one chart and lists their quotes side by
+side, so you can see where a coin is cheaper. Beside them, the order book shows one venue's depth
+or all of them merged.
 
-<!-- terminal demo: record a short GIF and save it as .github/assets/terminal.gif, then uncomment
+### Every market in one list
+
+Hover the market's name and every market opens, in spot, perpetual and options tabs, each coin
+with its name and icon. Coins listed on several venues come first, then the rest by 24-hour
+volume, so thin look-alike tickers end up at the bottom.
+
 <p align="center">
-  <img src=".github/assets/terminal.gif" alt="raikiri terminal" width="900">
+  <img src=".github/assets/markets.png" alt="The market list with spot, perpetual and options tabs" width="560">
 </p>
--->
 
-The web terminal in [`frontend/`](frontend/README.md) runs on the admin API:
+### Charts with history
 
-- **Markets**: market watch, chart, order book, an order ticket and the blotter.
-- **Settings**: each venue's gateways, their markets and heartbeats.
+`candled` folds every trade the gateways see into one-minute candles in PostgreSQL. Whatever it
+missed, it fetches from each venue's public history, so a chart opens with days of bars, from one
+minute to one day.
 
-`make up` starts gateways, admind and the terminal locally.
+### Options from six exchanges
+
+The options desk merges the chains of Deribit, OKX, Bybit, Binance, Gate and Derive, and shows
+the volatility smile and term structure beside them.
+
+<p align="center">
+  <img src=".github/assets/options.png" alt="The options desk" width="100%">
+</p>
+
+### Smart order routing
+
+A strategy can hand a large order to the router, which splits it across venues by price after
+fees. No part of it goes deeper into a book than planned. TWAP and VWAP are there too.
+
+<p align="center">
+  <img src=".github/assets/routing.svg" alt="One order split across four venues" width="100%">
+</p>
+
+### Very fast
+
+A price reaches your strategy in under a microsecond (gateways and strategies run on one machine
+and share memory, so nothing goes over a network).
+
+### Safe by default
+
+Every order passes a risk check, and API keys never appear on a command line. Each venue gets a
+request budget below its rate limit, so you don't get banned.
+
+### Open to your own tools
+
+Programs on other machines trade through the Python and C++ SDKs. There is also a web API with an
+OpenAPI spec, and Prometheus metrics.
 
 ## Quick start
-
-CMake ≥ 3.28, Ninja, Conan 2 and a C++23 compiler (GCC 14, Clang 18 or AppleClang 17).
 
 ```sh
 git clone https://github.com/TeachPenguinsFly/raikiri.git
 cd raikiri
 make deps && make build
+make up
 ```
 
-Watch a live market; public data needs no keys:
-
-```sh
-build/dev-asan/apps/gatewayd/gatewayd --venue=bybit --symbol=BTCUSDT --duration 20
-```
-
-Run the whole pipeline against the simulated venue, with a latency table at the end:
-
-```sh
-make demo
-```
-
-## Client API
-
-`apid` lets a program on another machine trade through a deployment. It sits in front of admind, which stays on
-loopback, and adds what an open port needs: API keys with HMAC request signing, per-key permissions (`read`, `trade`,
-`algo`), allowed accounts and symbols, rate limits, an IP allowlist, idempotency on every mutating call, and an audit
-log. Orders still go through admind's desk and strategyd's risk gate. The contract is
-[`schema/client-api.yaml`](schema/client-api.yaml).
-
-```python
-from raikiri import Client
-
-client = Client()  # RAIKIRI_API_URL, RAIKIRI_API_KEY, RAIKIRI_API_SECRET
-btc = client.market.find("BTC/USDT", account="binance")
-order = client.orders.limit(btc, "buy", "0.001", "60000")
-print(client.orders.get(order.id).status)
-```
-
-```cpp
-#include <raikiri/sdk/client.hpp>
-using namespace raikiri::sdk::literals;
-
-int main() {
-    auto client = *raikiri::sdk::Client::from_env();
-    auto btc = *client.market().find("BTC/USDT", "binance");
-    auto order = client.orders().limit(btc, raikiri::sdk::Side::Buy, "0.001"_d, "60000"_d);
-}
-```
-
-Both SDKs have the same surface: orders, algos with live progress, account, market data, the option chain, and streams
-that reconnect and resume from their last sequence number. Prices and quantities are exact decimals in both; neither
-takes a float. See [`sdk/python`](sdk/python/README.md) and [`sdk/cpp`](sdk/cpp/README.md).
-
-[`examples/`](examples/README.md) has the same eight programs in each language, and a paper deployment to run them
-against: a real `apid` in front of an in-memory backend, with no venue and no money.
-
-```sh
-cmake --build build/dev-asan --target apid
-cd sdk/python && uv sync && cd ../..
-uv run --project sdk/python python examples/paper/paper.py
-```
-
-Three things differ from what the names might suggest. `amend` is a confirmed cancel followed by a new order, because
-the desk has no modify, so it loses queue position. A client's positions are folded from its own fills, not read from the
-venue, since a shared account's venue position belongs to no one client. And balances are account-level: clients on one
-account see the same numbers. Running it for real clients is in [`deploy/README.md`](deploy/README.md#client-api).
-
-## Write a strategy
-
-A strategy overrides the callbacks it needs and talks to the kernel through `Context`:
-
-```cpp
-#include <raikiri/strategy/factory.hpp>
-#include <raikiri/strategy/strategy.hpp>
-
-using namespace raikiri;
-
-// rests one lot post-only at the best bid and follows the bid as it moves
-class JoinBid final : public strategy::Strategy {
-public:
-    void on_bbo(strategy::Context& ctx, const Bbo& bbo) override {
-        if (bbo.bid.is_undef() || bbo.bid == price_) {
-            return;
-        }
-        if (resting_.valid()) {
-            (void)ctx.cancel(resting_);
-        }
-        const auto id = ctx.submit({.instrument = bbo.instrument,
-                                    .side = Side::Buy,
-                                    .flags = OrderFlags::PostOnly,
-                                    .price = bbo.bid,
-                                    .qty = QtyLots::from_raw(1)});
-        resting_ = id.value_or(ClientOrderId{});
-        price_ = bbo.bid;
-    }
-
-private:
-    ClientOrderId resting_{};
-    PriceTicks price_{};
-};
-
-const bool registered = strategy::register_type<JoinBid>("join-bid");
-```
-
-```sh
-strategyd --gateway=bybit --strategy join-bid
-```
-
-No new order passes until a person declares the desk's capital (`POST /v1/risk/capital`, or the Risk
-page where one is deployed), so a fresh data directory refuses everything but cancels. Only sim seeds
-itself. `--seed-capital <dollars>` sets a first figure from the command line and never replaces one a
-person set.
-
-Besides `on_bbo` there are `on_trade`, `on_funding`, `on_order_event`, `on_timer`, `on_start` and
-`on_stop`. `Context` also gives the strategy its position, unrealised PnL, timers and `set_target`,
-which declares the position to hold and lets the kernel send the orders.
-[`demo_maker.hpp`](libs/strategies/include/raikiri/strategies/demo_maker.hpp) is a complete two-sided
-example.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    X["exchanges"] -- "WS · REST" --> G["gatewayd<br/>one per venue and market"]
-    G -- "shared memory" --> K["strategyd"]
-    K -- "orders" --> G
-    G & K --> J["journals"] --> P[("PostgreSQL")]
-    G & P --> A["admind"] --> T(["terminal"])
-```
-
-Each gateway owns a shared-memory segment; the kernel reads all of them, keeps one book and sends
-orders back through lossless rings. The [documentation](docs/README.md#architecture) covers the
-channels, the invariants the code relies on, running a gateway, configuration and adding a venue.
+The terminal opens at <http://127.0.0.1:5173>. Market data needs no API keys. You need CMake,
+Ninja, Conan 2 and a C++23 compiler. To keep chart history, run `make dup` instead, which also
+starts PostgreSQL in Docker, and `make web` beside it for the terminal.
 
 ## Venues
 
-`custody` says who holds the coins: the exchange (CEX) or a contract (DEX). `order entry` is the
-transport orders take; *market data only* means the adapter sends none yet. The
-[venue table notes](docs/README.md#venue-table) explain every column.
-
 <!-- venues:begin -->
-| venue | custody | markets | order entry | WS | FIX | private stream | funding ledger |
-| :-- | :-: | :-- | :-- | :-: | :-: | :-- | :-: |
-| <img src="frontend/packages/ui/src/assets/exchanges/apex.png" height="18" align="absmiddle" alt="">&nbsp;`apex` | DEX | perp | REST | – | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/arcus.png" height="18" align="absmiddle" alt="">&nbsp;`arcus` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/aster.png" height="18" align="absmiddle" alt="">&nbsp;`aster` | DEX | spot · perp | REST | – | – | ListenKey | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/backpack.png" height="18" align="absmiddle" alt="">&nbsp;`backpack` | CEX | spot · perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/binance.svg" height="18" align="absmiddle" alt="">&nbsp;`binance` | CEX | spot · perp · options | REST + WS | ✓ | – | ListenKey | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/bingx.png" height="18" align="absmiddle" alt="">&nbsp;`bingx` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/bitfinex.png" height="18" align="absmiddle" alt="">&nbsp;`bitfinex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/bitget.png" height="18" align="absmiddle" alt="">&nbsp;`bitget` | CEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/bithumb.png" height="18" align="absmiddle" alt="">&nbsp;`bithumb` | CEX | spot | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/bitstamp.png" height="18" align="absmiddle" alt="">&nbsp;`bitstamp` | CEX | spot · perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/bitunix.png" height="18" align="absmiddle" alt="">&nbsp;`bitunix` | CEX | spot · perp | REST | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/blofin.png" height="18" align="absmiddle" alt="">&nbsp;`blofin` | CEX | perp | REST | – | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/bullish.png" height="18" align="absmiddle" alt="">&nbsp;`bullish` | CEX | spot · perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/bybit.svg" height="18" align="absmiddle" alt="">&nbsp;`bybit` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/coinbase.png" height="18" align="absmiddle" alt="">&nbsp;`coinbase` | CEX | spot | REST | – | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/cryptocom.png" height="18" align="absmiddle" alt="">&nbsp;`cryptocom` | CEX | spot · perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/deribit.svg" height="18" align="absmiddle" alt="">&nbsp;`deribit` | CEX | spot · perp · futures · options | REST | – | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/derive.png" height="18" align="absmiddle" alt="">&nbsp;`derive` | DEX | perp · options | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/dydx.png" height="18" align="absmiddle" alt="">&nbsp;`dydx` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/edgex.png" height="18" align="absmiddle" alt="">&nbsp;`edgex` | DEX | spot · perp | REST | – | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/extended.svg" height="18" align="absmiddle" alt="">&nbsp;`extended` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/gate.svg" height="18" align="absmiddle" alt="">&nbsp;`gate` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/grvt.png" height="18" align="absmiddle" alt="">&nbsp;`grvt` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/htx.png" height="18" align="absmiddle" alt="">&nbsp;`htx` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/hyperliquid.svg" height="18" align="absmiddle" alt="">&nbsp;`hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/kraken.png" height="18" align="absmiddle" alt="">&nbsp;`kraken` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/kucoin.png" height="18" align="absmiddle" alt="">&nbsp;`kucoin` | CEX | spot · perp | REST + WS | ✓ | – | ListenKey | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/lbank.png" height="18" align="absmiddle" alt="">&nbsp;`lbank` | CEX | spot · perp | **market data only**, no perp order API | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/lighter.png" height="18" align="absmiddle" alt="">&nbsp;`lighter` | DEX | spot · perp | REST + WS | ✓ | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/mexc.png" height="18" align="absmiddle" alt="">&nbsp;`mexc` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/nado.png" height="18" align="absmiddle" alt="">&nbsp;`nado` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/okx.svg" height="18" align="absmiddle" alt="">&nbsp;`okx` | CEX | spot · perp · options | REST + WS | ✓ | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/ondoperps.png" height="18" align="absmiddle" alt="">&nbsp;`ondoperps` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/ostium.png" height="18" align="absmiddle" alt="">&nbsp;`ostium` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/pacifica.png" height="18" align="absmiddle" alt="">&nbsp;`pacifica` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/paradex.png" height="18" align="absmiddle" alt="">&nbsp;`paradex` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/phemex.png" height="18" align="absmiddle" alt="">&nbsp;`phemex` | CEX | spot · perp | REST | – | – | AuthSubscribe | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/polymarketperps.png" height="18" align="absmiddle" alt="">&nbsp;`polymarketperps` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/toobit.png" height="18" align="absmiddle" alt="">&nbsp;`toobit` | CEX | spot · perp | REST | – | – | ListenKey | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/upbit.png" height="18" align="absmiddle" alt="">&nbsp;`upbit` | CEX | spot | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/vest.png" height="18" align="absmiddle" alt="">&nbsp;`vest` | DEX | perp | **market data only** | – | – | – | – |
-| <img src="frontend/packages/ui/src/assets/exchanges/weex.png" height="18" align="absmiddle" alt="">&nbsp;`weex` | CEX | spot · perp | REST | – | – | AuthSubscribe | ✓ |
-| <img src="frontend/packages/ui/src/assets/exchanges/xt.png" height="18" align="absmiddle" alt="">&nbsp;`xt` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
+43 venues. Spot markets on 29, perpetual futures (perp) on 40, dated futures on 1 and options on 6.
+
+### Trading and market data
+
+<table>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/apex.png" width="28" height="28" alt=""><br><b>ApeX</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/aster.png" width="28" height="28" alt=""><br><b>Aster</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/binance.svg" width="28" height="28" alt=""><br><b>Binance</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"> <img src=".github/assets/market-options.svg" height="16" alt="options"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bingx.png" width="28" height="28" alt=""><br><b>BingX</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bitfinex.png" width="28" height="28" alt=""><br><b>Bitfinex</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bitget.png" width="28" height="28" alt=""><br><b>Bitget</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td></tr>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bitunix.png" width="28" height="28" alt=""><br><b>Bitunix</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/blofin.png" width="28" height="28" alt=""><br><b>BloFin</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bybit.svg" width="28" height="28" alt=""><br><b>Bybit</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"> <img src=".github/assets/market-options.svg" height="16" alt="options"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/coinbase.png" width="28" height="28" alt=""><br><b>Coinbase</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/deribit.svg" width="28" height="28" alt=""><br><b>Deribit</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"> <img src=".github/assets/market-futures.svg" height="16" alt="futures"> <img src=".github/assets/market-options.svg" height="16" alt="options"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/edgex.png" width="28" height="28" alt=""><br><b>edgeX</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td></tr>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/gate.svg" width="28" height="28" alt=""><br><b>Gate</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"> <img src=".github/assets/market-options.svg" height="16" alt="options"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/htx.png" width="28" height="28" alt=""><br><b>HTX</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/hyperliquid.svg" width="28" height="28" alt=""><br><b>Hyperliquid</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/kraken.png" width="28" height="28" alt=""><br><b>Kraken</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/kucoin.png" width="28" height="28" alt=""><br><b>KuCoin</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/lighter.png" width="28" height="28" alt=""><br><b>Lighter</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td></tr>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/mexc.png" width="28" height="28" alt=""><br><b>MEXC</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/okx.svg" width="28" height="28" alt=""><br><b>OKX</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"> <img src=".github/assets/market-options.svg" height="16" alt="options"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/phemex.png" width="28" height="28" alt=""><br><b>Phemex</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/toobit.png" width="28" height="28" alt=""><br><b>Toobit</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/weex.png" width="28" height="28" alt=""><br><b>WEEX</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/xt.png" width="28" height="28" alt=""><br><b>XT</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td></tr>
+</table>
+
+### Market data only
+
+<table>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/arcus.png" width="28" height="28" alt=""><br><b>Arcus</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/backpack.png" width="28" height="28" alt=""><br><b>Backpack</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bithumb.png" width="28" height="28" alt=""><br><b>Bithumb</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bitstamp.png" width="28" height="28" alt=""><br><b>Bitstamp</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/bullish.png" width="28" height="28" alt=""><br><b>Bullish</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/cryptocom.png" width="28" height="28" alt=""><br><b>Crypto.com</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td></tr>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/derive.png" width="28" height="28" alt=""><br><b>Derive</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"> <img src=".github/assets/market-options.svg" height="16" alt="options"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/dydx.png" width="28" height="28" alt=""><br><b>dYdX</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/extended.svg" width="28" height="28" alt=""><br><b>Extended</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/grvt.png" width="28" height="28" alt=""><br><b>GRVT</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/lbank.png" width="28" height="28" alt=""><br><b>LBank</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"> <img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/nado.png" width="28" height="28" alt=""><br><b>Nado</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td></tr>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/ondoperps.png" width="28" height="28" alt=""><br><b>Ondo</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/ostium.png" width="28" height="28" alt=""><br><b>Ostium</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/pacifica.png" width="28" height="28" alt=""><br><b>Pacifica</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/paradex.png" width="28" height="28" alt=""><br><b>Paradex</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/polymarketperps.png" width="28" height="28" alt=""><br><b>Polymarket</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/upbit.png" width="28" height="28" alt=""><br><b>Upbit</b><br><img src=".github/assets/market-spot.svg" height="16" alt="spot"></td></tr>
+<tr><td align="center" width="140"><img src="frontend/packages/ui/src/assets/exchanges/vest.png" width="28" height="28" alt=""><br><b>Vest</b><br><img src=".github/assets/market-perp.svg" height="16" alt="perp"></td></tr>
+</table>
 <!-- venues:end -->
 
-## Releases
+[Everything each venue supports](docs/README.md#venue-table)
 
-raikiri follows [semantic versioning](https://semver.org). Until 1.0 any minor release may change
-the API or a shared-memory layout, and its notes will say so; a gateway and a kernel built with different
-shared-memory layouts refuse to attach rather than misread each other. The version lives in [`VERSION`](VERSION),
-every binary prints it with `--version`, and [RELEASES.md](RELEASES.md) lists what each release
-changed.
+## Learn more
 
-The current release is **0.1.0-beta.1**: the first public beta. Market data is in daily use; order
-entry is tested against recorded venue replies, and not every order path has run against a real
-account yet.
-
-## Disclaimer
-
-raikiri is software for building trading systems, not a trading system. It comes with no warranty,
-and trading with it can lose money, fast. Test against the simulated venue and with small size
-first; you are responsible for complying with each venue's terms and your local law.
+- [How it works](ARCHITECTURE.md): processes, shared memory, the order path, speed
+- [Documentation](docs/README.md): writing a strategy, the client API, running gateways, configuration, adding a venue
+- [Client SDKs](sdk/python/README.md): Python and C++, with [examples](examples/README.md)
 
 ## License
 
-LGPL-3.0, see [`LICENSE`](LICENSE). [`COPYING`](COPYING) holds the GPL-3.0 text it
-incorporates by reference. A strategy that links raikiri can stay closed source; a distributed
-modification of raikiri itself must publish its changes under the same license.
+LGPL-3.0, see [`LICENSE`](LICENSE). Your strategy can link raikiri and stay closed source. If you
+distribute changes to raikiri itself, you publish them under the same license.
+
+raikiri comes with no warranty, and trading can lose money. Start on the simulated venue with
+small size, and follow each venue's terms and your local law.

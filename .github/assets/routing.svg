@@ -1,0 +1,540 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" width="960" height="470">
+<style>
+@font-face { font-family: Inter; font-weight: 400; src: url(data:font/woff2;base64,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) format('woff2'); }
+@font-face { font-family: Inter; font-weight: 500; src: url(data:font/woff2;base64,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) format('woff2'); }
+
+text { font-variant-numeric: tabular-nums; }
+@keyframes k1 {
+  0.000% { transform: scaleX(0); }
+  12.000% { transform: scaleX(0.0000); }
+  13.800% { transform: scaleX(0.1500); }
+  15.400% { transform: scaleX(0.1500); }
+  17.200% { transform: scaleX(0.2500); }
+  18.800% { transform: scaleX(0.2500); }
+  20.600% { transform: scaleX(0.4333); }
+  22.200% { transform: scaleX(0.4333); }
+  24.000% { transform: scaleX(0.5167); }
+  25.600% { transform: scaleX(0.5167); }
+  27.400% { transform: scaleX(0.6167); }
+  29.000% { transform: scaleX(0.6167); }
+  30.800% { transform: scaleX(0.7333); }
+  32.400% { transform: scaleX(0.7333); }
+  34.200% { transform: scaleX(0.8833); }
+  35.800% { transform: scaleX(0.8833); }
+  37.600% { transform: scaleX(1.0000); }
+  91.000% { transform: scaleX(1); }
+  97.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k2 {
+  0.000% { opacity: 1; }
+  13.790% { opacity: 1; }
+  13.800% { opacity: 0; }
+  97.000% { opacity: 0; }
+  100.000% { opacity: 1; }
+}
+@keyframes k3 {
+  0.000% { opacity: 0; }
+  13.790% { opacity: 0; }
+  13.800% { opacity: 1; }
+  17.190% { opacity: 1; }
+  17.200% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k4 {
+  0.000% { opacity: 0; }
+  17.190% { opacity: 0; }
+  17.200% { opacity: 1; }
+  20.590% { opacity: 1; }
+  20.600% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k5 {
+  0.000% { opacity: 0; }
+  20.590% { opacity: 0; }
+  20.600% { opacity: 1; }
+  23.990% { opacity: 1; }
+  24.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k6 {
+  0.000% { opacity: 0; }
+  23.990% { opacity: 0; }
+  24.000% { opacity: 1; }
+  27.390% { opacity: 1; }
+  27.400% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k7 {
+  0.000% { opacity: 0; }
+  27.390% { opacity: 0; }
+  27.400% { opacity: 1; }
+  30.790% { opacity: 1; }
+  30.800% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k8 {
+  0.000% { opacity: 0; }
+  30.790% { opacity: 0; }
+  30.800% { opacity: 1; }
+  34.190% { opacity: 1; }
+  34.200% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k9 {
+  0.000% { opacity: 0; }
+  34.190% { opacity: 0; }
+  34.200% { opacity: 1; }
+  37.590% { opacity: 1; }
+  37.600% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k10 {
+  0.000% { opacity: 0; }
+  37.590% { opacity: 0; }
+  37.600% { opacity: 1; }
+  90.990% { opacity: 1; }
+  91.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k11 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k12 {
+  0.000% { stroke-opacity: 0; }
+  11.800% { stroke-opacity: 0; }
+  12.000% { stroke-opacity: 1; }
+  15.000% { stroke-opacity: 0.15; }
+  25.400% { stroke-opacity: 0; }
+  25.600% { stroke-opacity: 1; }
+  28.600% { stroke-opacity: 0.15; }
+  35.600% { stroke-opacity: 0; }
+  35.800% { stroke-opacity: 1; }
+  38.800% { stroke-opacity: 0.15; }
+  91.000% { stroke-opacity: 0.15; }
+  94.000% { stroke-opacity: 0; }
+  100.000% { stroke-opacity: 0; }
+}
+@keyframes k13 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  9.000% { offset-distance: 0%; opacity: 0; }
+  9.100% { offset-distance: 0%; opacity: 1; }
+  12.000% { offset-distance: 100%; opacity: 1; }
+  12.100% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k14 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  22.600% { offset-distance: 0%; opacity: 0; }
+  22.700% { offset-distance: 0%; opacity: 1; }
+  25.600% { offset-distance: 100%; opacity: 1; }
+  25.700% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k15 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  32.800% { offset-distance: 0%; opacity: 0; }
+  32.900% { offset-distance: 0%; opacity: 1; }
+  35.800% { offset-distance: 100%; opacity: 1; }
+  35.900% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k16 {
+  0.000% { transform: scaleX(0); }
+  12.000% { transform: scaleX(0); }
+  14.000% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k17 {
+  0.000% { fill: #f0566e; }
+  12.000% { fill: #f0566e; }
+  13.000% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k18 {
+  0.000% { transform: scaleX(0); }
+  25.600% { transform: scaleX(0); }
+  27.600% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k19 {
+  0.000% { fill: #f0566e; }
+  25.600% { fill: #f0566e; }
+  26.600% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k20 {
+  0.000% { transform: scaleX(0); }
+  35.800% { transform: scaleX(0); }
+  37.800% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k21 {
+  0.000% { fill: #f0566e; }
+  35.800% { fill: #f0566e; }
+  36.800% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k22 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k23 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k24 {
+  0.000% { stroke-opacity: 0; }
+  22.000% { stroke-opacity: 0; }
+  22.200% { stroke-opacity: 1; }
+  25.200% { stroke-opacity: 0.15; }
+  32.200% { stroke-opacity: 0; }
+  32.400% { stroke-opacity: 1; }
+  35.400% { stroke-opacity: 0.15; }
+  91.000% { stroke-opacity: 0.15; }
+  94.000% { stroke-opacity: 0; }
+  100.000% { stroke-opacity: 0; }
+}
+@keyframes k25 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  19.200% { offset-distance: 0%; opacity: 0; }
+  19.300% { offset-distance: 0%; opacity: 1; }
+  22.200% { offset-distance: 100%; opacity: 1; }
+  22.300% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k26 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  29.400% { offset-distance: 0%; opacity: 0; }
+  29.500% { offset-distance: 0%; opacity: 1; }
+  32.400% { offset-distance: 100%; opacity: 1; }
+  32.500% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k27 {
+  0.000% { transform: scaleX(0); }
+  22.200% { transform: scaleX(0); }
+  24.200% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k28 {
+  0.000% { fill: #f0566e; }
+  22.200% { fill: #f0566e; }
+  23.200% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k29 {
+  0.000% { transform: scaleX(0); }
+  32.400% { transform: scaleX(0); }
+  34.400% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k30 {
+  0.000% { fill: #f0566e; }
+  32.400% { fill: #f0566e; }
+  33.400% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k31 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k32 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k33 {
+  0.000% { stroke-opacity: 0; }
+  15.200% { stroke-opacity: 0; }
+  15.400% { stroke-opacity: 1; }
+  18.400% { stroke-opacity: 0.15; }
+  91.000% { stroke-opacity: 0.15; }
+  94.000% { stroke-opacity: 0; }
+  100.000% { stroke-opacity: 0; }
+}
+@keyframes k34 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  12.400% { offset-distance: 0%; opacity: 0; }
+  12.500% { offset-distance: 0%; opacity: 1; }
+  15.400% { offset-distance: 100%; opacity: 1; }
+  15.500% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k35 {
+  0.000% { transform: scaleX(0); }
+  15.400% { transform: scaleX(0); }
+  17.400% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k36 {
+  0.000% { fill: #f0566e; }
+  15.400% { fill: #f0566e; }
+  16.400% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k37 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k38 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k39 {
+  0.000% { stroke-opacity: 0; }
+  18.600% { stroke-opacity: 0; }
+  18.800% { stroke-opacity: 1; }
+  21.800% { stroke-opacity: 0.15; }
+  28.800% { stroke-opacity: 0; }
+  29.000% { stroke-opacity: 1; }
+  32.000% { stroke-opacity: 0.15; }
+  91.000% { stroke-opacity: 0.15; }
+  94.000% { stroke-opacity: 0; }
+  100.000% { stroke-opacity: 0; }
+}
+@keyframes k40 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  15.800% { offset-distance: 0%; opacity: 0; }
+  15.900% { offset-distance: 0%; opacity: 1; }
+  18.800% { offset-distance: 100%; opacity: 1; }
+  18.900% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k41 {
+  0.000% { offset-distance: 0%; opacity: 0; }
+  26.000% { offset-distance: 0%; opacity: 0; }
+  26.100% { offset-distance: 0%; opacity: 1; }
+  29.000% { offset-distance: 100%; opacity: 1; }
+  29.100% { offset-distance: 100%; opacity: 0; }
+  100.000% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes k42 {
+  0.000% { transform: scaleX(0); }
+  18.800% { transform: scaleX(0); }
+  20.800% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k43 {
+  0.000% { fill: #f0566e; }
+  18.800% { fill: #f0566e; }
+  19.800% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k44 {
+  0.000% { transform: scaleX(0); }
+  29.000% { transform: scaleX(0); }
+  31.000% { transform: scaleX(1); }
+  91.000% { transform: scaleX(1); }
+  94.000% { transform: scaleX(0); }
+  100.000% { transform: scaleX(0); }
+}
+@keyframes k45 {
+  0.000% { fill: #f0566e; }
+  29.000% { fill: #f0566e; }
+  30.000% { fill: #e6edf3; }
+  91.000% { fill: #e6edf3; }
+  94.000% { fill: #f0566e; }
+  100.000% { fill: #f0566e; }
+}
+@keyframes k46 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@keyframes k47 {
+  0.000% { opacity: 0; }
+  39.200% { opacity: 0; }
+  42.700% { opacity: 1; }
+  91.000% { opacity: 1; }
+  94.000% { opacity: 0; }
+  100.000% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+<rect width="960" height="470" rx="16" fill="#060910"/>
+<rect x="130.0" y="28" width="700" height="104" rx="12" fill="#0b111b" stroke="#1b2433"/>
+<text x="152.0" y="58" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" letter-spacing="1.4">PARENT ORDER</text>
+<text x="152.0" y="90" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" font-weight="500">Buy <tspan font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">6</tspan> BTC</text>
+<text x="152.0" y="110" fill="#9aa4b2" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5">limit 64,826 · split by price after fee</text>
+<text x="448.0" y="58" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" letter-spacing="1.4">FILLED</text>
+<rect x="448.0" y="70" width="360" height="4" rx="2" fill="#1b2433"/>
+<rect x="448.0" y="70" width="360" height="4" rx="2" fill="#38bdf8" style="transform-box: fill-box; transform-origin: left; animation: k1 10.0s linear infinite"/>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k2 10.0s linear infinite">0.0 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k3 10.0s linear infinite">0.9 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k4 10.0s linear infinite">1.5 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k5 10.0s linear infinite">2.6 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k6 10.0s linear infinite">3.1 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k7 10.0s linear infinite">3.7 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k8 10.0s linear infinite">4.4 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k9 10.0s linear infinite">5.3 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<text x="808.0" y="58" text-anchor="end" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" style="animation: k10 10.0s linear infinite">6.0 <tspan fill="#5b6573">/ 6.0 BTC</tspan></text>
+<g style="animation: k11 10.0s linear infinite"><text x="448.0" y="110" fill="#2ecc8f" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5">avg 64,843.92 · $30 cheaper than one venue alone</text></g>
+<path d="M480.0,132 C480.0,166 150.0,148 150.0,182" fill="none" stroke="#1b2433" stroke-width="1.5"/>
+<path d="M480.0,132 C480.0,166 150.0,148 150.0,182" fill="none" stroke="#38bdf8" stroke-width="1.5" style="animation: k12 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 150.0,148 150.0,182'); offset-rotate: 0deg; animation: k13 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 150.0,148 150.0,182'); offset-rotate: 0deg; animation: k14 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 150.0,148 150.0,182'); offset-rotate: 0deg; animation: k15 10.0s linear infinite"/>
+<rect x="50.0" y="182" width="200" height="274" rx="10" fill="#0b111b" stroke="#1b2433"/>
+<text x="64.0" y="206" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500">Binance</text>
+<text x="236.0" y="206" text-anchor="end" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5">fee 4.5 bp</text>
+<line x1="51.0" x2="249.0" y1="218" y2="218" stroke="#1b2433"/>
+<rect x="56.0" y="224" width="188.0" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k16 10.0s ease-out infinite"/>
+<text x="64.0" y="240" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k17 10.0s linear infinite">64,812.4</text>
+<text x="236.0" y="240" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.9</text>
+<rect x="56.0" y="250" width="188.0" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k18 10.0s ease-out infinite"/>
+<text x="64.0" y="266" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k19 10.0s linear infinite">64,814.1</text>
+<text x="236.0" y="266" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.6</text>
+<rect x="56.0" y="276" width="109.7" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k20 10.0s ease-out infinite"/>
+<text x="64.0" y="292" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k21 10.0s linear infinite">64,816.9</text>
+<text x="236.0" y="292" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.2</text>
+<text x="64.0" y="318" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,819.0</text>
+<text x="236.0" y="318" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.8</text>
+<text x="64.0" y="344" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,822.6</text>
+<text x="236.0" y="344" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.1</text>
+<text x="64.0" y="370" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,825.3</text>
+<text x="236.0" y="370" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.7</text>
+<text x="64.0" y="396" fill="#f0566e" fill-opacity="0.35" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,829.8</text>
+<text x="236.0" y="396" text-anchor="end" fill="#9aa4b2" fill-opacity="0.4" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.4</text>
+<line x1="51.0" x2="249.0" y1="412" y2="412" stroke="#1b2433"/>
+<text x="64.0" y="432" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" style="animation: k22 10.0s linear infinite">ioc ≤ 64,816.9</text>
+<text x="236.0" y="432" text-anchor="end" fill="#38bdf8" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k23 10.0s linear infinite">2.2 BTC</text>
+<path d="M480.0,132 C480.0,166 370.0,148 370.0,182" fill="none" stroke="#1b2433" stroke-width="1.5"/>
+<path d="M480.0,132 C480.0,166 370.0,148 370.0,182" fill="none" stroke="#38bdf8" stroke-width="1.5" style="animation: k24 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 370.0,148 370.0,182'); offset-rotate: 0deg; animation: k25 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 370.0,148 370.0,182'); offset-rotate: 0deg; animation: k26 10.0s linear infinite"/>
+<rect x="270.0" y="182" width="200" height="274" rx="10" fill="#0b111b" stroke="#1b2433"/>
+<text x="284.0" y="206" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500">OKX</text>
+<text x="456.0" y="206" text-anchor="end" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5">fee 5 bp</text>
+<line x1="271.0" x2="469.0" y1="218" y2="218" stroke="#1b2433"/>
+<rect x="276.0" y="224" width="188.0" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k27 10.0s ease-out infinite"/>
+<text x="284.0" y="240" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k28 10.0s linear infinite">64,810.8</text>
+<text x="456.0" y="240" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.5</text>
+<rect x="276.0" y="250" width="188.0" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k29 10.0s ease-out infinite"/>
+<text x="284.0" y="266" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k30 10.0s linear infinite">64,813.6</text>
+<text x="456.0" y="266" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.9</text>
+<text x="284.0" y="292" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,815.2</text>
+<text x="456.0" y="292" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.4</text>
+<text x="284.0" y="318" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,818.7</text>
+<text x="456.0" y="318" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.3</text>
+<text x="284.0" y="344" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,821.9</text>
+<text x="456.0" y="344" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.8</text>
+<text x="284.0" y="370" fill="#f0566e" fill-opacity="0.35" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,826.4</text>
+<text x="456.0" y="370" text-anchor="end" fill="#9aa4b2" fill-opacity="0.4" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.2</text>
+<text x="284.0" y="396" fill="#f0566e" fill-opacity="0.35" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,831.0</text>
+<text x="456.0" y="396" text-anchor="end" fill="#9aa4b2" fill-opacity="0.4" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.6</text>
+<line x1="271.0" x2="469.0" y1="412" y2="412" stroke="#1b2433"/>
+<text x="284.0" y="432" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" style="animation: k31 10.0s linear infinite">ioc ≤ 64,813.6</text>
+<text x="456.0" y="432" text-anchor="end" fill="#38bdf8" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k32 10.0s linear infinite">1.4 BTC</text>
+<path d="M480.0,132 C480.0,166 590.0,148 590.0,182" fill="none" stroke="#1b2433" stroke-width="1.5"/>
+<path d="M480.0,132 C480.0,166 590.0,148 590.0,182" fill="none" stroke="#38bdf8" stroke-width="1.5" style="animation: k33 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 590.0,148 590.0,182'); offset-rotate: 0deg; animation: k34 10.0s linear infinite"/>
+<rect x="490.0" y="182" width="200" height="274" rx="10" fill="#0b111b" stroke="#1b2433"/>
+<text x="504.0" y="206" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500">Bybit</text>
+<text x="676.0" y="206" text-anchor="end" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5">fee 5.5 bp</text>
+<line x1="491.0" x2="689.0" y1="218" y2="218" stroke="#1b2433"/>
+<rect x="496.0" y="224" width="188.0" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k35 10.0s ease-out infinite"/>
+<text x="504.0" y="240" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k36 10.0s linear infinite">64,807.5</text>
+<text x="676.0" y="240" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.6</text>
+<text x="504.0" y="266" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,812.0</text>
+<text x="676.0" y="266" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.8</text>
+<text x="504.0" y="292" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,816.4</text>
+<text x="676.0" y="292" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.7</text>
+<text x="504.0" y="318" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,819.8</text>
+<text x="676.0" y="318" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.0</text>
+<text x="504.0" y="344" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,824.1</text>
+<text x="676.0" y="344" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.2</text>
+<text x="504.0" y="370" fill="#f0566e" fill-opacity="0.35" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,827.7</text>
+<text x="676.0" y="370" text-anchor="end" fill="#9aa4b2" fill-opacity="0.4" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.9</text>
+<text x="504.0" y="396" fill="#f0566e" fill-opacity="0.35" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,833.2</text>
+<text x="676.0" y="396" text-anchor="end" fill="#9aa4b2" fill-opacity="0.4" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.5</text>
+<line x1="491.0" x2="689.0" y1="412" y2="412" stroke="#1b2433"/>
+<text x="504.0" y="432" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" style="animation: k37 10.0s linear infinite">ioc ≤ 64,807.5</text>
+<text x="676.0" y="432" text-anchor="end" fill="#38bdf8" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k38 10.0s linear infinite">0.6 BTC</text>
+<path d="M480.0,132 C480.0,166 810.0,148 810.0,182" fill="none" stroke="#1b2433" stroke-width="1.5"/>
+<path d="M480.0,132 C480.0,166 810.0,148 810.0,182" fill="none" stroke="#38bdf8" stroke-width="1.5" style="animation: k39 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 810.0,148 810.0,182'); offset-rotate: 0deg; animation: k40 10.0s linear infinite"/>
+<circle r="3" fill="#38bdf8" style="offset-path: path('M480.0,132 C480.0,166 810.0,148 810.0,182'); offset-rotate: 0deg; animation: k41 10.0s linear infinite"/>
+<rect x="710.0" y="182" width="200" height="274" rx="10" fill="#0b111b" stroke="#1b2433"/>
+<text x="724.0" y="206" fill="#e6edf3" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500">Hyperliquid</text>
+<text x="896.0" y="206" text-anchor="end" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5">fee 4.5 bp</text>
+<line x1="711.0" x2="909.0" y1="218" y2="218" stroke="#1b2433"/>
+<rect x="716.0" y="224" width="188.0" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k42 10.0s ease-out infinite"/>
+<text x="724.0" y="240" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k43 10.0s linear infinite">64,814.0</text>
+<text x="896.0" y="240" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.1</text>
+<rect x="716.0" y="250" width="188.0" height="22" rx="4" fill="#38bdf8" fill-opacity="0.16" style="transform-box: fill-box; transform-origin: left; animation: k44 10.0s ease-out infinite"/>
+<text x="724.0" y="266" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k45 10.0s linear infinite">64,815.9</text>
+<text x="896.0" y="266" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.7</text>
+<text x="724.0" y="292" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,818.3</text>
+<text x="896.0" y="292" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.9</text>
+<text x="724.0" y="318" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,821.4</text>
+<text x="896.0" y="318" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.6</text>
+<text x="724.0" y="344" fill="#f0566e" fill-opacity="0.9" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,825.0</text>
+<text x="896.0" y="344" text-anchor="end" fill="#9aa4b2" fill-opacity="1" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.3</text>
+<text x="724.0" y="370" fill="#f0566e" fill-opacity="0.35" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,828.6</text>
+<text x="896.0" y="370" text-anchor="end" fill="#9aa4b2" fill-opacity="0.4" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">0.8</text>
+<text x="724.0" y="396" fill="#f0566e" fill-opacity="0.35" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" >64,832.5</text>
+<text x="896.0" y="396" text-anchor="end" fill="#9aa4b2" fill-opacity="0.4" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">1.2</text>
+<line x1="711.0" x2="909.0" y1="412" y2="412" stroke="#1b2433"/>
+<text x="724.0" y="432" fill="#5b6573" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" style="animation: k46 10.0s linear infinite">ioc ≤ 64,815.9</text>
+<text x="896.0" y="432" text-anchor="end" fill="#38bdf8" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" style="animation: k47 10.0s linear infinite">1.8 BTC</text>
+</svg>

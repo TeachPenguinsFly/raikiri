@@ -57,6 +57,7 @@ down:
 	-@pkill -f 'apps/gatewayd/gatewayd' 2>/dev/null || true
 	-@pkill -f 'apps/admind/admind' 2>/dev/null || true
 	-@pkill -f 'apps/persisterd/persisterd' 2>/dev/null || true
+	-@pkill -f 'apps/candled/candled' 2>/dev/null || true
 	-@pkill -f 'vite' 2>/dev/null || true
 	@echo "stopped; segments in $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}"
 
