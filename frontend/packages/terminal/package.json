@@ -12,5 +12,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router": "^7.9.4"
+  },
+  "dependencies": {
+    "lightweight-charts": "5.2.1"
   }
 }

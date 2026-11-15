@@ -1,0 +1,362 @@
+/* v3: the terminal and the dashboard. The kit's tokens are tailwind variables, so redefining them under .v3 recolours
+   every utility inside it and leaves the older pages as they are */
+
+.v3 {
+  --color-canvas: #0a0a0c;
+  --color-panel: #111114;
+  --color-raised: #18181d;
+  --color-hover: #1d1d23;
+  --color-active: #26262e;
+  --color-line: #1d1d22;
+
+  --color-fg: #ededf2;
+  --color-fg-mid: #9b9ba8;
+  --color-fg-dim: #5f5f6b;
+
+  --color-up: #2fd3a6;
+  --color-down: #f2557d;
+  --color-accent: #38bdf8;
+  --color-amber: #e7b24f;
+
+  --v3-glow: 56 189 248;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* apart from .v3, which a portalled tooltip also carries: unlayered, these would beat its own background utility */
+.v3-page {
+  background: var(--color-canvas);
+  color: var(--color-fg);
+}
+
+.v3 .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* a faint dot grid under the page, brighter near the pointer where a panel asks for it */
+.v3-dots {
+  background-image: radial-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* the panel frame: a hairline that lights up under the pointer, after aceternity's glowing effect */
+.v3-glow {
+  position: relative;
+  isolation: isolate;
+}
+.v3-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(
+    240px circle at var(--mx, -400px) var(--my, -400px),
+    rgb(var(--v3-glow) / 0.55),
+    rgb(var(--v3-glow) / 0.08) 45%,
+    transparent 70%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+.v3-glow:hover::before {
+  opacity: 1;
+}
+
+/* a soft light that follows the pointer inside a card, after aceternity's card spotlight */
+.v3-spot {
+  position: relative;
+  overflow: hidden;
+}
+.v3-spot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    320px circle at var(--mx, -400px) var(--my, -400px),
+    rgb(var(--v3-glow) / 0.07),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.v3-spot:hover::after {
+  opacity: 1;
+}
+
+/* a light that runs round the border, after aceternity's moving border */
+@property --v3-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.v3-beam {
+  position: relative;
+  isolation: isolate;
+}
+.v3-beam::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--v3-angle), transparent 0 70%, rgb(var(--v3-glow) / 0.9) 85%, transparent 100%);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: v3-spin 3.2s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes v3-spin {
+  to {
+    --v3-angle: 360deg;
+  }
+}
+
+/* a row of cards that loops sideways, after aceternity's infinite moving cards; the content is laid out twice */
+.v3-marquee {
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+.v3-marquee > div {
+  animation: v3-marquee var(--v3-marquee-s, 60s) linear infinite;
+}
+.v3-marquee:hover > div {
+  animation-play-state: paused;
+}
+@keyframes v3-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* the tooltip frame: four corner ticks */
+.v3-corners {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) top left / 8px 1px,
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) top left / 1px 8px,
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) top right / 8px 1px,
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) top right / 1px 8px,
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) bottom left / 8px 1px,
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) bottom left / 1px 8px,
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) bottom right / 8px 1px,
+    linear-gradient(var(--c, #ffffff59), var(--c, #ffffff59)) bottom right / 1px 8px;
+  background-repeat: no-repeat;
+}
+
+/* entrances */
+.v3-rise {
+  animation: v3-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes v3-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+.v3-pop {
+  animation: v3-pop 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes v3-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+
+/* a level whose size changed */
+.v3-tick-up {
+  animation: v3-tick-up 0.7s ease-out;
+}
+.v3-tick-down {
+  animation: v3-tick-down 0.7s ease-out;
+}
+@keyframes v3-tick-up {
+  from {
+    background: color-mix(in srgb, var(--color-up) 28%, transparent);
+    color: var(--color-fg);
+  }
+}
+@keyframes v3-tick-down {
+  from {
+    background: color-mix(in srgb, var(--color-down) 28%, transparent);
+    color: var(--color-fg);
+  }
+}
+
+/* a placeholder sweep while data loads */
+.v3-shimmer {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.04), transparent) 0 0 / 200% 100%;
+  animation: v3-shimmer 1.4s linear infinite;
+}
+@keyframes v3-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* the depth curve redraws to its next shape */
+.v3-morph {
+  transition: d 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* the range slider in the ticket */
+.v3-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--color-accent) var(--fill, 0%), var(--color-raised) var(--fill, 0%));
+  outline: none;
+}
+.v3-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 99px;
+  background: var(--color-fg);
+  box-shadow:
+    0 0 0 4px rgb(var(--v3-glow) / 0.25),
+    0 2px 6px rgb(0 0 0 / 0.5);
+  cursor: grab;
+  transition: box-shadow 0.15s ease;
+}
+.v3-range::-webkit-slider-thumb:active {
+  box-shadow:
+    0 0 0 6px rgb(var(--v3-glow) / 0.35),
+    0 2px 6px rgb(0 0 0 / 0.5);
+  cursor: grabbing;
+}
+.v3-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--color-fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v3-beam::before,
+  .v3-marquee > div,
+  .v3-shimmer,
+  .v3-rise,
+  .v3-pop,
+  .v3-tick-up,
+  .v3-tick-down {
+    animation: none;
+  }
+  .v3-morph {
+    transition: none;
+  }
+}
+
+/* the penguin that slides while a page waits, see components/penguin.tsx */
+.penguin-slide {
+  left: -40%;
+  animation: penguin-slide 2.8s cubic-bezier(0.3, 0.05, 0.35, 1) infinite;
+}
+@keyframes penguin-slide {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}
+.penguin-bird {
+  transform-origin: 50% 90%;
+  animation: penguin-bob 0.55s ease-in-out infinite alternate;
+}
+@keyframes penguin-bob {
+  from {
+    transform: translateY(0) rotate(-1.5deg);
+  }
+  to {
+    transform: translateY(-1.5px) rotate(1.5deg);
+  }
+}
+.penguin-scarf {
+  transform-box: fill-box;
+  transform-origin: 100% 0;
+  animation: penguin-scarf 0.28s ease-in-out infinite alternate;
+}
+@keyframes penguin-scarf {
+  from {
+    transform: rotate(-6deg) scaleX(0.92);
+  }
+  to {
+    transform: rotate(5deg) scaleX(1.05);
+  }
+}
+.penguin-trail {
+  transform-origin: 100% 50%;
+  animation: penguin-trail 0.5s ease-in-out infinite alternate;
+}
+@keyframes penguin-trail {
+  from {
+    opacity: 0.35;
+    transform: scaleX(0.7);
+  }
+  to {
+    opacity: 0.9;
+    transform: scaleX(1.1);
+  }
+}
+.penguin-snow {
+  animation: penguin-snow 4s linear infinite;
+}
+@keyframes penguin-snow {
+  from {
+    transform: translate(0, -6px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  to {
+    transform: translate(-14px, 110px);
+    opacity: 0;
+  }
+}
+.penguin-glint {
+  animation: penguin-glint 3.4s ease-in-out infinite;
+}
+@keyframes penguin-glint {
+  from {
+    left: -15%;
+  }
+  to {
+    left: 110%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .penguin-slide,
+  .penguin-bird,
+  .penguin-scarf,
+  .penguin-trail,
+  .penguin-snow,
+  .penguin-glint {
+    animation: none;
+  }
+  .penguin-slide {
+    left: 30%;
+  }
+}
