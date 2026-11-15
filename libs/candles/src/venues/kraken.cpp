@@ -36,7 +36,9 @@ public:
         }
         // the newest committed row; anything after it is the open minute
         std::int64_t last = INT64_MAX;
-        (void)result["last"].get(last);
+        if (result["last"].get(last) != simdjson::SUCCESS) {
+            last = INT64_MAX;
+        }
         std::vector<Candle> out;
         for (const auto field : result) {
             if (!field.value.is_array()) {
