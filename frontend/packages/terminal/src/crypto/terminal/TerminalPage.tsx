@@ -6,8 +6,8 @@ import { MarketBar } from './header'
 import { VenuesWidget } from './panels'
 import { TerminalProvider, useTerminal } from './state'
 
-// the public terminal reads markets; order entry is the private desk's
-const k_widgets: Record<string, Widget> = {
+// the public terminal reads markets; order entry is the private desk's, which adds its widgets to these
+export const terminalWidgets: Record<string, Widget> = {
   chart: { title: 'Chart', icon: 'chart', render: () => <ChartWidget /> },
   book: { title: 'Book', icon: 'grip', render: () => <BookWidget /> },
   venues: { title: 'Venues', icon: 'layers', render: () => <VenuesWidget /> },
@@ -34,30 +34,51 @@ function UtcClock() {
   return <span className="mono text-fg-mid">{now.toISOString().slice(11, 19)} UTC</span>
 }
 
-function Desk() {
+/** what a desk built on the terminal changes: its widgets and layouts, and where it keeps the layout */
+export interface DeskOptions {
+  widgets?: Record<string, Widget>
+  presets?: Record<string, Preset>
+  fallback?: string
+  storageKey?: string
+  /** the widgets a narrow screen shows one under another, in order */
+  stacked?: string[]
+}
+
+function Desk({
+  widgets = terminalWidgets,
+  presets = k_presets,
+  fallback = 'standard',
+  storageKey = 'crypto.terminal.layout.v2',
+  stacked = ['chart', 'book', 'venues'],
+}: DeskOptions) {
   const { connected } = useTerminal()
   return (
     <div className="flex h-full min-h-0 flex-col">
       <MarketBar />
       <div className="min-h-0 flex-1">
         <Workspace
-          widgets={k_widgets}
-          presets={k_presets}
-          fallback="standard"
-          storageKey="crypto.terminal.layout.v2"
+          widgets={widgets}
+          presets={presets}
+          fallback={fallback}
+          storageKey={storageKey}
           connected={connected}
           clock={<UtcClock />}
-          stacked={['chart', 'book', 'venues']}
+          stacked={stacked}
         />
       </div>
     </div>
   )
 }
 
-export function TerminalPage() {
+/** the terminal with the market bar over a workspace of widgets */
+export function TerminalDesk(options: DeskOptions) {
   return (
     <TerminalProvider>
-      <Desk />
+      <Desk {...options} />
     </TerminalProvider>
   )
+}
+
+export function TerminalPage() {
+  return <TerminalDesk />
 }

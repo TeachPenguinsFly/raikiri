@@ -1,11 +1,12 @@
 import { cn } from '../lib/format'
 import k_names from '../assets/coins/names.json'
 
-/** every file in assets/coins is a coin's mark, keyed by its ticker; scripts/coin_icons.py refreshes them */
+/** every file in assets/coins is a coin's mark, keyed by its ticker; scripts/coin_icons.py refreshes them. Each is
+ * a file of its own, fetched when shown: inlined, the 581 marks put a megabyte into the terminal's script */
 const k_icons: Record<string, string> = Object.fromEntries(
-  Object.entries(import.meta.glob<string>('../assets/coins/*.webp', { eager: true, import: 'default' })).map(
-    ([path, url]) => [path.slice(path.lastIndexOf('/') + 1, path.lastIndexOf('.')), url],
-  ),
+  Object.entries(
+    import.meta.glob<string>('../assets/coins/*.webp', { eager: true, import: 'default', query: '?no-inline' }),
+  ).map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, path.lastIndexOf('.')), url]),
 )
 
 /** 1000PEPE and kPEPE are PEPE counted in thousands */

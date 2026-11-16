@@ -4,7 +4,8 @@
   "version": "0.1.0-beta.1",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./crypto": "./src/crypto/index.ts"
   },
   "sideEffects": false,
   "peerDependencies": {
