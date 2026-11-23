@@ -45,12 +45,13 @@ async function get<T>(path: string, query: Record<string, string | undefined> = 
   return (await r.json()) as T
 }
 
-async function instruments(): Promise<Instrument[]> {
+async function instruments(account?: string): Promise<Instrument[]> {
   const out: Instrument[] = []
   let cursor: string | undefined
   do {
     const page = await get<{ items: Instrument[]; next_cursor?: string | null }>('/v1/instruments', {
       limit: '1000',
+      account,
       cursor,
     })
     out.push(...page.items)
@@ -59,7 +60,24 @@ async function instruments(): Promise<Instrument[]> {
   return out
 }
 
+/** every account's instruments, a few accounts at a time, handed over as each lands: with every venue on, one walk
+ *  through the whole catalogue is forty-odd pages in a row, a minute before the first tick size is known */
+async function instrumentsBy(accounts: readonly string[], onBatch: (items: Instrument[]) => void): Promise<void> {
+  const queue = [...accounts]
+  const worker = async () => {
+    for (let account = queue.shift(); account !== undefined; account = queue.shift()) {
+      try {
+        onBatch(await instruments(account))
+      } catch {
+        // one venue's catalogue failing leaves its legs on default precision; the rest still land
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: 8 }, worker))
+}
+
 export const api = {
+  instrumentsBy,
   health: () => get<Health>('/v1/health'),
   metrics: () => get<VenueMetrics[]>('/v1/venues/metrics'),
   markets: () => get<Market[]>('/v1/markets'),

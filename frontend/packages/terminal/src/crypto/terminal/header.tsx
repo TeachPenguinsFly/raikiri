@@ -324,7 +324,6 @@ export function MarketBar() {
           {pair.market === 'perp' && (
             <Stat label="Funding">{rate === undefined ? '—' : `${(rate * 100).toFixed(4)}%`}</Stat>
           )}
-          <Stat label="Venues">{pair.legs.length}</Stat>
         </>
       )}
     </div>

@@ -53,6 +53,8 @@ export interface Leg {
   unit: number
   /** the venue's 24h turnover in dollars, as admind last ranked it */
   volume: number
+  /** whether the venue's tick and contract unit are in yet; until then a size could be contracts read as coins */
+  sized: boolean
 }
 
 export type Kind = 'perp' | 'spot'
@@ -105,8 +107,7 @@ function decimals(tick: string): number {
 
 const k_dollars = new Set(['USDT', 'USDC', 'USD'])
 
-function pairsOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: Instrument[]): Pair[] {
-  const byId = new Map(instruments.map((i) => [i.instrument_id, i]))
+function pairsOf(markets: Awaited<ReturnType<typeof api.markets>>, byId: Map<string, Instrument>): Pair[] {
   const out: Pair[] = []
   for (const m of markets) {
     for (const kind of ['perp', 'spot'] as const) {
@@ -128,6 +129,7 @@ function pairsOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: 
           tick: n(ins?.tick_size) ?? 0.01,
           unit: n(ins?.contract_value) ?? 1,
           volume: l.volume_24h_usd ?? 0,
+          sized: ins !== undefined,
         })
       }
       if (legs.size === 0) continue
@@ -154,7 +156,7 @@ export interface Catalog {
   byId: Map<string, { pair: Pair; leg: Leg }>
 }
 
-function catalogOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: Instrument[]): Catalog {
+function catalogOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: Map<string, Instrument>): Catalog {
   const pairs = pairsOf(markets, instruments)
   return {
     pairs,
@@ -163,31 +165,37 @@ function catalogOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments
   }
 }
 
-// kept across mounts like the queries are: forty pages of instruments are not fetched twice
-let k_instruments: Instrument[] | undefined
+// kept across mounts like the queries are: the catalogue is not walked twice in one tab
+const k_instruments = new Map<string, Instrument>()
+let k_instruments_asked = false
 
 /** The markets alone make the list and every venue's leg, so the terminal opens on them. Tick sizes and contract
- *  units come with the instruments, forty-odd pages with every venue on, and sharpen the legs when they land. */
+ *  units come with the instruments, an account at a time, and sharpen the legs as they land. */
 export function useCatalog(): Query<Catalog> {
   const markets = useQuery('markets', () => api.markets(), 300_000)
-  const [instruments, setInstruments] = useState<Instrument[] | undefined>(k_instruments)
+  const [landed, setLanded] = useState(0)
+  const list = markets.state === 'ready' ? markets.data : undefined
   useEffect(() => {
-    if (k_instruments !== undefined) return
-    let live = true
-    api.instruments().then(
-      (all) => {
-        k_instruments = all
-        if (live) setInstruments(all)
-      },
-      () => undefined,
+    if (list === undefined || k_instruments_asked) return
+    k_instruments_asked = true
+    // the chosen venues first: their legs are the ones on screen
+    const accounts = [...new Set(list.flatMap((m) => m.listings.map((l) => l.account)))].sort(
+      (a, b) => rank(a.split('-')[0] ?? a) - rank(b.split('-')[0] ?? b),
     )
-    return () => {
-      live = false
-    }
-  }, [])
+    let due: ReturnType<typeof setTimeout> | undefined
+    void api.instrumentsBy(accounts, (items) => {
+      for (const i of items) k_instruments.set(i.instrument_id, i)
+      // forty batches in ten seconds would rebuild the catalogue forty times; once a second is enough
+      due ??= setTimeout(() => {
+        due = undefined
+        setLanded(k_instruments.size)
+      }, 1000)
+    })
+  }, [list])
   return useMemo(
-    () => (markets.state === 'ready' ? { state: 'ready', data: catalogOf(markets.data, instruments ?? []) } : markets),
-    [markets, instruments],
+    () => (markets.state === 'ready' ? { state: 'ready', data: catalogOf(markets.data, k_instruments) } : markets),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [markets, landed],
   )
 }
 

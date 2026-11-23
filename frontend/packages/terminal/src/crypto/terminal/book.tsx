@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { cn, ExchangeIcon } from '@raikiri/ui'
+import { cn, ExchangeIcon, venueLabel } from '@raikiri/ui'
 import { compact, Corners, Empty, Flash, merged, n, Seg, sums, type Level, type Sum } from '@raikiri/ui/v3'
 import type { Book } from '../api/client'
 import { bp, px, qty, venueColor, type Leg } from '../lib/market'
@@ -8,6 +8,7 @@ import { useTerminal, type BookVenue } from './state'
 
 function levelsOf(book: Book | undefined, leg: Leg, side: 'bids' | 'asks'): Level[] {
   const out: Level[] = []
+  if (!leg.sized) return out
   for (const l of book?.[side] ?? []) {
     const price = n(l.price)
     const size = n(l.size)
@@ -22,18 +23,29 @@ export function useBook(venue: BookVenue) {
   const { pair, books } = useTerminal()
   return useMemo(() => {
     const legs = (pair?.legs ?? []).filter((l) => venue === 'all' || l.venue === venue)
-    const places = Math.max(0, ...legs.map((l) => l.places))
-    const scale = 10 ** places
-    const bids = merged(
-      legs.map((l) => levelsOf(books.get(l.id), l, 'bids')),
-      'bids',
-      scale,
-    )
-    const asks = merged(
-      legs.map((l) => levelsOf(books.get(l.id), l, 'asks')),
-      'asks',
-      scale,
-    )
+    const raw = (side: 'bids' | 'asks') => legs.map((l) => levelsOf(books.get(l.id), l, side))
+    if (venue !== 'all') {
+      const places = Math.max(0, ...legs.map((l) => l.places))
+      const has = legs.some((l) => books.has(l.id))
+      return { bids: merged(raw('bids'), 'bids', 10 ** places), asks: merged(raw('asks'), 'asks', 10 ** places), has, places, legs }
+    }
+    // Venues tick in different sizes, down to a hundred-thousandth of a dollar, so summed as quoted no two levels
+    // meet and the ladder reads as noise. Every price goes to a step of five significant figures instead: a bid
+    // down to it and an ask up, so no level looks better than it is.
+    const all = { bids: raw('bids'), asks: raw('asks') }
+    const near = all.bids.find((b) => b.length > 0)?.[0]?.price ?? all.asks.find((a) => a.length > 0)?.[0]?.price ?? 1
+    const step = 10 ** (Math.floor(Math.log10(near)) - 4)
+    const places = Math.max(0, -Math.round(Math.log10(step)))
+    const to = (side: 'bids' | 'asks') =>
+      all[side].map((book) =>
+        book.map((l) => ({
+          ...l,
+          // the nudge keeps a price already on the step from slipping a whole step on a float's last digit
+          price: (side === 'bids' ? Math.floor(l.price / step + 1e-9) : Math.ceil(l.price / step - 1e-9)) * step,
+        })),
+      )
+    const bids = merged(to('bids'), 'bids', 1 / step)
+    const asks = merged(to('asks'), 'asks', 1 / step)
     const has = legs.some((l) => books.has(l.id))
     return { bids, asks, has, places, legs }
   }, [pair, books, venue])
@@ -52,10 +64,10 @@ export function BookTools() {
           'one',
           <span key="one" className="flex items-center gap-1.5">
             {leg !== undefined && <ExchangeIcon venue={leg.venue} className="size-3.5" />}
-            This venue
+            {leg === undefined ? 'One' : venueLabel(leg.venue)}
           </span>,
         ],
-        ['all', 'All venues'],
+        ['all', 'Combined'],
       ]}
     />
   )
@@ -162,7 +174,7 @@ export function BookWidget() {
       <div className="flex shrink-0 items-center justify-between gap-1.5 px-2 py-1.5">
         <span className="flex items-baseline gap-1 pl-1 text-xs">
           <span className="font-medium text-fg">{pair.base}</span>
-          <span className="text-[10px] text-fg-dim">{bookVenue === 'all' ? 'all venues' : pair.quote}</span>
+          <span className="text-[10px] text-fg-dim">{bookVenue === 'all' ? 'combined' : pair.quote}</span>
         </span>
         <BookTools />
       </div>
