@@ -146,7 +146,7 @@ export function Frame({
         {/* on a wide screen the middle is the page's middle, not what the nav and the right side leave */}
         {center !== undefined && (
           <div className="flex flex-1 justify-center max-[900px]:hidden min-[1200px]:pointer-events-none min-[1200px]:absolute min-[1200px]:inset-x-0 min-[1200px]:top-0 min-[1200px]:h-full min-[1200px]:items-center">
-            <div className="pointer-events-auto w-[min(36rem,42vw)]">{center}</div>
+            <div className="pointer-events-auto w-[min(32rem,34vw)]">{center}</div>
           </div>
         )}
         {(right !== undefined || switcher !== null) && (
