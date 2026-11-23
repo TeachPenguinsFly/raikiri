@@ -41,7 +41,7 @@ export function VenuePicker() {
         <Glyph name="down" className={cn('size-3.5 text-fg-dim transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="v3-pop absolute top-9 right-0 z-50 w-96 rounded-md bg-raised p-1 shadow-[0_0_0_1px_var(--color-line),0_20px_50px_-10px_rgb(0_0_0/0.9)]">
+        <div className="v3-pop absolute top-9 left-0 z-50 max-h-[70vh] w-96 overflow-y-auto rounded-md bg-raised p-1 shadow-[0_0_0_1px_var(--color-line),0_20px_50px_-10px_rgb(0_0_0/0.9)]">
           <div className="grid grid-cols-[1fr_auto_6.5rem] gap-x-3 px-2.5 pt-2 pb-1.5 text-xs text-fg-dim">
             <span>Venue</span>
             <span className="text-right">Mid</span>

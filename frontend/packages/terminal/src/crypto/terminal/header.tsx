@@ -217,6 +217,8 @@ function MarketsPanel({ onDone }: { onDone: () => void }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
         {tab === 'options' ? (
           <OptionRows query={query} />
+        ) : catalog.state === 'loading' ? (
+          <div className="px-4 py-8 text-center text-sm text-fg-dim">Loading markets</div>
         ) : (
           <MarketRows
             rows={rows}
@@ -311,22 +313,20 @@ export function MarketBar() {
   return (
     <div className="flex h-14 shrink-0 items-center gap-6 border-b border-line px-2">
       <MarketPicker />
+      <VenuePicker />
       <Flash value={t?.mid}>
         <span className="mono text-xl font-semibold text-fg">{px(t?.mid, leg?.places ?? 2)}</span>
       </Flash>
       {pair !== undefined && (
         <>
           <Stat label="Spread">{t === undefined ? '—' : bp(((t.ask - t.bid) / t.mid) * 1e4, 2)}</Stat>
-          <Stat label="24h volume">{pair.volume > 0 ? compact(pair.volume, true) : '—'}</Stat>
+          <Stat label="24h volume">{leg !== undefined && leg.volume > 0 ? compact(leg.volume, true) : '—'}</Stat>
           {pair.market === 'perp' && (
             <Stat label="Funding">{rate === undefined ? '—' : `${(rate * 100).toFixed(4)}%`}</Stat>
           )}
           <Stat label="Venues">{pair.legs.length}</Stat>
         </>
       )}
-      <span className="ml-auto">
-        <VenuePicker />
-      </span>
     </div>
   )
 }

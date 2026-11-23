@@ -82,9 +82,20 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     if (fallback !== undefined) pick({ market: fallback.key })
   }, [cat, key, pick])
 
+  // a market opens on one venue alone: forty lines over the candles say nothing, so the others are drawn only once
+  // the reader asks for them in the venues panel
+  const pairKey = pair?.key
+  useEffect(() => {
+    setHiddenLines(new Set(pair?.legs.map((l) => l.venue) ?? []))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairKey])
+
   const ids = useMemo(() => pair?.legs.map((l) => l.id) ?? [], [pair])
   const quotes = useQuotes(ids)
-  const books = useBooks(ids, k_levels)
+  // ladders are heavy: only the chosen venue's is streamed until every venue's is asked for
+  const legId = leg?.id
+  const bookIds = useMemo(() => (bookAll ? ids : legId === undefined ? [] : [legId]), [bookAll, ids, legId])
+  const books = useBooks(bookIds, k_levels)
   const funding = useFunding(ids)
 
   const value: Terminal = {

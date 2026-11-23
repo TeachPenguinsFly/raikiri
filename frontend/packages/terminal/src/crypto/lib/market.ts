@@ -131,7 +131,7 @@ function pairsOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: 
         })
       }
       if (legs.size === 0) continue
-      const sorted = [...legs.values()].sort((a, b) => rank(a.venue) - rank(b.venue))
+      const sorted = [...legs.values()].sort((a, b) => rank(a.venue) - rank(b.venue) || b.volume - a.volume)
       out.push({
         // a perpetual keeps the market's own key, so a market picked before spot came along is still found
         key: kind === 'perp' ? m.key : `${m.key}:spot`,
@@ -154,19 +154,40 @@ export interface Catalog {
   byId: Map<string, { pair: Pair; leg: Leg }>
 }
 
+function catalogOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: Instrument[]): Catalog {
+  const pairs = pairsOf(markets, instruments)
+  return {
+    pairs,
+    byKey: new Map(pairs.map((p) => [p.key, p])),
+    byId: new Map(pairs.flatMap((pair) => pair.legs.map((leg) => [leg.id, { pair, leg }] as const))),
+  }
+}
+
+// kept across mounts like the queries are: forty pages of instruments are not fetched twice
+let k_instruments: Instrument[] | undefined
+
+/** The markets alone make the list and every venue's leg, so the terminal opens on them. Tick sizes and contract
+ *  units come with the instruments, forty-odd pages with every venue on, and sharpen the legs when they land. */
 export function useCatalog(): Query<Catalog> {
-  return useQuery(
-    'catalog',
-    async () => {
-      const [markets, instruments] = await Promise.all([api.markets(), api.instruments()])
-      const pairs = pairsOf(markets, instruments)
-      return {
-        pairs,
-        byKey: new Map(pairs.map((p) => [p.key, p])),
-        byId: new Map(pairs.flatMap((pair) => pair.legs.map((leg) => [leg.id, { pair, leg }] as const))),
-      }
-    },
-    300_000,
+  const markets = useQuery('markets', () => api.markets(), 300_000)
+  const [instruments, setInstruments] = useState<Instrument[] | undefined>(k_instruments)
+  useEffect(() => {
+    if (k_instruments !== undefined) return
+    let live = true
+    api.instruments().then(
+      (all) => {
+        k_instruments = all
+        if (live) setInstruments(all)
+      },
+      () => undefined,
+    )
+    return () => {
+      live = false
+    }
+  }, [])
+  return useMemo(
+    () => (markets.state === 'ready' ? { state: 'ready', data: catalogOf(markets.data, instruments ?? []) } : markets),
+    [markets, instruments],
   )
 }
 
