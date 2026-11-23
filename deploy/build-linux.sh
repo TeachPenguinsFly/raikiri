@@ -14,8 +14,11 @@ DEBUG_OUT="${DEBUG_OUT:-build/linux-debug}"
 # haswell for simdjson's avx2 kernel; x86-64-v3 lacks pclmul
 MARCH="${RAIKIRI_MARCH:-haswell}"
 
-echo "==> builder image"
-docker build --platform linux/amd64 -t "$IMAGE" -f deploy/linux-builder.Dockerfile deploy/
+# SKIP_IMAGE=1 builds in the image already here, for a box that loaded a saved one
+if [ "${SKIP_IMAGE:-0}" != 1 ]; then
+    echo "==> builder image"
+    docker build --platform linux/amd64 -t "$IMAGE" -f deploy/linux-builder.Dockerfile deploy/
+fi
 
 echo "==> deps and build (x86_64, RelWithDebInfo)"
 docker run --rm --platform linux/amd64 \
