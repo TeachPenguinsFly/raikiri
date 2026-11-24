@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router'
 import { cn, ExchangeIcon } from '@raikiri/ui'
 import { CoinIcon, coinName, compact, Flash, Glyph, n } from '@raikiri/ui/v3'
 import { api as options } from '../../api/client'
-import { useQuotes } from '../api/stream'
-import { bp, px, touchOf, useQuery, useRanked, type Pair } from '../lib/market'
+import { api, type CandlePage } from '../api/client'
+import { useQuotes, useTicker } from '../api/stream'
+import { px, touchOf, useQuery, useRanked, usd, type Leg, type Pair } from '../lib/market'
 import { VenuePicker } from './panels'
 import { useTerminal } from './state'
 
@@ -295,37 +296,135 @@ function MarketPicker() {
   )
 }
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+export function Stat({ label, tone, children }: { label: string; tone?: string; children: React.ReactNode }) {
   return (
-    <span className="flex flex-col leading-tight whitespace-nowrap">
+    <span className="flex shrink-0 flex-col leading-tight whitespace-nowrap">
       <span className="text-xs text-fg-dim">{label}</span>
-      <span className="mono text-sm text-fg">{children}</span>
+      <span className={cn('mono text-sm', tone ?? 'text-fg')}>{children}</span>
     </span>
   )
 }
 
-/** the chosen market across the top: its name and the market switcher, the venue it is read from, and the numbers that
- *  matter at a glance */
-export function MarketBar() {
-  const { pair, leg, quotes, funding } = useTerminal()
-  const t = leg === undefined ? undefined : touchOf(quotes.get(leg.id), leg)
-  const rate = leg === undefined ? undefined : n(funding.get(leg.id)?.rate)
+const k_hour_ms = 3_600_000
+const k_day_ms = 24 * k_hour_ms
+const k_dollars = new Set(['USDT', 'USDC', 'USD'])
+
+/** the last 24 hours from hourly bars, with the live price folded into the range */
+function dayOf(page: CandlePage | undefined, last: number | undefined) {
+  if (page === undefined) return undefined
+  const from = Date.now() - k_day_ms
+  // the bars start when the stack did: a shorter history would pass a few hours off as the day
+  if (!page.candles.some((c) => c.t * 1000 < from + k_hour_ms)) return undefined
+  const bars = page.candles.filter((c) => c.t * 1000 >= from)
+  const open = n(bars[0]?.o)
+  const close = last ?? n(bars.at(-1)?.c)
+  if (open === undefined || open <= 0 || close === undefined) return undefined
+  let high = close
+  let low = close
+  for (const c of bars) {
+    const h = n(c.h)
+    const l = n(c.l)
+    if (h !== undefined && h > high) high = h
+    if (l !== undefined && l > 0 && l < low) low = l
+  }
+  return { change: close - open, pct: ((close - open) / open) * 100, high, low }
+}
+
+const two = (v: number) => String(v).padStart(2, '0')
+
+function Countdown({ until }: { until: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(t)
+  }, [])
+  const left = Math.floor((until - now) / 1000)
+  if (left <= 0) return null
   return (
-    <div className="flex h-14 shrink-0 items-center gap-6 border-b border-line px-2">
-      <MarketPicker />
-      <VenuePicker />
-      <Flash value={t?.mid}>
-        <span className="mono text-xl font-semibold text-fg">{px(t?.mid, leg?.places ?? 2)}</span>
-      </Flash>
-      {pair !== undefined && (
+    <span className="text-fg-mid">
+      {two(Math.floor(left / 3600))}:{two(Math.floor(left / 60) % 60)}:{two(left % 60)}
+    </span>
+  )
+}
+
+export const spanLabel = (seconds: number) =>
+  seconds % 3600 === 0 ? `${seconds / 3600}h` : `${Math.round(seconds / 60)}m`
+
+/** what the venue says of the chosen leg; a number it does not give has no tile */
+function Metrics({ pair, leg }: { pair: Pair; leg: Leg }) {
+  const { quotes, funding } = useTerminal()
+  const ticker = useTicker([leg.id]).get(leg.id)
+  const hours = useQuery(`day:${leg.id}`, () => api.candles(leg.id, '1h', 26), 60_000)
+  const last = touchOf(quotes.get(leg.id), leg)?.mid
+  const f = pair.market === 'perp' ? funding.get(leg.id) : undefined
+  const mark = n(f?.mark_price)
+  const index = n(f?.index_price)
+  const rate = n(f?.rate)
+  const next = f?.next_funding_time === undefined ? undefined : Number(f.next_funding_time) / 1e6
+  const day = dayOf(hours.state === 'ready' ? hours.data : undefined, last)
+  const volume = leg.volume > 0 ? leg.volume : k_dollars.has(leg.quote) ? n(ticker?.volume_24h_quote) : undefined
+  const price = mark ?? last
+  const interest = n(ticker?.open_interest)
+  const sign = day === undefined ? '' : day.change > 0 ? '+' : day.change < 0 ? '−' : ''
+  return (
+    <>
+      {mark !== undefined && <Stat label="Mark">{px(mark, leg.places)}</Stat>}
+      {index !== undefined && <Stat label="Index">{px(index, leg.places)}</Stat>}
+      {day !== undefined && (
         <>
-          <Stat label="Spread">{t === undefined ? '—' : bp(((t.ask - t.bid) / t.mid) * 1e4, 2)}</Stat>
-          <Stat label="24h volume">{leg !== undefined && leg.volume > 0 ? compact(leg.volume, true) : '—'}</Stat>
-          {pair.market === 'perp' && (
-            <Stat label="Funding">{rate === undefined ? '—' : `${(rate * 100).toFixed(4)}%`}</Stat>
-          )}
+          <Stat
+            label="24h change"
+            tone={day.change > 0 ? 'text-up' : day.change < 0 ? 'text-down' : 'text-fg-mid'}
+          >
+            {sign}
+            {px(Math.abs(day.change), leg.places)} ({sign}
+            {Math.abs(day.pct).toFixed(2)}%)
+          </Stat>
+          <Stat label="24h high">{px(day.high, leg.places)}</Stat>
+          <Stat label="24h low">{px(day.low, leg.places)}</Stat>
         </>
       )}
+      {volume !== undefined && volume > 0 && <Stat label="24h volume">{usd(volume)}</Stat>}
+      {interest !== undefined && interest > 0 && price !== undefined && (
+        <Stat label="Open interest">{usd(interest * price)}</Stat>
+      )}
+      {rate !== undefined && (
+        <Stat
+          label={
+            f?.interval_seconds === undefined || f.interval_seconds === null
+              ? 'Funding'
+              : `Funding · ${spanLabel(f.interval_seconds)}`
+          }
+        >
+          <span className="flex items-baseline gap-2">
+            <span className={rate > 0 ? 'text-up' : rate < 0 ? 'text-down' : undefined}>
+              {(rate * 100).toFixed(4)}%
+            </span>
+            {next !== undefined && <Countdown until={next} />}
+          </span>
+        </Stat>
+      )}
+    </>
+  )
+}
+
+/** the chosen market across the top: its name and the market switcher, the venue it is read from, and the numbers an
+ *  exchange puts beside the price */
+export function MarketBar() {
+  const { pair, leg, quotes } = useTerminal()
+  const t = leg === undefined ? undefined : touchOf(quotes.get(leg.id), leg)
+  return (
+    <div className="flex h-14 shrink-0 items-center gap-5 border-b border-line px-2">
+      <MarketPicker />
+      <VenuePicker />
+      {/* the pickers stay outside the scroller: it would clip the panels they open */}
+      <div className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto [scrollbar-width:none]">
+        <Flash value={t?.mid}>
+          <span className="mono text-xl font-semibold text-fg">{px(t?.mid, leg?.places ?? 2)}</span>
+        </Flash>
+        {/* keyed so one leg's day never shows under another's name while the next loads */}
+        {pair !== undefined && leg !== undefined && <Metrics key={leg.id} pair={pair} leg={leg} />}
+      </div>
     </div>
   )
 }

@@ -18,6 +18,22 @@ export type StreamFrame = Schema<'StreamFrame'>
 export type Problem = Schema<'Problem'>
 type Orders = operations['listOrders']['responses'][200]['content']['application/json']
 
+/** one bucket of a contract's history: the last sample of each field in it, absent where the venue gave none */
+export interface MetricPoint {
+  /** the bucket's open, ms */
+  t: number
+  funding_rate?: string
+  mark?: string
+  index?: string
+  open_interest?: string
+}
+
+export interface MetricPage {
+  instrument_id: string
+  interval: string
+  points: MetricPoint[]
+}
+
 /** where the market-data api answers: at the root for the terminal on its own, under a prefix inside a larger shell */
 export let k_base = ''
 
@@ -83,6 +99,8 @@ export const api = {
   markets: () => get<Market[]>('/v1/markets'),
   candles: (id: string, interval: string, limit = 1000) =>
     get<CandlePage>('/v1/candles', { instrument_id: id, interval, limit: String(limit) }),
+  metricsHistory: (id: string, interval: string, limit = 500) =>
+    get<MetricPage>('/v1/metrics/history', { instrument_id: id, interval, limit: String(limit) }),
   instruments,
   positions: () => get<Position[]>('/v1/positions'),
   orders: () => get<Orders>('/v1/orders', { open: 'true' }),

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { group, split, Workspace, type Preset, type Widget } from '@raikiri/ui/v3'
 import { BookWidget } from './book'
-import { ChartWidget } from './chart'
 import { MarketBar } from './header'
+import { MarketTabs, MarketWidget } from './market-tabs'
 import { VenuesWidget } from './panels'
 import { TerminalProvider, useTerminal } from './state'
 
 // the public terminal reads markets; order entry is the private desk's, which adds its widgets to these
 export const terminalWidgets: Record<string, Widget> = {
-  chart: { title: 'Chart', icon: 'chart', render: () => <ChartWidget /> },
+  chart: { title: 'Chart', icon: 'chart', render: () => <MarketWidget />, tools: () => <MarketTabs /> },
   book: { title: 'Book', icon: 'grip', render: () => <BookWidget /> },
   venues: { title: 'Venues', icon: 'layers', render: () => <VenuesWidget /> },
 }

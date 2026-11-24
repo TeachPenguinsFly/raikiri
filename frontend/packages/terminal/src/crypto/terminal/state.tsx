@@ -44,7 +44,7 @@ export function useTerminal(): Terminal {
 }
 
 const k_default = 'crypto:BTC/USD*'
-const k_levels = 25
+const k_levels = 100
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = useSearchParams()
