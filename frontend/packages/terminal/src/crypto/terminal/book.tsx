@@ -23,6 +23,29 @@ type Side = "bids" | "asks";
 type View = "both" | Side;
 type Unit = "base" | "usd";
 
+const k_stale_ns = 10e9;
+const k_saved = "raikiri.book.view";
+
+function saved(): { view: View | undefined; unit: Unit | undefined } {
+  try {
+    const v = JSON.parse(localStorage.getItem(k_saved) ?? "{}") as { view?: unknown; unit?: unknown };
+    return {
+      view: v.view === "both" || v.view === "bids" || v.view === "asks" ? v.view : undefined,
+      unit: v.unit === "base" || v.unit === "usd" ? v.unit : undefined,
+    };
+  } catch {
+    return { view: undefined, unit: undefined };
+  }
+}
+
+function save(v: { view: View; unit: Unit }) {
+  try {
+    localStorage.setItem(k_saved, JSON.stringify(v));
+  } catch {
+    // private windows refuse storage; the choice then lasts for the tab
+  }
+}
+
 function levelsOf(book: Book | undefined, leg: Leg, side: Side): Level[] {
   const out: Level[] = [];
   if (!leg.sized) return out;
@@ -50,15 +73,31 @@ const stepLabel = (step: number) =>
 /** The ladder of one venue, or of every venue summed by price, sizes in the base asset. A venue's ladder comes as
  *  the venue ticks unless a coarser step is picked; the summed one always sits on a step. */
 export function useBook(venue: BookVenue, pick?: number) {
-  const { pair, books } = useTerminal();
+  const { pair, leg, books } = useTerminal();
+  // Combined sums the venues quoting in the chosen venue's currency: a dollar book under a tether book is a
+  // different price for the same coin, and the two summed cross by the difference
+  const quote = leg?.quote;
   const legs = useMemo(
     () =>
-      (pair?.legs ?? []).filter((l) => venue === "all" || l.venue === venue),
-    [pair, venue],
+      (pair?.legs ?? []).filter((l) =>
+        venue === "all"
+          ? quote === undefined || l.quote === quote
+          : l.venue === venue,
+      ),
+    [pair, venue, quote],
   );
   const raw = useMemo(() => {
-    const of = (side: Side) =>
-      legs.map((l) => levelsOf(books.get(l.id), l, side));
+    // a venue whose ladder stopped moving while the others went on would sit across them
+    let newest = 0;
+    for (const l of legs)
+      newest = Math.max(newest, Number(books.get(l.id)?.ts_event ?? 0));
+    const live = (l: Leg) => {
+      const book = books.get(l.id);
+      return legs.length > 1 && Number(book?.ts_event ?? 0) < newest - k_stale_ns
+        ? undefined
+        : book;
+    };
+    const of = (side: Side) => legs.map((l) => levelsOf(live(l), l, side));
     const bids = of("bids");
     const asks = of("asks");
     const best = (side: Level[][], better: (...v: number[]) => number) => {
@@ -376,8 +415,10 @@ const k_views: ReadonlyArray<readonly [View, string, string, string]> = [
 export function BookWidget() {
   const { pair, bookVenue, setDraft } = useTerminal();
   const [pick, setPick] = useState<number | undefined>(undefined);
-  const [view, setView] = useState<View>("both");
-  const [unit, setUnit] = useState<Unit>("base");
+  const [view, setViewState] = useState<View>(() => saved().view ?? "both");
+  const [unit, setUnitState] = useState<Unit>(() => saved().unit ?? "base");
+  const setView = (v: View) => (setViewState(v), save({ view: v, unit }));
+  const setUnit = (u: Unit) => (setUnitState(u), save({ view, unit: u }));
   const book = useBook(bookVenue, pick);
   const [hover, setHover] = useState<{
     side: Side;
