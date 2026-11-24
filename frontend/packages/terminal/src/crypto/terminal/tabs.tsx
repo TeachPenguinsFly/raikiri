@@ -11,7 +11,7 @@ export function Tabs<T extends string>({
   onChange: (tab: T) => void
 }) {
   return (
-    <div className="flex h-9 shrink-0 items-stretch gap-4 border-b border-line px-3" role="tablist">
+    <div className="flex h-9 shrink-0 items-stretch gap-4 overflow-x-auto border-b border-line px-3 whitespace-nowrap" role="tablist">
       {tabs.map(([id, label]) => (
         <button
           key={id}

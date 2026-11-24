@@ -17,7 +17,27 @@ export type Position = Schema<'Position'>
 export type Order = Schema<'Order'>
 export type StreamFrame = Schema<'StreamFrame'>
 export type Problem = Schema<'Problem'>
+export type Fill = Schema<'Fill'>
+export type PnlIncrement = Schema<'PnlIncrement'>
+export type PnlKind = Schema<'PnlKind'>
+export type ParentOrder = Schema<'ParentOrder'>
 type Orders = operations['listOrders']['responses'][200]['content']['application/json']
+type Fills = operations['listFills']['responses'][200]['content']['application/json']
+type Pnl = operations['listPnl']['responses'][200]['content']['application/json']
+type Parents = operations['listParentOrders']['responses'][200]['content']['application/json']
+
+/** one page of a history route: a market to narrow to, and where the page before left off */
+export interface PageAsk {
+  instrument_id?: string | undefined
+  cursor?: string | undefined
+  limit?: number | undefined
+}
+
+const pageOf = (ask: PageAsk): Record<string, string | undefined> => ({
+  instrument_id: ask.instrument_id,
+  cursor: ask.cursor,
+  limit: ask.limit === undefined ? undefined : String(ask.limit),
+})
 
 /** one bucket of a contract's history: the last sample of each field in it, absent where the venue gave none */
 export interface MetricPoint {
@@ -105,5 +125,11 @@ export const api = {
   instruments,
   positions: () => get<Position[]>('/v1/positions'),
   orders: () => get<Orders>('/v1/orders', { open: 'true' }),
+  /** orders that can no longer fill, newest first */
+  closedOrders: (ask: PageAsk = {}) => get<Orders>('/v1/orders', { open: 'false', ...pageOf(ask) }),
+  fills: (ask: PageAsk = {}) => get<Fills>('/v1/fills', pageOf(ask)),
+  /** the ledger's increments of one kind, newest first; the route takes no market */
+  pnl: (kind: PnlKind, ask: Omit<PageAsk, 'instrument_id'> = {}) => get<Pnl>('/v1/pnl', { kind, ...pageOf(ask) }),
+  parents: () => get<Parents>('/v1/joe/parents'),
   streamToken: () => get<Schema<'StreamToken'>>('/v1/stream/token'),
 }
