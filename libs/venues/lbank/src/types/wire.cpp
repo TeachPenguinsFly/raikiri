@@ -126,12 +126,14 @@ std::expected<std::span<const WirePerpMarket>, WireError> parse_perp_markets(std
                                const auto symbol = req_text(row, "symbol");
                                const auto interval = text_of(row, "positionFeeTime");
                                const auto next = text_of(row, "nextFeeTime");
-                               if (!symbol || !interval || !next) {
+                               const auto turnover = text_of(row, "turnover");
+                               if (!symbol || !interval || !next || !turnover) {
                                    return std::unexpected(WireError::MissingField);
                                }
                                return WirePerpMarket{.symbol = *symbol,
                                                      .interval_s = static_cast<std::uint32_t>(u64_text(*interval)),
-                                                     .next_fee_ms = u64_text(*next)};
+                                                     .next_fee_ms = u64_text(*next),
+                                                     .turnover = u64_text(turnover->substr(0, turnover->find('.')))};
                            });
 }
 

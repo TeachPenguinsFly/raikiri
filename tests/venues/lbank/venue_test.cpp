@@ -12,6 +12,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace raikiri::venues::lbank {
 namespace {
@@ -120,6 +121,26 @@ TEST(LbankPerpCatalogue, ReadsTheFundingIntervalAndTheContractWithoutARate) {
         EXPECT_EQ(row.interval_s, 28'800U) << row.symbol;
         EXPECT_EQ(row.next_fee_ms, 1'790'985'600'000ULL) << row.symbol;
     }
+    EXPECT_EQ((*rows)[1].symbol, "BTCUSDT");
+    EXPECT_EQ((*rows)[1].turnover, 575'287'856ULL);
+    EXPECT_EQ((*rows)[3].turnover, 0U);
+}
+
+TEST(LbankPerpCatalogue, RanksTheBusiestContractsByTurnover) {
+    const auto body = fixture("rest_market_data.json");
+    const auto storage = std::make_unique<PerpMarketBuffer>();
+    const auto rows = parse_perp_markets(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    std::vector<std::uint64_t> turnovers;
+    for (const auto& row : *rows) {
+        turnovers.push_back(row.turnover);
+    }
+    EXPECT_EQ(turnover_floor(turnovers, 1), 575'287'856ULL);
+    EXPECT_EQ(turnover_floor(turnovers, 2), 151'609'602ULL);
+    // 10TAUSDT has not traded, so a floor wide enough for it still leaves it out
+    EXPECT_EQ(turnover_floor(turnovers, 4), 1U);
+    EXPECT_EQ(turnover_floor(turnovers, 9), 1U);
+    EXPECT_EQ(turnover_floor(turnovers, 0), UINT64_MAX);
 }
 
 TEST(LbankPerpStream, ClassifiesEveryFrame) {

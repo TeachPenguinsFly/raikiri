@@ -24,6 +24,7 @@ struct Market {
     std::uint64_t last_trade_id{0};
     std::uint64_t touched_frame{0};
     std::uint32_t interval_s{0};
+    std::uint64_t turnover{0};
     InstrumentId book{};
     std::string tick_text;
 };

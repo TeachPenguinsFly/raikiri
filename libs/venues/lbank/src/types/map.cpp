@@ -2,8 +2,10 @@
 #include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/lbank/map.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <span>
 
 namespace raikiri::venues::lbank {
@@ -184,6 +186,18 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& 
     out.ts_event = s_or(wire.time_s, UnixNanos{});
     out.ts_init = ts_init;
     return out;
+}
+
+std::uint64_t turnover_floor(std::vector<std::uint64_t> turnovers, std::size_t keep) {
+    if (keep == 0) {
+        return UINT64_MAX;
+    }
+    if (turnovers.size() <= keep) {
+        return 1;
+    }
+    const auto nth = turnovers.begin() + static_cast<std::ptrdiff_t>(keep - 1);
+    std::nth_element(turnovers.begin(), nth, turnovers.end(), std::greater<>{});
+    return std::max<std::uint64_t>(*nth, 1);
 }
 
 std::optional<FundingUpdate>

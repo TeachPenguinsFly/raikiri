@@ -38,6 +38,8 @@ struct WirePerpMarket {
     std::string_view symbol;
     std::uint32_t interval_s{0};
     std::uint64_t next_fee_ms{0};
+    // the day's, in whole quote units
+    std::uint64_t turnover{0};
 };
 
 struct PerpMarketBuffer {
@@ -112,7 +114,7 @@ struct WireTrade {
     bool buy{false};
 };
 
-inline constexpr std::size_t k_max_trades = 256;
+inline constexpr std::size_t k_max_trades = 1024;
 
 struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};

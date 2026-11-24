@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace raikiri::venues::lbank {
 
@@ -42,6 +43,9 @@ apply_levels(const WireBook& wire, std::string_view symbol, const InstrumentBase
 [[nodiscard]] bool same_touch(const book::Ladders& ladders, const WireRestDepth& wire, const InstrumentBase& base);
 
 [[nodiscard]] std::optional<TradeTick> map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init);
+
+// the day's turnover that places a contract among the `keep` busiest; never 0, so an idle contract stays out
+[[nodiscard]] std::uint64_t turnover_floor(std::vector<std::uint64_t> turnovers, std::size_t keep);
 
 // settlements fall on multiples of the interval since the epoch
 [[nodiscard]] std::optional<FundingUpdate>

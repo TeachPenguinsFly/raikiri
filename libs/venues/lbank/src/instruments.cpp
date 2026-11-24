@@ -97,9 +97,9 @@ private:
         if (!markets.has_value()) {
             return std::unexpected{broken(markets.error())};
         }
-        std::unordered_map<std::string, std::uint32_t> intervals;
+        std::unordered_map<std::string, WirePerpMarket> listed;
         for (const auto& row : *markets) {
-            intervals.emplace(row.symbol, row.interval_s);
+            listed.emplace(row.symbol, row);
         }
 
         const auto body = get(ep::k_perp_instruments);
@@ -117,8 +117,9 @@ private:
         std::size_t suspended = 0;
         for (const auto& row : *rows) {
             suspended += row.suspended ? 1U : 0U;
-            const auto interval = intervals.find(std::string{row.symbol});
-            const auto instrument = map_perp_instrument(row, interval == intervals.end() ? 0U : interval->second);
+            const auto market_row = listed.find(std::string{row.symbol});
+            const auto stats = market_row == listed.end() ? WirePerpMarket{} : market_row->second;
+            const auto instrument = map_perp_instrument(row, stats.interval_s);
             if (!instrument.has_value()) {
                 continue;
             }
@@ -128,7 +129,8 @@ private:
             }
             const auto& base = base_of(*instrument);
             auto& market = state_->markets[id->symbol().raw];
-            market.interval_s = interval == intervals.end() ? 0U : interval->second;
+            market.interval_s = stats.interval_s;
+            market.turnover = stats.turnover;
             market.tick_text = tick_text(base.tick_size);
             loaded.push_back(*state_->instruments.find(*id));
         }

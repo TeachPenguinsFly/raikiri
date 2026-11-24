@@ -28,6 +28,8 @@ constexpr char k_key_sep = '\x1f';
 constexpr std::uint64_t k_check_interval_ns = 250'000'000ULL;
 constexpr std::uint64_t k_rate_limited_pause_ns = 60'000'000'000ULL;
 constexpr std::size_t k_checks_in_flight = 4;
+// the venue holds about 83 sockets of 20 topics from one ip and the books take 43 of them
+constexpr std::size_t k_own_trade_topics = 300;
 
 // a key is "<topic>\x1f<filter>"
 [[nodiscard]] std::string frame_for(std::string_view key, std::size_t local_no) {
@@ -273,10 +275,28 @@ public:
             key = std::string{ep::k_topic_book} + k_key_sep + std::string{ep::k_exchange} + '_' + std::string{symbol} +
                   '_' + market->tick_text;
             break;
-        case exec::SubKind::Trades:
-            // the empty filter streams every print on one topic, but some 30 s behind, so each contract takes a topic
-            key = std::string{ep::k_topic_trades} + k_key_sep + std::string{ep::k_exchange} + '_' + std::string{symbol};
+        case exec::SubKind::Trades: {
+            // the empty filter streams every print on one topic, some 30 s behind; a contract's own topic is live,
+            // but there are sockets for only the busiest, whose late copies fall to the trade id
+            if (trade_floor_ == 0) {
+                std::vector<std::uint64_t> turnovers;
+                turnovers.reserve(state_->markets.size());
+                for (const auto& one : state_->markets) {
+                    turnovers.push_back(one.turnover);
+                }
+                trade_floor_ = turnover_floor(std::move(turnovers), k_own_trade_topics);
+            }
+            auto own = std::string{ep::k_topic_trades} + k_key_sep + std::string{ep::k_exchange} + '_' +
+                       std::string{symbol};
+            if (market->turnover >= trade_floor_ && own_trade_topics_ < k_own_trade_topics && !asked_.contains(own)) {
+                if (auto asked = ask(std::move(own), instrument); !asked.has_value()) {
+                    return asked;
+                }
+                ++own_trade_topics_;
+            }
+            key = std::string{ep::k_topic_trades} + k_key_sep;
             break;
+        }
         case exec::SubKind::Funding:
         case exec::SubKind::MarkPrice:
             key = std::string{ep::k_topic_overview} + k_key_sep + std::string{ep::k_product_group};
@@ -284,18 +304,7 @@ public:
         case exec::SubKind::Kline:
             return DataClient::subscribe(kind, instrument);
         }
-        if (!asked_.insert(key).second) {
-            return {};
-        }
-        if (key.starts_with(ep::k_topic_book)) {
-            state_->markets[instrument.symbol().raw].book = instrument;
-        }
-        const std::array<std::string, 1> one{std::move(key)};
-        if (!pool_.subscribe(one)) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "lbank: connection pool is full")};
-        }
-        return {};
+        return ask(std::move(key), instrument);
     }
 
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
@@ -324,6 +333,21 @@ public:
     }
 
 private:
+    std::expected<void, exec::VenueError> ask(std::string key, InstrumentId instrument) {
+        if (!asked_.insert(key).second) {
+            return {};
+        }
+        if (key.starts_with(ep::k_topic_book)) {
+            state_->markets[instrument.symbol().raw].book = instrument;
+        }
+        const std::array<std::string, 1> one{std::move(key)};
+        if (!pool_.subscribe(one)) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "lbank: connection pool is full")};
+        }
+        return {};
+    }
+
     [[nodiscard]] static std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string> frames;
         frames.reserve(keys.size());
@@ -453,6 +477,8 @@ private:
     std::size_t cursor_{0};
     std::size_t broken_cursor_{0};
     std::uint64_t turns_{0};
+    std::uint64_t trade_floor_{0};
+    std::size_t own_trade_topics_{0};
     std::uint64_t next_check_ns_{0};
     std::uint64_t checks_{0};
     std::uint64_t drifted_{0};
