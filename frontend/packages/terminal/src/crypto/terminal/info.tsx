@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ExchangeIcon, venueLabel } from '@raikiri/ui'
-import { CoinIcon, compact, Empty } from '@raikiri/ui/v3'
+import { CoinIcon, coinIdAsync, coinName, compact, Empty } from '@raikiri/ui/v3'
 import { px, usd, type Leg, type Pair } from '../lib/market'
 import { spanLabel, Stat } from './header'
 import { useTerminal } from './state'
@@ -38,17 +38,23 @@ async function ask<T>(path: string): Promise<T> {
   return (await r.json()) as T
 }
 
-/** the coin behind a base asset, null when none carries the symbol */
-async function coinOf(base: string): Promise<Coin | null> {
+/** a ticker scripts/coin_icons.py left unmatched: the largest coin CoinGecko's search finds under it */
+async function search(base: string): Promise<string | undefined> {
   // venues list small coins by the thousand or the million: 1000PEPE and kPEPE are PEPE
   const symbol = base.replace(/^(1000000|10000|1000|1M|k)(?=[A-Z])/, '').toLowerCase()
   const { coins } = await ask<{ coins: Found[] }>(`search?query=${encodeURIComponent(symbol)}`)
-  const best = coins
+  return coins
     .filter((c) => c.symbol.toLowerCase() === symbol)
-    .sort((a, b) => (a.market_cap_rank ?? Infinity) - (b.market_cap_rank ?? Infinity))[0]
-  if (best === undefined) return null
+    .sort((a, b) => (a.market_cap_rank ?? Infinity) - (b.market_cap_rank ?? Infinity))[0]?.id
+}
+
+/** the coin behind a base asset, null when none carries the symbol or a stock does */
+async function coinOf(base: string): Promise<Coin | null> {
+  const known = await coinIdAsync(base)
+  const id = known === null ? undefined : (known ?? (await search(base)))
+  if (id === undefined) return null
   return ask<Coin>(
-    `coins/${encodeURIComponent(best.id)}?localization=false&tickers=false&community_data=false&developer_data=false`,
+    `coins/${encodeURIComponent(id)}?localization=false&tickers=false&community_data=false&developer_data=false`,
   )
 }
 
@@ -163,11 +169,12 @@ function CoinFacts({ coin, base }: { coin: Coin; base: string }) {
   )
 }
 
-function Contract({ pair, leg }: { pair: Pair; leg: Leg }) {
+function Contract({ pair, leg, asset }: { pair: Pair; leg: Leg; asset: string | undefined }) {
   const { funding } = useTerminal()
   const every = pair.market === 'perp' ? funding.get(leg.id)?.interval_seconds : undefined
   return (
     <Tiles>
+      {asset !== undefined && <Stat label="Asset">{asset}</Stat>}
       <Stat label="Venue">
         <span className="flex items-center gap-1.5 font-sans">
           <ExchangeIcon venue={leg.venue} className="size-3.5" />
@@ -188,23 +195,29 @@ function Contract({ pair, leg }: { pair: Pair; leg: Leg }) {
   )
 }
 
+const k_classes: Record<string, string> = { equity: 'Stock', index: 'Index', commodity: 'Commodity', fx: 'Currency' }
+
 /** what the coin is, and what the chosen venue's contract on it is */
 export function InfoTab() {
   const { pair, leg } = useTerminal()
+  // a market admind keys by a class other than crypto is no coin, whatever coin shares its ticker
+  const asset = pair === undefined ? undefined : k_classes[pair.key.split(':')[0] ?? '']
   // a listing split off its market for quoting far from it is not the coin its ticker names
-  const facts = useCoin(pair === undefined || pair.stray ? undefined : pair.base)
+  const facts = useCoin(pair === undefined || pair.stray || asset !== undefined ? undefined : pair.base)
   if (pair === undefined || leg === undefined) return <Empty title="Pick a market" />
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto p-4">
       <div className="flex items-center gap-2.5">
         <CoinIcon symbol={pair.base} plain={pair.stray} className="size-7" />
         <span className="text-base font-semibold text-fg">
-          {(facts.state === 'ready' ? facts.coin.name : undefined) ?? pair.base}
+          {(facts.state === 'ready' ? facts.coin.name : undefined) ??
+            (pair.stray ? undefined : coinName(pair.base)) ??
+            pair.base}
         </span>
         <span className="text-sm text-fg-dim">{pair.base}</span>
       </div>
-      <Contract pair={pair} leg={leg} />
-      {pair.stray || facts.state === 'none' ? (
+      <Contract pair={pair} leg={leg} asset={asset} />
+      {asset !== undefined ? null : pair.stray || facts.state === 'none' ? (
         <Empty title={`No coin facts for ${pair.base}`} />
       ) : facts.state === 'failed' ? (
         <Empty title="Coin facts unavailable" />
