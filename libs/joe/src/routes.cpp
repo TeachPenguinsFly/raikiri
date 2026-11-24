@@ -28,6 +28,13 @@ struct PeggedBody {
     std::uint64_t min_interval_ms{1000};
 };
 
+struct TriggerBody {
+    std::optional<std::string> price{};
+    std::string source{"mid"};
+    std::uint32_t callback_bp{0};
+    std::optional<std::string> activation{};
+};
+
 struct NewParentBody {
     std::string symbol;
     std::string market{"perp"};
@@ -47,6 +54,7 @@ struct NewParentBody {
     std::optional<std::string> depth_band_bp{};
     std::optional<IcebergBody> iceberg{};
     std::optional<PeggedBody> pegged{};
+    std::optional<TriggerBody> trigger{};
     std::optional<std::string> venue{};
     bool post_only{false};
     std::string client_tag{};
@@ -105,6 +113,9 @@ struct ParentDto {
     bool post_only{false};
     std::optional<IcebergBody> iceberg{};
     std::optional<PeggedBody> pegged{};
+    std::optional<TriggerBody> trigger{};
+    std::optional<std::string> trigger_level{};
+    std::optional<std::string> triggered{};
     std::optional<std::string> working_price{};
     std::optional<std::string> hold{};
     std::optional<std::string> client_tag{};
@@ -385,7 +396,15 @@ template <typename T> http::Response json(const T& value, int status = 200) {
                                 .threshold_ticks = spec.peg.threshold_ticks,
                                 .min_interval_ms = spec.peg.min_interval_ns / 1'000'000};
     }
-    if (const auto* live = parent.live(); resting(spec.algo) && live != nullptr) {
+    if (triggered(spec.algo)) {
+        out.trigger = TriggerBody{.price = maybe(spec.trigger.price),
+                                  .source = std::string{to_string(spec.trigger.on)},
+                                  .callback_bp = spec.trigger.callback_bp,
+                                  .activation = maybe(spec.trigger.activation)};
+        out.trigger_level = maybe(trigger_level(spec, parent.trigger()));
+        out.triggered = maybe(parent.trigger().fired);
+    }
+    if (const auto* live = parent.live(); rests(spec) && live != nullptr) {
         out.working_price = decimal(live->limit);
     }
     if (parent.slot().hold != Hold::None && !terminal(parent.status())) {
@@ -476,8 +495,19 @@ template <typename T> http::Response json(const T& value, int status = 200) {
         spec.algo = Algo::Iceberg;
     } else if (in.algo == "pegged") {
         spec.algo = Algo::Pegged;
+    } else if (in.algo == "stop") {
+        spec.algo = Algo::Stop;
+    } else if (in.algo == "take_profit") {
+        spec.algo = Algo::TakeProfit;
+    } else if (in.algo == "trailing_stop") {
+        spec.algo = Algo::TrailingStop;
     } else {
-        return std::unexpected{std::string{"algo is sor, twap, vwap, pov, iceberg or pegged"}};
+        return std::unexpected{
+            std::string{"algo is sor, twap, vwap, pov, iceberg, pegged, stop, take_profit or trailing_stop"}};
+    }
+    if (in.trigger.has_value() != triggered(spec.algo)) {
+        return std::unexpected{
+            std::string{"trigger goes with algo stop, take_profit or trailing_stop, and those need it"}};
     }
     if (in.iceberg.has_value() != (spec.algo == Algo::Iceberg)) {
         return std::unexpected{std::string{"iceberg goes with algo iceberg, and that algo needs it"}};
@@ -485,8 +515,10 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     if (in.pegged.has_value() && spec.algo != Algo::Pegged) {
         return std::unexpected{std::string{"pegged goes with algo pegged"}};
     }
-    if ((in.venue.has_value() || in.post_only) && !resting(spec.algo)) {
-        return std::unexpected{std::string{"venue and post_only go with a resting algo"}};
+    if ((in.post_only && !resting(spec.algo)) ||
+        (in.venue.has_value() && !resting(spec.algo) && !triggered(spec.algo))) {
+        return std::unexpected{
+            std::string{"post_only goes with a resting algo, venue with a resting or a triggered one"}};
     }
     spec.post_only = in.post_only;
     if (in.venue.has_value()) {
@@ -522,6 +554,20 @@ template <typename T> http::Response json(const T& value, int status = 200) {
                     .offset_bp = peg.offset_bp,
                     .threshold_ticks = peg.threshold_ticks,
                     .min_interval_ns = peg.min_interval_ms * 1'000'000ULL};
+    }
+    if (in.trigger.has_value()) {
+        const auto price = read_decimal(in.trigger->price);
+        const auto activation = read_decimal(in.trigger->activation);
+        if (!price.has_value() || !activation.has_value()) {
+            return std::unexpected{std::string{"trigger.price and trigger.activation are decimals as text"}};
+        }
+        if (in.trigger->source != "mid" && in.trigger->source != "last") {
+            return std::unexpected{std::string{"trigger.source is mid or last"}};
+        }
+        spec.trigger = {.price = *price,
+                        .on = in.trigger->source == "last" ? TriggerOn::Last : TriggerOn::Mid,
+                        .callback_bp = in.trigger->callback_bp,
+                        .activation = *activation};
     }
     if (in.profile == "flat" || in.profile == "u" || in.profile == "recorded") {
         spec.profile = in.profile == "u" ? Profile::U : in.profile == "recorded" ? Profile::Recorded : Profile::Flat;

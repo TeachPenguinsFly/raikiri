@@ -2,6 +2,7 @@
 
 #include <raikiri/joe/order.hpp>
 #include <raikiri/joe/trace.hpp>
+#include <raikiri/joe/trigger.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -98,6 +99,8 @@ struct Slot {
     std::uint32_t rejects{0};
     Hold hold{Hold::None};
     bool no_modify{false};
+    // the trailing mark the journal last heard
+    FixedE9 marked{FixedE9::undef()};
 };
 
 enum class TransitionError : std::uint8_t { NotPending, NotWorking, NotPaused, Terminal };
@@ -147,6 +150,11 @@ public:
     [[nodiscard]] bool owns(std::uint64_t child_id) const noexcept;
 
     void market_trade(FixedE9 qty, FixedE9 price) noexcept;
+
+    // the price that fired a trigger is the arrival its fills are measured against
+    void set_trigger(UnixNanos now, const TriggerState& state) noexcept;
+
+    [[nodiscard]] const TriggerState& trigger() const noexcept { return trigger_; }
 
     // consecutive risk refusals; a submit that goes through clears it
     std::uint32_t refused() noexcept { return ++refusals_; }
@@ -245,6 +253,7 @@ private:
     std::vector<VenueRow> retired_;
     std::uint64_t retired_count_{0};
     Slot slot_{};
+    TriggerState trigger_{};
     std::vector<UnixNanos> times_;
     std::vector<std::uint64_t> weights_;
     Trace trace_;

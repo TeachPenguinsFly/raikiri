@@ -64,6 +64,8 @@ struct VenueState {
 
     // the 24h table reaches these: funding subscriptions on perp, every subscription on spot
     std::vector<InstrumentId> ticker_instruments;
+    // from the open-interest poll, stamped into the 24h record
+    std::unordered_map<InstrumentId, FixedE9> open_interest;
 
     // seeds are rest calls the socket pool does not pace; the queue paces them and meter_market_data charges them
     std::vector<InstrumentId> pending_seeds;

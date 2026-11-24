@@ -34,6 +34,7 @@ venues:
       - { match: "/fapi/v1/premiumIndex", cost: 1 }
       - { match: "/fapi/v1/fundingInfo", cost: 1 }
       - { match: "/fapi/v1/ticker/24hr", cost: 40 }
+      - { match: "/fapi/v1/openInterest", cost: 1 }
       - { match: "/fapi/v1/depth", cost: 20 }
       - { match: "/fapi/v1/depth?limit=5", cost: 2 }
       - { match: "/fapi/v1/depth?limit=10", cost: 2 }

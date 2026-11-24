@@ -61,6 +61,15 @@ struct Row {
     ChildRow child{};
     std::uint8_t status{0};
     std::string reason{};
+    // rows from before triggers carry none of these
+    std::int64_t trigger_price{FixedE9::undef().raw};
+    std::uint8_t trigger_on{0};
+    std::uint32_t callback_bp{0};
+    std::int64_t activation{FixedE9::undef().raw};
+    bool trigger_active{false};
+    std::int64_t trigger_mark{FixedE9::undef().raw};
+    std::uint64_t trigger_fired{0};
+    std::int64_t trigger_fired_price{FixedE9::undef().raw};
 };
 
 } // namespace parent_wire
@@ -109,7 +118,15 @@ std::string encode_parent_record(const ParentRecord& record) {
                                    .sent = record.child.sent.ns,
                                    .tif = static_cast<std::uint8_t>(record.child.tif)},
                          .status = static_cast<std::uint8_t>(record.status),
-                         .reason = record.reason};
+                         .reason = record.reason,
+                         .trigger_price = spec.trigger.price.raw,
+                         .trigger_on = static_cast<std::uint8_t>(spec.trigger.on),
+                         .callback_bp = spec.trigger.callback_bp,
+                         .activation = spec.trigger.activation.raw,
+                         .trigger_active = record.trigger.active,
+                         .trigger_mark = record.trigger.mark.raw,
+                         .trigger_fired = record.trigger.fired.ns,
+                         .trigger_fired_price = record.trigger.price.raw};
     row.times.reserve(record.times.size());
     for (const auto at : record.times) {
         row.times.push_back(at.ns);
@@ -153,6 +170,14 @@ std::optional<ParentRecord> decode_parent_record(std::string_view text) {
                 .offset_bp = row.offset_bp,
                 .threshold_ticks = row.threshold_ticks,
                 .min_interval_ns = row.min_interval_ns};
+    spec.trigger = {.price = FixedE9::from_raw(row.trigger_price),
+                    .on = static_cast<TriggerOn>(row.trigger_on),
+                    .callback_bp = row.callback_bp,
+                    .activation = FixedE9::from_raw(row.activation)};
+    out.trigger = {.active = row.trigger_active,
+                   .mark = FixedE9::from_raw(row.trigger_mark),
+                   .fired = UnixNanos{row.trigger_fired},
+                   .price = FixedE9::from_raw(row.trigger_fired_price)};
     spec.venue = static_cast<VenueId>(row.venue);
     spec.post_only = row.post_only;
     spec.client_tag = std::move(row.client_tag);

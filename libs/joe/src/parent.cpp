@@ -357,6 +357,14 @@ void VenueRow::add(const VenueRow& other) {
     sum.acked += other.sum.acked - static_cast<std::uint32_t>(other.acks.size());
 }
 
+void Parent::set_trigger(UnixNanos now, const TriggerState& state) noexcept {
+    touch(now);
+    if (trigger_.fired.ns == 0 && state.fired.ns != 0 && !state.price.is_undef()) {
+        arrival_ = state.price;
+    }
+    trigger_ = state;
+}
+
 void Parent::market_trade(FixedE9 qty, FixedE9 price) noexcept {
     market_volume_ = market_volume_ + qty;
     market_value_ = market_value_ + value_of(qty, price);

@@ -907,7 +907,10 @@ paths:
         (`sor`), and routes each slice across the venues that list the symbol and
         take orders, by price after the taker fee; those children are IOC limits.
         `iceberg` and `pegged` instead rest one GTC or post-only child at a time on
-        one venue. Every child passes strategyd's risk gate under joe's strategy id.
+        one venue. `stop`, `take_profit` and `trailing_stop` send nothing until joe
+        itself sees the price reach their trigger, so they work alike on every venue
+        and no venue holds them; once fired they go like `sor`, or rest at `limit`
+        when one is given. Every child passes strategyd's risk gate under joe's strategy id.
         A `client_tag` joe still holds answers 200 with the first parent instead of
         starting another.
       operationId: startParentOrder
@@ -2675,6 +2678,22 @@ components:
           items: { $ref: "#/components/schemas/BookLevel" }
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
+    Trade:
+      type: object
+      required: [price, size, ts_event]
+      properties:
+        price: { $ref: "#/components/schemas/Decimal" }
+        size:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the unit the instrument's book sizes are in.
+        side:
+          type: string
+          enum: [buy, sell]
+          description: The aggressor's side, absent when the venue names none.
+        ts_event:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: The venue's own stamp.
+
     Greeks:
       description: |
         The venue's own option analytics, with the implied vols and underlying
@@ -2774,14 +2793,22 @@ components:
           description: In the quote asset, turned into a quantity at the arrival mid.
         limit:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
-          description: No child trades through it.
-        algo: { type: string, enum: [sor, twap, vwap, pov, iceberg, pegged], default: twap }
+          description: >-
+            No child trades through it. A fired `stop`, `take_profit` or `trailing_stop` rests one GTC child
+            there instead of taking what the books offer.
+        algo:
+          type: string
+          enum: [sor, twap, vwap, pov, iceberg, pegged, stop, take_profit, trailing_stop]
+          default: twap
         horizon_s:
           type: integer
           minimum: 0
           maximum: 604800
           default: 0
-          description: For `iceberg` and `pegged`, when to give up; zero rests until filled or cancelled.
+          description: >-
+            For `iceberg` and `pegged`, when to give up; zero rests until filled or cancelled. For `stop`,
+            `take_profit` and `trailing_stop`, when an unfired trigger or its resting child gives up; zero
+            waits until cancelled.
         slices: { type: integer, minimum: 1, maximum: 10000, default: 1 }
         jitter_bp:
           type: integer
@@ -2816,9 +2843,13 @@ components:
           description: How far from the touch `depth_share_bp` counts depth; 10 by default.
         iceberg: { $ref: "#/components/schemas/IcebergParams" }
         pegged: { $ref: "#/components/schemas/PeggedParams" }
+        trigger: { $ref: "#/components/schemas/TriggerParams" }
         venue:
           type: string
-          description: Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child.
+          description: >-
+            Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child.
+            For `stop`, `take_profit` and `trailing_stop`, the one venue whose price fires the trigger and that
+            takes the children; absent reads and routes across all of them.
         post_only:
           type: boolean
           default: false
@@ -2889,6 +2920,41 @@ components:
           default: 1000
           description: The least time between two changes to the child.
 
+    TriggerParams:
+      type: object
+      description: |
+        Required with `algo` `stop`, `take_profit` and `trailing_stop`, and only with them. A buy
+        `stop` fires when the price is at or above `price` and a sell at or below; `take_profit`
+        is the other way round. A price already past the level fires on the first one joe sees.
+        A trigger fires once, and a restart neither fires it again nor forgets it. There is no
+        reduce-only: a fired trigger sends its whole size whatever the position is.
+      properties:
+        price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The trigger level of a `stop` or a `take_profit`; required for them, not for `trailing_stop`.
+        source:
+          type: string
+          enum: [mid, last]
+          default: mid
+          description: >-
+            `mid` is half the best bid and best ask among the venues whose own book is live, read four times
+            a second; a venue whose book is older than five seconds, one-sided or crossed is left out, and with
+            none left the trigger waits and the parent shows `hold`. `last` is each trade as it prints, where
+            the venue's gateway carries trades; one older than five seconds is passed over.
+        callback_bp:
+          type: integer
+          minimum: 0
+          maximum: 5000
+          default: 0
+          description: >-
+            `trailing_stop` only, where it is required and at least 1: a sell fires this far below the highest price since it became
+            active, a buy this far above the lowest.
+        activation:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: >-
+            `trailing_stop` only. A sell starts trailing once the price is at or above it, a buy at or below;
+            absent trails from the first price.
+
     ParentOrder:
       type: object
       required: [id, symbol, market, side, algo, profile, status, qty, filled, working, fees, horizon_s,
@@ -2903,7 +2969,7 @@ components:
         symbol: { type: string }
         market: { type: string, enum: [perp, spot] }
         side: { $ref: "#/components/schemas/Side" }
-        algo: { type: string, enum: [sor, twap, vwap, pov, iceberg, pegged] }
+        algo: { type: string, enum: [sor, twap, vwap, pov, iceberg, pegged, stop, take_profit, trailing_stop] }
         profile: { type: string, enum: [flat, u, recorded] }
         status: { type: string, enum: [pending, working, paused, done, cancelled, failed] }
         reason: { type: string, description: Why it failed. }
@@ -2948,13 +3014,20 @@ components:
         post_only: { type: boolean }
         iceberg: { $ref: "#/components/schemas/IcebergParams" }
         pegged: { $ref: "#/components/schemas/PeggedParams" }
+        trigger: { $ref: "#/components/schemas/TriggerParams" }
+        trigger_level:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Where the trigger fires now; absent while a `trailing_stop` waits for its activation.
+        triggered:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: When the trigger fired. `arrival` is then the price that fired it.
         working_price:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: The resting child's limit.
         hold:
           type: string
           enum: [stale, crossed]
-          description: Why a resting algo is waiting on its venue's book.
+          description: Why a resting algo is waiting on its venue's book, or `stale` while a trigger has no live book to read.
         version:
           type: string
           description: |
@@ -3472,6 +3545,11 @@ components:
           type: array
           items: { $ref: "#/components/schemas/InstrumentId" }
         book: { $ref: "#/components/schemas/InstrumentId" }
+        trades:
+          allOf: [{ $ref: "#/components/schemas/InstrumentId" }]
+          description: |
+            One instrument's public trades: a snapshot of the last prints held, at
+            most 100, then batches of new ones, at most ten frames a second.
         greeks:
           type: array
           items: { $ref: "#/components/schemas/InstrumentId" }
@@ -3525,6 +3603,24 @@ components:
         id: { type: string }
         ts: { $ref: "#/components/schemas/Nanos" }
         book: { $ref: "#/components/schemas/Book" }
+
+    StreamTrades:
+      type: object
+      required: [type, id, ts, instrument_id, snapshot, trades]
+      properties:
+        type: { type: string, const: trades }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        snapshot:
+          type: boolean
+          description: |
+            True on the first frame of a subscription, which replaces what the client
+            holds and may be empty. Every later frame adds to it.
+        trades:
+          type: array
+          description: Oldest first.
+          items: { $ref: "#/components/schemas/Trade" }
 
     StreamGreeks:
       type: object
@@ -4056,6 +4152,7 @@ components:
         - { $ref: "#/components/schemas/StreamAck" }
         - { $ref: "#/components/schemas/StreamQuotes" }
         - { $ref: "#/components/schemas/StreamBook" }
+        - { $ref: "#/components/schemas/StreamTrades" }
         - { $ref: "#/components/schemas/StreamGreeks" }
         - { $ref: "#/components/schemas/StreamFunding" }
         - { $ref: "#/components/schemas/StreamTicker" }
@@ -4071,6 +4168,7 @@ components:
           ack: "#/components/schemas/StreamAck"
           quotes: "#/components/schemas/StreamQuotes"
           book: "#/components/schemas/StreamBook"
+          trades: "#/components/schemas/StreamTrades"
           greeks: "#/components/schemas/StreamGreeks"
           funding: "#/components/schemas/StreamFunding"
           ticker: "#/components/schemas/StreamTicker"

@@ -41,6 +41,7 @@ public:
     [[nodiscard]] net::RestRequest funding_info() noexcept;
     [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest ticker_24h() noexcept;
+    [[nodiscard]] net::RestRequest open_interest(std::string_view symbol) noexcept;
     [[nodiscard]] net::RestRequest server_time() noexcept;
     [[nodiscard]] net::RestRequest depth_snapshot(std::string_view symbol, std::uint32_t limit) noexcept;
 

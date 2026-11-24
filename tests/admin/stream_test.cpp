@@ -270,6 +270,62 @@ TEST(AdminStream, OneLadderIsSampledFasterThanEightOfThem) {
     EXPECT_EQ(negotiate_millihertz(Feed::Book, 1, 90'000), k_max_millihertz);
 }
 
+TEST(AdminStream, TradesAreAskedForOneInstrumentAtATime) {
+    const auto message = parse_client_message(R"({"op":"subscribe","id":"t1","trades":"4611686018427387905"})");
+    ASSERT_TRUE(message.has_value()) << message.error().title;
+    ASSERT_TRUE(message->trades.has_value());
+    EXPECT_EQ(message->trades->packed, k_big_id);
+    EXPECT_FALSE(message->book.has_value());
+
+    const auto text = parse_client_message(R"({"op":"subscribe","id":"t1","trades":"btc"})");
+    ASSERT_FALSE(text.has_value());
+    EXPECT_EQ(text.error().title, "instrument id must be digits");
+
+    const auto two = parse_client_message(R"({"op":"subscribe","id":"t1","trades":"1","book":"1"})");
+    ASSERT_FALSE(two.has_value());
+    EXPECT_EQ(two.error().title, "one channel per subscription");
+}
+
+TEST(AdminStream, PrintsLeaveInBatchesOfATenthOfASecondHoweverFastTheyAreAskedFor) {
+    EXPECT_FALSE(sequenced(Feed::Trades));
+    EXPECT_EQ(default_millihertz(Feed::Trades, 1), k_trades_millihertz);
+    EXPECT_EQ(negotiate_millihertz(Feed::Trades, 1, std::nullopt), 10'000);
+    EXPECT_EQ(negotiate_millihertz(Feed::Trades, 1, 30'000), 10'000);
+    EXPECT_EQ(negotiate_millihertz(Feed::Trades, 1, 2'000), 2'000);
+    EXPECT_EQ(period_ns(k_trades_millihertz), 100'000'000ULL);
+}
+
+TEST(AdminStream, ATradeCarriesItsAggressorAndTheVenueStamp) {
+    const auto base = linear_base();
+    const TradePrint print{.price = *base.price_to_ticks(*parse_decimal_e9("79418.30")),
+                           .qty = *base.qty_to_lots(*parse_decimal_e9("0.25")),
+                           .aggressor = Side::Sell,
+                           .ts_event = k_ts};
+    const auto trade = trade_of(print, base);
+    EXPECT_EQ(trade.price, "79418.3");
+    EXPECT_EQ(trade.size, "0.25");
+    EXPECT_EQ(trade.side, "sell");
+    EXPECT_EQ(trade.ts_event, "1787840965107000000");
+}
+
+TEST(AdminStream, TheFirstTradesFrameIsASnapshotAndAnEmptyOneStillSaysSo) {
+    const auto base = linear_base();
+    const std::vector<Trade> rows{
+        {.price = "79418.3", .size = "0.25", .side = "sell", .ts_event = "1787840965107000000"},
+        {.price = "79418.4", .size = "2", .side = std::nullopt, .ts_event = "1787840965108000000"}};
+
+    EXPECT_EQ(trades_frame("t1", k_ts, base.id, true, {}),
+              R"({"type":"trades","id":"t1","ts":"1787840965107000000","instrument_id":")" + digits(base.id) +
+                  R"(","snapshot":true,"trades":[]})");
+
+    const auto frame = trades_frame("t1", k_ts, base.id, false, rows);
+    EXPECT_NE(frame.find(R"("snapshot":false,"trades":[{"price":"79418.3","size":"0.25","side":"sell",)"),
+              std::string::npos)
+        << frame;
+    // a venue that names no aggressor leaves the field out
+    EXPECT_TRUE(frame.ends_with(R"(,{"price":"79418.4","size":"2","ts_event":"1787840965108000000"}]})")) << frame;
+}
+
 TEST(AdminStream, FundingSaysItsIntervalOrSaysNothing) {
     const auto base = linear_base();
     FundingUpdate update{};

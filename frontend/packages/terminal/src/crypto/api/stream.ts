@@ -1,18 +1,32 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { n } from '@raikiri/ui/v3'
-import { api, k_base, type Book, type Funding, type Quote, type StreamFrame, type Ticker } from './client'
+import {
+  api,
+  k_base,
+  type Book,
+  type Funding,
+  type Quote,
+  type StreamFrame,
+  type Ticker,
+  type Trade,
+} from './client'
 
 // one socket for the product: a subscription lives while any hook holds it, and every reopen sends the live set
-// again. Each quote also lands on the tape the chart draws from, since the stream carries no candles or trades
+// again. Each quote also lands on the tape the chart draws from, since the stream carries no candles
 
 type RowChannel = 'quotes' | 'funding' | 'ticker'
-type Request = { channel: RowChannel; instruments: string[] } | { channel: 'book'; instrument: string; levels: number }
+type Request =
+  | { channel: RowChannel; instruments: string[] }
+  | { channel: 'book'; instrument: string; levels: number }
+  | { channel: 'trades'; instrument: string }
 type Entry = { id: string; request: Request; listeners: Set<(frame: StreamFrame) => void> }
 
 const k_reconnect_ms = 1_000
+const k_book_flush_ms = 100
 /** the server refuses more per subscription, so a long list goes as several */
 const k_chunk = 500
 const k_tape_max = 40_000
+const k_trades_max = 100
 
 const k_tape = new Map<string, Array<[number, number]>>()
 
@@ -140,7 +154,9 @@ const message = ({ id, request }: Entry) =>
   JSON.stringify(
     request.channel === 'book'
       ? { op: 'subscribe', id, book: request.instrument, levels: request.levels }
-      : { op: 'subscribe', id, [request.channel]: request.instruments },
+      : request.channel === 'trades'
+        ? { op: 'subscribe', id, trades: request.instrument }
+        : { op: 'subscribe', id, [request.channel]: request.instruments },
   )
 
 const socket = new Socket()
@@ -209,12 +225,45 @@ export function useBooks(ids: readonly string[], levels: number): Map<string, Bo
   useEffect(() => {
     const list = JSON.parse(signature) as string[]
     setBooks(new Map())
+    // thirty venues' ladders each arrive several times a second; one render per frame of them, not per frame each
+    const held = new Map<string, Book>()
+    let dirty = false
     const stops = list.map((id) =>
       socket.subscribe({ channel: 'book', instrument: id, levels }, (f) => {
-        if (f.type === 'book') setBooks((prev) => new Map(prev).set(f.book.instrument_id, f.book))
+        if (f.type !== 'book') return
+        held.set(f.book.instrument_id, f.book)
+        dirty = true
       }),
     )
-    return () => stops.forEach((s) => s())
+    const flush = setInterval(() => {
+      if (!dirty) return
+      dirty = false
+      setBooks(new Map(held))
+    }, k_book_flush_ms)
+    return () => {
+      clearInterval(flush)
+      stops.forEach((s) => s())
+    }
   }, [signature, levels])
   return books
+}
+
+/** a print with the order it arrived in, which a row is keyed by */
+export type TapeTrade = Trade & { seq: number }
+
+let k_trade_seq = 0
+
+/** an instrument's last prints, newest first; a snapshot, sent again on every reopen, replaces what is held */
+export function useTrades(id: string | undefined): TapeTrade[] {
+  const [trades, setTrades] = useState<TapeTrade[]>([])
+  useEffect(() => {
+    setTrades([])
+    if (id === undefined) return
+    return socket.subscribe({ channel: 'trades', instrument: id }, (f) => {
+      if (f.type !== 'trades') return
+      const fresh = f.trades.map((t) => ({ ...t, seq: ++k_trade_seq })).reverse()
+      setTrades((prev) => (f.snapshot ? fresh : [...fresh, ...prev]).slice(0, k_trades_max))
+    })
+  }, [id])
+  return trades
 }

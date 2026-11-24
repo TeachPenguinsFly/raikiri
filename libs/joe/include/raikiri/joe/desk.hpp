@@ -45,6 +45,8 @@ struct DeskConfig {
     // finished children one parent lists, and how long strategyd still attributes a late fill
     std::size_t keep_children{256};
     std::uint64_t late_fill_ns{15ULL * 60 * 1'000'000'000ULL};
+    // a trade older than this moves no trigger; a book's age is the market view's to judge
+    std::uint64_t trade_stale_ns{5ULL * 1'000'000'000ULL};
     // a journal row names its parent by this number, so a restart must start past every earlier one
     std::uint64_t first_parent_id{1};
     // the book of a parent that names none
@@ -102,7 +104,8 @@ public:
     void on_modified(std::uint64_t child_id);
     void on_modify_refused(std::uint64_t child_id);
     void on_cancel_refused(std::uint64_t child_id);
-    void on_trade(InstrumentId instrument, PriceTicks price, QtyLots qty);
+    // `at` is when the trade reached this host; zero is now
+    void on_trade(InstrumentId instrument, PriceTicks price, QtyLots qty, UnixNanos at = {});
 
     // the loop stopped: what was working is paused and its children are cancelled
     void halt();
@@ -114,6 +117,9 @@ private:
     void work(Parent& parent, UnixNanos now);
     void send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, UnixNanos now);
     void rest(Parent& parent, UnixNanos now);
+    // both true once the trigger has fired; the record of it is written before any child goes
+    bool watch(Parent& parent, UnixNanos now);
+    bool on_price(Parent& parent, FixedE9 price, UnixNanos now);
     void place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos now);
     void hold(Parent& parent, Hold why, UnixNanos now);
     void pull(Parent& parent, const Child& child, UnixNanos now);

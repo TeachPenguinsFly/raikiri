@@ -272,4 +272,10 @@ TEST(BinanceRest, DepthSnapshotPercentEncodesANonAsciiSymbol) {
     EXPECT_EQ(builder.depth_snapshot("BTCUSDT", 100).target, "/fapi/v1/depth?symbol=BTCUSDT&limit=100");
 }
 
+TEST(BinanceRest, OpenInterestNamesItsSymbol) {
+    net::Signer signer;
+    RequestBuilder builder{signer};
+    EXPECT_EQ(builder.open_interest("BTCUSDT").target, "/fapi/v1/openInterest?symbol=BTCUSDT");
+}
+
 } // namespace raikiri::venues::binance

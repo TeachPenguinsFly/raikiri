@@ -135,6 +135,13 @@ net::RestRequest RequestBuilder::ticker_24h() noexcept {
     return {.method = net::HttpMethod::Get, .target = spot_ ? ep::k_spot_ticker_24h : ep::k_ticker_24h, .body = {}};
 }
 
+net::RestRequest RequestBuilder::open_interest(std::string_view symbol) noexcept {
+    Appender target{target_};
+    target << ep::k_open_interest << "?symbol=";
+    target.encoded(symbol);
+    return {.method = net::HttpMethod::Get, .target = target.ok() ? target.view() : std::string_view{}, .body = {}};
+}
+
 net::RestRequest RequestBuilder::premium_index() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_premium_index, .body = {}};
 }

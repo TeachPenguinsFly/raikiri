@@ -1,5 +1,6 @@
 add_library(raikiri_candles STATIC
   src/builder.cpp
+  src/funding.cpp
   src/history.cpp
   src/metrics.cpp
   src/store.cpp
@@ -25,6 +26,7 @@ add_library(raikiri_candles STATIC
   src/venues/dydx.cpp
   src/venues/edgex.cpp
   src/venues/extended.cpp
+  src/venues/funding.cpp
   src/venues/gate.cpp
   src/venues/grvt.cpp
   src/venues/htx.cpp

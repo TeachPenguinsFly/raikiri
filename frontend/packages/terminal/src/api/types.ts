@@ -661,7 +661,10 @@ export interface paths {
          *     (`sor`), and routes each slice across the venues that list the symbol and
          *     take orders, by price after the taker fee; those children are IOC limits.
          *     `iceberg` and `pegged` instead rest one GTC or post-only child at a time on
-         *     one venue. Every child passes strategyd's risk gate under joe's strategy id.
+         *     one venue. `stop`, `take_profit` and `trailing_stop` send nothing until joe
+         *     itself sees the price reach their trigger, so they work alike on every venue
+         *     and no venue holds them; once fired they go like `sor`, or rest at `limit`
+         *     when one is given. Every child passes strategyd's risk gate under joe's strategy id.
          *     A `client_tag` joe still holds answers 200 with the first parent instead of
          *     starting another.
          */
@@ -1997,6 +2000,18 @@ export interface components {
             asks: components["schemas"]["BookLevel"][];
             ts_event: components["schemas"]["Nanos"];
         };
+        Trade: {
+            price: components["schemas"]["Decimal"];
+            /** @description In the unit the instrument's book sizes are in. */
+            size: components["schemas"]["Decimal"];
+            /**
+             * @description The aggressor's side, absent when the venue names none.
+             * @enum {string}
+             */
+            side?: "buy" | "sell";
+            /** @description The venue's own stamp. */
+            ts_event: components["schemas"]["Nanos"];
+        };
         /**
          * @description The venue's own option analytics, with the implied vols and underlying
          *     they were computed from.
@@ -2075,15 +2090,15 @@ export interface components {
             qty?: components["schemas"]["Decimal"];
             /** @description In the quote asset, turned into a quantity at the arrival mid. */
             notional?: components["schemas"]["Decimal"];
-            /** @description No child trades through it. */
+            /** @description No child trades through it. A fired `stop`, `take_profit` or `trailing_stop` rests one GTC child there instead of taking what the books offer. */
             limit?: components["schemas"]["Decimal"];
             /**
              * @default twap
              * @enum {string}
              */
-            algo: "sor" | "twap" | "vwap" | "pov" | "iceberg" | "pegged";
+            algo: "sor" | "twap" | "vwap" | "pov" | "iceberg" | "pegged" | "stop" | "take_profit" | "trailing_stop";
             /**
-             * @description For `iceberg` and `pegged`, when to give up; zero rests until filled or cancelled.
+             * @description For `iceberg` and `pegged`, when to give up; zero rests until filled or cancelled. For `stop`, `take_profit` and `trailing_stop`, when an unfired trigger or its resting child gives up; zero waits until cancelled.
              * @default 0
              */
             horizon_s: number;
@@ -2118,7 +2133,8 @@ export interface components {
             depth_band_bp?: components["schemas"]["Decimal"];
             iceberg?: components["schemas"]["IcebergParams"];
             pegged?: components["schemas"]["PeggedParams"];
-            /** @description Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child. */
+            trigger?: components["schemas"]["TriggerParams"];
+            /** @description Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child. For `stop`, `take_profit` and `trailing_stop`, the one venue whose price fires the trigger and that takes the children; absent reads and routes across all of them. */
             venue?: string;
             /**
              * @description `iceberg` and `pegged` only. The child stays a tick short of the other side's touch, and one the venue turns away is retried from a fresh book after the minimum interval.
@@ -2177,6 +2193,30 @@ export interface components {
              */
             min_interval_ms: number;
         };
+        /**
+         * @description Required with `algo` `stop`, `take_profit` and `trailing_stop`, and only with them. A buy
+         *     `stop` fires when the price is at or above `price` and a sell at or below; `take_profit`
+         *     is the other way round. A price already past the level fires on the first one joe sees.
+         *     A trigger fires once, and a restart neither fires it again nor forgets it. There is no
+         *     reduce-only: a fired trigger sends its whole size whatever the position is.
+         */
+        TriggerParams: {
+            /** @description The trigger level of a `stop` or a `take_profit`; required for them, not for `trailing_stop`. */
+            price?: components["schemas"]["Decimal"];
+            /**
+             * @description `mid` is half the best bid and best ask among the venues whose own book is live, read four times a second; a venue whose book is older than five seconds, one-sided or crossed is left out, and with none left the trigger waits and the parent shows `hold`. `last` is each trade as it prints, where the venue's gateway carries trades; one older than five seconds is passed over.
+             * @default mid
+             * @enum {string}
+             */
+            source: "mid" | "last";
+            /**
+             * @description `trailing_stop` only, where it is required and at least 1: a sell fires this far below the highest price since it became active, a buy this far above the lowest.
+             * @default 0
+             */
+            callback_bp: number;
+            /** @description `trailing_stop` only. A sell starts trailing once the price is at or above it, a buy at or below; absent trails from the first price. */
+            activation?: components["schemas"]["Decimal"];
+        };
         ParentOrder: {
             book_id?: number;
             book_kind?: components["schemas"]["BookKind"];
@@ -2189,7 +2229,7 @@ export interface components {
             market: "perp" | "spot";
             side: components["schemas"]["Side"];
             /** @enum {string} */
-            algo: "sor" | "twap" | "vwap" | "pov" | "iceberg" | "pegged";
+            algo: "sor" | "twap" | "vwap" | "pov" | "iceberg" | "pegged" | "stop" | "take_profit" | "trailing_stop";
             /** @enum {string} */
             profile: "flat" | "u" | "recorded";
             /** @enum {string} */
@@ -2229,10 +2269,15 @@ export interface components {
             post_only: boolean;
             iceberg?: components["schemas"]["IcebergParams"];
             pegged?: components["schemas"]["PeggedParams"];
+            trigger?: components["schemas"]["TriggerParams"];
+            /** @description Where the trigger fires now; absent while a `trailing_stop` waits for its activation. */
+            trigger_level?: components["schemas"]["Decimal"];
+            /** @description When the trigger fired. `arrival` is then the price that fired it. */
+            triggered?: components["schemas"]["Nanos"];
             /** @description The resting child's limit. */
             working_price?: components["schemas"]["Decimal"];
             /**
-             * @description Why a resting algo is waiting on its venue's book.
+             * @description Why a resting algo is waiting on its venue's book, or `stale` while a trigger has no live book to read.
              * @enum {string}
              */
             hold?: "stale" | "crossed";
@@ -2638,6 +2683,11 @@ export interface components {
             id: string;
             quotes?: components["schemas"]["InstrumentId"][];
             book?: components["schemas"]["InstrumentId"];
+            /**
+             * @description One instrument's public trades: a snapshot of the last prints held, at
+             *     most 100, then batches of new ones, at most ten frames a second.
+             */
+            trades?: components["schemas"]["InstrumentId"];
             greeks?: components["schemas"]["InstrumentId"][];
             funding?: components["schemas"]["InstrumentId"][];
             ticker?: components["schemas"]["InstrumentId"][];
@@ -2682,6 +2732,23 @@ export interface components {
             id: string;
             ts: components["schemas"]["Nanos"];
             book: components["schemas"]["Book"];
+        };
+        StreamTrades: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "trades";
+            id: string;
+            ts: components["schemas"]["Nanos"];
+            instrument_id: components["schemas"]["InstrumentId"];
+            /**
+             * @description True on the first frame of a subscription, which replaces what the client
+             *     holds and may be empty. Every later frame adds to it.
+             */
+            snapshot: boolean;
+            /** @description Oldest first. */
+            trades: components["schemas"]["Trade"][];
         };
         StreamGreeks: {
             /**
@@ -3102,7 +3169,7 @@ export interface components {
             expiries: components["schemas"]["OptionSurfaceExpiry"][];
         };
         /** @description Anything the server sends; `type` selects the variant. */
-        StreamFrame: components["schemas"]["StreamAck"] | components["schemas"]["StreamQuotes"] | components["schemas"]["StreamBook"] | components["schemas"]["StreamGreeks"] | components["schemas"]["StreamFunding"] | components["schemas"]["StreamTicker"] | components["schemas"]["StreamPositions"] | components["schemas"]["StreamHealth"] | components["schemas"]["StreamEvent"] | components["schemas"]["StreamGap"] | components["schemas"]["StreamProblem"];
+        StreamFrame: components["schemas"]["StreamAck"] | components["schemas"]["StreamQuotes"] | components["schemas"]["StreamBook"] | components["schemas"]["StreamTrades"] | components["schemas"]["StreamGreeks"] | components["schemas"]["StreamFunding"] | components["schemas"]["StreamTicker"] | components["schemas"]["StreamPositions"] | components["schemas"]["StreamHealth"] | components["schemas"]["StreamEvent"] | components["schemas"]["StreamGap"] | components["schemas"]["StreamProblem"];
     };
     responses: {
         /** @description Crossing as it stands */

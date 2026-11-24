@@ -5,6 +5,8 @@
 #include <optional>
 #include <pqxx/pqxx>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace raikiri::candles {
 
@@ -180,6 +182,59 @@ void Store::write_metrics(std::span<const MetricSample> samples) {
         tx.exec(sql);
     }
     tx.commit();
+}
+
+void Store::write_funding(std::span<const MetricSample> samples) {
+    // a statement takes a row once, and two pages of one answer may share a funding time
+    std::vector<MetricSample> rows;
+    rows.reserve(samples.size());
+    for (const auto& s : samples) {
+        if (s.funding_rate.has_value()) {
+            rows.push_back(s);
+        }
+    }
+    std::ranges::sort(rows, [](const MetricSample& a, const MetricSample& b) {
+        return std::pair{a.instrument.packed, a.minute} < std::pair{b.instrument.packed, b.minute};
+    });
+    const auto repeats = std::ranges::unique(rows, [](const MetricSample& a, const MetricSample& b) {
+        return a.instrument == b.instrument && a.minute == b.minute;
+    });
+    rows.erase(repeats.begin(), repeats.end());
+    pqxx::work tx{impl_->conn};
+    for (std::size_t start = 0; start < rows.size(); start += k_metric_batch) {
+        std::string sql = "INSERT INTO raikiri.metrics_1m AS m (instrument_id, minute, funding_rate) VALUES ";
+        const auto end = std::min(rows.size(), start + k_metric_batch);
+        for (std::size_t i = start; i < end; ++i) {
+            sql += std::format("{}({},{},{})",
+                               i == start ? "" : ",",
+                               static_cast<std::int64_t>(rows[i].instrument.packed),
+                               rows[i].minute,
+                               *rows[i].funding_rate);
+        }
+        sql += " ON CONFLICT (instrument_id, minute) DO UPDATE SET"
+               " funding_rate = COALESCE(m.funding_rate, EXCLUDED.funding_rate)";
+        tx.exec(sql);
+    }
+    tx.commit();
+}
+
+std::unordered_set<std::uint64_t> Store::funded(std::span<const std::uint64_t> instruments, std::int32_t before) {
+    std::unordered_set<std::uint64_t> out;
+    if (instruments.empty()) {
+        return out;
+    }
+    // each instrument is one probe of the primary key, where a DISTINCT over the table would read all of it
+    std::string sql = "SELECT i FROM unnest(ARRAY[";
+    for (std::size_t i = 0; i < instruments.size(); ++i) {
+        sql += std::format("{}{}", i == 0 ? "" : ",", static_cast<std::int64_t>(instruments[i]));
+    }
+    sql += "]::bigint[]) AS i WHERE EXISTS (SELECT 1 FROM raikiri.metrics_1m m WHERE m.instrument_id = i"
+           " AND m.minute < $1 AND m.funding_rate IS NOT NULL)";
+    pqxx::read_transaction tx{impl_->conn};
+    for (const auto& [id] : tx.query<std::int64_t>(sql, pqxx::params{before})) {
+        out.insert(static_cast<std::uint64_t>(id));
+    }
+    return out;
 }
 
 std::uint64_t Store::prune_metrics(std::int32_t before) {

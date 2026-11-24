@@ -67,6 +67,11 @@ void Backfill::defer(const Due& due) {
     lanes_[lane_of(due.part.instrument)].parts.push_front(due.part);
 }
 
+bool Backfill::busy(InstrumentId instrument) const noexcept {
+    const auto lane = lanes_.find(lane_of(instrument));
+    return lane != lanes_.end() && !lane->second.parts.empty();
+}
+
 std::size_t Backfill::queued() const noexcept {
     std::size_t n = 0;
     for (const auto& [_, lane] : lanes_) {

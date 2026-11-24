@@ -24,6 +24,7 @@ type View = "both" | Side;
 type Unit = "base" | "usd";
 
 const k_stale_ns = 10e9;
+const k_rows = 40;
 const k_saved = "raikiri.book.view";
 
 function saved(): { view: View | undefined; unit: Unit | undefined } {
@@ -153,8 +154,9 @@ export function useBook(venue: BookVenue, pick?: number) {
         ? merged(raw[s], s, 10 ** places)
         : grouped(raw[s], s, step, places);
     return {
-      bids: side("bids"),
-      asks: side("asks"),
+      // a block shows two dozen rows a side; forty leave room for one side alone, and the rest would only be drawn
+      bids: side("bids").slice(0, k_rows),
+      asks: side("asks").slice(0, k_rows),
       has: raw.has,
       places,
       legs,

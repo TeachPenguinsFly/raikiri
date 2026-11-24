@@ -6,6 +6,7 @@ import { api as options } from '../../api/client'
 import { api, type CandlePage } from '../api/client'
 import { useQuotes, useTicker } from '../api/stream'
 import { px, touchOf, useQuery, useRanked, usd, type Leg, type Pair } from '../lib/market'
+import { FundingTile } from './funding'
 import { VenuePicker } from './panels'
 import { useTerminal } from './state'
 
@@ -388,21 +389,23 @@ function Metrics({ pair, leg }: { pair: Pair; leg: Leg }) {
       {interest !== undefined && interest > 0 && price !== undefined && (
         <Stat label="Open interest">{usd(interest * price)}</Stat>
       )}
-      {rate !== undefined && (
-        <Stat
-          label={
-            f?.interval_seconds === undefined || f.interval_seconds === null
-              ? 'Funding'
-              : `Funding · ${spanLabel(f.interval_seconds)}`
-          }
-        >
-          <span className="flex items-baseline gap-2">
-            <span className={rate > 0 ? 'text-up' : rate < 0 ? 'text-down' : undefined}>
-              {(rate * 100).toFixed(4)}%
+      {rate !== undefined && f !== undefined && (
+        <FundingTile leg={leg} funding={f}>
+          <Stat
+            label={
+              f.interval_seconds === undefined || f.interval_seconds === null
+                ? 'Funding'
+                : `Funding · ${spanLabel(f.interval_seconds)}`
+            }
+          >
+            <span className="flex items-baseline gap-2">
+              <span className={rate > 0 ? 'text-up' : rate < 0 ? 'text-down' : undefined}>
+                {(rate * 100).toFixed(4)}%
+              </span>
+              {next !== undefined && <Countdown until={next} />}
             </span>
-            {next !== undefined && <Countdown until={next} />}
-          </span>
-        </Stat>
+          </Stat>
+        </FundingTile>
       )}
     </>
   )

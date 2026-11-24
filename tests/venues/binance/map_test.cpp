@@ -71,6 +71,16 @@ TEST(BinanceMap, BookTickerBecomesBbo) {
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 
+TEST(BinanceMap, OpenInterestStaysInTheBaseAsset) {
+    const auto table = table_with_btc();
+    const auto oi = map_open_interest({.symbol = "BTCUSDT", .open_interest = "96511.695"}, table);
+    ASSERT_TRUE(oi.has_value());
+    EXPECT_EQ(oi->first, base_of(*table.find("BTCUSDT")).id);
+    EXPECT_EQ(oi->second.raw, 96'511'695'000'000);
+    EXPECT_FALSE(map_open_interest({.symbol = "NOPEUSDT", .open_interest = "1"}, table).has_value());
+    EXPECT_FALSE(map_open_interest({.symbol = "BTCUSDT", .open_interest = ""}, table).has_value());
+}
+
 TEST(BinanceMap, PriceOffTheTickIsDroppedNotRounded) {
     // a price off the tick is dropped rather than rounded
     const auto table = table_with_btc();

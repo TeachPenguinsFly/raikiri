@@ -10,6 +10,7 @@ export type CandlePage = Schema<'CandlePage'>
 export type Instrument = Schema<'Instrument'>
 export type Quote = Schema<'Quote'>
 export type Book = Schema<'Book'>
+export type Trade = Schema<'Trade'>
 export type Ticker = Schema<'Ticker'>
 export type Funding = Schema<'Funding'>
 export type Position = Schema<'Position'>

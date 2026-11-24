@@ -241,6 +241,17 @@ TEST(BinanceWire, PremiumIndexCarriesTheFundingTheStreamNeverSends) {
     EXPECT_GT(btc->next_funding_ms, 1'700'000'000'000U);
 }
 
+TEST(BinanceWire, OpenInterestIsOneSymbolACall) {
+    const auto body = fixture("rest_open_interest.json");
+    const auto wire = parse_open_interest(body);
+    ASSERT_TRUE(wire.has_value()) << to_string(wire.error());
+    EXPECT_EQ(wire->symbol, "BTCUSDT");
+    EXPECT_EQ(wire->open_interest, "96511.695");
+    EXPECT_EQ(wire->time_ms, 1'795'508'865'564ULL);
+    const auto refused = fixture("rest_error_bad_symbol.json");
+    EXPECT_FALSE(parse_open_interest(refused).has_value());
+}
+
 TEST(BinanceWire, ServerTimeParses) {
     const auto body = fixture("rest_server_time.json");
     const auto time = parse_server_time(body);

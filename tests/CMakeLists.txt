@@ -67,6 +67,7 @@ raikiri_add_test(admin_warm_test SRCS admin/warm_test.cpp LIBS raikiri::admin)
 
 raikiri_add_test(candles_test SRCS
   candles/builder_test.cpp
+  candles/funding_test.cpp
   candles/klines_apex_test.cpp
   candles/klines_arcus_test.cpp
   candles/klines_aster_test.cpp
@@ -290,6 +291,7 @@ raikiri_add_test(sim_engine_test SRCS simcore/engine_test.cpp LIBS raikiri::simc
 raikiri_add_test(history_test POSTGRES SRCS admin/history_test.cpp LIBS raikiri::admin raikiri::persist raikiri::schema glaze::glaze libpqxx::pqxx)
 raikiri_add_test(admin_stream_test SRCS admin/stream_test.cpp LIBS raikiri::admin)
 raikiri_add_test(admin_stream_token_test SRCS admin/stream_token_test.cpp LIBS raikiri::admin Boost::headers)
+raikiri_add_test(admin_trade_tape_test SRCS admin/trade_tape_test.cpp LIBS raikiri::admin)
 
 add_test(NAME apps_help
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh
@@ -319,6 +321,7 @@ raikiri_add_test(books_test SRCS books/books_test.cpp LIBS raikiri::books raikir
 raikiri_add_test(joe_domain_test SRCS joe/domain_test.cpp LIBS raikiri::joe)
 raikiri_add_test(joe_trace_test SRCS joe/trace_test.cpp LIBS raikiri::joe raikiri::joe_http)
 raikiri_add_test(joe_resting_test SRCS joe/resting_test.cpp LIBS raikiri::joe raikiri::joe_http)
+raikiri_add_test(joe_trigger_test SRCS joe/trigger_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::joe_http)
 raikiri_add_test(joe_runner_test SRCS joe/runner_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::joe_http raikiri::oms raikiri::portfolio)
 raikiri_add_test(joe_restart_test SRCS joe/restart_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::oms_journal raikiri::log)
 

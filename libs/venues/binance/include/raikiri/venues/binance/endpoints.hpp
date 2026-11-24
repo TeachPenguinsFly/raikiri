@@ -81,6 +81,8 @@ inline constexpr std::string_view k_exchange_info = "/fapi/v1/exchangeInfo";
 inline constexpr std::string_view k_premium_index = "/fapi/v1/premiumIndex";
 // every symbol in one call: weight 40 against 1 per symbol
 inline constexpr std::string_view k_ticker_24h = "/fapi/v1/ticker/24hr";
+// one symbol a call; no stream and no table carries it
+inline constexpr std::string_view k_open_interest = "/fapi/v1/openInterest";
 inline constexpr std::string_view k_depth = "/fapi/v1/depth";
 inline constexpr std::string_view k_server_time = "/fapi/v1/time";
 // the only place binance states the settlement interval

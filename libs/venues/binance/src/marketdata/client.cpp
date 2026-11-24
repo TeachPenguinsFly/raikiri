@@ -42,6 +42,10 @@ constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
 // the 24h table costs weight 40, 80 on spot; once a minute stays well inside either budget
 constexpr std::uint64_t k_ticker_poll_interval_ns = 60ULL * 1'000'000'000ULL;
+// binance pushes no open interest and its rest call answers one symbol for a weight of one: the perps with the largest
+// turnover are asked in turn, each about every five minutes
+constexpr std::uint64_t k_open_interest_poll_interval_ns = 5ULL * 1'000'000'000ULL;
+constexpr std::size_t k_open_interest_symbols = 60;
 
 void add_once(std::vector<InstrumentId>& ids, InstrumentId id) {
     if (std::ranges::find(ids, id) == ids.end()) {
@@ -362,6 +366,7 @@ public:
         report_books(now);
         poll_funding(now);
         poll_ticker(now);
+        poll_open_interest(now);
         report_coverage(now);
         if (state_->tick_hook) {
             state_->tick_hook(now);
@@ -539,6 +544,7 @@ private:
             return;
         }
         const auto received = state_->clock->wall();
+        std::vector<std::pair<std::int64_t, InstrumentId>> turnover;
         for (const auto& row : *rows) {
             const auto* instrument = state_->instruments.find(row.symbol);
             if (instrument == nullptr) {
@@ -548,9 +554,67 @@ private:
             if (std::ranges::find(state_->ticker_instruments, id) == state_->ticker_instruments.end()) {
                 continue;
             }
-            if (const auto stats = map_ticker_stats(row, state_->instruments, received); stats.has_value()) {
+            if (auto stats = map_ticker_stats(row, state_->instruments, received); stats.has_value()) {
+                if (const auto oi = state_->open_interest.find(id); oi != state_->open_interest.end()) {
+                    stats->open_interest = oi->second;
+                }
                 state_->sink->on_ticker_stats(*stats);
+                if (!stats->volume_24h_quote.is_undef()) {
+                    turnover.emplace_back(stats->volume_24h_quote.raw, id);
+                }
             }
+        }
+        if (state_->market == MarketType::Perp) {
+            rank_open_interest(turnover);
+        }
+    }
+
+    void rank_open_interest(std::vector<std::pair<std::int64_t, InstrumentId>>& turnover) {
+        const auto top = std::min(turnover.size(), k_open_interest_symbols);
+        std::ranges::partial_sort(turnover, turnover.begin() + static_cast<std::ptrdiff_t>(top), std::greater{});
+        open_interest_order_.clear();
+        for (std::size_t i = 0; i < top; ++i) {
+            open_interest_order_.push_back(turnover[i].second);
+        }
+        // a perp that left the list would keep its last figure for ever
+        std::erase_if(state_->open_interest, [this](const auto& entry) {
+            return std::ranges::find(open_interest_order_, entry.first) == open_interest_order_.end();
+        });
+    }
+
+    void poll_open_interest(UnixNanos now) noexcept {
+        if (open_interest_order_.empty() || now.ns < next_open_interest_poll_ns_ || open_interest_in_flight_) {
+            return;
+        }
+        const auto instrument = open_interest_order_[open_interest_next_ % open_interest_order_.size()];
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        open_interest_in_flight_ = true;
+        try {
+            if (!state_->depth_rest.send(state_->builder.open_interest(symbol),
+                                         [this](const net::RestResponse& response) { on_open_interest(response); })) {
+                open_interest_in_flight_ = false;
+                return; // refused: the same symbol is asked at the next tick
+            }
+        } catch (...) {
+            open_interest_in_flight_ = false;
+            return;
+        }
+        ++open_interest_next_;
+        next_open_interest_poll_ns_ = now.ns + k_open_interest_poll_interval_ns;
+    }
+
+    void on_open_interest(const net::RestResponse& response) noexcept {
+        open_interest_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            heed_rate_refusal(*state_, response);
+            return;
+        }
+        const auto wire = parse_open_interest(response.body);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto oi = map_open_interest(*wire, state_->instruments); oi.has_value()) {
+            state_->open_interest[oi->first] = oi->second;
         }
     }
 
@@ -625,8 +689,12 @@ private:
     bool started_{false};
     bool in_flight_{false};
     bool ticker_in_flight_{false};
+    bool open_interest_in_flight_{false};
     bool warned_{false};
     std::uint64_t next_ticker_poll_ns_{0};
+    std::uint64_t next_open_interest_poll_ns_{0};
+    std::size_t open_interest_next_{0};
+    std::vector<InstrumentId> open_interest_order_;
     std::uint64_t report_due_ns_{0};
     std::size_t cold_before_{0};
 };

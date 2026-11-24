@@ -222,6 +222,9 @@ void Desk::begin(Parent& parent, UnixNanos now) {
     const auto seed = parent.id() ^ now.ns;
     switch (spec.algo) {
     case Algo::Sor:
+    case Algo::Stop:
+    case Algo::TakeProfit:
+    case Algo::TrailingStop:
         parent.plan({now}, {1});
         break;
     case Algo::Twap:
@@ -259,9 +262,10 @@ void Desk::begin(Parent& parent, UnixNanos now) {
 
 void Desk::open_trace(Parent& parent) {
     const auto& spec = parent.spec();
-    const auto run = (spec.algo == Algo::Sor                       ? 0
-                      : resting(spec.algo) && spec.horizon_ns == 0 ? internal::k_open_run_ns
-                                                                   : spec.horizon_ns) +
+    const bool open_ended = (resting(spec.algo) || triggered(spec.algo)) && spec.horizon_ns == 0;
+    const auto run = (spec.algo == Algo::Sor ? 0
+                      : open_ended           ? internal::k_open_run_ns
+                                             : spec.horizon_ns) +
                      config_.grace_ns;
     const auto shape = trace_shape(run, config_.sample_ns, config_.trace_mids);
     parent.trace().open(shape.interval_ns, shape.mids, config_.trace_fills, config_.trace_reprices);
@@ -321,9 +325,20 @@ void Desk::restore(const ParentRecord& record) {
         parent->slot().random = record.random;
         break;
     case Kind::ChildSent:
+        // a child only ever follows the trigger, so one whose trigger record was lost has fired all the same
+        if (triggered(parent->spec().algo) && parent->trigger().fired.ns == 0) {
+            auto state = parent->trigger();
+            state.active = true;
+            state.fired = record.ts;
+            parent->set_trigger(record.ts, state);
+        }
         parent->add(record.child);
         parent->slot().changed = record.ts;
         parent->retire(record.ts, config_.keep_children, config_.late_fill_ns);
+        break;
+    case Kind::Trigger:
+        parent->set_trigger(record.ts, record.trigger);
+        parent->slot().marked = record.trigger.mark;
         break;
     case Kind::StatusChanged:
         logged_[parent->id()] = record.status;
@@ -436,11 +451,17 @@ std::size_t Desk::resume_restored() {
 
 void Desk::work(Parent& parent, UnixNanos now) {
     const auto& spec = parent.spec();
-    if (resting(spec.algo)) {
+    if (triggered(spec.algo) && parent.trigger().fired.ns == 0 && !watch(parent, now)) {
+        return;
+    }
+    if (rests(spec)) {
         rest(parent, now);
         return;
     }
-    const auto books = market_->books(spec.listing, spec.side);
+    auto books = market_->books(spec.listing, spec.side);
+    if (triggered(spec.algo) && spec.venue != VenueId::Invalid) {
+        std::erase_if(books, [&](const VenueBook& book) { return book.instrument.venue() != spec.venue; });
+    }
     const auto working = parent.working();
     auto min_lot = std::numeric_limits<std::int64_t>::max();
     for (const auto& book : books) {
@@ -455,8 +476,9 @@ void Desk::work(Parent& parent, UnixNanos now) {
         }
         return;
     }
-    const auto horizon = spec.algo == Algo::Sor ? 0 : spec.horizon_ns;
-    if (now.ns >= parent.started().ns + horizon + config_.grace_ns) {
+    const auto horizon = spec.algo == Algo::Sor || triggered(spec.algo) ? 0 : spec.horizon_ns;
+    const auto since = triggered(spec.algo) ? parent.trigger().fired : parent.started();
+    if (now.ns >= since.ns + horizon + config_.grace_ns) {
         if (working.raw == 0) {
             (void)parent.fail(now, "the horizon passed with " + internal::decimal(FixedE9::from_raw(left)) + " left");
         } else {
@@ -594,7 +616,8 @@ void Desk::rest(Parent& parent, UnixNanos now) {
         book = &*chosen;
     }
     if (book == nullptr) {
-        if (live == nullptr && parent.children().empty() && now.ns - parent.started().ns > config_.grace_ns) {
+        const auto since = triggered(spec.algo) ? parent.trigger().fired : parent.started();
+        if (live == nullptr && parent.children().empty() && now.ns - since.ns > config_.grace_ns) {
             (void)parent.fail(now,
                               spec.venue != VenueId::Invalid ? "the chosen venue does not quote this listing"
                                                              : "no venue that takes orders quotes this listing");
@@ -721,13 +744,57 @@ void Desk::place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos
     log_child(parent, parent.children().back());
     parent.accepted();
     slot.changed = now;
-    const auto why = first ? RepriceWhy::Place : spec.algo == Algo::Iceberg ? RepriceWhy::Refill : RepriceWhy::Peg;
+    const auto why = first ? RepriceWhy::Place : spec.algo == Algo::Pegged ? RepriceWhy::Peg : RepriceWhy::Refill;
     parent.trace().reprice({.ts = now,
                             .child_id = *sent,
                             .instrument = book.instrument,
                             .price = price,
                             .qty = lot.scaled_by(lots),
                             .why = why});
+}
+
+bool Desk::watch(Parent& parent, UnixNanos now) {
+    const auto& spec = parent.spec();
+    if (spec.horizon_ns != 0 && now.ns >= parent.started().ns + spec.horizon_ns) {
+        (void)parent.fail(now, "the horizon passed before the trigger fired");
+        return false;
+    }
+    // trades come as they print, not with the tick
+    if (spec.trigger.on == TriggerOn::Last) {
+        return false;
+    }
+    const auto mid = trigger_mid(
+        market_->books(spec.listing, Side::Sell), market_->books(spec.listing, Side::Buy), spec.venue);
+    if (mid.is_undef()) {
+        hold(parent, Hold::Stale, now);
+        return false;
+    }
+    parent.slot().hold = Hold::None;
+    return on_price(parent, mid, now);
+}
+
+bool Desk::on_price(Parent& parent, FixedE9 price, UnixNanos now) {
+    const auto was = parent.trigger();
+    auto state = was;
+    const bool hit = observe(parent.spec(), state, price, now);
+    if (!hit && state.active == was.active && state.mark.raw == was.mark.raw) {
+        return false;
+    }
+    parent.set_trigger(now, state);
+    auto& slot = parent.slot();
+    // the journal follows a trailing mark in steps of a basis point, so a trend is not a record a tick
+    const auto step = slot.marked.is_undef() ? 0 : slot.marked.raw / 10'000;
+    const auto moved = slot.marked.is_undef()             ? 0
+                       : state.mark.raw > slot.marked.raw ? state.mark.raw - slot.marked.raw
+                                                          : slot.marked.raw - state.mark.raw;
+    if (!hit && state.active == was.active && !slot.marked.is_undef() && moved < step) {
+        return false;
+    }
+    slot.marked = state.mark;
+    if (log_ != nullptr) {
+        log_->record({.kind = ParentRecord::Kind::Trigger, .parent = parent.id(), .ts = now, .trigger = state});
+    }
+    return hit;
 }
 
 void Desk::hold(Parent& parent, Hold why, UnixNanos now) {
@@ -798,7 +865,7 @@ void Desk::on_fill(
     }
     const auto* held = parent->child(child_id);
     const bool was_open = held != nullptr && held->open;
-    if (!parent->fill(now, child_id, base, px, fee, left) || !resting(parent->spec().algo)) {
+    if (!parent->fill(now, child_id, base, px, fee, left) || !rests(parent->spec())) {
         return;
     }
     if (base.raw > 0) {
@@ -904,7 +971,7 @@ void Desk::on_cancel_refused(std::uint64_t child_id) {
     }
 }
 
-void Desk::on_trade(InstrumentId instrument, PriceTicks price, QtyLots qty) {
+void Desk::on_trade(InstrumentId instrument, PriceTicks price, QtyLots qty, UnixNanos at) {
     const auto live = std::ranges::any_of(parents_, [](const Parent& p) { return p.status() == Status::Working; });
     if (!live || qty.is_undef() || price.is_undef()) {
         return;
@@ -915,12 +982,27 @@ void Desk::on_trade(InstrumentId instrument, PriceTicks price, QtyLots qty) {
     }
     const auto base = scale->lot.scaled_by(qty.raw);
     const auto px = scale->tick.scaled_by(price.raw);
+    const auto now = clock_->wall();
+    const bool fresh = at.ns == 0 || at.ns + config_.trade_stale_ns > now.ns;
+    bool any = false;
     for (auto& parent : parents_) {
-        const auto& listing = parent.spec().listing;
-        if (parent.status() == Status::Working && listing.symbol == scale->listing.symbol &&
-            listing.market == scale->listing.market) {
-            parent.market_trade(base, px);
+        const auto& spec = parent.spec();
+        const auto& listing = spec.listing;
+        if (parent.status() != Status::Working || listing.symbol != scale->listing.symbol ||
+            listing.market != scale->listing.market) {
+            continue;
         }
+        parent.market_trade(base, px);
+        const bool watched = triggered(spec.algo) && spec.trigger.on == TriggerOn::Last &&
+                             parent.trigger().fired.ns == 0 &&
+                             (spec.venue == VenueId::Invalid || spec.venue == instrument.venue());
+        if (fresh && watched && on_price(parent, px, now)) {
+            work(parent, now);
+            any = true;
+        }
+    }
+    if (any) {
+        log_changes();
     }
 }
 

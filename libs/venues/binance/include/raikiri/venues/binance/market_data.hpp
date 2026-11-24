@@ -89,4 +89,12 @@ struct Ticker24hBuffer {
 [[nodiscard]] std::expected<std::span<const WireTicker24h>, WireError> parse_ticker_24h(std::string_view body,
                                                                                         Ticker24hBuffer& storage);
 
+struct WireOpenInterest {
+    std::string_view symbol;
+    std::string_view open_interest; // base asset
+    std::uint64_t time_ms{0};
+};
+
+[[nodiscard]] std::expected<WireOpenInterest, WireError> parse_open_interest(std::string_view body);
+
 } // namespace raikiri::venues::binance

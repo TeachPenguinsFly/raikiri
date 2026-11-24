@@ -15,7 +15,7 @@
 
 namespace raikiri::joe {
 
-enum class Algo : std::uint8_t { Sor, Twap, Vwap, Pov, Iceberg, Pegged };
+enum class Algo : std::uint8_t { Sor, Twap, Vwap, Pov, Iceberg, Pegged, Stop, TakeProfit, TrailingStop };
 
 enum class Profile : std::uint8_t { Flat, U, Recorded };
 
@@ -27,14 +27,22 @@ enum class Refill : std::uint8_t { OnComplete, OnFill };
 
 enum class PegTo : std::uint8_t { Primary, Mid, Market };
 
+enum class TriggerOn : std::uint8_t { Mid, Last };
+
 [[nodiscard]] std::string_view to_string(Algo algo) noexcept;
 [[nodiscard]] std::string_view to_string(Profile profile) noexcept;
 [[nodiscard]] std::string_view to_string(Status status) noexcept;
 [[nodiscard]] std::string_view to_string(Refill refill) noexcept;
 [[nodiscard]] std::string_view to_string(PegTo to) noexcept;
+[[nodiscard]] std::string_view to_string(TriggerOn on) noexcept;
 
 [[nodiscard]] constexpr bool resting(Algo algo) noexcept {
     return algo == Algo::Iceberg || algo == Algo::Pegged;
+}
+
+// waits for a price before it sends anything
+[[nodiscard]] constexpr bool triggered(Algo algo) noexcept {
+    return algo == Algo::Stop || algo == Algo::TakeProfit || algo == Algo::TrailingStop;
 }
 
 [[nodiscard]] constexpr bool terminal(Status status) noexcept {
@@ -63,6 +71,17 @@ struct PegSpec {
     std::uint64_t min_interval_ns{1'000'000'000ULL};
 };
 
+// joe watches the price itself, so a trigger is the same on every venue and no venue holds it
+struct TriggerSpec {
+    // where a stop or a take-profit fires
+    FixedE9 price{FixedE9::undef()};
+    TriggerOn on{TriggerOn::Mid};
+    // a trailing stop fires this far back from the best price since it became active
+    std::uint32_t callback_bp{0};
+    // a trailing stop is active once the price has moved this far in its favour; undef is at once
+    FixedE9 activation{FixedE9::undef()};
+};
+
 struct ParentSpec {
     Listing listing{};
     Side side{Side::Buy};
@@ -86,7 +105,9 @@ struct ParentSpec {
     FixedE9 depth_band_bp{FixedE9::from_raw(10 * k_e9)};
     IcebergSpec iceberg{};
     PegSpec peg{};
-    // where a resting algo sits; invalid takes the sor's best venue for each new child
+    TriggerSpec trigger{};
+    // where a resting algo sits; invalid takes the sor's best venue for each new child. a triggered algo reads its
+    // price there and sends there
     VenueId venue{VenueId::Invalid};
     bool post_only{false};
     // the caller's own name for this order: a second start with a tag still held returns the first parent
@@ -119,11 +140,21 @@ enum class SpecError : std::uint8_t {
     PostOnlyCrosses,
     TagTooLong,
     RefTooLong,
+    NoTrigger,
+    BadTrigger,
+    NoCallback,
+    BadActivation,
+    BadTriggerExpiry,
 };
 
 [[nodiscard]] std::string_view to_string(SpecError error) noexcept;
 
 [[nodiscard]] std::expected<void, SpecError> validate(const ParentSpec& spec) noexcept;
+
+// a fired trigger with a limit rests there; one without takes what the books offer
+[[nodiscard]] constexpr bool rests(const ParentSpec& spec) noexcept {
+    return resting(spec.algo) || (triggered(spec.algo) && !spec.limit.is_undef());
+}
 
 // quote value of `qty` at `price`, both e9; saturates rather than wraps
 [[nodiscard]] FixedE9 value_of(FixedE9 qty, FixedE9 price) noexcept;

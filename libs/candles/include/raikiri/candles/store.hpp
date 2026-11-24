@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace raikiri::candles {
@@ -39,6 +40,11 @@ public:
     // at most one sample per instrument and minute; a minute sampled twice (a restart inside it) keeps the newer value
     // of each field and the older where the newer has none
     void write_metrics(std::span<const MetricSample> samples);
+    // a venue's past funding: fills the rate where a minute has none and leaves a sampled one alone
+    void write_funding(std::span<const MetricSample> samples);
+    // those of `instruments` with a funding rate stored before `before`
+    [[nodiscard]] std::unordered_set<std::uint64_t> funded(std::span<const std::uint64_t> instruments,
+                                                           std::int32_t before);
     std::uint64_t prune_metrics(std::int32_t before);
 
 private:

@@ -5,6 +5,7 @@
 
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/stream_token.hpp>
+#include <raikiri/admin/trade_tape.hpp>
 #include <raikiri/admin/types.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/instrument.hpp>
@@ -30,6 +31,7 @@ enum class Op : std::uint8_t { Subscribe, Unsubscribe };
 enum class Feed : std::uint8_t {
     Quotes,
     Book,
+    Trades,
     Greeks,
     Funding,
     Ticker,
@@ -49,6 +51,7 @@ struct ClientMessage {
     std::vector<InstrumentId> quotes;
     std::optional<InstrumentId> book;
     std::optional<std::size_t> levels;
+    std::optional<InstrumentId> trades;
     std::vector<InstrumentId> greeks;
     std::vector<InstrumentId> funding;
     std::vector<InstrumentId> ticker;
@@ -62,6 +65,8 @@ struct ClientMessage {
 // cadence in millihertz: 30 Hz is 30000
 inline constexpr std::int64_t k_max_millihertz = 30'000; // the server's own sampling rate
 inline constexpr std::int64_t k_min_millihertz = 100;
+// prints are batched to this pace however fast the client asks
+inline constexpr std::int64_t k_trades_millihertz = 10'000;
 
 [[nodiscard]] std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept;
 
@@ -105,6 +110,7 @@ resolve_targets(const Registry& registry, std::span<const InstrumentId> ids, std
 [[nodiscard]] Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size_t levels);
 
 inline constexpr std::size_t k_default_levels = 25;
+[[nodiscard]] Trade trade_of(const TradePrint& print, const InstrumentBase& base);
 [[nodiscard]] Greeks greeks_of(const OptionGreeks& greeks);
 [[nodiscard]] Funding funding_of(const FundingUpdate& funding, const InstrumentBase& base);
 
@@ -117,6 +123,9 @@ inline constexpr std::uint64_t k_position_stale_ns = 90ULL * 1'000'000'000ULL;
 [[nodiscard]] std::string ack_frame(std::string_view id, std::optional<std::int64_t> millihertz);
 [[nodiscard]] std::string quotes_frame(std::string_view id, UnixNanos ts, std::span<const Quote> quotes);
 [[nodiscard]] std::string book_frame(std::string_view id, UnixNanos ts, const Book& book);
+// oldest first; a snapshot replaces what the client holds, any other frame adds to it
+[[nodiscard]] std::string
+trades_frame(std::string_view id, UnixNanos ts, InstrumentId instrument, bool snapshot, std::span<const Trade> trades);
 [[nodiscard]] std::string greeks_frame(std::string_view id, UnixNanos ts, std::span<const Greeks> greeks);
 [[nodiscard]] std::string funding_frame(std::string_view id, UnixNanos ts, std::span<const Funding> funding);
 [[nodiscard]] std::string positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> positions);

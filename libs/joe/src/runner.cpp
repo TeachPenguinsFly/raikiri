@@ -109,7 +109,7 @@ void Runner::on_order_event(strategy::Context&, const OrderEvent& event) {
 }
 
 void Runner::on_trade(strategy::Context&, const TradeTick& trade) {
-    desk_->on_trade(trade.instrument, trade.price, trade.qty);
+    desk_->on_trade(trade.instrument, trade.price, trade.qty, trade.ts_init);
 }
 
 } // namespace raikiri::joe

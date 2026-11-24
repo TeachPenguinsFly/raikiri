@@ -403,6 +403,16 @@ map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, 
     return out;
 }
 
+std::optional<std::pair<InstrumentId, FixedE9>> map_open_interest(const WireOpenInterest& wire,
+                                                                  const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    const auto value = parse_decimal_e9(wire.open_interest);
+    if (instrument == nullptr || !value.has_value()) {
+        return std::nullopt;
+    }
+    return std::pair{base_of(*instrument).id, *value};
+}
+
 namespace {
 
 // tradeId counts per symbol on options, and the order id alone repeats across a partial fill;

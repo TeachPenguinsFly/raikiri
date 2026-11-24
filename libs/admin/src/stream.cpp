@@ -52,6 +52,7 @@ struct Message {
     std::string id;
     std::vector<std::string> quotes;
     std::string book;
+    std::string trades;
     std::vector<std::string> greeks;
     std::vector<std::string> funding;
     std::vector<std::string> ticker;
@@ -200,6 +201,7 @@ bool sequenced(Feed feed) noexcept {
         return true;
     case Feed::Quotes:
     case Feed::Book:
+    case Feed::Trades:
     case Feed::Greeks:
     case Feed::Funding:
     case Feed::Ticker:
@@ -261,6 +263,13 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
                 Problem{.title = "instrument id must be digits", .status = 400, .detail = wire.book});
         }
     }
+    if (!wire.trades.empty()) {
+        out.trades = read_id(wire.trades);
+        if (!out.trades.has_value()) {
+            return std::unexpected(
+                Problem{.title = "instrument id must be digits", .status = 400, .detail = wire.trades});
+        }
+    }
     for (const auto& name : wire.events) {
         const auto kind = read_event(name);
         if (!kind.has_value()) {
@@ -286,6 +295,7 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     int channels = 0;
     channels += out.quotes.empty() ? 0 : 1;
     channels += out.book.has_value() ? 1 : 0;
+    channels += out.trades.has_value() ? 1 : 0;
     channels += out.greeks.empty() ? 0 : 1;
     channels += out.funding.empty() ? 0 : 1;
     channels += out.ticker.empty() ? 0 : 1;
@@ -293,7 +303,7 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     if (channels == 0) {
         return std::unexpected(Problem{.title = "subscribe named no channel",
                                        .status = 400,
-                                       .detail = "one of quotes, book, greeks, funding, ticker, events"});
+                                       .detail = "one of quotes, book, trades, greeks, funding, ticker, events"});
     }
     if (channels > 1) {
         // one cadence per ack, so one channel per handle
@@ -311,6 +321,8 @@ std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept {
     case Feed::Book:
         // one ladder gets 5 Hz, several get 1 Hz; the top of book is on the quotes feed
         return instruments <= 1 ? 5'000 : 1'000;
+    case Feed::Trades:
+        return k_trades_millihertz;
     case Feed::Greeks:
     case Feed::Funding:
     case Feed::Ticker:
@@ -332,7 +344,7 @@ std::int64_t negotiate_millihertz(Feed feed, std::size_t instruments, std::optio
     if (!asked.has_value()) {
         return default_millihertz(feed, instruments);
     }
-    return std::clamp(*asked, k_min_millihertz, k_max_millihertz);
+    return std::clamp(*asked, k_min_millihertz, feed == Feed::Trades ? k_trades_millihertz : k_max_millihertz);
 }
 
 std::uint64_t period_ns(std::int64_t millihertz) noexcept {
@@ -381,6 +393,13 @@ Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size
         out.asks.push_back({.price = price(snapshot.asks[i].price, base), .size = size(snapshot.asks[i].qty, base)});
     }
     return out;
+}
+
+Trade trade_of(const TradePrint& print, const InstrumentBase& base) {
+    return Trade{.price = price(print.price, base),
+                 .size = size(print.qty, base),
+                 .side = std::string{to_string(print.aggressor)},
+                 .ts_event = digits(print.ts_event)};
 }
 
 Greeks greeks_of(const OptionGreeks& greeks) {
@@ -457,6 +476,24 @@ std::string quotes_frame(std::string_view id, UnixNanos ts, std::span<const Quot
 
 std::string book_frame(std::string_view id, UnixNanos ts, const Book& book) {
     return object_frame("book", id, ts, book);
+}
+
+std::string
+trades_frame(std::string_view id, UnixNanos ts, InstrumentId instrument, bool snapshot, std::span<const Trade> trades) {
+    auto out = frame_head("trades", id);
+    append_ts(out, ts);
+    out += R"(,"instrument_id":")";
+    out += digits(instrument);
+    out += snapshot ? R"(","snapshot":true,"trades":[)" : R"(","snapshot":false,"trades":[)";
+    bool first = true;
+    for (const auto& trade : trades) {
+        if (!std::exchange(first, false)) {
+            out += ',';
+        }
+        append_json(out, trade);
+    }
+    out += "]}";
+    return out;
 }
 
 std::string greeks_frame(std::string_view id, UnixNanos ts, std::span<const Greeks> greeks) {
@@ -617,6 +654,10 @@ struct FeedState {
     std::uint64_t seq{0};
     // book subscriptions only; per subscription
     std::size_t levels{k_default_levels};
+    // trades subscriptions only: the instrument's ring and how many of its prints were sent
+    std::shared_ptr<TradeRing> prints;
+    std::uint64_t cursor{0};
+    bool primed{false};
 };
 
 // `version` is the copy's, not the probe's; the writer may move between the reads
@@ -627,10 +668,119 @@ template <typename Record> struct Changed {
     Record record{};
 };
 
+// a pass reads at most this many prints from one ring, so one busy venue cannot hold the pass open
+constexpr std::size_t k_max_prints_per_pass = 8192;
+
+struct TradeReader {
+    const shm::MdRing* ring{nullptr};
+    shm::MdReader reader;
+};
+
+TradePrint print_of(const shm::MdEvent& event) noexcept {
+    return {.price = event.price,
+            .qty = event.qty,
+            .aggressor = event.aggressor,
+            .ts_event = event.ts_event.ns != 0 ? event.ts_event : event.ts_init};
+}
+
+// reads the trade ring of each gateway that lists a watched instrument, and of no other
+class TradeSource {
+public:
+    explicit TradeSource(const Registry& registry) : registry_{&registry}, epoch_{registry.epoch()} {}
+
+    [[nodiscard]] std::shared_ptr<TradeRing> watch(const Target& target) {
+        const bool held = tape_.watched(target.id);
+        auto ring = tape_.watch(target.id);
+        if (!held) {
+            attach();
+            backfill(target, *ring);
+        }
+        return ring;
+    }
+
+    // returns the prints taken for a watched instrument
+    std::size_t pump() {
+        if (tape_.prune() != 0 || registry_->epoch() != epoch_) {
+            attach();
+        }
+        std::size_t taken = 0;
+        shm::MdEvent event{};
+        for (auto& source : readers_) {
+            for (std::size_t n = 0; n < k_max_prints_per_pass; ++n) {
+                const auto got = source.reader.poll(event);
+                if (got == shm::PollResult::Empty) {
+                    break;
+                }
+                if (got == shm::PollResult::Item && event.kind == shm::MdKind::Trade &&
+                    tape_.push(event.instrument, print_of(event))) {
+                    ++taken;
+                }
+            }
+        }
+        return taken;
+    }
+
+private:
+    void attach() {
+        // a re-attach moves the mappings, so no cursor into the old ring is kept
+        const bool moved = std::exchange(epoch_, registry_->epoch()) != registry_->epoch();
+        std::vector<TradeReader> next;
+        for (const auto id : tape_.instruments()) {
+            const auto row = registry_->catalogue_row(id);
+            if (!row.has_value() || row->gateway->channels.md_events == nullptr) {
+                continue;
+            }
+            const auto same = [ring = row->gateway->channels.md_events](const TradeReader& one) {
+                return one.ring == ring;
+            };
+            if (std::ranges::any_of(next, same)) {
+                continue;
+            }
+            const auto kept = moved ? readers_.end() : std::ranges::find_if(readers_, same);
+            next.push_back(kept != readers_.end()
+                               ? *kept
+                               : TradeReader{.ring = row->gateway->channels.md_events,
+                                             .reader = shm::MdReader{row->gateway->channels.md_events}});
+        }
+        readers_ = std::move(next);
+    }
+
+    // one instrument's prints still in its gateway's ring, up to where the live reader stands
+    void backfill(const Target& target, TradeRing& ring) const {
+        const auto live = std::ranges::find_if(
+            readers_, [&target](const TradeReader& one) { return one.ring == target.gateway->channels.md_events; });
+        if (live == readers_.end()) {
+            return;
+        }
+        shm::MdReader past{live->ring};
+        past.rewind();
+        shm::MdEvent event{};
+        while (past.next_seq() < live->reader.next_seq()) {
+            const auto got = past.poll(event);
+            if (got == shm::PollResult::Empty) {
+                break;
+            }
+            if (got == shm::PollResult::Item && event.kind == shm::MdKind::Trade && event.instrument == target.id) {
+                ring.push(print_of(event));
+            }
+        }
+    }
+
+    const Registry* registry_;
+    std::uint64_t epoch_{0};
+    TradeTape tape_;
+    std::vector<TradeReader> readers_;
+};
+
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    Session(tcp::socket socket, const Registry& registry, const Clock& clock, const StreamTokens& tokens)
-        : ws_{std::move(socket)}, registry_{&registry}, clock_{&clock}, tokens_{&tokens}, epoch_{registry.epoch()} {}
+    Session(tcp::socket socket,
+            const Registry& registry,
+            const Clock& clock,
+            const StreamTokens& tokens,
+            TradeSource& trades)
+        : ws_{std::move(socket)}, registry_{&registry}, clock_{&clock}, tokens_{&tokens}, trades_{&trades},
+          epoch_{registry.epoch()} {}
 
     void run() {
         // read the upgrade request first; the path is part of the contract
@@ -854,6 +1004,10 @@ private:
             open_state(message, Feed::Book, std::span<const InstrumentId>{&*message.book, 1U});
             return;
         }
+        if (message.trades.has_value()) {
+            open_state(message, Feed::Trades, std::span<const InstrumentId>{&*message.trades, 1U});
+            return;
+        }
         if (!message.greeks.empty()) {
             open_state(message, Feed::Greeks, message.greeks);
             return;
@@ -885,6 +1039,9 @@ private:
         }
         if (feed.targets.empty()) {
             return;
+        }
+        if (kind == Feed::Trades) {
+            feed.prints = trades_->watch(feed.targets.front());
         }
         // empty gate and due now: the first tick is a snapshot
         feed.gate = ChangeGate{feed.targets.size()};
@@ -946,6 +1103,7 @@ private:
             }
             case Feed::Quotes:
             case Feed::Book:
+            case Feed::Trades:
             case Feed::Greeks:
             case Feed::Funding:
             case Feed::Ticker:
@@ -975,6 +1133,8 @@ private:
             return sample_quotes(feed, wall);
         case Feed::Book:
             return sample_book(feed, wall);
+        case Feed::Trades:
+            return sample_trades(feed, wall);
         case Feed::Greeks:
             return sample_greeks(feed, wall);
         case Feed::Funding:
@@ -1050,6 +1210,28 @@ private:
         const auto& cell = moved.front();
         enqueue(book_frame(feed.id, wall, book_of(cell.record, *cell.base, feed.levels)));
         feed.gate.accept(cell.slot, cell.version);
+        return true;
+    }
+
+    // the cursor moves only once the frame is queued, so a busy socket batches prints instead of losing them
+    bool sample_trades(FeedState& feed, UnixNanos wall) {
+        if (feed.prints == nullptr || feed.targets.empty()) {
+            return false;
+        }
+        const auto fresh = feed.prints->since(feed.cursor);
+        if (fresh.empty() && feed.primed) {
+            return false;
+        }
+        const auto& target = feed.targets.front();
+        const auto& base = base_of(*target.listed);
+        std::vector<Trade> rows;
+        rows.reserve(fresh.size());
+        for (const auto& print : fresh) {
+            rows.push_back(trade_of(print, base));
+        }
+        enqueue(trades_frame(feed.id, wall, target.id, !feed.primed, rows));
+        feed.cursor = feed.prints->head();
+        feed.primed = true;
         return true;
     }
 
@@ -1217,6 +1399,7 @@ private:
     const Registry* registry_;
     const Clock* clock_;
     const StreamTokens* tokens_;
+    TradeSource* trades_;
     // the registry epoch the targets were resolved against
     std::uint64_t epoch_{0};
     std::vector<FeedState> feeds_;
@@ -1234,12 +1417,12 @@ struct Stream::Impl {
         void* shared, const Registry& reg, const Clock& clk, const StreamTokens& tok, std::string addr, std::uint16_t p)
         : owned{shared == nullptr ? std::make_unique<asio::io_context>(1) : nullptr},
           ioc{shared == nullptr ? *owned : *static_cast<asio::io_context*>(shared)}, registry{reg}, clock{clk},
-          tokens{tok}, address{std::move(addr)}, port{p}, acceptor{ioc} {}
+          tokens{tok}, address{std::move(addr)}, port{p}, acceptor{ioc}, trades{reg} {}
 
     void accept() {
         acceptor.async_accept([this](beast::error_code ec, tcp::socket socket) {
             if (!ec) {
-                auto session = std::make_shared<Session>(std::move(socket), registry, clock, tokens);
+                auto session = std::make_shared<Session>(std::move(socket), registry, clock, tokens, trades);
                 sessions.push_back(session);
                 session->run();
             }
@@ -1257,6 +1440,7 @@ struct Stream::Impl {
     std::string address;
     std::uint16_t port;
     tcp::acceptor acceptor;
+    TradeSource trades;
     std::vector<std::shared_ptr<Session>> sessions;
     bool running{false};
 };
@@ -1307,6 +1491,7 @@ std::size_t Stream::poll() noexcept {
     try {
         const auto mono = impl_->clock.mono();
         const auto wall = impl_->clock.wall();
+        work += impl_->trades.pump();
         for (const auto& session : impl_->sessions) {
             work += session->tick(mono, wall);
         }

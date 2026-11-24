@@ -202,6 +202,13 @@ struct Book {
     std::string ts_event;
 };
 
+struct Trade {
+    std::string price;
+    std::string size;
+    std::optional<std::string> side; // the aggressor's
+    std::string ts_event;
+};
+
 struct Greeks {
     std::string instrument_id;
     std::string delta;

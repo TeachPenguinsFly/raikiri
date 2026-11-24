@@ -2,12 +2,14 @@
 // a chart opens on history from the moment the stack started, and on more after a restart. Once a minute it also stores
 // what the gateways' funding and ticker cells hold: funding rate, mark, index and open interest
 //
-//   candled [--dsn <postgres-dsn>] [--keep-days 30] [--keep-metric-days 30] [--backfill-hours 24]
+//   candled [--dsn <postgres-dsn>] [--keep-days 30] [--keep-metric-days 30] [--backfill-hours 24] [--funding-days 30]
 //
 // On start it asks each venue's public history for the minutes it has not stored, back to --backfill-hours ago at
-// most: the stretch before a first start, and the gap a stop left
+// most: the stretch before a first start, and the gap a stop left. Once a venue's minutes are in, it asks the past
+// funding of each perp that has none stored from the first day of the last --funding-days (0 asks none)
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/candles/candle.hpp>
+#include <raikiri/candles/funding.hpp>
 #include <raikiri/candles/history.hpp>
 #include <raikiri/candles/metrics.hpp>
 #include <raikiri/candles/store.hpp>
@@ -20,6 +22,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <chrono>
@@ -99,6 +102,7 @@ int main(int argc, char** argv) {
     int keep_days = 30;
     int keep_metric_days = 30;
     int backfill_hours = 24;
+    int funding_days = 30;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--dsn" && i + 1 < argc) {
@@ -109,9 +113,11 @@ int main(int argc, char** argv) {
             keep_metric_days = std::atoi(argv[++i]);
         } else if (arg == "--backfill-hours" && i + 1 < argc) {
             backfill_hours = std::atoi(argv[++i]);
+        } else if (arg == "--funding-days" && i + 1 < argc) {
+            funding_days = std::atoi(argv[++i]);
         } else {
             RLOG_ERROR("usage: candled [--dsn <postgres-dsn>] [--keep-days 30] [--keep-metric-days 30] "
-                       "[--backfill-hours 24]");
+                       "[--backfill-hours 24] [--funding-days 30]");
             return 2;
         }
     }
@@ -197,9 +203,49 @@ int main(int argc, char** argv) {
     };
     std::uint64_t asked = 0;
 
+    // older rows than the table keeps would be pruned within the hour
+    const auto funding_from = started - std::min(funding_days, keep_metric_days) * 24 * 60;
+    candles::FundingBackfill funding;
+    std::unordered_set<std::uint64_t> funding_seen; // two gateways of one venue list the same perps
+    std::vector<candles::MetricSample> unwritten_funding;
+    std::uint64_t funding_asked = 0;
+    std::uint64_t funding_written = 0;
+
+    // the perps without a funding rate in the window's first day, which is where a finished backfill leaves one; a
+    // contract listed since is asked again at each start, one call
+    const auto plan_funding = [&](const std::vector<candles::FundingBackfill::Part>& perps) {
+        if (perps.empty()) {
+            return;
+        }
+        std::vector<std::uint64_t> ids;
+        ids.reserve(perps.size());
+        for (const auto& part : perps) {
+            ids.push_back(part.instrument.packed);
+        }
+        try {
+            if (!store) {
+                store = std::make_unique<candles::Store>(dsn);
+            }
+            const auto have = store->funded(ids, funding_from + 24 * 60);
+            for (const auto& part : perps) {
+                if (!have.contains(part.instrument.packed)) {
+                    (void)funding.add(part);
+                }
+            }
+            RLOG_INFO("candled: {} of {} perps lack past funding, {} calls queued",
+                      perps.size() - have.size(),
+                      perps.size(),
+                      funding.queued());
+        } catch (const std::exception& e) {
+            RLOG_WARN("candled: cannot read the stored funding, none asked for {} perps: {}", perps.size(), e.what());
+            store.reset();
+        }
+    };
+
     // each attached gateway's markets, busiest first, once
     const auto plan = [&] {
         std::size_t added = 0;
+        std::vector<candles::FundingBackfill::Part> perps;
         for (const auto& market : registry.markets({}, std::numeric_limits<std::size_t>::max())) {
             for (const auto& listing : market.listings) {
                 if (planned.contains(listing.account) || listing.market == "option") {
@@ -211,6 +257,11 @@ int main(int argc, char** argv) {
                 // what the window lacks before the first stored minute and after the last; the started minute is ours
                 // only in part, so the venue's whole one replaces it
                 const InstrumentId id{packed};
+                if (funding_from < started && candles::funding_venue(id.venue(), id.market()) != nullptr &&
+                    funding_seen.insert(packed).second) {
+                    perps.push_back(
+                        {.instrument = id, .symbol = listing.exchange_symbol, .from = funding_from, .to = started});
+                }
                 const auto have = stored.find(packed);
                 if (have == stored.end()) {
                     backfill.add(
@@ -234,6 +285,7 @@ int main(int argc, char** argv) {
         if (added > 0) {
             RLOG_INFO("candled: {} markets to backfill, {} calls queued", added, backfill.queued());
         }
+        plan_funding(perps);
     };
 
     const auto ask = [&](const candles::Backfill::Due& due) {
@@ -271,6 +323,44 @@ int main(int argc, char** argv) {
             });
         if (!sent) {
             backfill.defer(due);
+        }
+    };
+
+    const auto ask_funding = [&](const candles::FundingBackfill::Due& due) {
+        auto& client = rest[due.call.host];
+        if (client == nullptr) {
+            client = std::make_unique<net::RestClient>(io, net::RestConfig{.host = due.call.host, .pool_size = 2});
+            client->start();
+        }
+        ++funding_asked;
+        const auto sent = client->send(
+            {.method = due.call.body.empty() ? net::HttpMethod::Get : net::HttpMethod::Post,
+             .target = due.call.target,
+             .body = due.call.body},
+            [&, due](net::RestResponse&& r) {
+                if (r.status != 200) {
+                    RLOG_WARN("candled: {}{} answered {}: {:.120}",
+                              due.call.host,
+                              due.call.target,
+                              r.status,
+                              r.transport_failed() ? r.error : r.body);
+                    funding.retry(due);
+                    return;
+                }
+                const auto got = due.source->parse(r.body, due.part.instrument);
+                if (!got.has_value()) {
+                    RLOG_WARN("candled: unreadable funding from {}: {}", due.call.host, got.error());
+                    return;
+                }
+                for (const auto& row : *got) {
+                    if (row.minute >= due.part.from && row.minute < due.part.to) {
+                        unwritten_funding.push_back(row);
+                    }
+                }
+                funding.answered(due, *got);
+            });
+        if (!sent) {
+            funding.defer(due);
         }
     };
     std::uint64_t overruns = 0;
@@ -335,6 +425,25 @@ int main(int argc, char** argv) {
         } catch (const std::exception& e) {
             RLOG_WARN("candled: write of {} metric samples failed, kept for the next try: {}",
                       unwritten_metrics.size(),
+                      e.what());
+            store.reset();
+        }
+    };
+
+    const auto flush_funding = [&] {
+        if (unwritten_funding.empty()) {
+            return;
+        }
+        try {
+            if (!store) {
+                store = std::make_unique<candles::Store>(dsn);
+            }
+            store->write_funding(unwritten_funding);
+            funding_written += unwritten_funding.size();
+            unwritten_funding.clear();
+        } catch (const std::exception& e) {
+            RLOG_WARN("candled: write of {} funding rows failed, kept for the next try: {}",
+                      unwritten_funding.size(),
                       e.what());
             store.reset();
         }
@@ -406,11 +515,15 @@ int main(int argc, char** argv) {
         for (const auto& due : backfill.due(mono, candles::minute_of(clock.wall()))) {
             ask(due);
         }
+        for (const auto& due : funding.due(mono, backfill)) {
+            ask_funding(due);
+        }
         (void)io.poll();
         if (mono >= flush_due) {
             flush_due = mono + k_flush_ns;
             flush();
             flush_metrics();
+            flush_funding();
         }
         if (mono >= mend_due) {
             mend_due = mono + k_mend_ns;
@@ -434,7 +547,8 @@ int main(int argc, char** argv) {
         if (mono >= report_due) {
             report_due = mono + k_report_ns;
             RLOG_INFO("candled: {} prints, {} minutes written, {} open, {} late, {} overruns, {} unknown instruments; "
-                      "history: {} calls, {} minutes, {} queued, {} dropped; {} metric samples written",
+                      "history: {} calls, {} minutes, {} queued, {} dropped; {} metric samples written; "
+                      "funding: {} calls, {} rows, {} queued, {} dropped",
                       builder.prints(),
                       written,
                       builder.open_minutes(),
@@ -445,7 +559,11 @@ int main(int argc, char** argv) {
                       filled,
                       backfill.queued(),
                       backfill.dropped(),
-                      metrics_written);
+                      metrics_written,
+                      funding_asked,
+                      funding_written,
+                      funding.queued(),
+                      funding.dropped());
         }
         if (read == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds{50});
@@ -454,6 +572,7 @@ int main(int argc, char** argv) {
     builder.close_all();
     flush();
     flush_metrics();
+    flush_funding();
     RLOG_INFO("candled: down, {} minutes written", written);
     return 0;
 }

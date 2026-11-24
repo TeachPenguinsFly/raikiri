@@ -194,4 +194,20 @@ std::expected<std::span<const WireTicker24h>, WireError> parse_ticker_24h(std::s
     });
 }
 
+std::expected<WireOpenInterest, WireError> parse_open_interest(std::string_view body) {
+    return guarded([&]() -> std::expected<WireOpenInterest, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto symbol = wire::req_str(*root, "symbol");
+        const auto open_interest = wire::req_str(*root, "openInterest");
+        if (!symbol.has_value() || !open_interest.has_value()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        return WireOpenInterest{
+            .symbol = *symbol, .open_interest = *open_interest, .time_ms = wire::opt_u64(*root, "time").value_or(0)};
+    });
+}
+
 } // namespace raikiri::venues::binance

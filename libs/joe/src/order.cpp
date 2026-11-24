@@ -18,6 +18,12 @@ std::string_view to_string(Algo algo) noexcept {
         return "iceberg";
     case Algo::Pegged:
         return "pegged";
+    case Algo::Stop:
+        return "stop";
+    case Algo::TakeProfit:
+        return "take_profit";
+    case Algo::TrailingStop:
+        return "trailing_stop";
     }
     return "unknown";
 }
@@ -68,6 +74,10 @@ std::string_view to_string(PegTo to) noexcept {
     return "unknown";
 }
 
+std::string_view to_string(TriggerOn on) noexcept {
+    return on == TriggerOn::Last ? "last" : "mid";
+}
+
 std::string_view to_string(SpecError error) noexcept {
     switch (error) {
     case SpecError::NoSymbol:
@@ -112,6 +122,16 @@ std::string_view to_string(SpecError error) noexcept {
         return "the minimum re-peg interval is between 100 ms and an hour";
     case SpecError::PostOnlyCrosses:
         return "a post-only market peg needs a positive offset, or it sits on the other side's touch";
+    case SpecError::NoTrigger:
+        return "a stop or a take-profit needs a positive trigger price";
+    case SpecError::BadTrigger:
+        return "a trigger price goes with stop and take_profit, a callback and an activation with trailing_stop";
+    case SpecError::NoCallback:
+        return "a trailing stop needs a callback between 1 and 5000 bp";
+    case SpecError::BadActivation:
+        return "the activation price is not a positive price";
+    case SpecError::BadTriggerExpiry:
+        return "a triggered algo's horizon is zero for none, or between one second and a week";
     }
     return "unknown";
 }
@@ -160,6 +180,32 @@ constexpr std::uint64_t k_week = 7ULL * 24 * 60 * 60 * k_second;
     return {};
 }
 
+[[nodiscard]] std::expected<void, SpecError> validate_trigger(const ParentSpec& spec) noexcept {
+    const auto& trigger = spec.trigger;
+    if (spec.horizon_ns != 0 && (spec.horizon_ns < k_second || spec.horizon_ns > k_week)) {
+        return std::unexpected{SpecError::BadTriggerExpiry};
+    }
+    if (spec.algo != Algo::TrailingStop) {
+        if (trigger.callback_bp != 0 || !trigger.activation.is_undef()) {
+            return std::unexpected{SpecError::BadTrigger};
+        }
+        if (trigger.price.is_undef() || trigger.price.raw <= 0) {
+            return std::unexpected{SpecError::NoTrigger};
+        }
+        return {};
+    }
+    if (!trigger.price.is_undef()) {
+        return std::unexpected{SpecError::BadTrigger};
+    }
+    if (trigger.callback_bp == 0 || trigger.callback_bp > 5000) {
+        return std::unexpected{SpecError::NoCallback};
+    }
+    if (!trigger.activation.is_undef() && trigger.activation.raw <= 0) {
+        return std::unexpected{SpecError::BadActivation};
+    }
+    return {};
+}
+
 } // namespace internal
 
 std::expected<void, SpecError> validate(const ParentSpec& spec) noexcept {
@@ -195,6 +241,9 @@ std::expected<void, SpecError> validate(const ParentSpec& spec) noexcept {
     }
     if (resting(spec.algo)) {
         return internal::validate_resting(spec);
+    }
+    if (triggered(spec.algo)) {
+        return internal::validate_trigger(spec);
     }
     if (spec.horizon_ns < k_second || spec.horizon_ns > k_week) {
         return std::unexpected{SpecError::NoHorizon};

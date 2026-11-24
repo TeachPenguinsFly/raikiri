@@ -77,7 +77,7 @@ protected:
 
 // what a restart must not forget about a parent; its fills come back from the order events
 struct ParentRecord {
-    enum class Kind : std::uint8_t { Created, Started, ChildSent, StatusChanged };
+    enum class Kind : std::uint8_t { Created, Started, ChildSent, StatusChanged, Trigger };
 
     Kind kind{Kind::Created};
     std::uint64_t parent{0};
@@ -91,6 +91,7 @@ struct ParentRecord {
     Child child{};
     Status status{Status::Pending};
     std::string reason{};
+    TriggerState trigger{};
 };
 
 class ParentLog {

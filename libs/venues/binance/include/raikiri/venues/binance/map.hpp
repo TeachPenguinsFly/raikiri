@@ -37,6 +37,10 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// in the base asset, the unit the ticker record keeps; nullopt for a symbol not listed or an unreadable figure
+[[nodiscard]] std::optional<std::pair<InstrumentId, FixedE9>> map_open_interest(const WireOpenInterest& wire,
+                                                                                const exec::InstrumentTable& table);
+
 // x alone decides the event; X also reports fills, so emitting on it would double-count
 [[nodiscard]] std::optional<OrderEvent>
 map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
