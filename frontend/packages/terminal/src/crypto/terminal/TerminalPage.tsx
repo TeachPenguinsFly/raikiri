@@ -75,8 +75,8 @@ function Desk({ ticket, account }: DeskSlots) {
           className={cn(
             'grid grid-cols-1 gap-1 p-1',
             desk
-              ? 'min-[1100px]:grid-cols-[minmax(0,1fr)_320px_320px]'
-              : 'min-[1100px]:grid-cols-[minmax(0,1fr)_320px]',
+              ? 'min-[1100px]:grid-cols-[minmax(0,1fr)_380px_320px]'
+              : 'min-[1100px]:grid-cols-[minmax(0,1fr)_380px]',
             // the second row takes what a ticket taller than the chart leaves over
             held && 'min-[1100px]:grid-rows-[auto_minmax(260px,1fr)]',
           )}

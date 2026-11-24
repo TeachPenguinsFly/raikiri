@@ -518,7 +518,7 @@ export function BookWidget() {
         </span>
         <BookTools />
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-1.5 px-2 py-1.5">
         <div
           role="tablist"
           className="flex items-center rounded-md bg-canvas/60 p-0.5"
