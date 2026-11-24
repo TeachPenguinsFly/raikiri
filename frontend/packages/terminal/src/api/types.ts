@@ -135,6 +135,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metrics/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Funding rate, mark, index and open interest of one instrument over time
+         * @description Buckets of the one-minute samples candled takes from the gateways' funding and ticker rows. The newest `limit`
+         *     buckets up to now, oldest first; each field is the last sample in its bucket that had one and is absent when
+         *     none had. A bucket without samples has no point.
+         */
+        get: operations["getMetricHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/instruments": {
         parameters: {
             query?: never;
@@ -1873,6 +1895,21 @@ export interface components {
             /** @description Prints. */
             n: number;
         };
+        MetricPage: {
+            instrument_id: string;
+            interval: string;
+            points: components["schemas"]["MetricPoint"][];
+        };
+        MetricPoint: {
+            /** @description The bucket's start in unix milliseconds. */
+            t: number;
+            /** @description Per interval, not an APR. */
+            funding_rate?: string;
+            mark?: string;
+            index?: string;
+            /** @description In the base asset. */
+            open_interest?: string;
+        };
         Job: {
             /** @example markets */
             name: string;
@@ -3285,6 +3322,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CandlePage"];
+                };
+            };
+            /** @description Bad instrument or interval */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMetricHistory: {
+        parameters: {
+            query: {
+                instrument_id: string;
+                interval: "5m" | "15m" | "1h" | "4h" | "1d";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricPage"];
                 };
             };
             /** @description Bad instrument or interval */

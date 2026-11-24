@@ -1,6 +1,7 @@
 #pragma once
 
 #include <raikiri/candles/candle.hpp>
+#include <raikiri/candles/metrics.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -11,7 +12,7 @@
 
 namespace raikiri::candles {
 
-// raikiri.candles_1m in postgres; one connection, used from one thread
+// raikiri.candles_1m and raikiri.metrics_1m in postgres; one connection, used from one thread
 class Store {
 public:
     explicit Store(const std::string& dsn);
@@ -34,6 +35,11 @@ public:
     [[nodiscard]] std::vector<Candle> read(InstrumentId instrument, std::int32_t from, std::int32_t to);
     // drops minutes older than `before`; returns how many
     std::uint64_t prune(std::int32_t before);
+
+    // at most one sample per instrument and minute; a minute sampled twice (a restart inside it) keeps the newer value
+    // of each field and the older where the newer has none
+    void write_metrics(std::span<const MetricSample> samples);
+    std::uint64_t prune_metrics(std::int32_t before);
 
 private:
     struct Impl;

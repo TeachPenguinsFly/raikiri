@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <pqxx/pqxx>
 #include <string>
 
@@ -32,6 +33,13 @@ constexpr std::string_view k_upsert = R"(
 
 // one row per instrument and minute, folded the way the upsert folds rows already stored: postgres refuses a statement
 // that would touch the same row twice
+// a minute of every attached instrument goes in one statement
+constexpr std::size_t k_metric_batch = 8192;
+
+std::string sql_value(const std::optional<std::int64_t>& value) {
+    return value.has_value() ? std::to_string(*value) : "NULL";
+}
+
 std::vector<Candle> folded(std::span<const Candle> candles) {
     std::vector<Candle> rows{candles.begin(), candles.end()};
     std::ranges::stable_sort(rows, [](const Candle& a, const Candle& b) {
@@ -143,6 +151,40 @@ std::vector<Candle> Store::read(InstrumentId instrument, std::int32_t from, std:
 std::uint64_t Store::prune(std::int32_t before) {
     pqxx::work tx{impl_->conn};
     const auto result = tx.exec("DELETE FROM raikiri.candles_1m WHERE minute < $1", pqxx::params{before});
+    tx.commit();
+    return static_cast<std::uint64_t>(result.affected_rows());
+}
+
+void Store::write_metrics(std::span<const MetricSample> samples) {
+    pqxx::work tx{impl_->conn};
+    for (std::size_t start = 0; start < samples.size(); start += k_metric_batch) {
+        const auto chunk = samples.subspan(start, std::min(k_metric_batch, samples.size() - start));
+        std::string sql = "INSERT INTO raikiri.metrics_1m AS m (instrument_id, minute, funding_rate, mark_price, "
+                          "index_price, open_interest) VALUES ";
+        for (std::size_t i = 0; i < chunk.size(); ++i) {
+            const auto& s = chunk[i];
+            sql += std::format("{}({},{},{},{},{},{})",
+                               i == 0 ? "" : ",",
+                               static_cast<std::int64_t>(s.instrument.packed),
+                               s.minute,
+                               sql_value(s.funding_rate),
+                               sql_value(s.mark),
+                               sql_value(s.index),
+                               sql_value(s.open_interest));
+        }
+        sql += " ON CONFLICT (instrument_id, minute) DO UPDATE SET"
+               " funding_rate = COALESCE(EXCLUDED.funding_rate, m.funding_rate),"
+               " mark_price = COALESCE(EXCLUDED.mark_price, m.mark_price),"
+               " index_price = COALESCE(EXCLUDED.index_price, m.index_price),"
+               " open_interest = COALESCE(EXCLUDED.open_interest, m.open_interest)";
+        tx.exec(sql);
+    }
+    tx.commit();
+}
+
+std::uint64_t Store::prune_metrics(std::int32_t before) {
+    pqxx::work tx{impl_->conn};
+    const auto result = tx.exec("DELETE FROM raikiri.metrics_1m WHERE minute < $1", pqxx::params{before});
     tx.commit();
     return static_cast<std::uint64_t>(result.affected_rows());
 }

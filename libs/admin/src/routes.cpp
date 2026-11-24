@@ -616,6 +616,39 @@ http::Handler make_router(const Registry& registry,
                                InstrumentId{*id}, interval->second, to_minute, static_cast<std::size_t>(limit))});
         }
 
+        if (req.path == "/v1/metrics/history") {
+            const auto id = read_digits(http::query_param(req.query, "instrument_id"));
+            if (!id.has_value()) {
+                return problem(400, "instrument_id is required", "digits");
+            }
+            const auto interval_text = http::query_param(req.query, "interval");
+            const auto minutes = candles::metric_interval(interval_text);
+            if (!minutes.has_value()) {
+                return problem(400, "unknown interval", interval_text);
+            }
+            const auto limit = candles::metric_limit(read_digits(http::query_param(req.query, "limit")));
+            if (history == nullptr) {
+                return no_database();
+            }
+            const auto window = candles::metric_window(
+                static_cast<std::int32_t>(wall().ns / 60'000'000'000ULL), *minutes, limit);
+            const auto e9 = [](const std::optional<std::int64_t>& raw) {
+                return raw.transform([](std::int64_t v) { return decimal(FixedE9::from_raw(v)); });
+            };
+            MetricPage page{.instrument_id = std::string{http::query_param(req.query, "instrument_id")},
+                            .interval = std::string{interval_text},
+                            .points = {}};
+            for (const auto& b :
+                 candles::bucket_metrics(history->metrics(InstrumentId{*id}, window.from, window.to), *minutes)) {
+                page.points.push_back({.t = static_cast<std::int64_t>(b.minute) * 60'000,
+                                       .funding_rate = e9(b.funding_rate),
+                                       .mark = e9(b.mark),
+                                       .index = e9(b.index),
+                                       .open_interest = e9(b.open_interest)});
+            }
+            return json(page);
+        }
+
         if (req.path == "/v1/positions") {
             std::optional<AccountId> account;
             if (const auto text = http::query_param(req.query, "account"); !text.empty()) {

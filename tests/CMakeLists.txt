@@ -103,6 +103,7 @@ raikiri_add_test(candles_test SRCS
   candles/klines_upbit_test.cpp
   candles/klines_weex_test.cpp
   candles/klines_xt_test.cpp
+  candles/metrics_test.cpp
   LIBS raikiri::candles)
 target_compile_definitions(candles_test PRIVATE RAIKIRI_CANDLE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/candles/fixtures")
 

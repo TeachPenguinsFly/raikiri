@@ -847,6 +847,29 @@ History::candles(InstrumentId instrument, std::int32_t minutes, std::int32_t to_
     });
 }
 
+std::vector<candles::MetricSample>
+History::metrics(InstrumentId instrument, std::int32_t from_minute, std::int32_t to_minute) const {
+    return impl_->read(std::vector<candles::MetricSample>{}, [&](pqxx::connection& conn) {
+        pqxx::read_transaction tx{conn};
+        const auto rows = tx.exec(
+            "SELECT minute, funding_rate, mark_price, index_price, open_interest FROM raikiri.metrics_1m"
+            " WHERE instrument_id = $1 AND minute >= $2 AND minute < $3 ORDER BY minute",
+            pqxx::params{static_cast<std::int64_t>(instrument.packed), from_minute, to_minute});
+        tx.commit();
+        std::vector<candles::MetricSample> out;
+        out.reserve(static_cast<std::size_t>(rows.size()));
+        for (const auto& row : rows) {
+            out.push_back({.instrument = instrument,
+                           .minute = row[0].as<std::int32_t>(),
+                           .funding_rate = row[1].as<std::optional<std::int64_t>>(),
+                           .mark = row[2].as<std::optional<std::int64_t>>(),
+                           .index = row[3].as<std::optional<std::int64_t>>(),
+                           .open_interest = row[4].as<std::optional<std::int64_t>>()});
+        }
+        return out;
+    });
+}
+
 FundingPage History::funding(const PageQuery& query) const {
     const auto limit = clamp_limit(query.limit);
     Where where;

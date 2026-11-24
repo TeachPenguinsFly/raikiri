@@ -1,6 +1,7 @@
 #pragma once
 
 #include <raikiri/admin/types.hpp>
+#include <raikiri/candles/metrics.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -225,6 +226,10 @@ public:
     // bars of `minutes` each from candled's one-minute rows, the newest `limit` that end by `to_minute`
     [[nodiscard]] std::vector<Candle>
     candles(InstrumentId instrument, std::int32_t minutes, std::int32_t to_minute, std::size_t limit) const;
+
+    // candled's one-minute samples in [from_minute, to_minute), oldest first
+    [[nodiscard]] std::vector<candles::MetricSample>
+    metrics(InstrumentId instrument, std::int32_t from_minute, std::int32_t to_minute) const;
 
 private:
     struct Impl;

@@ -1,6 +1,7 @@
 add_library(raikiri_candles STATIC
   src/builder.cpp
   src/history.cpp
+  src/metrics.cpp
   src/store.cpp
   src/venues/apex.cpp
   src/venues/arcus.cpp

@@ -165,6 +165,22 @@ struct CandlePage {
     std::vector<Candle> candles; // oldest first
 };
 
+// one bucket of an instrument's funding and ticker history; open is the bucket's start in unix milliseconds, each
+// field its last sample in the bucket, absent when the bucket has none
+struct MetricPoint {
+    std::int64_t t{0};
+    std::optional<std::string> funding_rate; // per interval, not an APR
+    std::optional<std::string> mark;
+    std::optional<std::string> index;
+    std::optional<std::string> open_interest; // base units
+};
+
+struct MetricPage {
+    std::string instrument_id;
+    std::string interval;
+    std::vector<MetricPoint> points; // oldest first
+};
+
 struct Quote {
     std::string instrument_id;
     std::string bid;

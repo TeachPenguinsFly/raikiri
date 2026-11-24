@@ -164,6 +164,36 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/metrics/history:
+    get:
+      tags: [markets]
+      summary: Funding rate, mark, index and open interest of one instrument over time
+      description: |
+        Buckets of the one-minute samples candled takes from the gateways' funding and ticker rows. The newest `limit`
+        buckets up to now, oldest first; each field is the last sample in its bucket that had one and is absent when
+        none had. A bucket without samples has no point.
+      operationId: getMetricHistory
+      parameters:
+        - { name: instrument_id, in: query, required: true, schema: { type: string } }
+        - { name: interval, in: query, required: true, schema: { type: string, enum: ["5m", "15m", "1h", "4h", "1d"] } }
+        - { name: limit, in: query, schema: { type: integer, default: 1000, maximum: 1000 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetricPage" }
+        "400":
+          description: Bad instrument or interval
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: No database
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/instruments:
     get:
       tags: [catalogue]
@@ -2512,6 +2542,26 @@ components:
         c: { type: string }
         v: { type: string, description: Quantity traded in the instrument's own units. }
         n: { type: integer, description: Prints. }
+
+    MetricPage:
+      type: object
+      required: [instrument_id, interval, points]
+      properties:
+        instrument_id: { type: string }
+        interval: { type: string }
+        points:
+          type: array
+          items: { $ref: "#/components/schemas/MetricPoint" }
+
+    MetricPoint:
+      type: object
+      required: [t]
+      properties:
+        t: { type: integer, description: The bucket's start in unix milliseconds. }
+        funding_rate: { type: string, description: "Per interval, not an APR." }
+        mark: { type: string }
+        index: { type: string }
+        open_interest: { type: string, description: In the base asset. }
 
     Job:
       type: object

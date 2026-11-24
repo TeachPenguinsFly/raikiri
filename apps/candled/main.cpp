@@ -1,13 +1,15 @@
 // candled: one-minute candles of every attached market, folded from the gateways' trade rings and kept in postgres, so
-// a chart opens on history from the moment the stack started, and on more after a restart
+// a chart opens on history from the moment the stack started, and on more after a restart. Once a minute it also stores
+// what the gateways' funding and ticker cells hold: funding rate, mark, index and open interest
 //
-//   candled [--dsn <postgres-dsn>] [--keep-days 30] [--backfill-hours 24]
+//   candled [--dsn <postgres-dsn>] [--keep-days 30] [--keep-metric-days 30] [--backfill-hours 24]
 //
 // On start it asks each venue's public history for the minutes it has not stored, back to --backfill-hours ago at
 // most: the stretch before a first start, and the gap a stop left
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/candles/candle.hpp>
 #include <raikiri/candles/history.hpp>
+#include <raikiri/candles/metrics.hpp>
 #include <raikiri/candles/store.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
@@ -26,6 +28,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -63,12 +66,38 @@ struct Reader {
     shm::MdReader reader;
 };
 
+// the instrument's funding and ticker cells as they stand, folded into `out`; nothing where neither says anything
+void sample(const shm::GatewayChannels& channels, const Instrument& listed, candles::MetricSample& out) {
+    const auto& base = base_of(listed);
+    const std::size_t cell = base.id.symbol().raw;
+    const auto e9 = [&](PriceTicks ticks) -> std::optional<std::int64_t> {
+        if (ticks.is_undef()) {
+            return std::nullopt;
+        }
+        return base.ticks_to_price(ticks).raw;
+    };
+    if (FundingUpdate f{}; channels.funding != nullptr && cell < shm::k_funding_cells &&
+                           channels.funding->read(cell, f) != 0 && f.instrument == base.id) {
+        if (!f.rate.is_undef()) {
+            out.funding_rate = f.rate.raw;
+        }
+        out.mark = e9(f.mark_price);
+        out.index = e9(f.index_price);
+    }
+    if (TickerStats t{}; channels.ticker_stats != nullptr && cell < shm::k_ticker_cells &&
+                         channels.ticker_stats->read(cell, t) != 0 && t.instrument == base.id &&
+                         !t.open_interest.is_undef()) {
+        out.open_interest = t.open_interest.raw;
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     const raikiri::log::Scope logging{"candled"};
     std::string dsn;
     int keep_days = 30;
+    int keep_metric_days = 30;
     int backfill_hours = 24;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -76,10 +105,13 @@ int main(int argc, char** argv) {
             dsn = argv[++i];
         } else if (arg == "--keep-days" && i + 1 < argc) {
             keep_days = std::atoi(argv[++i]);
+        } else if (arg == "--keep-metric-days" && i + 1 < argc) {
+            keep_metric_days = std::atoi(argv[++i]);
         } else if (arg == "--backfill-hours" && i + 1 < argc) {
             backfill_hours = std::atoi(argv[++i]);
         } else {
-            RLOG_ERROR("usage: candled [--dsn <postgres-dsn>] [--keep-days 30] [--backfill-hours 24]");
+            RLOG_ERROR("usage: candled [--dsn <postgres-dsn>] [--keep-days 30] [--keep-metric-days 30] "
+                       "[--backfill-hours 24]");
             return 2;
         }
     }
@@ -264,12 +296,56 @@ int main(int argc, char** argv) {
         }
     };
 
+    std::vector<candles::MetricSample> unwritten_metrics;
+    std::uint64_t metrics_written = 0;
+    std::int32_t sampled = 0; // the last minute sampled
+
+    // one row per instrument: two gateways of one venue hold the same cells, and the statement takes a row once
+    const auto sample_metrics = [&](std::int32_t minute) {
+        std::unordered_map<std::uint64_t, candles::MetricSample> rows;
+        for (std::size_t i = 0; i < registry.size(); ++i) {
+            const auto* gw = registry.at(i);
+            if (gw == nullptr || gw->channels.catalogue == nullptr) {
+                continue;
+            }
+            for (const auto& listed : gw->channels.catalogue->all()) {
+                candles::MetricSample row{.instrument = base_of(listed).id, .minute = minute};
+                sample(gw->channels, listed, row);
+                if (!row.empty()) {
+                    rows.insert_or_assign(row.instrument.packed, row);
+                }
+            }
+        }
+        for (const auto& [id, row] : rows) {
+            unwritten_metrics.push_back(row);
+        }
+    };
+
+    const auto flush_metrics = [&] {
+        if (unwritten_metrics.empty()) {
+            return;
+        }
+        try {
+            if (!store) {
+                store = std::make_unique<candles::Store>(dsn);
+            }
+            store->write_metrics(unwritten_metrics);
+            metrics_written += unwritten_metrics.size();
+            unwritten_metrics.clear();
+        } catch (const std::exception& e) {
+            RLOG_WARN("candled: write of {} metric samples failed, kept for the next try: {}",
+                      unwritten_metrics.size(),
+                      e.what());
+            store.reset();
+        }
+    };
+
     auto rescan_due = clock.mono().ns;
     auto flush_due = clock.mono().ns + k_flush_ns;
     auto report_due = clock.mono().ns + k_report_ns;
     auto prune_due = clock.mono().ns;
     auto mend_due = clock.mono().ns + k_mend_ns;
-    RLOG_INFO("candled: folding prints into minutes, keeping {} days", keep_days);
+    RLOG_INFO("candled: folding prints into minutes, keeping {} days; metrics {} days", keep_days, keep_metric_days);
 
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono().ns;
@@ -320,6 +396,13 @@ int main(int argc, char** argv) {
         }
 
         builder.close_through(clock.wall(), k_grace_ns);
+        if (const auto minute = candles::minute_of(clock.wall()); minute != sampled && registry.size() > 0) {
+            sampled = minute;
+            // the finest history served is five minutes, and twenty thousand instruments a minute is 3 GB a day
+            if (minute % 5 == 0) {
+                sample_metrics(minute);
+            }
+        }
         for (const auto& due : backfill.due(mono, candles::minute_of(clock.wall()))) {
             ask(due);
         }
@@ -327,6 +410,7 @@ int main(int argc, char** argv) {
         if (mono >= flush_due) {
             flush_due = mono + k_flush_ns;
             flush();
+            flush_metrics();
         }
         if (mono >= mend_due) {
             mend_due = mono + k_mend_ns;
@@ -339,6 +423,10 @@ int main(int argc, char** argv) {
                 if (const auto gone = store->prune(before); gone > 0) {
                     RLOG_INFO("candled: dropped {} minutes older than {} days", gone, keep_days);
                 }
+                const auto metrics_before = candles::minute_of(clock.wall()) - keep_metric_days * 24 * 60;
+                if (const auto gone = store->prune_metrics(metrics_before); gone > 0) {
+                    RLOG_INFO("candled: dropped {} metric samples older than {} days", gone, keep_metric_days);
+                }
             } catch (const std::exception& e) {
                 RLOG_WARN("candled: prune failed: {}", e.what());
             }
@@ -346,7 +434,7 @@ int main(int argc, char** argv) {
         if (mono >= report_due) {
             report_due = mono + k_report_ns;
             RLOG_INFO("candled: {} prints, {} minutes written, {} open, {} late, {} overruns, {} unknown instruments; "
-                      "history: {} calls, {} minutes, {} queued, {} dropped",
+                      "history: {} calls, {} minutes, {} queued, {} dropped; {} metric samples written",
                       builder.prints(),
                       written,
                       builder.open_minutes(),
@@ -356,7 +444,8 @@ int main(int argc, char** argv) {
                       asked,
                       filled,
                       backfill.queued(),
-                      backfill.dropped());
+                      backfill.dropped(),
+                      metrics_written);
         }
         if (read == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds{50});
@@ -364,6 +453,7 @@ int main(int argc, char** argv) {
     }
     builder.close_all();
     flush();
+    flush_metrics();
     RLOG_INFO("candled: down, {} minutes written", written);
     return 0;
 }
