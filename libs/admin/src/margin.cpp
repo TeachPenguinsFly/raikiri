@@ -2,9 +2,9 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <charconv>
 #include <glaze/glaze.hpp>
-#include <thread>
 
 namespace raikiri::admin {
 
@@ -20,6 +20,7 @@ struct LeverageStateBody {
     std::optional<std::uint32_t> leverage{};
     std::optional<std::string> margin_mode{};
     std::optional<std::uint32_t> max_leverage{};
+    std::optional<std::string> scope{};
 };
 
 struct MarginStateEntry {
@@ -120,6 +121,9 @@ http::Response answer(const std::expected<MarginView, MarginError>& result) {
     if (result->state.max_leverage != 0) {
         body.max_leverage = result->state.max_leverage;
     }
+    if (result->scope != MarginScope::Unknown) {
+        body.scope = std::string{to_string(result->scope)};
+    }
     std::string out;
     if (const auto ec = glz::write<k_opts>(body, out); ec) {
         return http::problem(500, "serialisation failed");
@@ -138,10 +142,18 @@ std::optional<InstrumentId> read_instrument(std::string_view text) {
 
 } // namespace
 
+struct ShmMarginGateway::Waiting {
+    std::uint64_t id{0};
+    std::chrono::steady_clock::time_point deadline;
+    shm::MarginReplyReader reader;
+};
+
 ShmMarginGateway::ShmMarginGateway(const Registry& registry,
                                    std::function<MonoNanos()> now,
                                    std::chrono::milliseconds wait)
     : registry_{&registry}, now_{std::move(now)}, wait_{wait} {}
+
+ShmMarginGateway::~ShmMarginGateway() = default;
 
 std::optional<MarginTarget> ShmMarginGateway::target(InstrumentId instrument) const {
     const auto row = registry_->catalogue_row(instrument);
@@ -152,7 +164,7 @@ std::optional<MarginTarget> ShmMarginGateway::target(InstrumentId instrument) co
                         .symbol = std::string{base_of(*row->instrument).exchange_symbol.view()}};
 }
 
-std::expected<MarginReply, MarginFault> ShmMarginGateway::ask(MarginRequest request) {
+std::expected<void, MarginFault> ShmMarginGateway::send(MarginRequest& request) {
     const auto row = registry_->catalogue_row(request.instrument);
     if (!row.has_value() || row->gateway == nullptr || !row->gateway->client.owner_alive(now_().ns)) {
         return std::unexpected{MarginFault::GatewayGone};
@@ -168,28 +180,40 @@ std::expected<MarginReply, MarginFault> ShmMarginGateway::ask(MarginRequest requ
     }
     request.id = (static_cast<std::uint64_t>(::getpid()) << 32U) | (++seq_ & 0xFFFF'FFFFU);
 
-    shm::MarginReplyReader reader{replies};
+    // placed before the push, so the reply cannot pass it
+    auto waiting = std::make_unique<Waiting>(Waiting{.id = request.id,
+                                                     .deadline = std::chrono::steady_clock::now() + wait_,
+                                                     .reader = shm::MarginReplyReader{replies}});
     shm::MarginRequestProducer producer{gateway.channels.margin_requests};
     if (!producer.try_push(request).has_value()) {
         return std::unexpected{MarginFault::RingFull};
     }
-    const auto deadline = std::chrono::steady_clock::now() + wait_;
+    waiting_.push_back(std::move(waiting));
+    return {};
+}
+
+std::expected<std::optional<MarginReply>, MarginFault> ShmMarginGateway::collect(std::uint64_t id) {
+    const auto it = std::ranges::find_if(waiting_, [id](const auto& waiting) { return waiting->id == id; });
+    if (it == waiting_.end()) {
+        return std::unexpected{MarginFault::NoAnswer};
+    }
+    auto& waiting = **it;
     MarginReply reply{};
-    while (std::chrono::steady_clock::now() < deadline) {
-        switch (reader.poll(reply)) {
-        case shm::PollResult::Item:
-            if (reply.id == request.id) {
-                return reply;
-            }
-            break;
-        case shm::PollResult::Overrun:
-            break;
-        case shm::PollResult::Empty:
-            std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    for (;;) {
+        const auto polled = waiting.reader.poll(reply);
+        if (polled == shm::PollResult::Empty) {
             break;
         }
+        if (polled == shm::PollResult::Item && reply.id == id) {
+            waiting_.erase(it);
+            return std::optional<MarginReply>{reply};
+        }
     }
-    return std::unexpected{MarginFault::NoAnswer};
+    if (std::chrono::steady_clock::now() >= waiting.deadline) {
+        waiting_.erase(it);
+        return std::unexpected{MarginFault::NoAnswer};
+    }
+    return std::optional<MarginReply>{};
 }
 
 MarginDesk::MarginDesk(MarginGateway& gateway, audit::Sink* journal, std::function<UnixNanos()> wall)
@@ -212,50 +236,103 @@ std::expected<MarginTarget, MarginError> MarginDesk::resolve(std::string_view ac
     return std::move(*target);
 }
 
-std::expected<MarginView, MarginError> MarginDesk::read(std::string_view account, InstrumentId instrument) {
-    const auto target = resolve(account, instrument);
+void MarginDesk::read(std::string_view account, InstrumentId instrument, MarginDone done) {
+    auto target = resolve(account, instrument);
     if (!target.has_value()) {
-        return std::unexpected{target.error()};
+        done(std::unexpected{target.error()});
+        return;
     }
-    const auto reply = gateway_->ask({.instrument = instrument, .ts_created = wall_(), .op = MarginOp::Read});
-    if (!reply.has_value()) {
-        return std::unexpected{fault_error(reply.error())};
+    MarginRequest request{.instrument = instrument, .ts_created = wall_(), .op = MarginOp::Read};
+    if (const auto sent = gateway_->send(request); !sent.has_value()) {
+        done(std::unexpected{fault_error(sent.error())});
+        return;
     }
-    if (reply->outcome != MarginOutcome::Done) {
-        return std::unexpected{reply_error(*reply)};
-    }
-    return MarginView{.account = target->account, .instrument = instrument, .state = reply->after};
+    waiting_.push_back(
+        {.id = request.id, .target = std::move(*target), .instrument = instrument, .change = std::nullopt, .actor = {}, .done = std::move(done)});
 }
 
-std::expected<MarginView, MarginError>
-MarginDesk::set(std::string_view account, InstrumentId instrument, const MarginChange& change, std::string_view actor) {
-    const auto target = resolve(account, instrument);
+void MarginDesk::set(std::string_view account,
+                     InstrumentId instrument,
+                     const MarginChange& change,
+                     std::string_view actor,
+                     MarginDone done) {
+    auto target = resolve(account, instrument);
     if (!target.has_value()) {
-        return std::unexpected{target.error()};
+        done(std::unexpected{target.error()});
+        return;
     }
     if (!change.leverage.has_value() && !change.mode.has_value()) {
-        return std::unexpected{MarginError{422, "nothing to change", "send leverage, margin_mode or both"}};
+        done(std::unexpected{MarginError{422, "nothing to change", "send leverage, margin_mode or both"}});
+        return;
     }
     if (change.leverage.has_value() && (*change.leverage < 1 || *change.leverage > k_max_leverage_asked)) {
-        return std::unexpected{MarginError{422, "bad leverage", "a whole number from 1 to 1000"}};
+        done(std::unexpected{MarginError{422, "bad leverage", "a whole number from 1 to 1000"}});
+        return;
     }
     if (change.mode.has_value() && *change.mode == MarginMode::Unknown) {
-        return std::unexpected{MarginError{422, "bad margin_mode", "expected cross or isolated"}};
+        done(std::unexpected{MarginError{422, "bad margin_mode", "expected cross or isolated"}});
+        return;
     }
     if (journal_ == nullptr) {
-        return std::unexpected{MarginError{503, "no journal", "a change that leaves no record is not made"}};
+        done(std::unexpected{MarginError{503, "no journal", "a change that leaves no record is not made"}});
+        return;
     }
+    MarginRequest request{.instrument = instrument,
+                          .ts_created = wall_(),
+                          .leverage = change.leverage.value_or(0),
+                          .op = MarginOp::Set,
+                          .mode = change.mode.value_or(MarginMode::Unknown)};
+    Waiting waiting{.target = std::move(*target),
+                    .instrument = instrument,
+                    .change = change,
+                    .actor = std::string{actor},
+                    .done = std::move(done)};
+    if (const auto sent = gateway_->send(request); !sent.has_value()) {
+        finish(waiting, std::unexpected{sent.error()});
+        return;
+    }
+    waiting.id = request.id;
+    waiting_.push_back(std::move(waiting));
+}
 
-    const auto reply = gateway_->ask({.instrument = instrument,
-                                      .ts_created = wall_(),
-                                      .leverage = change.leverage.value_or(0),
-                                      .op = MarginOp::Set,
-                                      .mode = change.mode.value_or(MarginMode::Unknown)});
+void MarginDesk::pump() {
+    // a finished entry is taken out before its callback runs, which may ask again
+    for (std::size_t i = 0; i < waiting_.size();) {
+        const auto collected = gateway_->collect(waiting_[i].id);
+        if (collected.has_value() && !collected->has_value()) {
+            ++i;
+            continue;
+        }
+        auto waiting = std::move(waiting_[i]);
+        waiting_.erase(waiting_.begin() + static_cast<std::ptrdiff_t>(i));
+        if (collected.has_value()) {
+            finish(waiting, **collected);
+        } else {
+            finish(waiting, std::unexpected{collected.error()});
+        }
+    }
+}
 
+void MarginDesk::finish(Waiting& waiting, const std::expected<MarginReply, MarginFault>& reply) {
+    if (!waiting.change.has_value()) {
+        if (!reply.has_value()) {
+            waiting.done(std::unexpected{fault_error(reply.error())});
+        } else if (reply->outcome != MarginOutcome::Done) {
+            waiting.done(std::unexpected{reply_error(*reply)});
+        } else {
+            waiting.done(MarginView{.account = waiting.target.account,
+                                    .instrument = waiting.instrument,
+                                    .state = reply->after,
+                                    .scope = reply->scope});
+        }
+        return;
+    }
+    const auto& change = *waiting.change;
+    const auto& target = waiting.target;
     MarginJournalEntry entry{
-        .account = target->account,
-        .instrument_id = std::to_string(instrument.packed),
-        .symbol = target->symbol,
+        .account = target.account,
+        .instrument_id = std::to_string(waiting.instrument.packed),
+        .symbol = target.symbol,
         .requested = {.leverage = change.leverage, .margin_mode = change.mode.transform([](MarginMode mode) {
                           return std::string{to_string(mode)};
                       })},
@@ -273,7 +350,10 @@ MarginDesk::set(std::string_view account, InstrumentId instrument, const MarginC
         entry.after = entry_of(reply->after);
         entry.outcome = std::string{outcome_text(reply->outcome)};
         if (reply->outcome == MarginOutcome::Done) {
-            result = MarginView{.account = target->account, .instrument = instrument, .state = reply->after};
+            result = MarginView{.account = target.account,
+                                .instrument = waiting.instrument,
+                                .state = reply->after,
+                                .scope = reply->scope};
         } else {
             result = std::unexpected{reply_error(*reply)};
             entry.reason = result.error().detail;
@@ -283,44 +363,50 @@ MarginDesk::set(std::string_view account, InstrumentId instrument, const MarginC
     if (const auto ec = glz::write<k_opts>(entry, detail); ec) {
         detail = "{}";
     }
-    const std::string subject = target->account + "/" + target->symbol;
+    const std::string subject = target.account + "/" + target.symbol;
     journal_->append(
-        {.ts = wall_(), .actor = actor, .action = "margin.set", .subject = subject, .detail_json = detail});
-    return result;
+        {.ts = wall_(), .actor = waiting.actor, .action = "margin.set", .subject = subject, .detail_json = detail});
+    waiting.done(std::move(result));
 }
 
-std::optional<http::Response> MarginRoutes::operator()(const http::Request& req) const {
+bool MarginRoutes::operator()(const http::Request& req, const MarginRespond& respond) const {
     if (!req.path.starts_with(k_prefix) || !req.path.ends_with(k_suffix) ||
         req.path.size() <= k_prefix.size() + k_suffix.size()) {
-        return std::nullopt;
+        return false;
     }
     const auto account = req.path.substr(k_prefix.size(), req.path.size() - k_prefix.size() - k_suffix.size());
     if (account.find('/') != std::string_view::npos) {
-        return std::nullopt;
+        return false;
     }
     if (req.method == "GET") {
         const auto text = http::query_param(req.query, "instrument_id");
         const auto instrument = read_instrument(text);
         if (!instrument.has_value()) {
-            return http::problem(400, "instrument_id is required", "digits");
+            respond(http::problem(400, "instrument_id is required", "digits"));
+            return true;
         }
-        return answer(desk_->read(account, *instrument));
+        desk_->read(account, *instrument, [respond](const auto& result) { respond(answer(result)); });
+        return true;
     }
     if (req.method != "PUT") {
-        return http::problem(405, "method not allowed", "this path takes GET and PUT");
+        respond(http::problem(405, "method not allowed", "this path takes GET and PUT"));
+        return true;
     }
     LeverageBody body{};
     if (const auto ec = glz::read_json(body, req.body); ec) {
-        return http::problem(400, "unreadable body", glz::format_error(ec, req.body));
+        respond(http::problem(400, "unreadable body", glz::format_error(ec, req.body)));
+        return true;
     }
     const auto instrument = read_instrument(body.instrument_id);
     if (!instrument.has_value()) {
-        return http::problem(422, "bad instrument_id", "expected the packed id as digits");
+        respond(http::problem(422, "bad instrument_id", "expected the packed id as digits"));
+        return true;
     }
     MarginChange change{};
     if (body.leverage.has_value()) {
         if (*body.leverage < 1 || *body.leverage > k_max_leverage_asked) {
-            return http::problem(422, "bad leverage", "a whole number from 1 to 1000");
+            respond(http::problem(422, "bad leverage", "a whole number from 1 to 1000"));
+            return true;
         }
         change.leverage = static_cast<std::uint32_t>(*body.leverage);
     }
@@ -330,11 +416,13 @@ std::optional<http::Response> MarginRoutes::operator()(const http::Request& req)
         } else if (*body.margin_mode == "isolated") {
             change.mode = MarginMode::Isolated;
         } else {
-            return http::problem(422, "bad margin_mode", "expected cross or isolated");
+            respond(http::problem(422, "bad margin_mode", "expected cross or isolated"));
+            return true;
         }
     }
     const std::string_view actor = req.login.empty() ? std::string_view{"admind"} : req.login;
-    return answer(desk_->set(account, *instrument, change, actor));
+    desk_->set(account, *instrument, change, actor, [respond](const auto& result) { respond(answer(result)); });
+    return true;
 }
 
 } // namespace raikiri::admin

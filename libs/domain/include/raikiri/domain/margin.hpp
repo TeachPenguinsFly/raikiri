@@ -38,6 +38,21 @@ struct MarginState {
     }
 };
 
+// where a margin-mode change lands: the one instrument, or every symbol of the account with it
+enum class MarginScope : std::uint8_t { Unknown = 0, OneInstrument, WholeAccount };
+
+[[nodiscard]] constexpr std::string_view to_string(MarginScope scope) noexcept {
+    switch (scope) {
+    case MarginScope::OneInstrument:
+        return "instrument";
+    case MarginScope::WholeAccount:
+        return "account";
+    case MarginScope::Unknown:
+        break;
+    }
+    return {};
+}
+
 enum class MarginOp : std::uint8_t { Read = 0, Set };
 
 // a request older than this is answered Failed and never reaches the venue: its asker has stopped waiting
@@ -71,7 +86,8 @@ struct MarginReply {
     MarginState after{};
     MarginOutcome outcome{MarginOutcome::Done};
     ErrorClass cls{};
-    std::uint8_t pad_[6]{};
+    MarginScope scope{MarginScope::Unknown}; // of the venue's margin mode, whatever the request
+    std::uint8_t pad_[5]{};
     std::int64_t venue_code{0};
     char message[104]{}; // nul-terminated
 

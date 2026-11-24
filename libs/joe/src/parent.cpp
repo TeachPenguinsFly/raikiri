@@ -69,8 +69,12 @@ std::expected<void, TransitionError> Parent::resume(UnixNanos) {
     return {};
 }
 
-std::expected<void, TransitionError> Parent::cancel(UnixNanos now) {
-    return end(now, Status::Cancelled);
+std::expected<void, TransitionError> Parent::cancel(UnixNanos now, std::string reason) {
+    auto ended = end(now, Status::Cancelled);
+    if (ended.has_value()) {
+        reason_ = std::move(reason);
+    }
+    return ended;
 }
 
 std::expected<void, TransitionError> Parent::finish(UnixNanos now) {
@@ -97,6 +101,14 @@ std::expected<void, TransitionError> Parent::end(UnixNanos now, Status status) {
     status_ = status;
     ended_ = now;
     return {};
+}
+
+void Parent::resize(UnixNanos now, FixedE9 qty) noexcept {
+    touch(now);
+    spec_.qty = qty;
+    if (status_ != Status::Pending) {
+        qty_ = qty;
+    }
 }
 
 void Parent::plan(std::vector<UnixNanos> times, std::vector<std::uint64_t> weights) {

@@ -34,6 +34,10 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Fun
 [[nodiscard]] std::optional<FundingUpdate>
 map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
 
+// a row of the bulk rest answer: it wins only where the socket has said nothing for k_mark_stale_ns and differs
+[[nodiscard]] std::optional<FundingUpdate>
+reconcile_mark(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
+
 // on derivatives volCcy24h is base and no quote is stated; vol24h counts contracts and is not read
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);

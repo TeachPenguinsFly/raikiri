@@ -121,6 +121,8 @@ public:
 
     exec::MarginControl* margin_control() noexcept override { return this; }
 
+    MarginScope mode_scope() const noexcept override { return MarginScope::OneInstrument; }
+
     std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
         return api_.margin_state(instrument);
     }

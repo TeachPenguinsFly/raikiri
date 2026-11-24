@@ -66,6 +66,8 @@ public:
     // one-way mode: both sides carry the same figure
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     set_leverage(MarketType market, std::string_view symbol, std::uint32_t leverage, UnixNanos now);
+    // the whole unified account's mode, spelt as the venue spells it
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> set_margin_mode(std::string_view mode, UnixNanos now);
     // one symbol's row, flat or not; it carries the leverage
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     position(MarketType market, std::string_view symbol, UnixNanos now);

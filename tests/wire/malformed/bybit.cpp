@@ -118,6 +118,15 @@ TEST(Malformed, Bybit) {
                     (void)parse_envelope(f);
                     (void)parse_wallet_balance(f, coins);
                 }},
+               // the fixture is the envelope's result alone
+               {"rest_position_one.json", [](std::string_view f) { (void)parse_position_leverage(f); }},
+               {"rest_set_margin_mode*.json",
+                [](std::string_view f) {
+                    if (const auto envelope = parse_envelope(f); envelope.has_value()) {
+                        (void)parse_margin_mode_refusal(envelope->result);
+                    }
+                    (void)parse_margin_mode_refusal(f);
+                }},
                {"ws_trade_*", [](std::string_view f) { (void)parse_trade_reply(f); }},
 
            });

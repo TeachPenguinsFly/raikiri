@@ -337,6 +337,52 @@ public:
         return {};
     }
 
+    // every symbol and the spot wallet move with it; portfolio margin is left for the venue's own page
+    std::expected<void, exec::VenueError> set_margin_mode(MarginMode mode) {
+        const auto held = option_account_mode();
+        if (!held.has_value()) {
+            return std::unexpected{held.error()};
+        }
+        if (*held == "PORTFOLIO_MARGIN") {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal,
+                                       0,
+                                       "the account is under portfolio margin; this gateway does not leave it")};
+        }
+        const auto request = builder_.set_margin_mode(
+            mode == MarginMode::Isolated ? "ISOLATED_MARGIN" : "REGULAR_MARGIN", state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+        }
+        std::string body;
+        const auto envelope = fetch(*request, body);
+        // the venue's why sits in result.reasons under a generic retMsg, and may come with retCode 0
+        const auto refusal = [&](std::string_view result) -> std::optional<WireMarginModeRefusal> {
+            const auto read = parse_margin_mode_refusal(result);
+            if (!read.has_value() || read->message.empty()) {
+                return std::nullopt;
+            }
+            return *read;
+        };
+        if (!envelope.has_value()) {
+            const auto& error = envelope.error();
+            if (error.cls == exec::ErrorClass::Terminal) {
+                if (const auto raw = parse_envelope(body); raw.has_value()) {
+                    if (const auto why = refusal(raw->result); why.has_value()) {
+                        return std::unexpected{
+                            exec::VenueError::make(exec::ErrorClass::Terminal, error.venue_code, why->message)};
+                    }
+                }
+            }
+            return std::unexpected{error};
+        }
+        if (const auto why = refusal(envelope->result); why.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, static_cast<std::int64_t>(wire::digits_to_u64(why->code)), why->message)};
+        }
+        return {};
+    }
+
 private:
     VenueState* state_;
     net::RestClient rest_;

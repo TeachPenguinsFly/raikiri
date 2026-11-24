@@ -239,7 +239,24 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
         return std::nullopt; // a mark this venue's tick cannot express is no mark
     }
     memo.mark = *mark;
+    memo.mark_seen = ts_init;
     return merged(*instrument, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
+}
+
+std::optional<FundingUpdate>
+reconcile_mark(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init) {
+    if (ts_init.ns < memo.mark_seen.ns + k_mark_stale_ns) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto mark = to_ticks(wire.mark_price, base_of(*instrument));
+    if (!mark.has_value() || mark->raw == memo.mark.raw) {
+        return std::nullopt;
+    }
+    return map_mark_price(wire, table, memo, ts_init);
 }
 
 std::optional<std::pair<InstrumentId, FixedE9>> map_open_interest(const WireOpenInterest& wire,

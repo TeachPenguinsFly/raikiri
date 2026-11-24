@@ -35,6 +35,9 @@ namespace {
 // okx drops a socket with no app message for 30 s; control frames do not count
 constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
 
+// the socket is the source of marks; one bulk rest call checks it on every open and at this pace
+constexpr std::uint64_t k_mark_reconcile_interval_ns = 60'000'000'000ULL;
+
 [[nodiscard]] std::string_view swap_index(std::string_view inst_id) noexcept {
     constexpr std::string_view suffix = "-SWAP";
     return inst_id.ends_with(suffix) ? inst_id.substr(0, inst_id.size() - suffix.size()) : std::string_view{};
@@ -267,7 +270,10 @@ public:
                 // okx caps a connection at 1024 subscriptions
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { invalidate_books(keys); }},
+                [this](std::span<const std::string> keys) {
+                    invalidate_books(keys);
+                    marks_due_ = true;
+                }},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
         rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }
@@ -359,6 +365,7 @@ public:
             return rest_.send(state_->builder.open_interest("SWAP"),
                               [this](const net::RestResponse& response) { on_open_interest(response); });
         });
+        reconcile_marks(now);
         report_coverage(now, "okx", pool_.connection_count(), pool_.key_count());
     }
 
@@ -399,6 +406,50 @@ private:
                 state_->open_interest[oi->first] = oi->second;
             }
         }
+    }
+
+    // open_interest_ holds the same swaps the mark channel was opened for
+    void reconcile_marks(UnixNanos now) {
+        if (open_interest_.empty() || marks_in_flight_ || (!marks_due_ && now.ns < next_marks_ns_)) {
+            return;
+        }
+        if (!rest_.send(state_->builder.mark_prices("SWAP"),
+                        [this](const net::RestResponse& response) { on_marks(response); })) {
+            return;
+        }
+        marks_in_flight_ = true;
+        marks_due_ = false;
+        next_marks_ns_ = now.ns + k_mark_reconcile_interval_ns;
+    }
+
+    void on_marks(const net::RestResponse& response) noexcept {
+        marks_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<MarkPriceBuffer>();
+        const auto rows = parse_mark_prices(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        std::size_t checked = 0;
+        std::size_t stale = 0;
+        for (const auto& row : *rows) {
+            const auto* listed = state_->instruments.find(row.inst_id);
+            if (listed == nullptr || !open_interest_.wanted(base_of(*listed).id)) {
+                continue;
+            }
+            ++checked;
+            auto& memo = state_->funding_memo[base_of(*listed).id.symbol().raw];
+            if (auto funding = reconcile_mark(row, state_->instruments, memo, received); funding.has_value()) {
+                stamp_index(*state_, base_of(*listed), *funding);
+                state_->sink->on_funding(*funding);
+                ++stale;
+            }
+        }
+        RLOG_INFO(
+            "okx marks: {} swaps checked against rest, {} stale on the socket and taken from rest", checked, stale);
     }
 
     void report_coverage(UnixNanos now, std::string_view venue, std::size_t sockets, std::size_t keys) {
@@ -540,6 +591,9 @@ private:
     net::RestClient rest_;
     exec::TickerPoll tickers_;
     exec::TickerPoll open_interest_;
+    std::uint64_t next_marks_ns_{0};
+    bool marks_in_flight_{false};
+    bool marks_due_{true};
     bool started_{false};
 };
 

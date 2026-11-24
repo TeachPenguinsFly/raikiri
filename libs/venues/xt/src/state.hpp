@@ -2,6 +2,7 @@
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -40,6 +41,7 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     std::uint64_t order_answer_timeout_ns{0};
+    exec::RateBudget* budget{nullptr};
 
     // spot and perp share symbols and differ in host, path and depth params; this picks one
     MarketType market{MarketType::Perp};
@@ -68,6 +70,16 @@ struct VenueState {
             return nullptr;
         }
         return &funding_memo[base_of(*listed).id.symbol().raw];
+    }
+
+    // null for a symbol no funding subscription asked for; the bulk rest answers name every contract
+    FundingMemo* watched_memo(std::string_view symbol) {
+        const auto* listed = instruments.find(symbol);
+        if (listed == nullptr) {
+            return nullptr;
+        }
+        const auto memo = funding_memo.find(base_of(*listed).id.symbol().raw);
+        return memo == funding_memo.end() ? nullptr : &memo->second;
     }
 
     net::Signer signer;

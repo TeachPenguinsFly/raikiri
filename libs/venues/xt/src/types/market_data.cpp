@@ -82,6 +82,46 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
     });
 }
 
+std::expected<std::span<const WireMarkPrice>, WireError> parse_price_rows(std::string_view body,
+                                                                          PriceRowBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireMarkPrice>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "result");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireMarkPrice out{};
+            const auto symbol = wire::req_str(obj, "s");
+            const auto price = wire::req_str(obj, "p");
+            if (!symbol.has_value() || !price.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.symbol = *symbol;
+            out.mark_price = *price;
+            const auto ts = opt_ms(obj, "t");
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            out.ts_ms = *ts;
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireMarkPrice>{storage.rows.data(), count};
+    });
+}
+
 std::expected<WireTicker, WireError> parse_ticker(std::string_view frame, MarketType market) {
     const bool spot = market == MarketType::Spot;
     return guarded([&]() -> std::expected<WireTicker, WireError> {

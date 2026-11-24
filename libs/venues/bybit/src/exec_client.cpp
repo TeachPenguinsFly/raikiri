@@ -81,6 +81,8 @@ public:
 
     exec::MarginControl* margin_control() noexcept override { return this; }
 
+    MarginScope mode_scope() const noexcept override { return MarginScope::WholeAccount; }
+
     std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
         if (instrument.market() != MarketType::Perp) {
             return std::unexpected{exec::margin_unsupported("bybit leverage is set here on linear perpetuals only")};
@@ -96,10 +98,13 @@ public:
         return api_.set_leverage(instrument, leverage);
     }
 
-    // /v5/account/set-margin-mode moves every symbol and the spot wallet with it, so one instrument's ticket may not
-    std::expected<void, exec::VenueError> set_margin_mode(InstrumentId, MarginMode, const MarginState&) override {
-        return std::unexpected{exec::margin_unsupported(
-            "bybit keeps one margin mode for the whole unified account; it is not changed per instrument")};
+    // the owner's call: the unified account has one mode, so a ticket for one instrument moves them all
+    std::expected<void, exec::VenueError>
+    set_margin_mode(InstrumentId instrument, MarginMode mode, const MarginState&) override {
+        if (instrument.market() != MarketType::Perp) {
+            return std::unexpected{exec::margin_unsupported("bybit leverage is set here on linear perpetuals only")};
+        }
+        return api_.set_margin_mode(mode);
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {

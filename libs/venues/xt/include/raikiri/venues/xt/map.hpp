@@ -47,6 +47,15 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
 [[nodiscard]] std::optional<FundingUpdate>
 map_index_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
 
+// a row of a bulk rest answer wins only where the socket has said nothing for k_mark_stale_ns and differs; true when
+// it did, and map_reconciled then makes the one record once both answers are in
+bool reconcile_mark(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos now);
+
+bool reconcile_index(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos now);
+
+[[nodiscard]] std::optional<FundingUpdate>
+map_reconciled(std::string_view symbol, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init);
+
 // futures fills only the quote column; its quantity is a contract count
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);

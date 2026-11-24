@@ -226,6 +226,46 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
     });
 }
 
+std::expected<std::span<const WireMarkPrice>, WireError> parse_mark_prices(std::string_view body,
+                                                                           MarkPriceBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireMarkPrice>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = wire::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            WireMarkPrice out{};
+            const auto inst_id = wire::req_str(obj, "instId");
+            const auto mark = wire::req_str(obj, "markPx");
+            if (!inst_id.has_value() || !mark.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.inst_id = *inst_id;
+            out.mark_price = *mark;
+            const auto ts = wire::opt_ms(obj, "ts");
+            if (!ts.has_value()) {
+                return std::unexpected(ts.error());
+            }
+            out.ts_ms = *ts;
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireMarkPrice>{storage.rows.data(), count};
+    });
+}
+
 std::expected<std::span<const WireOptSummary>, WireError> parse_opt_summary(std::string_view frame,
                                                                             SummaryBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOptSummary>, WireError> {

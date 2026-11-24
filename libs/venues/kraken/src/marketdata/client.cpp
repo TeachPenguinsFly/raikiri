@@ -43,6 +43,10 @@ void handle_book(VenueState& state, std::string_view frame, UnixNanos received) 
     if (result != BookResult::Applied && result != BookResult::Resynced) {
         return; // unsynced, redelivered or dropped: silence, never a guess
     }
+    // a delta is one level, so most frames land inside the sink's coalescing window
+    if (!state.sink->wants_depth(base.id, received)) {
+        return;
+    }
     if (const auto depth = book.snapshot(ms_to_unix(wire->timestamp_ms, UnixNanos{}), received); depth.has_value()) {
         state.sink->on_depth(*depth);
     }

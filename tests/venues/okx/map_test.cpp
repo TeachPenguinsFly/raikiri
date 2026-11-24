@@ -965,5 +965,37 @@ TEST(OkxMap, InstCategoryClassifiesTheUnderlying) {
     EXPECT_EQ(classified_swap("BND-USDT-SWAP", "6").asset_class, AssetClass::Unknown);
 }
 
+TEST(OkxMapFunding, RestWinsOnlyOverAMarkTheSocketLeftStale) {
+    const auto table = table_with_btc();
+    FundingMemo memo{};
+
+    WireFundingRate rate{};
+    rate.inst_id = "BTC-USDT-SWAP";
+    rate.funding_rate = "0.0001";
+    rate.funding_ms = 1'786'406'400'000ULL;
+    ASSERT_TRUE(map_funding(rate, table, memo, k_ingest).has_value());
+
+    WireMarkPrice pushed{};
+    pushed.inst_id = "BTC-USDT-SWAP";
+    pushed.mark_price = "60420";
+    ASSERT_TRUE(map_mark_price(pushed, table, memo, k_ingest).has_value());
+
+    WireMarkPrice polled{};
+    polled.inst_id = "BTC-USDT-SWAP";
+    polled.mark_price = "60423";
+    const UnixNanos fresh{k_ingest.ns + k_mark_stale_ns - 1};
+    EXPECT_FALSE(reconcile_mark(polled, table, memo, fresh).has_value()) << "the socket spoke inside the window";
+    EXPECT_EQ(memo.mark.raw, 604'200);
+
+    const UnixNanos late{k_ingest.ns + k_mark_stale_ns};
+    const auto repaired = reconcile_mark(polled, table, memo, late);
+    ASSERT_TRUE(repaired.has_value());
+    EXPECT_EQ(repaired->mark_price.raw, 604'230);
+    EXPECT_EQ(repaired->rate.raw, 100'000) << "the rate the funding channel stated is carried forward";
+
+    const UnixNanos later{late.ns + k_mark_stale_ns};
+    EXPECT_FALSE(reconcile_mark(polled, table, memo, later).has_value()) << "stale but equal needs no record";
+}
+
 } // namespace
 } // namespace raikiri::venues::okx

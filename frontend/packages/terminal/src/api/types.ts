@@ -117,9 +117,13 @@ export interface paths {
          *     that reaches the gateway is journalled under `margin.set` with who asked and
          *     the state before and after; see `GET /v1/audit`.
          *
-         *     Venues differ. Bybit keeps one margin mode for the whole unified account and
-         *     OKX takes it per order, so `margin_mode` there answers 501 unless it names
-         *     the mode already in force.
+         *     Venues differ, and `scope` in the answer says how far a margin-mode change
+         *     reaches. Bybit keeps one margin mode for the whole unified account, so
+         *     setting it there moves every symbol (`scope: account`); a venue that refuses
+         *     the switch over open positions or orders answers 409 with its reason. OKX
+         *     takes the mode per order: the gateway remembers the chosen mode per
+         *     instrument and sends its orders under it (`scope: instrument`). A venue
+         *     without the calls answers 501.
          */
         put: operations["setLeverage"];
         post?: never;
@@ -2172,6 +2176,14 @@ export interface components {
             iceberg?: components["schemas"]["IcebergParams"];
             pegged?: components["schemas"]["PeggedParams"];
             trigger?: components["schemas"]["TriggerParams"];
+            /**
+             * @description No child is larger than the book's position on its instrument in the closing direction, less the reduce-only children already working against it; the venue's own reduce-only goes on perp children. With no position left the parent ends, failed with `reduce-only with no position to reduce` when nothing filled.
+             * @default false
+             */
+            reduce_only: boolean;
+            /** @description A group name. The first member to fire, or to fill if it has no trigger, cancels the others; two that fire on one price send only the earlier one. */
+            oco?: string;
+            attach?: components["schemas"]["AttachParams"];
             /** @description Where `iceberg` or `pegged` rests; absent takes the best touch after the taker fee for each new child. For `stop`, `take_profit` and `trailing_stop`, the one venue whose price fires the trigger and that takes the children; absent reads and routes across all of them. */
             venue?: string;
             /**
@@ -2235,8 +2247,8 @@ export interface components {
          * @description Required with `algo` `stop`, `take_profit` and `trailing_stop`, and only with them. A buy
          *     `stop` fires when the price is at or above `price` and a sell at or below; `take_profit`
          *     is the other way round. A price already past the level fires on the first one joe sees.
-         *     A trigger fires once, and a restart neither fires it again nor forgets it. There is no
-         *     reduce-only: a fired trigger sends its whole size whatever the position is.
+         *     A trigger fires once, and a restart neither fires it again nor forgets it. Without
+         *     `reduce_only` a fired trigger sends its whole size whatever the position is.
          */
         TriggerParams: {
             /** @description The trigger level of a `stop` or a `take_profit`; required for them, not for `trailing_stop`. */
@@ -2254,6 +2266,26 @@ export interface components {
             callback_bp: number;
             /** @description `trailing_stop` only. A sell starts trailing once the price is at or above it, a buy at or below; absent trails from the first price. */
             activation?: components["schemas"]["Decimal"];
+        };
+        /**
+         * @description A bracket on an entry. Its first fill makes a reduce-only `take_profit` and a reduce-only `stop`
+         *     on the other side, in one `oco` group, each sized to what the entry has filled and growing with
+         *     it. An entry cancelled before any fill makes neither; one cancelled after keeps them for the
+         *     filled part. Not with `reduce_only`.
+         */
+        AttachParams: {
+            take_profit?: components["schemas"]["BracketLeg"];
+            stop_loss?: components["schemas"]["BracketLeg"];
+            /**
+             * @default mid
+             * @enum {string}
+             */
+            source: "mid" | "last";
+        };
+        BracketLeg: {
+            price: components["schemas"]["Decimal"];
+            /** @description Where the fired leg rests; absent takes the book. */
+            limit?: components["schemas"]["Decimal"];
         };
         ParentOrder: {
             book_id?: number;
@@ -2308,6 +2340,11 @@ export interface components {
             iceberg?: components["schemas"]["IcebergParams"];
             pegged?: components["schemas"]["PeggedParams"];
             trigger?: components["schemas"]["TriggerParams"];
+            reduce_only?: boolean;
+            oco?: string;
+            attach?: components["schemas"]["AttachParams"];
+            /** @description The entry whose bracket this parent is a leg of. */
+            bracket_of?: string;
             /** @description Where the trigger fires now; absent while a `trailing_stop` waits for its activation. */
             trigger_level?: components["schemas"]["Decimal"];
             /** @description When the trigger fired. `arrival` is then the price that fired it. */
@@ -2580,6 +2617,12 @@ export interface components {
             margin_mode?: components["schemas"]["MarginMode"];
             /** @description The instrument's ceiling, where the venue's answer carries it. */
             max_leverage?: number;
+            /**
+             * @description How far a margin-mode change reaches on this venue: this instrument
+             *     alone, or every symbol of the account.
+             * @enum {string}
+             */
+            scope?: "instrument" | "account";
         };
         /** @description At least one of `leverage` and `margin_mode`. */
         SetLeverage: {

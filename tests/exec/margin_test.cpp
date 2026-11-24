@@ -14,6 +14,8 @@ const InstrumentId k_btc = InstrumentId::make(VenueId::Binance, MarketType::Perp
 // holds a state and records each call, as a venue would
 class FakeVenue final : public MarginControl {
 public:
+    MarginScope mode_scope() const noexcept override { return scope; }
+
     std::expected<MarginState, VenueError> margin_state(InstrumentId) override {
         calls.emplace_back("read");
         if (read_error.has_value()) {
@@ -43,6 +45,7 @@ public:
     }
 
     MarginState held{.leverage = 10, .max_leverage = 0, .mode = MarginMode::Cross};
+    MarginScope scope{MarginScope::OneInstrument};
     std::optional<VenueError> read_error;
     std::optional<VenueError> leverage_error;
     std::optional<VenueError> mode_error;
@@ -135,6 +138,15 @@ TEST(ServeMargin, AVenueWithoutTheCallsAnswersUnsupported) {
     EXPECT_EQ(reply.outcome, MarginOutcome::Unsupported);
     EXPECT_EQ(reply.venue_code, 0);
     EXPECT_EQ(reply.reason(), "one margin mode for the whole account");
+}
+
+TEST(ServeMargin, EveryAnswerSaysHowFarTheVenueMovesAMode) {
+    FakeVenue venue;
+    venue.scope = MarginScope::WholeAccount;
+    EXPECT_EQ(serve_margin(&venue, set(0, MarginMode::Isolated), k_now).scope, MarginScope::WholeAccount);
+    venue.mode_error = VenueError::make(ErrorClass::Terminal, 3400045, "Set margin mode failed");
+    EXPECT_EQ(serve_margin(&venue, set(0, MarginMode::Cross), k_now).scope, MarginScope::WholeAccount);
+    EXPECT_EQ(serve_margin(nullptr, set(0, MarginMode::Isolated), k_now).scope, MarginScope::Unknown);
 }
 
 TEST(ServeMargin, ARequestNobodyWaitsForNeverReachesTheVenue) {

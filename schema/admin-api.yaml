@@ -198,9 +198,13 @@ paths:
         that reaches the gateway is journalled under `margin.set` with who asked and
         the state before and after; see `GET /v1/audit`.
 
-        Venues differ. Bybit keeps one margin mode for the whole unified account and
-        OKX takes it per order, so `margin_mode` there answers 501 unless it names
-        the mode already in force.
+        Venues differ, and `scope` in the answer says how far a margin-mode change
+        reaches. Bybit keeps one margin mode for the whole unified account, so
+        setting it there moves every symbol (`scope: account`); a venue that refuses
+        the switch over open positions or orders answers 409 with its reason. OKX
+        takes the mode per order: the gateway remembers the chosen mode per
+        instrument and sends its orders under it (`scope: instrument`). A venue
+        without the calls answers 501.
       operationId: setLeverage
       requestBody:
         required: true
@@ -3008,6 +3012,21 @@ components:
         iceberg: { $ref: "#/components/schemas/IcebergParams" }
         pegged: { $ref: "#/components/schemas/PeggedParams" }
         trigger: { $ref: "#/components/schemas/TriggerParams" }
+        reduce_only:
+          type: boolean
+          default: false
+          description: >-
+            No child is larger than the book's position on its instrument in the closing direction, less the
+            reduce-only children already working against it; the venue's own reduce-only goes on perp children.
+            With no position left the parent ends, failed with `reduce-only with no position to reduce` when
+            nothing filled.
+        oco:
+          type: string
+          maxLength: 64
+          description: >-
+            A group name. The first member to fire, or to fill if it has no trigger, cancels the others;
+            two that fire on one price send only the earlier one.
+        attach: { $ref: "#/components/schemas/AttachParams" }
         venue:
           type: string
           description: >-
@@ -3090,8 +3109,8 @@ components:
         Required with `algo` `stop`, `take_profit` and `trailing_stop`, and only with them. A buy
         `stop` fires when the price is at or above `price` and a sell at or below; `take_profit`
         is the other way round. A price already past the level fires on the first one joe sees.
-        A trigger fires once, and a restart neither fires it again nor forgets it. There is no
-        reduce-only: a fired trigger sends its whole size whatever the position is.
+        A trigger fires once, and a restart neither fires it again nor forgets it. Without
+        `reduce_only` a fired trigger sends its whole size whatever the position is.
       properties:
         price:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
@@ -3118,6 +3137,27 @@ components:
           description: >-
             `trailing_stop` only. A sell starts trailing once the price is at or above it, a buy at or below;
             absent trails from the first price.
+
+    AttachParams:
+      type: object
+      description: |
+        A bracket on an entry. Its first fill makes a reduce-only `take_profit` and a reduce-only `stop`
+        on the other side, in one `oco` group, each sized to what the entry has filled and growing with
+        it. An entry cancelled before any fill makes neither; one cancelled after keeps them for the
+        filled part. Not with `reduce_only`.
+      properties:
+        take_profit: { $ref: "#/components/schemas/BracketLeg" }
+        stop_loss: { $ref: "#/components/schemas/BracketLeg" }
+        source: { type: string, enum: [mid, last], default: mid }
+
+    BracketLeg:
+      type: object
+      required: [price]
+      properties:
+        price: { $ref: "#/components/schemas/Decimal" }
+        limit:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Where the fired leg rests; absent takes the book.
 
     ParentOrder:
       type: object
@@ -3179,6 +3219,12 @@ components:
         iceberg: { $ref: "#/components/schemas/IcebergParams" }
         pegged: { $ref: "#/components/schemas/PeggedParams" }
         trigger: { $ref: "#/components/schemas/TriggerParams" }
+        reduce_only: { type: boolean }
+        oco: { type: string }
+        attach: { $ref: "#/components/schemas/AttachParams" }
+        bracket_of:
+          type: string
+          description: The entry whose bracket this parent is a leg of.
         trigger_level:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: Where the trigger fires now; absent while a `trailing_stop` waits for its activation.
@@ -3529,6 +3575,12 @@ components:
         max_leverage:
           type: integer
           description: The instrument's ceiling, where the venue's answer carries it.
+        scope:
+          type: string
+          enum: [instrument, account]
+          description: |
+            How far a margin-mode change reaches on this venue: this instrument
+            alone, or every symbol of the account.
 
     SetLeverage:
       type: object

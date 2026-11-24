@@ -104,6 +104,8 @@ venues:
       - { name: orders, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/create", "/v5/order/cancel", "/v5/order/amend"] }
       - { name: account, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/realtime", "/v5/position/list", "/v5/position/set-leverage", "/v5/account/wallet-balance", "/v5/execution/list"] }
       - { name: ledger, window_ms: 1000, max: 22, match: ["/v5/account/transaction-log"] }
+      # 5 per second by uid; it moves the whole unified account
+      - { name: margin_mode, window_ms: 1000, max: 4, match: ["/v5/account/set-margin-mode"] }
       - { name: ws_streams, kind: ws_streams, max: 512 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
@@ -142,6 +144,8 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: requests, window_ms: 1000, max: 900, reserve: 90 }
+      # xt states no limit for the bulk mark and index calls; the perp gateway reconciles with one of each a minute
+      - { name: marks, window_ms: 1000, max: 4, match: ["/future/market/v1/public/q/mark-price", "/future/market/v1/public/q/index-price"] }
       - { name: ws_streams, kind: ws_streams, max: 192 }
       - { name: ws_sockets, kind: ws_sockets, max: 24 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
@@ -212,6 +216,8 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: market, window_ms: 2000, max: 18, match: ["/api/v5/public/", "/api/v5/market/"] }
+      # 10 per 2 s by ip and instrument; the swap gateway reconciles its mark channel with one bulk call a minute
+      - { name: mark_price, window_ms: 2000, max: 9, match: ["/api/v5/public/mark-price"] }
       - { name: orders, window_ms: 2000, max: 54, reserve: 10, match: ["/api/v5/trade/"] }
       - { name: account, window_ms: 2000, max: 9, match: ["/api/v5/account/positions", "/api/v5/account/balance"] }
       - { name: bills, window_ms: 1000, max: 4, match: ["/api/v5/account/bills"] }

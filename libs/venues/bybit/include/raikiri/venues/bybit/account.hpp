@@ -16,6 +16,14 @@ namespace raikiri::venues::bybit {
 // /v5/account/info's marginMode, as the venue spells it: ISOLATED_MARGIN, REGULAR_MARGIN or PORTFOLIO_MARGIN
 [[nodiscard]] std::expected<std::string_view, WireError> parse_margin_mode(std::string_view result);
 
+// the first of set-margin-mode's result.reasons; both empty where the switch went through
+struct WireMarginModeRefusal {
+    std::string_view code;
+    std::string_view message;
+};
+
+[[nodiscard]] std::expected<WireMarginModeRefusal, WireError> parse_margin_mode_refusal(std::string_view result);
+
 // transaction log row; bybit mints a unique id per row and the ledger keys on it
 struct WireLedgerEntry {
     std::string_view id;

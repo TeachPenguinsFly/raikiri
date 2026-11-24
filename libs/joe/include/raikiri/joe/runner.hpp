@@ -7,7 +7,7 @@
 
 namespace raikiri::joe {
 
-class ContextSink final : public OrderSink {
+class ContextSink final : public OrderSink, public PositionView {
 public:
     void attach(strategy::Context* ctx) noexcept { ctx_ = ctx; }
 
@@ -16,6 +16,7 @@ public:
     [[nodiscard]] std::expected<std::uint64_t, SinkError> submit(const ChildOrder& order) noexcept override;
     void cancel(std::uint64_t child_id) noexcept override;
     [[nodiscard]] bool modify(std::uint64_t child_id, InstrumentId instrument, FixedE9 limit) noexcept override;
+    [[nodiscard]] FixedE9 position(std::uint16_t book, InstrumentId instrument) const noexcept override;
 
 private:
     strategy::Context* ctx_{nullptr};

@@ -954,5 +954,22 @@ TEST(OkxWire, ReadsTheTradingAccountAndTheModeItRunsUnder) {
     EXPECT_FALSE(parse_account_mode(R"({"code":"0","msg":"","data":[]})").has_value());
 }
 
+TEST(OkxWire, BulkMarkPricesAnswerEverySwapInOneReply) {
+    static MarkPriceBuffer storage;
+    const auto body = fixture("rest_mark_prices.json");
+    const auto rows = parse_mark_prices(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    EXPECT_EQ((*rows)[1].inst_id, "BTC-USDT-SWAP");
+    EXPECT_EQ((*rows)[1].mark_price, "60423");
+    EXPECT_EQ((*rows)[1].ts_ms, 1'795'525'681'668U);
+    EXPECT_FALSE(parse_mark_prices(R"({"code":"0","msg":""})", storage).has_value());
+}
+
+TEST(OkxWs, TheMarkStaysOnItsOwnChannel) {
+    EXPECT_EQ(channel_for(exec::SubKind::MarkPrice), "mark-price");
+    EXPECT_EQ(channel_for(exec::SubKind::Funding), "funding-rate");
+}
+
 } // namespace
 } // namespace raikiri::venues::okx

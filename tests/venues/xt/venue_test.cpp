@@ -490,6 +490,7 @@ TEST(XtWs, TopicsMatchWhatTheVenueAccepts) {
     EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp).channel, "trade");
     EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp).channel, "depth");
     EXPECT_EQ(topic_for(exec::SubKind::MarkPrice, MarketType::Perp).channel, "mark_price");
+    EXPECT_EQ(index_topic().channel, "index_price");
     EXPECT_TRUE(topic_for(exec::SubKind::Funding, MarketType::Perp).channel.empty());
     EXPECT_TRUE(topic_for(exec::SubKind::Kline, MarketType::Perp).channel.empty());
 }
@@ -1786,6 +1787,72 @@ TEST(XtMap, TagsClassifyTheUnderlying) {
     EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
     EXPECT_EQ(spx.underlying.view(), "SPX");
     EXPECT_EQ(classified_xt("bond_usdt", R"(["BOND"])").asset_class, AssetClass::Unknown);
+}
+
+TEST(XtWire, BulkMarkAndIndexPricesAnswerEveryContract) {
+    static PriceRowBuffer marks_storage;
+    static PriceRowBuffer index_storage;
+    const auto mark_body = fixture("rest_mark_prices.json");
+    const auto index_body = fixture("rest_index_prices.json");
+    const auto marks = parse_price_rows(mark_body, marks_storage);
+    const auto index = parse_price_rows(index_body, index_storage);
+    ASSERT_TRUE(marks.has_value());
+    ASSERT_TRUE(index.has_value());
+    ASSERT_EQ(marks->size(), 2U);
+    EXPECT_EQ((*marks)[1].symbol, "btc_usdt");
+    EXPECT_EQ((*marks)[1].mark_price, "60426.3");
+    EXPECT_EQ((*marks)[1].ts_ms, 1'795'525'682'318U);
+    EXPECT_EQ((*index)[1].mark_price, "60441.6158975");
+    EXPECT_FALSE(parse_price_rows(R"({"returnCode":0,"result":null})", marks_storage).has_value());
+}
+
+TEST(XtMap, RestWinsOnlyOverAMarkOrIndexTheSocketLeftStale) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    FundingMemo memo{};
+
+    const auto rate_body = fixture("rest_funding_rate.json");
+    const auto rate = parse_funding_rate(rate_body);
+    ASSERT_TRUE(rate.has_value());
+    ASSERT_TRUE(map_funding(*rate, table, memo, UnixNanos{1}).has_value());
+
+    const UnixNanos pushed_at{1'000'000'000ULL};
+    const auto mark_frame = fixture("ws_mark_price.json");
+    const auto pushed = parse_mark_price(mark_frame);
+    ASSERT_TRUE(pushed.has_value());
+    ASSERT_TRUE(map_mark_price(*pushed, table, memo, pushed_at).has_value());
+    const auto index_frame = fixture("ws_index_price.json");
+    const auto pushed_index = parse_mark_price(index_frame);
+    ASSERT_TRUE(pushed_index.has_value());
+    ASSERT_TRUE(map_index_price(*pushed_index, table, memo, pushed_at).has_value());
+
+    static PriceRowBuffer marks_storage;
+    static PriceRowBuffer index_storage;
+    const auto mark_body = fixture("rest_mark_prices.json");
+    const auto index_body = fixture("rest_index_prices.json");
+    const auto marks = parse_price_rows(mark_body, marks_storage);
+    const auto index = parse_price_rows(index_body, index_storage);
+    ASSERT_TRUE(marks.has_value());
+    ASSERT_TRUE(index.has_value());
+
+    const UnixNanos fresh{pushed_at.ns + k_mark_stale_ns - 1};
+    EXPECT_FALSE(reconcile_mark((*marks)[1], table, memo, fresh)) << "the socket spoke inside the window";
+    EXPECT_FALSE(reconcile_index((*index)[1], table, memo, fresh));
+    EXPECT_FALSE(map_reconciled("btc_usdt", table, memo, fresh).has_value());
+    EXPECT_EQ(memo.mark.raw, 640'747);
+
+    const UnixNanos late{pushed_at.ns + k_mark_stale_ns};
+    EXPECT_TRUE(reconcile_mark((*marks)[1], table, memo, late));
+    EXPECT_TRUE(reconcile_index((*index)[1], table, memo, late));
+    const auto repaired = map_reconciled("btc_usdt", table, memo, late);
+    ASSERT_TRUE(repaired.has_value());
+    EXPECT_EQ(repaired->mark_price.raw, 604'263);  // 60426.3 on a 0.1 tick
+    EXPECT_EQ(repaired->index_price.raw, 604'416); // truncated onto the tick
+    EXPECT_EQ(repaired->rate.raw, 88'660) << "the rate the funding poll stated is carried forward";
+    EXPECT_FALSE(map_reconciled("btc_usdt", table, memo, late).has_value()) << "one record for both";
+
+    const UnixNanos later{late.ns + k_mark_stale_ns};
+    EXPECT_FALSE(reconcile_mark((*marks)[1], table, memo, later)) << "stale but equal needs no record";
 }
 
 } // namespace

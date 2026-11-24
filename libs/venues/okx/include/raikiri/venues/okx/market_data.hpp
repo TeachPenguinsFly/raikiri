@@ -92,6 +92,14 @@ struct WireMarkPrice {
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
 
+// GET /public/mark-price?instType=SWAP answers every swap in one reply; read to reconcile the mark-price channel
+struct MarkPriceBuffer {
+    std::array<WireMarkPrice, k_max_tickers> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireMarkPrice>, WireError> parse_mark_prices(std::string_view body,
+                                                                                         MarkPriceBuffer& storage);
+
 // opt-summary, one row per option of the family; the BS greeks are in usd, the plain ones in the coin
 struct WireOptSummary {
     std::string_view inst_id;
@@ -135,8 +143,11 @@ struct FundingMemo {
     FixedE9 rate{};
     FixedE9 predicted{};
     PriceTicks mark{};
+    UnixNanos mark_seen{}; // when the mark last arrived, for the rest reconciliation
     UnixNanos next_funding{};
     std::uint32_t interval_s{0};
 };
+
+inline constexpr std::uint64_t k_mark_stale_ns = 10'000'000'000ULL;
 
 } // namespace raikiri::venues::okx

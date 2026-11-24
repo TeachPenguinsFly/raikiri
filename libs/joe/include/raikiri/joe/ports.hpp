@@ -45,6 +45,8 @@ struct ChildOrder {
     OrderOrigin origin{};
     // parent and child ordinal, so identical slices are not taken for a resend of one
     std::uint64_t repeat_key{0};
+    // the venue's own reduce-only, on top of joe's cap
+    bool reduce_only{false};
 };
 
 enum class SinkError : std::uint8_t { NotRunning, Risk, Refused };
@@ -75,9 +77,23 @@ protected:
     ~OrderSink() = default;
 };
 
+// what a book holds, all its fills counted and not only joe's
+class PositionView {
+public:
+    PositionView() = default;
+    PositionView(const PositionView&) = delete;
+    PositionView& operator=(const PositionView&) = delete;
+
+    // signed base units e9, positive long; zero when flat or never filled
+    [[nodiscard]] virtual FixedE9 position(std::uint16_t book, InstrumentId instrument) const noexcept = 0;
+
+protected:
+    ~PositionView() = default;
+};
+
 // what a restart must not forget about a parent; its fills come back from the order events
 struct ParentRecord {
-    enum class Kind : std::uint8_t { Created, Started, ChildSent, StatusChanged, Trigger };
+    enum class Kind : std::uint8_t { Created, Started, ChildSent, StatusChanged, Trigger, Resized };
 
     Kind kind{Kind::Created};
     std::uint64_t parent{0};

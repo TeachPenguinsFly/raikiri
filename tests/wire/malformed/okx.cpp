@@ -123,6 +123,11 @@ TEST(Malformed, Okx) {
                     (void)parse_rest_envelope(f);
                     (void)parse_mark_price(f);
                 }},
+               {"rest_mark_prices.json",
+                [](std::string_view f) {
+                    static MarkPriceBuffer storage;
+                    (void)parse_mark_prices(f, storage);
+                }},
                {"rest_funding_rate.json",
                 [](std::string_view f) {
                     (void)parse_rest_envelope(f);
@@ -155,6 +160,8 @@ TEST(Malformed, Okx) {
                     (void)parse_balances(f, balances);
                 }},
                {"rest_account_config.json", [](std::string_view f) { (void)parse_account_mode(f); }},
+               {"rest_leverage_info.json", [](std::string_view f) { (void)parse_leverage_info(f); }},
+               {"rest_set_leverage.json", [](std::string_view f) { (void)parse_rest_envelope(f); }},
            });
 }
 

@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
                          option_routes,
                          audit_routes,
                          book_routes,
-                         margin_routes,
+                         &margin_routes,
                          routes = admin::make_router(
                              registry,
                              history.get(),
@@ -290,38 +290,41 @@ int main(int argc, char** argv) {
                              [&clock] { return clock.wall(); },
                              upstreams,
                              &book_registry,
-                             &markets_cache)](const http::Request& req) {
-                            if (auto answer = jobs.route(req, clock.mono()); answer.has_value()) {
-                                return std::move(*answer);
+                             &markets_cache)](const http::Request& req, http::Reply reply) {
+                            // answered from the loop's pump once the gateway replies; nothing here waits on it
+                            if (margin_routes(req, [reply](http::Response response) { reply(std::move(response)); })) {
+                                return;
                             }
-                            if (auto answer = cache(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = metrics(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = token_route(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = reference_route(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = option_risk_routes(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = option_routes(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = audit_routes(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = book_routes(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            if (auto answer = margin_routes(req); answer.has_value()) {
-                                return std::move(*answer);
-                            }
-                            return routes(req);
+                            reply([&]() -> http::Response {
+                                if (auto answer = jobs.route(req, clock.mono()); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = cache(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = metrics(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = token_route(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = reference_route(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = option_risk_routes(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = option_routes(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = audit_routes(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                if (auto answer = book_routes(req); answer.has_value()) {
+                                    return std::move(*answer);
+                                }
+                                return routes(req);
+                            }());
                         }};
     if (!server.start()) {
         RLOG_ERROR("admind: cannot bind {}:{}", address, port);
@@ -338,6 +341,8 @@ int main(int argc, char** argv) {
 
     constexpr std::uint64_t k_rescan_ns = 2ULL * 1'000'000'000ULL;
     constexpr std::uint64_t k_idle_ns = 250ULL * 1'000'000ULL;
+    // how often a pending leverage request looks for its gateway's reply
+    constexpr std::uint64_t k_margin_poll_ns = 20ULL * 1'000'000ULL;
     // a venue clears an expired position on its next pull, so this must have seen it before then
     constexpr std::uint64_t k_option_sweep_ns = 10ULL * 1'000'000'000ULL;
     auto rescan_due = clock.mono().ns;
@@ -364,8 +369,10 @@ int main(int argc, char** argv) {
         }
         const auto jobs_due = jobs.tick(clock.mono()).ns;
         (void)stream.poll();
+        margin_desk.pump();
         const auto mono = clock.mono().ns;
-        const auto until = std::min({stream.next_due().ns, rescan_due, jobs_due, mono + k_idle_ns});
+        const auto margin_due = margin_desk.pending() ? mono + k_margin_poll_ns : mono + k_idle_ns;
+        const auto until = std::min({stream.next_due().ns, rescan_due, jobs_due, margin_due, mono + k_idle_ns});
         if (until > mono) {
             (void)server.run_for(std::chrono::nanoseconds{until - mono});
         }

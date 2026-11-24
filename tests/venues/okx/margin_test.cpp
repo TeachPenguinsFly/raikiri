@@ -1,3 +1,4 @@
+#include <raikiri/venues/okx/account.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
 #include <raikiri/venues/okx/positions.hpp>
 #include <raikiri/venues/okx/rest.hpp>
@@ -42,6 +43,31 @@ TEST(OkxMargin, LeverageIsSetUnderTheModeTheOrdersUse) {
     }
     EXPECT_NE(rest.last_sign_message().find("/api/v5/account/set-leverage"), std::string_view::npos);
     EXPECT_NE(rest.last_sign_message().find(R"("lever":"5")"), std::string_view::npos);
+}
+
+TEST(OkxMargin, IsolatedLeverageInLongShortModeNamesTheSide) {
+    net::Signer signer;
+    load_credentials(signer);
+    RequestBuilder rest{signer};
+    rest.set_passphrase("pass");
+    const auto request = rest.set_leverage("BTC-USDT-SWAP", 5, "isolated", k_now, "long");
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->body, R"({"instId":"BTC-USDT-SWAP","lever":"5","mgnMode":"isolated","posSide":"long"})");
+    const auto net_mode = rest.set_leverage("BTC-USDT-SWAP", 5, "isolated", k_now);
+    ASSERT_TRUE(net_mode.has_value());
+    EXPECT_EQ(net_mode->body, R"({"instId":"BTC-USDT-SWAP","lever":"5","mgnMode":"isolated"})");
+}
+
+TEST(OkxMargin, TheAccountConfigSaysThePositionModeAndLevel) {
+    constexpr std::string_view k_config =
+        R"({"code":"0","data":[{"acctLv":"2","acctStpMode":"cancel_maker","autoLoan":false,"ctIsoMode":"automatic",)"
+        R"("level":"Lv1","mgnIsoMode":"automatic","posMode":"long_short_mode","uid":"44705892343619584"}],"msg":""})";
+    const auto pos_mode = parse_position_mode(k_config);
+    ASSERT_TRUE(pos_mode.has_value());
+    EXPECT_EQ(*pos_mode, "long_short_mode");
+    const auto level = parse_account_mode(k_config);
+    ASSERT_TRUE(level.has_value());
+    EXPECT_EQ(*level, AccountMode::Futures);
 }
 
 TEST(OkxMargin, LeverageInfoNamesTheInstrumentAndTheMode) {

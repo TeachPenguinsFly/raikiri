@@ -71,6 +71,17 @@ public:
     std::vector<std::uint64_t> cancels;
 };
 
+// the kernel's book, set by hand: a test fills a child and books its position apart, as strategyd does
+class Positions final : public PositionView {
+public:
+    FixedE9 position(std::uint16_t, InstrumentId instrument) const noexcept override {
+        const auto it = held.find(instrument.packed);
+        return it == held.end() ? FixedE9::from_raw(0) : it->second;
+    }
+
+    std::map<std::uint64_t, FixedE9> held;
+};
+
 // what a journal would hold, through its own encoding
 class Log final : public ParentLog {
 public:
@@ -80,11 +91,16 @@ public:
 };
 
 struct Fixture {
+    Fixture() { desk.set_positions(&positions); }
+
     Market market;
     Sink sink;
     TestClock clock{UnixNanos{1000 * k_s}};
     CurveProfile curves;
+    Positions positions;
     Desk desk{market, sink, clock, curves};
+
+    void hold(std::string_view qty, VenueId venue = VenueId::Binance) { positions.held[on(venue).packed] = d(qty); }
 
     Touch& book() { return market.touches.at(VenueId::Binance); }
 
@@ -670,6 +686,132 @@ TEST(JoeTriggerRestart, AnUnfiredStopIsStillArmedAndFiresOnTheFirstPriceAfter) {
     EXPECT_EQ(after.sink.sent.size(), 1U);
 }
 
+TEST(JoeReduceOnly, AFiredStopSendsNoMoreThanThePositionAndSaysSoToTheVenue) {
+    Fixture f;
+    f.hold("0.004");
+    auto spec = trigger_spec(Algo::Stop, Side::Sell, "99.5");
+    spec.reduce_only = true;
+    (void)*f.desk.start(spec);
+    f.quote("99", "99.02");
+    f.pass();
+    ASSERT_EQ(f.sink.sent.size(), 1U);
+    EXPECT_EQ(f.sink.sent.front().lots, 4);
+    EXPECT_TRUE(f.sink.sent.front().reduce_only);
+}
+
+TEST(JoeReduceOnly, APlainStopIsUnchangedWhateverThePosition) {
+    Fixture f;
+    f.hold("0.004");
+    (void)*f.desk.start(trigger_spec(Algo::Stop, Side::Sell, "99.5"));
+    f.quote("99", "99.02");
+    f.pass();
+    ASSERT_EQ(f.sink.sent.size(), 1U);
+    EXPECT_EQ(f.sink.sent.front().lots, 10);
+    EXPECT_FALSE(f.sink.sent.front().reduce_only);
+}
+
+TEST(JoeReduceOnly, NoPositionOrOneOnTheSameSideEndsItWithNothingSent) {
+    for (const auto* held : {"0", "-0.01"}) {
+        Fixture f;
+        f.hold(held);
+        auto spec = trigger_spec(Algo::Stop, Side::Sell, "99.5");
+        spec.reduce_only = true;
+        const auto id = *f.desk.start(spec);
+        f.pass();
+        EXPECT_EQ(f.parent(id).status(), Status::Working) << "nothing is read before the trigger fires";
+        f.quote("99", "99.02");
+        f.pass();
+        EXPECT_TRUE(f.sink.sent.empty()) << held;
+        EXPECT_EQ(f.parent(id).status(), Status::Failed) << held;
+        EXPECT_EQ(f.parent(id).reason(), "reduce-only with no position to reduce");
+    }
+}
+
+TEST(JoeReduceOnly, ADeskThatReadsNoPositionRefusesIt) {
+    Fixture f;
+    f.desk.set_positions(nullptr);
+    auto spec = trigger_spec(Algo::Stop, Side::Sell, "99.5");
+    spec.reduce_only = true;
+    const auto refused = f.desk.start(spec);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error().error, DeskError::BadSpec);
+    EXPECT_TRUE(f.desk.start(trigger_spec(Algo::Stop, Side::Sell, "99.5")).has_value());
+}
+
+TEST(JoeReduceOnly, ARestingChildIsPulledWhenThePositionShrinksUnderItAndComesBackSmaller) {
+    Fixture f;
+    f.hold("0.01");
+    auto spec = trigger_spec(Algo::Stop, Side::Sell, "99.5");
+    spec.limit = d("98");
+    spec.reduce_only = true;
+    const auto id = *f.desk.start(spec);
+    f.quote("99", "99.02");
+    f.pass();
+    ASSERT_EQ(f.sink.sent.size(), 1U);
+    EXPECT_EQ(f.sink.sent.front().tif, ChildTif::Gtc);
+    EXPECT_EQ(f.sink.sent.front().lots, 10);
+    EXPECT_TRUE(f.sink.sent.front().reduce_only);
+    f.desk.on_ack(1);
+
+    // something else closed most of it
+    f.hold("0.003");
+    f.pass();
+    ASSERT_EQ(f.sink.cancels.size(), 1U);
+    f.desk.on_closed(1, ChildEnd::Cancelled);
+    f.pass(2 * k_s);
+    ASSERT_EQ(f.sink.sent.size(), 2U);
+    EXPECT_EQ(f.sink.sent.back().lots, 3);
+
+    // and then the rest: the parent ends rather than sending into a flat book
+    f.desk.on_ack(2);
+    f.hold("0");
+    f.pass();
+    f.desk.on_closed(2, ChildEnd::Cancelled);
+    f.pass(2 * k_s);
+    EXPECT_EQ(f.sink.sent.size(), 2U);
+    EXPECT_EQ(f.parent(id).status(), Status::Failed);
+}
+
+TEST(JoeReduceOnly, TwoReduceOnlyParentsShareOnePosition) {
+    Fixture f;
+    f.hold("0.01");
+    auto one = trigger_spec(Algo::Stop, Side::Sell, "99.5");
+    one.limit = d("98");
+    one.reduce_only = true;
+    auto two = one;
+    two.trigger.price = d("99.4");
+    (void)*f.desk.start(one);
+    (void)*f.desk.start(two);
+    f.quote("99", "99.02");
+    f.pass();
+    ASSERT_EQ(f.sink.sent.size(), 1U) << "the first child already closes the whole position";
+    EXPECT_EQ(f.sink.sent.front().lots, 10);
+}
+
+TEST(JoeReduceOnly, TheNewFieldsSurviveTheJournal) {
+    auto spec = trigger_spec(Algo::Stop, Side::Sell, "99.5");
+    spec.reduce_only = true;
+    spec.oco = "exit-1";
+    spec.book = 9;
+    spec.bracket_of = 42;
+    spec.attach = {.take_profit = d("110"), .stop_loss = d("90"), .stop_loss_limit = d("89"), .on = TriggerOn::Last};
+    const auto back = decode_parent_record(encode_parent_record({.kind = ParentRecord::Kind::Created, .spec = spec}));
+    ASSERT_TRUE(back.has_value());
+    EXPECT_TRUE(back->spec.reduce_only);
+    EXPECT_EQ(back->spec.oco, "exit-1");
+    EXPECT_EQ(back->spec.book, 9);
+    EXPECT_EQ(back->spec.bracket_of, 42U);
+    EXPECT_EQ(back->spec.attach.take_profit, d("110"));
+    EXPECT_TRUE(back->spec.attach.take_profit_limit.is_undef());
+    EXPECT_EQ(back->spec.attach.stop_loss_limit, d("89"));
+    EXPECT_EQ(back->spec.attach.on, TriggerOn::Last);
+
+    const auto old = decode_parent_record(R"({"kind":0,"parent":1,"symbol":"BTC/USDT","algo":6})");
+    ASSERT_TRUE(old.has_value());
+    EXPECT_FALSE(old->spec.reduce_only);
+    EXPECT_FALSE(old->spec.attach.any());
+}
+
 TEST(JoeTriggerRoutes, TakesEachTriggerAndAnswersItsFields) {
     Fixture f;
     const JoeRoutes routes{&f.desk};
@@ -720,6 +862,35 @@ TEST(JoeTriggerRoutes, RefusesATriggerBodyThatDoesNotAddUp) {
     EXPECT_EQ(post(head + R"("algo":"trailing_stop","trigger":{"price":"99","callback_bp":50}})"), 422);
     EXPECT_EQ(post(head + R"("algo":"take_profit","trigger":{"price":"101"}})"), 201);
     EXPECT_EQ(post(head + R"("algo":"trailing_stop","trigger":{"callback_bp":50}})"), 201);
+}
+
+TEST(JoeTriggerRoutes, TakesReduceOnlyAnOcoGroupAndABracket) {
+    Fixture f;
+    const JoeRoutes routes{&f.desk};
+    const auto post = [&](std::string body) {
+        return routes({.method = "POST", .path = "/joe/parents", .body = std::move(body)});
+    };
+    const std::string head = R"({"symbol":"BTC/USDT","side":"sell","qty":"0.01",)";
+    const auto stop = post(head + R"("algo":"stop","reduce_only":true,"oco":"exit","trigger":{"price":"99.5"}})");
+    ASSERT_EQ(stop->status, 201) << stop->body;
+    const auto one = routes({.method = "GET", .path = "/joe/parents/1"});
+    EXPECT_NE(one->body.find(R"("reduce_only":true,"oco":"exit")"), std::string::npos) << one->body;
+
+    const auto entry = post(
+        R"({"symbol":"BTC/USDT","side":"buy","qty":"0.01","algo":"sor","attach":{"take_profit":{"price":"110"},
+            "stop_loss":{"price":"90","limit":"89"},"source":"last"}})");
+    ASSERT_EQ(entry->status, 201) << entry->body;
+    const auto two = routes({.method = "GET", .path = "/joe/parents/2"});
+    EXPECT_NE(
+        two->body.find(
+            R"("attach":{"take_profit":{"price":"110"},"stop_loss":{"price":"90","limit":"89"},"source":"last"})"),
+        std::string::npos)
+        << two->body;
+
+    EXPECT_EQ(post(head + R"("algo":"sor","attach":{"source":"mark","take_profit":{"price":"1"}}})")->status, 400);
+    EXPECT_EQ(post(head + R"("algo":"sor","attach":{"take_profit":{"price":"x"}}})")->status, 400);
+    EXPECT_EQ(post(head + R"("algo":"sor","attach":{}})")->status, 400);
+    EXPECT_EQ(post(head + R"("algo":"sor","reduce_only":true,"attach":{"take_profit":{"price":"1"}}})")->status, 422);
 }
 
 } // namespace

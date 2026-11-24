@@ -40,6 +40,8 @@ inline constexpr std::string_view k_spot_symbols = "/v4/public/symbol";
 inline constexpr std::string_view k_futures_server_time = "/future/market/v1/public/time";
 inline constexpr std::string_view k_spot_server_time = "/v4/public/time";
 inline constexpr std::string_view k_futures_funding_rate = "/future/market/v1/public/q/funding-rate";
+inline constexpr std::string_view k_futures_mark_prices = "/future/market/v1/public/q/mark-price";
+inline constexpr std::string_view k_futures_index_prices = "/future/market/v1/public/q/index-price";
 inline constexpr std::string_view k_futures_depth = "/future/market/v1/public/q/depth";
 
 } // namespace raikiri::venues::xt::ep

@@ -39,6 +39,7 @@ namespace {
 exec::VenueAdapter make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
+    state->budget = config.budget;
 
     const auto credential_errors = config::Credentials{config.api_key_env, config.api_secret_env}
                                        .key([&](std::string_view value) { state->signer.set_api_key(value); })

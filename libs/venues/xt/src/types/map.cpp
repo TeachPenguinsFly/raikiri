@@ -350,6 +350,7 @@ map_mark_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, Fu
         return std::nullopt; // a mark this contract's tick cannot express is no mark
     }
     memo.mark = *mark;
+    memo.mark_seen = ts_init;
     return merged(*base, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
 }
 
@@ -364,7 +365,61 @@ map_index_price(const WireMarkPrice& wire, const exec::InstrumentTable& table, F
         return std::nullopt;
     }
     memo.index = PriceTicks::from_raw(index->raw / base->tick_size.raw);
+    memo.index_seen = ts_init;
     return merged(*base, memo, ms_to_unix(wire.ts_ms, UnixNanos{}), ts_init);
+}
+
+bool reconcile_mark(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos now) {
+    if (now.ns < memo.mark_seen.ns + k_mark_stale_ns) {
+        return false;
+    }
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return false;
+    }
+    const auto mark = to_ticks(wire.mark_price, *base);
+    if (!mark.has_value() || mark->raw == memo.mark.raw) {
+        return false;
+    }
+    memo.mark = *mark;
+    memo.mark_seen = now;
+    memo.repaired = true;
+    return true;
+}
+
+bool reconcile_index(const WireMarkPrice& wire, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos now) {
+    if (now.ns < memo.index_seen.ns + k_mark_stale_ns) {
+        return false;
+    }
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return false;
+    }
+    const auto index = parse_decimal_e9(wire.mark_price);
+    if (!index.has_value() || base->tick_size.raw <= 0) {
+        return false;
+    }
+    const auto ticks = PriceTicks::from_raw(index->raw / base->tick_size.raw);
+    if (ticks.raw == memo.index.raw) {
+        return false;
+    }
+    memo.index = ticks;
+    memo.index_seen = now;
+    memo.repaired = true;
+    return true;
+}
+
+std::optional<FundingUpdate>
+map_reconciled(std::string_view symbol, const exec::InstrumentTable& table, FundingMemo& memo, UnixNanos ts_init) {
+    if (!memo.repaired) {
+        return std::nullopt;
+    }
+    const auto* base = base_for(symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    memo.repaired = false;
+    return merged(*base, memo, UnixNanos{}, ts_init);
 }
 
 std::optional<TickerStats>

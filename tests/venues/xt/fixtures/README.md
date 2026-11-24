@@ -19,6 +19,8 @@ straight to a file. Frames are uncompressed UTF-8 JSON.
 | `rest_server_time.json` | `GET /future/market/v1/public/time` |
 | `rest_depth.json` | `GET /future/market/v1/public/q/depth?symbol=btc_usdt&level=5` |
 | `rest_funding_rate.json` | `GET /future/market/v1/public/q/funding-rate?symbol=btc_usdt` |
+| `rest_mark_prices.json` | `GET /future/market/v1/public/q/mark-price` on 2026-11-24, trimmed from 845 rows to eth_usdt and btc_usdt, inside the envelope the venue sent |
+| `rest_index_prices.json` | `GET /future/market/v1/public/q/index-price` on 2026-11-24, trimmed from 844 rows to eth_usdt and btc_usdt, inside the envelope the venue sent |
 | `rest_funding_rate_plain.json` | the same endpoint with `symbol=eth_usdt` |
 | `rest_error_invalid_symbol.json` | the funding-rate endpoint with `symbol=nope_usdt` |
 | `rest_error_invalid_param.json` | `GET /future/market/v1/public/q/depth?symbol=btc_usdt&level=abc` |

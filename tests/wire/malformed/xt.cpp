@@ -46,6 +46,11 @@ TEST(Malformed, Xt) {
                     (void)parse_event(f);
                     (void)parse_mark_price(f);
                 }},
+               {"rest_*_prices.json",
+                [](std::string_view f) {
+                    static PriceRowBuffer storage;
+                    (void)parse_price_rows(f, storage);
+                }},
                {"ws_mark_price.json",
                 [](std::string_view f) {
                     (void)parse_event(f);

@@ -125,6 +125,8 @@ TEST(Malformed, Hyperliquid) {
                         (void)parse_exchange_reply(post->payload, storage);
                     }
                 }},
+               {"rest_active_asset_data.json", [](std::string_view f) { (void)parse_active_asset_leverage(f); }},
+               {"rest_update_leverage.json", [](std::string_view f) { (void)parse_action_refusal(f); }},
            });
 }
 

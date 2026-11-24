@@ -1,3 +1,5 @@
+#include <raikiri/venues/bybit/account.hpp>
+#include <raikiri/venues/bybit/envelope.hpp>
 #include <raikiri/venues/bybit/positions.hpp>
 #include <raikiri/venues/bybit/rest.hpp>
 
@@ -59,6 +61,7 @@ TEST(BybitMargin, WithoutCredentialsNothingIsBuilt) {
     RequestBuilder builder{signer};
     EXPECT_FALSE(builder.set_leverage(MarketType::Perp, "BTCUSDT", 6, k_now).has_value());
     EXPECT_FALSE(builder.position(MarketType::Perp, "BTCUSDT", k_now).has_value());
+    EXPECT_FALSE(builder.set_margin_mode("ISOLATED_MARGIN", k_now).has_value());
 }
 
 TEST(BybitMargin, AFlatSymbolsRowStillCarriesItsLeverage) {
@@ -77,6 +80,48 @@ TEST(BybitMargin, AnEmptyLeverageIsUnknownAndAnEmptyListIsAnError) {
     ASSERT_TRUE(fractional.has_value());
     EXPECT_EQ(*fractional, 12U);
     EXPECT_FALSE(parse_position_leverage(R"({"list":[],"category":"linear"})").has_value());
+}
+
+TEST(BybitMargin, TheMarginModeIsSetForTheWholeAccount) {
+    net::Signer signer;
+    load_credentials(signer);
+    RequestBuilder builder{signer};
+    const auto request = builder.set_margin_mode("ISOLATED_MARGIN", k_now);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    EXPECT_NE(request->target.find("/v5/account/set-margin-mode"), std::string_view::npos) << request->target;
+    EXPECT_EQ(request->body, R"({"setMarginMode":"ISOLATED_MARGIN"})");
+    EXPECT_NE(builder.last_sign_message().find(R"({"setMarginMode":"ISOLATED_MARGIN"})"), std::string_view::npos);
+}
+
+TEST(BybitMargin, AnAcceptedSwitchHasNoReasons) {
+    const auto body = fixture("rest_set_margin_mode.json");
+    const auto envelope = parse_envelope(body);
+    ASSERT_TRUE(envelope.has_value());
+    EXPECT_EQ(envelope->ret_code, 0);
+    const auto refusal = parse_margin_mode_refusal(envelope->result);
+    ASSERT_TRUE(refusal.has_value());
+    EXPECT_TRUE(refusal->message.empty());
+}
+
+TEST(BybitMargin, ARefusedSwitchCarriesTheVenueReason) {
+    const auto body = fixture("rest_set_margin_mode_refused.json");
+    const auto envelope = parse_envelope(body);
+    ASSERT_TRUE(envelope.has_value());
+    EXPECT_EQ(envelope->ret_code, 3400045);
+    EXPECT_EQ(classify(envelope->ret_code), exec::ErrorClass::Terminal);
+    const auto refusal = parse_margin_mode_refusal(envelope->result);
+    ASSERT_TRUE(refusal.has_value());
+    EXPECT_EQ(refusal->code, "3400000");
+    EXPECT_EQ(refusal->message, "Equity needs to be equal to or greater than 1000 USDC");
+}
+
+TEST(BybitMargin, TheAccountModeIsReadFromAccountInfo) {
+    const auto mode = parse_margin_mode(R"({"marginMode":"REGULAR_MARGIN","updatedTime":"1697078946000",)"
+                                        R"("unifiedMarginStatus":4,"dcpStatus":"OFF","timeWindow":10,"smpGroup":0,)"
+                                        R"("isMasterTrader":false,"spotHedgingStatus":"OFF"})");
+    ASSERT_TRUE(mode.has_value());
+    EXPECT_EQ(*mode, "REGULAR_MARGIN");
 }
 
 } // namespace

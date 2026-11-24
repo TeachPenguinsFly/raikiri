@@ -241,6 +241,18 @@ net::RestRequest RequestBuilder::funding_rate(std::string_view symbol) noexcept 
     return writer.get();
 }
 
+net::RestRequest RequestBuilder::mark_prices() noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_futures_mark_prices);
+    return writer.get();
+}
+
+net::RestRequest RequestBuilder::index_prices() noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_futures_index_prices);
+    return writer.get();
+}
+
 net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t level) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_futures_depth);

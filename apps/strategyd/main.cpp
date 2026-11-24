@@ -1170,6 +1170,13 @@ public:
         return kernel_->positions.find({strategy_id(), id});
     }
 
+    const portfolio::Position* book_position(std::uint16_t book, InstrumentId id) const noexcept override {
+        if (strategy_id() != kernel_->executor) {
+            return book == 0 ? position(id) : nullptr;
+        }
+        return kernel_->positions.find({book != 0 ? book : strategy_id(), id});
+    }
+
     FixedE9 unrealized(InstrumentId id, PriceTicks mark) const noexcept override {
         const auto* held = position(id);
         const auto* listed = instrument(id);
@@ -2234,6 +2241,7 @@ int main(int argc, char** argv) {
         live.set_executor(joe_id);
         const auto parent_records = joe::restore_desk(*joe_desk, journal_dir, "journal", joe_id);
         joe_desk->set_log(&joe_log);
+        joe_desk->set_positions(&joe_sink);
         if (parent_records != 0) {
             RLOG_INFO(
                 "strategyd: joe restored {} parent(s) from {} records", joe_desk->parents().size(), parent_records);

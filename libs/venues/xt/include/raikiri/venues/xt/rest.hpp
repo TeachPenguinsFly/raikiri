@@ -37,6 +37,10 @@ public:
 
     [[nodiscard]] net::RestRequest funding_rate(std::string_view symbol) noexcept;
 
+    // every contract in one reply; reconciliation only
+    [[nodiscard]] net::RestRequest mark_prices() noexcept;
+    [[nodiscard]] net::RestRequest index_prices() noexcept;
+
     [[nodiscard]] net::RestRequest depth(std::string_view symbol, std::uint32_t level) noexcept;
 
 private:

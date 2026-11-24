@@ -116,11 +116,14 @@ public:
     std::expected<void, TransitionError> start(UnixNanos now, FixedE9 qty, FixedE9 arrival);
     std::expected<void, TransitionError> pause(UnixNanos now);
     std::expected<void, TransitionError> resume(UnixNanos now);
-    std::expected<void, TransitionError> cancel(UnixNanos now);
+    std::expected<void, TransitionError> cancel(UnixNanos now, std::string reason = {});
     std::expected<void, TransitionError> finish(UnixNanos now);
     std::expected<void, TransitionError> fail(UnixNanos now, std::string reason);
 
     void plan(std::vector<UnixNanos> times, std::vector<std::uint64_t> weights);
+
+    // a bracket leg follows its entry's fills
+    void resize(UnixNanos now, FixedE9 qty) noexcept;
 
     void add(Child child);
 

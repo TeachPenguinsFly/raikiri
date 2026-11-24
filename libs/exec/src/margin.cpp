@@ -43,6 +43,7 @@ MarginReply serve_margin(MarginControl* control, const MarginRequest& request, U
         say(reply, "leverage and margin mode are not implemented for this venue");
         return reply;
     }
+    reply.scope = control->mode_scope();
     if (now.ns > request.ts_created.ns + k_margin_request_ttl_ns) {
         reply.outcome = MarginOutcome::Failed;
         reply.cls = ErrorClass::Retryable;

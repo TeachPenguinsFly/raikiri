@@ -55,6 +55,28 @@ std::expected<std::string_view, WireError> parse_margin_mode(std::string_view re
     });
 }
 
+std::expected<WireMarginModeRefusal, WireError> parse_margin_mode_refusal(std::string_view result) {
+    return guarded([&]() -> std::expected<WireMarginModeRefusal, WireError> {
+        auto root = wire::session().open_object(result);
+        if (!root.has_value()) {
+            return std::unexpected{root.error()};
+        }
+        auto reasons = wire::req_array(*root, "reasons");
+        if (!reasons.has_value()) {
+            return std::unexpected{reasons.error()};
+        }
+        for (auto entry : *reasons) {
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected{wire::map_error(ec)};
+            }
+            return WireMarginModeRefusal{.code = wire::opt_str(obj, "reasonCode").value_or(std::string_view{}),
+                                         .message = wire::opt_str(obj, "reasonMsg").value_or(std::string_view{})};
+        }
+        return WireMarginModeRefusal{};
+    });
+}
+
 std::expected<std::span<const WireCoinBalance>, WireError> parse_wallet_balance(std::string_view result,
                                                                                 CoinBalanceBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCoinBalance>, WireError> {

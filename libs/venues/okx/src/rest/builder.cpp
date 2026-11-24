@@ -243,6 +243,14 @@ net::RestRequest RequestBuilder::mark_price(std::string_view inst_id) noexcept {
     return writer.get();
 }
 
+net::RestRequest RequestBuilder::mark_prices(std::string_view inst_type) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_mark_price);
+    writer.put("?instType=");
+    writer.put(inst_type);
+    return writer.get();
+}
+
 net::RestRequest RequestBuilder::funding_rate(std::string_view inst_id) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_funding_rate);
@@ -343,9 +351,13 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
 std::expected<net::RestRequest, BuildError>
 RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
-    const auto td_mode = td_mode_of(market);
+    auto td_mode = td_mode_of(market);
     if (!td_mode.has_value()) {
         return std::unexpected{td_mode.error()};
+    }
+    if ((market == MarketType::Perp || market == MarketType::Future) && modes_ != nullptr &&
+        modes_->mode(cmd.instrument) == MarginMode::Isolated) {
+        td_mode = "isolated";
     }
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
@@ -561,7 +573,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::account_config(UnixN
 std::expected<net::RestRequest, BuildError> RequestBuilder::set_leverage(std::string_view inst_id,
                                                                          std::uint32_t leverage,
                                                                          std::string_view mgn_mode,
-                                                                         UnixNanos now) {
+                                                                         UnixNanos now,
+                                                                         std::string_view pos_side) {
     std::array<char, 12> buf{};
     const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), leverage);
     if (ec != std::errc{}) {
@@ -571,8 +584,11 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::set_leverage(std::st
     json.obj_begin()
         .str("instId", inst_id)
         .str("lever", std::string_view{buf.data(), static_cast<std::size_t>(stop - buf.data())})
-        .str("mgnMode", mgn_mode)
-        .obj_end();
+        .str("mgnMode", mgn_mode);
+    if (!pos_side.empty()) {
+        json.str("posSide", pos_side);
+    }
+    json.obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

@@ -43,6 +43,9 @@ enum class AccountMode : std::uint8_t {
 
 [[nodiscard]] std::expected<AccountMode, WireError> parse_account_mode(std::string_view body);
 
+// the same answer's posMode: net_mode, or long_short_mode where each side is its own position
+[[nodiscard]] std::expected<std::string_view, WireError> parse_position_mode(std::string_view body);
+
 [[nodiscard]] constexpr std::string_view option_mode_name(AccountMode mode) noexcept {
     switch (mode) {
     case AccountMode::Spot:

@@ -19,7 +19,9 @@ std::expected<std::uint64_t, SinkError> ContextSink::submit(const ChildOrder& or
          .side = order.side,
          .type = OrderType::Limit,
          .tif = order.tif == ChildTif::Ioc ? TimeInForce::Ioc : TimeInForce::Gtc,
-         .flags = order.tif == ChildTif::PostOnly ? OrderFlags::PostOnly : OrderFlags::None,
+         .flags = (order.tif == ChildTif::PostOnly ? OrderFlags::PostOnly : OrderFlags::None) |
+                  (order.reduce_only && order.instrument.market() != MarketType::Spot ? OrderFlags::ReduceOnly
+                                                                                      : OrderFlags::None),
          .price = *ticks,
          .qty = QtyLots::from_raw(order.lots),
          .repeat_key = order.repeat_key},
@@ -47,6 +49,18 @@ bool ContextSink::modify(std::uint64_t child_id, InstrumentId instrument, FixedE
     }
     const auto ticks = base_of(*listed).price_to_ticks(limit);
     return ticks.has_value() && ctx_->amend(ClientOrderId{child_id}, *ticks);
+}
+
+FixedE9 ContextSink::position(std::uint16_t book, InstrumentId instrument) const noexcept {
+    if (ctx_ == nullptr) {
+        return FixedE9::from_raw(0);
+    }
+    const auto* held = ctx_->book_position(book, instrument);
+    const auto* listed = ctx_->instrument(instrument);
+    if (held == nullptr || listed == nullptr) {
+        return FixedE9::from_raw(0);
+    }
+    return base_of(*listed).lots_to_qty(held->qty());
 }
 
 void Runner::on_start(strategy::Context& ctx) {

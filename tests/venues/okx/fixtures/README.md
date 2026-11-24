@@ -31,6 +31,7 @@ One session subscribing `bbo-tbt`, `trades`, `funding-rate` and `books` on
 | `rest_tickers_spot.json` | `GET /api/v5/market/tickers?instType=SPOT` on 2026-10-06, trimmed from 1143 rows to BTC-USDT, ETH-USDT, SOL-USDT, DOGE-USDT and one other, inside the envelope the venue sent |
 | `rest_mark_price.json` | `GET /api/v5/public/mark-price?instType=SWAP&instId=BTC-USDT-SWAP` |
 | `rest_funding_rate.json` | `GET /api/v5/public/funding-rate?instId=BTC-USDT-SWAP` |
+| `rest_mark_prices.json` | `GET /api/v5/public/mark-price?instType=SWAP` on 2026-11-24, trimmed from 550 rows to BTC-USD-SWAP, BTC-USDT-SWAP and ETH-USDT-SWAP, inside the envelope the venue sent |
 | `rest_server_time.json` | `GET /api/v5/public/time` |
 | `rest_error_bad_instrument.json` | the same mark-price call with `instId=NOPE-USDT-SWAP` (code 51001) |
 

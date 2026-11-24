@@ -7,6 +7,7 @@
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
+#include <raikiri/venues/okx/trade_modes.hpp>
 
 #include <array>
 #include <cstdint>
@@ -55,6 +56,9 @@ public:
     // demo trading is a header on the live host
     void set_simulated(bool on) noexcept { simulated_ = on; }
 
+    // swaps and futures go out isolated where this table says so; without one, cross
+    void set_trade_modes(const TradeModes* modes) noexcept { modes_ = modes; }
+
     [[nodiscard]] net::RestRequest instruments(std::string_view inst_type) noexcept;
     [[nodiscard]] net::RestRequest option_underlyings() noexcept;
     [[nodiscard]] net::RestRequest option_instruments(std::string_view uly) noexcept;
@@ -64,6 +68,7 @@ public:
     [[nodiscard]] net::RestRequest open_interest(std::string_view inst_type) noexcept;
 
     [[nodiscard]] net::RestRequest mark_price(std::string_view inst_id) noexcept;
+    [[nodiscard]] net::RestRequest mark_prices(std::string_view inst_type) noexcept;
 
     [[nodiscard]] net::RestRequest funding_rate(std::string_view inst_id) noexcept;
 
@@ -104,8 +109,12 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> account_config(UnixNanos now);
 
     // okx keeps a leverage per margin mode; `mgn_mode` is the trade mode the orders go out under
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    set_leverage(std::string_view inst_id, std::uint32_t leverage, std::string_view mgn_mode, UnixNanos now);
+    // `pos_side` only for isolated in long/short position mode, one call a side
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> set_leverage(std::string_view inst_id,
+                                                                           std::uint32_t leverage,
+                                                                           std::string_view mgn_mode,
+                                                                           UnixNanos now,
+                                                                           std::string_view pos_side = {});
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     leverage_info(std::string_view inst_id, std::string_view mgn_mode, UnixNanos now);
 
@@ -123,6 +132,7 @@ private:
     const net::Signer* signer_{nullptr};
     std::string_view passphrase_;
     bool simulated_{false};
+    const TradeModes* modes_{nullptr};
 
     // scratch reused per build: send a request before building the next
     std::array<char, 256> target_{};

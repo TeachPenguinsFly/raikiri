@@ -73,6 +73,12 @@ public:
     // supplies the strategy_id, so a strategy cannot read another's book.
     [[nodiscard]] virtual const portfolio::Position* position(InstrumentId instrument) const noexcept = 0;
 
+    // an executor's read of a book its children fill, zero being its own; null for any other caller's
+    [[nodiscard]] virtual const portfolio::Position* book_position(std::uint16_t book,
+                                                                   InstrumentId instrument) const noexcept {
+        return book == 0 ? position(instrument) : nullptr;
+    }
+
     // takes an explicit mark; choosing it is the strategy's decision
     [[nodiscard]] virtual FixedE9 unrealized(InstrumentId instrument, PriceTicks mark) const noexcept = 0;
 

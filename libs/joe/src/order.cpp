@@ -132,6 +132,11 @@ std::string_view to_string(SpecError error) noexcept {
         return "the activation price is not a positive price";
     case SpecError::BadTriggerExpiry:
         return "a triggered algo's horizon is zero for none, or between one second and a week";
+    case SpecError::OcoTooLong:
+        return "the oco group is at most 64 characters";
+    case SpecError::BadAttach:
+        return "a bracket needs a positive take-profit or stop-loss price, positive limits, and an entry that is not "
+               "reduce-only";
     }
     return "unknown";
 }
@@ -235,6 +240,19 @@ std::expected<void, SpecError> validate(const ParentSpec& spec) noexcept {
     }
     if (spec.external_ref.size() > k_external_ref_len) {
         return std::unexpected{SpecError::RefTooLong};
+    }
+    if (spec.oco.size() > 64) {
+        return std::unexpected{SpecError::OcoTooLong};
+    }
+    if (const auto& attach = spec.attach;
+        attach.any() || !attach.take_profit_limit.is_undef() || !attach.stop_loss_limit.is_undef()) {
+        const auto bad = [&](FixedE9 v) { return !v.is_undef() && v.raw <= 0; };
+        if (!attach.any() || spec.reduce_only || bad(attach.take_profit) || bad(attach.stop_loss) ||
+            bad(attach.take_profit_limit) || bad(attach.stop_loss_limit) ||
+            (attach.take_profit.is_undef() && !attach.take_profit_limit.is_undef()) ||
+            (attach.stop_loss.is_undef() && !attach.stop_loss_limit.is_undef())) {
+            return std::unexpected{SpecError::BadAttach};
+        }
     }
     if (spec.algo == Algo::Sor) {
         return {};

@@ -26,6 +26,7 @@ public:
           builder_{state.signer} {
         builder_.set_passphrase(state.passphrase.view());
         builder_.set_simulated(state.testnet);
+        builder_.set_trade_modes(modes_);
     }
 
     void start() { rest_.start(); }
@@ -196,18 +197,14 @@ public:
         return charges;
     }
 
-    // orders here go out under one trade mode per market, so that is the mode an instrument has
+    // the mode is the one this gateway's orders go out under; okx keeps a leverage for each
     std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) {
-        const auto symbol = state_->instruments.exchange_symbol(instrument);
-        if (symbol.empty()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        const auto symbol = margin_symbol(instrument);
+        if (!symbol.has_value()) {
+            return std::unexpected{symbol.error()};
         }
-        const auto td_mode = td_mode_of(instrument.market());
-        if (!td_mode.has_value() || *td_mode != "cross") {
-            return std::unexpected{exec::margin_unsupported("okx leverage is set here on cross swaps and futures")};
-        }
-        const auto body = pull(builder_.leverage_info(symbol, *td_mode, state_->venue_now()));
+        const auto mode = modes_->mode(instrument);
+        const auto body = pull(builder_.leverage_info(*symbol, mgn_mode_of(mode), state_->venue_now()));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -217,23 +214,77 @@ public:
         }
         MarginState state{};
         state.leverage = *lever;
-        state.mode = MarginMode::Cross;
+        state.mode = mode;
         return state;
     }
 
     std::expected<void, exec::VenueError> set_leverage(InstrumentId instrument, std::uint32_t leverage) {
-        const auto symbol = state_->instruments.exchange_symbol(instrument);
-        if (symbol.empty()) {
+        const auto symbol = margin_symbol(instrument);
+        if (!symbol.has_value()) {
+            return std::unexpected{symbol.error()};
+        }
+        const auto mode = modes_->mode(instrument);
+        bool both_sides = false;
+        if (mode == MarginMode::Isolated) {
+            // isolated in long/short mode keeps a leverage a side, and posSide is required
+            const auto config = pull(builder_.account_config(state_->venue_now()));
+            if (!config.has_value()) {
+                return std::unexpected{config.error()};
+            }
+            const auto pos_mode = parse_position_mode(*config);
+            if (!pos_mode.has_value()) {
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(pos_mode.error()))};
+            }
+            both_sides = *pos_mode == "long_short_mode";
+        }
+        const auto send = [&](std::string_view side) -> std::expected<void, exec::VenueError> {
+            const auto body = pull(
+                builder_.set_leverage(*symbol, leverage, mgn_mode_of(mode), state_->venue_now(), side));
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            return {};
+        };
+        if (!both_sides) {
+            return send({});
+        }
+        if (const auto long_side = send("long"); !long_side.has_value()) {
+            return long_side;
+        }
+        return send("short");
+    }
+
+    // no venue call: the next order on the instrument goes out under the chosen tdMode
+    std::expected<void, exec::VenueError> set_margin_mode(InstrumentId instrument, MarginMode mode) {
+        const auto symbol = margin_symbol(instrument);
+        if (!symbol.has_value()) {
+            return std::unexpected{symbol.error()};
+        }
+        const auto config = pull(builder_.account_config(state_->venue_now()));
+        if (!config.has_value()) {
+            return std::unexpected{config.error()};
+        }
+        if (const auto level = parse_account_mode(*config); level.has_value() && *level == AccountMode::Spot) {
             return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "the okx account is in spot mode (acctLv 1)")};
         }
-        const auto td_mode = td_mode_of(instrument.market());
-        if (!td_mode.has_value() || *td_mode != "cross") {
-            return std::unexpected{exec::margin_unsupported("okx leverage is set here on cross swaps and futures")};
+        // an open position would be closed under the other mode, and a reduce-only order there is refused
+        const auto positions = position_reports(instrument.market());
+        if (!positions.has_value()) {
+            return std::unexpected{positions.error()};
         }
-        if (const auto body = pull(builder_.set_leverage(symbol, leverage, *td_mode, state_->venue_now()));
-            !body.has_value()) {
-            return std::unexpected{body.error()};
+        for (const auto& report : *positions) {
+            if (report.instrument == instrument && !report.net_qty.is_undef() && report.net_qty.raw != 0) {
+                return std::unexpected{exec::VenueError::make(
+                    exec::ErrorClass::Terminal,
+                    0,
+                    "the instrument has an open position; close it before its orders change margin mode")};
+            }
+        }
+        if (!modes_->set(instrument, mode)) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "this gateway already holds the most isolated instruments it can")};
         }
         return {};
     }
@@ -313,6 +364,24 @@ public:
     }
 
 private:
+    [[nodiscard]] static std::string_view mgn_mode_of(MarginMode mode) noexcept {
+        return mode == MarginMode::Isolated ? "isolated" : "cross";
+    }
+
+    [[nodiscard]] std::expected<std::string_view, exec::VenueError> margin_symbol(InstrumentId instrument) const {
+        const auto market = instrument.market();
+        if (market != MarketType::Perp && market != MarketType::Future) {
+            return std::unexpected{exec::margin_unsupported("okx leverage is set here on swaps and futures")};
+        }
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        return symbol;
+    }
+
+    TradeModes* modes_{&TradeModes::process()};
     VenueState* state_;
     net::RestClient rest_;
     RequestBuilder builder_;

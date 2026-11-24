@@ -114,6 +114,8 @@ public:
 
     exec::MarginControl* margin_control() noexcept override { return this; }
 
+    MarginScope mode_scope() const noexcept override { return MarginScope::OneInstrument; }
+
     std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
         return api_.margin_state(instrument);
     }
@@ -123,10 +125,10 @@ public:
         return api_.set_leverage(instrument, leverage);
     }
 
-    // the mode is a field of each order (tdMode), and td_mode_of sends cross
-    std::expected<void, exec::VenueError> set_margin_mode(InstrumentId, MarginMode, const MarginState&) override {
-        return std::unexpected{
-            exec::margin_unsupported("okx takes the margin mode per order, and this gateway places cross orders")};
+    // okx takes the mode per order (tdMode); the choice is remembered per instrument and the builder sends it
+    std::expected<void, exec::VenueError>
+    set_margin_mode(InstrumentId instrument, MarginMode mode, const MarginState&) override {
+        return api_.set_margin_mode(instrument, mode);
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {

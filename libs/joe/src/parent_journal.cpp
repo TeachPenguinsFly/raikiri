@@ -70,6 +70,16 @@ struct Row {
     std::int64_t trigger_mark{FixedE9::undef().raw};
     std::uint64_t trigger_fired{0};
     std::int64_t trigger_fired_price{FixedE9::undef().raw};
+    // nor these, from before reduce-only and brackets
+    std::uint16_t book{0};
+    bool reduce_only{false};
+    std::string oco{};
+    std::int64_t take_profit{FixedE9::undef().raw};
+    std::int64_t take_profit_limit{FixedE9::undef().raw};
+    std::int64_t stop_loss{FixedE9::undef().raw};
+    std::int64_t stop_loss_limit{FixedE9::undef().raw};
+    std::uint8_t attach_on{0};
+    std::uint64_t bracket_of{0};
 };
 
 } // namespace parent_wire
@@ -126,7 +136,16 @@ std::string encode_parent_record(const ParentRecord& record) {
                          .trigger_active = record.trigger.active,
                          .trigger_mark = record.trigger.mark.raw,
                          .trigger_fired = record.trigger.fired.ns,
-                         .trigger_fired_price = record.trigger.price.raw};
+                         .trigger_fired_price = record.trigger.price.raw,
+                         .book = spec.book,
+                         .reduce_only = spec.reduce_only,
+                         .oco = spec.oco,
+                         .take_profit = spec.attach.take_profit.raw,
+                         .take_profit_limit = spec.attach.take_profit_limit.raw,
+                         .stop_loss = spec.attach.stop_loss.raw,
+                         .stop_loss_limit = spec.attach.stop_loss_limit.raw,
+                         .attach_on = static_cast<std::uint8_t>(spec.attach.on),
+                         .bracket_of = spec.bracket_of};
     row.times.reserve(record.times.size());
     for (const auto at : record.times) {
         row.times.push_back(at.ns);
@@ -181,6 +200,15 @@ std::optional<ParentRecord> decode_parent_record(std::string_view text) {
     spec.venue = static_cast<VenueId>(row.venue);
     spec.post_only = row.post_only;
     spec.client_tag = std::move(row.client_tag);
+    spec.book = row.book;
+    spec.reduce_only = row.reduce_only;
+    spec.oco = std::move(row.oco);
+    spec.attach = {.take_profit = FixedE9::from_raw(row.take_profit),
+                   .take_profit_limit = FixedE9::from_raw(row.take_profit_limit),
+                   .stop_loss = FixedE9::from_raw(row.stop_loss),
+                   .stop_loss_limit = FixedE9::from_raw(row.stop_loss_limit),
+                   .on = static_cast<TriggerOn>(row.attach_on)};
+    spec.bracket_of = row.bracket_of;
     out.qty = FixedE9::from_raw(row.qty);
     out.arrival = FixedE9::from_raw(row.arrival);
     out.times.reserve(row.times.size());

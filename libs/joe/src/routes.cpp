@@ -35,6 +35,17 @@ struct TriggerBody {
     std::optional<std::string> activation{};
 };
 
+struct LegBody {
+    std::string price;
+    std::optional<std::string> limit{};
+};
+
+struct AttachBody {
+    std::optional<LegBody> take_profit{};
+    std::optional<LegBody> stop_loss{};
+    std::string source{"mid"};
+};
+
 struct NewParentBody {
     std::string symbol;
     std::string market{"perp"};
@@ -60,6 +71,9 @@ struct NewParentBody {
     std::string client_tag{};
     std::optional<std::string> book{};
     std::string external_ref{};
+    bool reduce_only{false};
+    std::string oco{};
+    std::optional<AttachBody> attach{};
 };
 
 struct ChildDto {
@@ -124,6 +138,10 @@ struct ParentDto {
     std::optional<std::string> book{};
     std::optional<std::string> book_kind{};
     std::optional<std::string> external_ref{};
+    bool reduce_only{false};
+    std::optional<std::string> oco{};
+    std::optional<AttachBody> attach{};
+    std::optional<std::string> bracket_of{};
     std::string version{};
 };
 
@@ -414,6 +432,22 @@ template <typename T> http::Response json(const T& value, int status = 200) {
         out.client_tag = spec.client_tag;
     }
     out.book_id = spec.book;
+    out.reduce_only = spec.reduce_only;
+    if (!spec.oco.empty()) {
+        out.oco = spec.oco;
+    }
+    if (spec.attach.any()) {
+        const auto leg = [](FixedE9 price, FixedE9 limit) {
+            return price.is_undef() ? std::nullopt
+                                    : std::optional<LegBody>{{.price = decimal(price), .limit = maybe(limit)}};
+        };
+        out.attach = AttachBody{.take_profit = leg(spec.attach.take_profit, spec.attach.take_profit_limit),
+                                .stop_loss = leg(spec.attach.stop_loss, spec.attach.stop_loss_limit),
+                                .source = std::string{to_string(spec.attach.on)}};
+    }
+    if (spec.bracket_of != 0) {
+        out.bracket_of = std::to_string(spec.bracket_of);
+    }
     if (!spec.external_ref.empty()) {
         out.external_ref = spec.external_ref;
     }
@@ -584,6 +618,35 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     spec.pov_bp = in.pov_bp;
     spec.client_tag = std::move(in.client_tag);
     spec.external_ref = std::move(in.external_ref);
+    spec.reduce_only = in.reduce_only;
+    spec.oco = std::move(in.oco);
+    if (in.attach.has_value()) {
+        const auto& attach = *in.attach;
+        if (attach.source != "mid" && attach.source != "last") {
+            return std::unexpected{std::string{"attach.source is mid or last"}};
+        }
+        if (!attach.take_profit.has_value() && !attach.stop_loss.has_value()) {
+            return std::unexpected{std::string{"attach needs take_profit, stop_loss or both"}};
+        }
+        spec.attach.on = attach.source == "last" ? TriggerOn::Last : TriggerOn::Mid;
+        const auto leg = [](const std::optional<LegBody>& part, FixedE9& price, FixedE9& resting) {
+            if (!part.has_value()) {
+                return true;
+            }
+            const auto at = read_decimal(part->price);
+            const auto bound = read_decimal(part->limit);
+            if (!at.has_value() || !bound.has_value() || at->is_undef()) {
+                return false;
+            }
+            price = *at;
+            resting = *bound;
+            return true;
+        };
+        if (!leg(attach.take_profit, spec.attach.take_profit, spec.attach.take_profit_limit) ||
+            !leg(attach.stop_loss, spec.attach.stop_loss, spec.attach.stop_loss_limit)) {
+            return std::unexpected{std::string{"attach legs are { price, limit? }, decimals as text"}};
+        }
+    }
     return spec;
 }
 

@@ -1,5 +1,7 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -36,6 +38,9 @@ namespace {
 constexpr std::uint64_t k_funding_period_ns = 10'000'000'000ULL;
 
 constexpr std::uint64_t k_funding_min_spacing_ns = 250'000'000ULL;
+
+// the socket is the source of marks and indices; two bulk rest calls check it on every open and at this pace
+constexpr std::uint64_t k_mark_reconcile_interval_ns = 60'000'000'000ULL;
 
 // inside xt's 30 s idle window with room for a miss and a reconnect
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
@@ -185,7 +190,9 @@ public:
                 // the ceiling is per connection
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
@@ -258,6 +265,7 @@ public:
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
         poll_funding(now);
+        reconcile_marks(now);
         // private sockets share this timer since ExecutionClient has no poll hook
         if (state_->private_poll) {
             state_->private_poll(now);
@@ -280,6 +288,7 @@ private:
 
     // called on every open of the socket; send order matters under pacing
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        marks_due_ = true;
         std::vector<Subscription> views;
         views.reserve(keys.size());
         for (const auto& key : keys) {
@@ -312,7 +321,76 @@ private:
             }
         }
         state_->funding_symbols.emplace_back(symbol);
+        (void)state_->memo_for(symbol); // reconciliation reads only memos that exist
         return {};
+    }
+
+    void reconcile_marks(UnixNanos now) {
+        if (state_->funding_symbols.empty() || marks_in_flight_ || (!marks_due_ && now.ns < next_marks_ns_)) {
+            return;
+        }
+        if (!rest_.send(builder_.mark_prices(), [this](net::RestResponse&& response) { on_marks(response); })) {
+            return;
+        }
+        marks_in_flight_ = true;
+        marks_due_ = false;
+        next_marks_ns_ = now.ns + k_mark_reconcile_interval_ns;
+    }
+
+    // index is asked after mark so a contract stale on both gets one record
+    void on_marks(const net::RestResponse& response) noexcept {
+        reconcile(response, &reconcile_mark);
+        if (!rest_.send(builder_.index_prices(), [this](net::RestResponse&& next) { on_index(next); })) {
+            publish_reconciled();
+        }
+    }
+
+    void on_index(const net::RestResponse& response) noexcept {
+        reconcile(response, &reconcile_index);
+        publish_reconciled();
+    }
+
+    void
+    reconcile(const net::RestResponse& response,
+              bool (*apply)(const WireMarkPrice&, const exec::InstrumentTable&, FundingMemo&, UnixNanos)) noexcept {
+        if (response.transport_failed()) {
+            return;
+        }
+        const auto envelope = parse_rest_envelope(response.body);
+        if (!envelope.has_value() || envelope->return_code != k_ok) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<PriceRowBuffer>();
+        const auto rows = parse_price_rows(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto now = state_->clock->wall();
+        for (const auto& row : *rows) {
+            if (auto* memo = state_->watched_memo(row.symbol); memo != nullptr) {
+                (void)apply(row, state_->instruments, *memo, now);
+            }
+        }
+    }
+
+    void publish_reconciled() noexcept {
+        marks_in_flight_ = false;
+        const auto received = state_->clock->wall();
+        std::size_t stale = 0;
+        for (const auto& symbol : state_->funding_symbols) {
+            auto* memo = state_->watched_memo(symbol);
+            if (memo == nullptr) {
+                continue;
+            }
+            if (const auto funding = map_reconciled(symbol, state_->instruments, *memo, received);
+                funding.has_value()) {
+                state_->sink->on_funding(*funding);
+                ++stale;
+            }
+        }
+        RLOG_INFO("xt marks: {} contracts checked against rest, {} stale on the socket and taken from rest",
+                  state_->funding_symbols.size(),
+                  stale);
     }
 
     void poll_funding(UnixNanos now) noexcept {
@@ -362,6 +440,9 @@ private:
     net::WsPool pool_;
     net::RestClient rest_;
     RequestBuilder builder_;
+    std::uint64_t next_marks_ns_{0};
+    bool marks_in_flight_{false};
+    bool marks_due_{true};
     bool started_{false};
 };
 

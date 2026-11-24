@@ -6,8 +6,10 @@
 #include <raikiri/venues/xt/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
+#include <array>
 #include <cstdint>
 #include <expected>
+#include <span>
 #include <string_view>
 
 namespace raikiri::venues::xt {
@@ -30,6 +32,17 @@ struct WireMarkPrice {
 };
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
+
+// GET /public/q/mark-price and /public/q/index-price answer every contract in the same {s, p, t} rows; read to
+// reconcile the two topics
+inline constexpr std::size_t k_max_price_rows = 2048;
+
+struct PriceRowBuffer {
+    std::array<WireMarkPrice, k_max_price_rows> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireMarkPrice>, WireError> parse_price_rows(std::string_view body,
+                                                                                        PriceRowBuffer& storage);
 
 // agg_ticker copies a into v, so only ticker is read; the base column is spot-only
 struct WireTicker {
@@ -59,6 +72,12 @@ struct FundingMemo {
     PriceTicks index{};
     UnixNanos next_funding{};
     std::uint32_t interval_s{0};
+    // when each last arrived, for the rest reconciliation
+    UnixNanos mark_seen{};
+    UnixNanos index_seen{};
+    bool repaired{false};
 };
+
+inline constexpr std::uint64_t k_mark_stale_ns = 10'000'000'000ULL;
 
 } // namespace raikiri::venues::xt

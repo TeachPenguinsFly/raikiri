@@ -102,6 +102,11 @@ void handle_frame(VenueState& state, const EventInfo& event, std::string_view fr
         break;
     }
     case EventKind::Depth: {
+        // checked before the parse, which is the expensive part
+        if (const auto* instrument = state.instruments.find(event.contract_code);
+            instrument != nullptr && !state.sink->wants_depth(base_of(*instrument).id, received)) {
+            return;
+        }
         static thread_local LevelBuffer levels;
         const auto wire = parse_depth(frame, levels);
         if (!wire.has_value()) {

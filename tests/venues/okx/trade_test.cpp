@@ -114,6 +114,52 @@ TEST(OkxTrade, AnOrderArgIsTheRestBodyWithTheInstrumentCodeFirst) {
     EXPECT_NE(frame->find(R"("clOrdId":"01ARZ3NDEKTSV4RRFFQ69G5FAV")"), std::string_view::npos);
 }
 
+TEST(OkxTrade, OrdersGoOutCrossUnlessIsolatedWasChosenForTheInstrument) {
+    const auto table = table_with_btc();
+    net::Signer signer;
+    load_credentials(signer);
+    RequestBuilder rest{signer};
+    rest.set_passphrase("pass");
+    const auto cmd = limit_buy(table);
+    const auto plain = rest.create_order(cmd, table, k_now);
+    ASSERT_TRUE(plain.has_value());
+    EXPECT_NE(plain->body.find(R"("tdMode":"cross")"), std::string_view::npos) << plain->body;
+
+    TradeModes modes;
+    rest.set_trade_modes(&modes);
+    const auto unchosen = rest.create_order(cmd, table, k_now);
+    ASSERT_TRUE(unchosen.has_value());
+    EXPECT_NE(unchosen->body.find(R"("tdMode":"cross")"), std::string_view::npos) << unchosen->body;
+
+    // another instrument's choice leaves this one cross
+    ASSERT_TRUE(modes.set(InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{999'999}), MarginMode::Isolated));
+    EXPECT_NE(rest.create_order(cmd, table, k_now)->body.find(R"("tdMode":"cross")"), std::string_view::npos);
+
+    ASSERT_TRUE(modes.set(cmd.instrument, MarginMode::Isolated));
+    const auto isolated = rest.create_order(cmd, table, k_now);
+    ASSERT_TRUE(isolated.has_value());
+    EXPECT_NE(isolated->body.find(R"("tdMode":"isolated")"), std::string_view::npos) << isolated->body;
+    EXPECT_EQ(isolated->body.find("posSide"), std::string_view::npos) << isolated->body;
+
+    ASSERT_TRUE(modes.set(cmd.instrument, MarginMode::Cross));
+    EXPECT_EQ(modes.mode(cmd.instrument), MarginMode::Cross);
+    EXPECT_NE(rest.create_order(cmd, table, k_now)->body.find(R"("tdMode":"cross")"), std::string_view::npos);
+}
+
+TEST(OkxTrade, TheTradeModeTableRefusesOnlyWhenFull) {
+    TradeModes modes;
+    for (std::uint32_t i = 1; i <= TradeModes::k_capacity; ++i) {
+        ASSERT_TRUE(modes.set(InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{i}), MarginMode::Isolated));
+    }
+    const auto spare = InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{1'000});
+    EXPECT_FALSE(modes.set(spare, MarginMode::Isolated));
+    // cross is the absence of a row and always fits
+    EXPECT_TRUE(modes.set(spare, MarginMode::Cross));
+    ASSERT_TRUE(modes.set(InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{1}), MarginMode::Cross));
+    EXPECT_TRUE(modes.set(spare, MarginMode::Isolated));
+    EXPECT_EQ(modes.mode(spare), MarginMode::Isolated);
+}
+
 TEST(OkxTrade, CancelAndAmendUseTheirOwnOpsAndAMissingCodeBuildsNothing) {
     const auto table = table_with_btc();
     net::Signer signer;

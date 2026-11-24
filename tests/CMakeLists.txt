@@ -334,6 +334,7 @@ raikiri_add_test(joe_domain_test SRCS joe/domain_test.cpp LIBS raikiri::joe)
 raikiri_add_test(joe_trace_test SRCS joe/trace_test.cpp LIBS raikiri::joe raikiri::joe_http)
 raikiri_add_test(joe_resting_test SRCS joe/resting_test.cpp LIBS raikiri::joe raikiri::joe_http)
 raikiri_add_test(joe_trigger_test SRCS joe/trigger_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::joe_http)
+raikiri_add_test(joe_bracket_test SRCS joe/bracket_test.cpp LIBS raikiri::joe raikiri::joe_infra)
 raikiri_add_test(joe_runner_test SRCS joe/runner_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::joe_http raikiri::oms raikiri::portfolio)
 raikiri_add_test(joe_restart_test SRCS joe/restart_test.cpp LIBS raikiri::joe raikiri::joe_infra raikiri::oms_journal raikiri::log)
 

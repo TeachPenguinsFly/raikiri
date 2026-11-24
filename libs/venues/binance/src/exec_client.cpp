@@ -210,6 +210,8 @@ public:
         return state_->market == MarketType::Perp ? this : nullptr;
     }
 
+    MarginScope mode_scope() const noexcept override { return MarginScope::OneInstrument; }
+
     std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
         return api_.margin_state(instrument);
     }

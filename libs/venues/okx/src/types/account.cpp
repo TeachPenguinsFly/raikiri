@@ -64,6 +64,16 @@ std::expected<AccountMode, WireError> parse_account_mode(std::string_view body) 
     });
 }
 
+std::expected<std::string_view, WireError> parse_position_mode(std::string_view body) {
+    return guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return with_first_data(*root, [](wire::ondemand::object& obj) { return wire::req_str(obj, "posMode"); });
+    });
+}
+
 std::expected<std::span<const WireCurrencyBalance>, WireError> parse_balances(std::string_view body,
                                                                               BalanceBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCurrencyBalance>, WireError> {

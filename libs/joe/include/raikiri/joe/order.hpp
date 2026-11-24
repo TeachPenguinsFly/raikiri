@@ -82,6 +82,17 @@ struct TriggerSpec {
     FixedE9 activation{FixedE9::undef()};
 };
 
+// a bracket's exits, sent as reduce-only triggers once the entry has fills; an undef price is no such leg
+struct AttachSpec {
+    FixedE9 take_profit{FixedE9::undef()};
+    FixedE9 take_profit_limit{FixedE9::undef()};
+    FixedE9 stop_loss{FixedE9::undef()};
+    FixedE9 stop_loss_limit{FixedE9::undef()};
+    TriggerOn on{TriggerOn::Mid};
+
+    [[nodiscard]] bool any() const noexcept { return !take_profit.is_undef() || !stop_loss.is_undef(); }
+};
+
 struct ParentSpec {
     Listing listing{};
     Side side{Side::Buy};
@@ -116,6 +127,13 @@ struct ParentSpec {
     std::uint16_t book{0};
     // an rfq trade id or a client's order id, on every child
     std::string external_ref{};
+    // no child takes more than the book's position on its instrument closes; with none left the parent ends
+    bool reduce_only{false};
+    // parents that share one: the first to fire or fill cancels the others
+    std::string oco{};
+    AttachSpec attach{};
+    // the entry a bracket leg closes; zero for any other parent
+    std::uint64_t bracket_of{0};
 };
 
 enum class SpecError : std::uint8_t {
@@ -145,6 +163,8 @@ enum class SpecError : std::uint8_t {
     NoCallback,
     BadActivation,
     BadTriggerExpiry,
+    OcoTooLong,
+    BadAttach,
 };
 
 [[nodiscard]] std::string_view to_string(SpecError error) noexcept;

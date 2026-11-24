@@ -88,6 +88,58 @@ constexpr std::string_view k_stopped = "stopped";
     return {.error = DeskError::Conflict, .detail = std::string{to_string(error)}};
 }
 
+constexpr std::string_view k_oco_lost = "oco: ";
+
+// it fired or filled, and no sibling cancelled it for going second
+[[nodiscard]] bool won(const Parent& parent) noexcept {
+    if (parent.status() == Status::Cancelled && parent.reason().starts_with(k_oco_lost)) {
+        return false;
+    }
+    return parent.filled().raw > 0 || (triggered(parent.spec().algo) && parent.trigger().fired.ns != 0);
+}
+
+[[nodiscard]] std::pair<std::uint64_t, std::uint64_t> first_key(const Parent& parent) noexcept {
+    return {(triggered(parent.spec().algo) ? parent.trigger().fired : parent.started()).ns, parent.id()};
+}
+
+// the sibling that went before `parent`: the earliest to fire, or to start for one that filled, then the lowest id
+[[nodiscard]] const Parent* winner(const std::deque<Parent>& parents, const Parent& parent) noexcept {
+    const Parent* first = nullptr;
+    for (const auto& other : parents) {
+        if (&other == &parent || other.spec().oco != parent.spec().oco || !won(other)) {
+            continue;
+        }
+        if (first == nullptr || first_key(other) < first_key(*first)) {
+            first = &other;
+        }
+    }
+    if (first != nullptr && won(parent) && first_key(parent) < first_key(*first)) {
+        return nullptr;
+    }
+    return first;
+}
+
+[[nodiscard]] ParentSpec leg_of(const Parent& entry, Algo algo, FixedE9 price, FixedE9 limit) {
+    const auto& from = entry.spec();
+    ParentSpec leg{};
+    leg.listing = from.listing;
+    leg.side = opposite(from.side);
+    leg.qty = entry.filled();
+    leg.limit = limit;
+    leg.algo = algo;
+    leg.max_child_notional = from.max_child_notional;
+    leg.depth_share_bp = from.depth_share_bp;
+    leg.depth_band_bp = from.depth_band_bp;
+    leg.trigger = {.price = price, .on = from.attach.on};
+    leg.venue = from.venue;
+    leg.book = from.book;
+    leg.external_ref = from.external_ref;
+    leg.reduce_only = true;
+    leg.oco = "bracket:" + std::to_string(entry.id());
+    leg.bracket_of = entry.id();
+    return leg;
+}
+
 } // namespace internal
 
 Desk::Desk(
@@ -102,6 +154,10 @@ std::expected<std::uint64_t, Refusal> Desk::start(ParentSpec spec) {
     }
     if (const auto* held = find_tag(spec.client_tag); held != nullptr) {
         return held->id();
+    }
+    if ((spec.reduce_only || spec.attach.any()) && positions_ == nullptr) {
+        return std::unexpected{
+            Refusal{.error = DeskError::BadSpec, .detail = "reduce-only and brackets need the book's position"}};
     }
     if (!sink_->running()) {
         return std::unexpected{Refusal{.error = DeskError::NotRunning, .detail = "joe is not running in strategyd"}};
@@ -278,6 +334,9 @@ void Desk::log_child(const Parent& parent, const Child& child) {
 }
 
 void Desk::log_changes() {
+    const auto now = clock_->wall();
+    settle_groups(now);
+    protect(now);
     if (log_ == nullptr) {
         return;
     }
@@ -340,6 +399,9 @@ void Desk::restore(const ParentRecord& record) {
         parent->set_trigger(record.ts, record.trigger);
         parent->slot().marked = record.trigger.mark;
         break;
+    case Kind::Resized:
+        parent->resize(record.ts, record.qty);
+        break;
     case Kind::StatusChanged:
         logged_[parent->id()] = record.status;
         switch (record.status) {
@@ -359,7 +421,7 @@ void Desk::restore(const ParentRecord& record) {
             (void)parent->finish(record.ts);
             break;
         case Status::Cancelled:
-            (void)parent->cancel(record.ts);
+            (void)parent->cancel(record.ts, record.reason);
             break;
         case Status::Failed:
             (void)parent->fail(record.ts, record.reason);
@@ -451,7 +513,12 @@ std::size_t Desk::resume_restored() {
 
 void Desk::work(Parent& parent, UnixNanos now) {
     const auto& spec = parent.spec();
-    if (triggered(spec.algo) && parent.trigger().fired.ns == 0 && !watch(parent, now)) {
+    if (!spec.oco.empty() && internal::winner(parents_, parent) != nullptr) {
+        cancel_member(parent, std::string{internal::k_oco_lost} + "a sibling went first", now);
+        return;
+    }
+    if (triggered(spec.algo) && parent.trigger().fired.ns == 0 &&
+        (!watch(parent, now) || (!spec.oco.empty() && !claim(parent, now)))) {
         return;
     }
     if (rests(spec)) {
@@ -489,6 +556,15 @@ void Desk::work(Parent& parent, UnixNanos now) {
     if (books.empty()) {
         return;
     }
+    if (spec.reduce_only) {
+        if (!cut_to_position(parent, books) && working.raw == 0) {
+            nothing_to_reduce(parent, now);
+            return;
+        }
+        if (books.empty()) {
+            return;
+        }
+    }
     if (const auto kids = parent.children(); !kids.empty() && now.ns - kids.back().sent.ns < config_.resend_ns) {
         return;
     }
@@ -522,7 +598,14 @@ void Desk::send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, 
             continue;
         }
         too_big = false;
-        const auto lots = std::min(leg.lots, cap);
+        auto lots = std::min(leg.lots, cap);
+        if (spec.reduce_only) {
+            const auto free = reducible(parent, leg.instrument);
+            lots = std::min(lots, free.raw > 0 ? lots_in(free, leg.lot) : 0);
+            if (lots == 0) {
+                continue;
+            }
+        }
         const auto sent = sink_->submit({.instrument = leg.instrument,
                                          .side = spec.side,
                                          .lots = lots,
@@ -530,7 +613,8 @@ void Desk::send(Parent& parent, FixedE9 want, std::span<const VenueBook> books, 
                                          .tif = ChildTif::Ioc,
                                          .book = spec.book,
                                          .origin = internal::origin_of(parent),
-                                         .repeat_key = internal::repeat_key(parent)});
+                                         .repeat_key = internal::repeat_key(parent),
+                                         .reduce_only = spec.reduce_only});
         if (sent.has_value()) {
             parent.add({.id = *sent,
                         .instrument = leg.instrument,
@@ -631,6 +715,18 @@ void Desk::rest(Parent& parent, UnixNanos now) {
         return;
     }
     const auto instrument = live != nullptr ? live->instrument : book->instrument;
+    if (spec.reduce_only) {
+        if (live != nullptr && reducible(parent, instrument).raw < 0) {
+            pull(parent, *live, now);
+            return;
+        }
+        if (live == nullptr && reducible(parent, instrument) < book->lot) {
+            if (positions_ == nullptr || closing(parent, instrument) < book->lot) {
+                nothing_to_reduce(parent, now);
+            }
+            return;
+        }
+    }
     const auto quote = quote_of(instrument, bids, asks);
     if (quote.state != BookState::Live) {
         hold(parent, quote.state == BookState::Crossed ? Hold::Crossed : Hold::Stale, now);
@@ -699,7 +795,11 @@ void Desk::place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos
     const auto& spec = parent.spec();
     const auto lot = book.lot;
     auto& slot = parent.slot();
-    const auto left_lots = lots_in(FixedE9::from_raw(parent.qty().raw - parent.filled().raw), lot);
+    auto left_lots = lots_in(FixedE9::from_raw(parent.qty().raw - parent.filled().raw), lot);
+    if (spec.reduce_only) {
+        const auto free = reducible(parent, book.instrument);
+        left_lots = std::min(left_lots, free.raw > 0 ? lots_in(free, lot) : 0);
+    }
     const auto shown = spec.algo == Algo::Iceberg ? next_show(spec.iceberg, lot, left_lots, slot.random) : left_lots;
     const auto want = std::min(shown,
                                internal::depth_lots(spec, book.instrument, std::span{&book, 1}, value_of(lot, price)));
@@ -723,7 +823,8 @@ void Desk::place(Parent& parent, const VenueBook& book, FixedE9 price, UnixNanos
                                      .tif = tif,
                                      .book = spec.book,
                                      .origin = internal::origin_of(parent),
-                                     .repeat_key = internal::repeat_key(parent)});
+                                     .repeat_key = internal::repeat_key(parent),
+                                     .reduce_only = spec.reduce_only});
     if (!sent.has_value()) {
         if (sent.error() == SinkError::Risk && parent.refused() >= config_.max_refusals) {
             (void)parent.fail(now,
@@ -1003,6 +1104,156 @@ void Desk::on_trade(InstrumentId instrument, PriceTicks price, QtyLots qty, Unix
     }
     if (any) {
         log_changes();
+    }
+}
+
+FixedE9 Desk::closing(const Parent& parent, InstrumentId instrument) const noexcept {
+    const auto held = positions_ == nullptr ? FixedE9::from_raw(0)
+                                            : positions_->position(parent.spec().book, instrument);
+    return FixedE9::from_raw(parent.spec().side == Side::Sell ? held.raw : -held.raw);
+}
+
+FixedE9 Desk::reducible(const Parent& parent, InstrumentId instrument) const noexcept {
+    const auto& spec = parent.spec();
+    auto left = closing(parent, instrument).raw;
+    for (const auto& other : parents_) {
+        const auto& them = other.spec();
+        if (!them.reduce_only || them.book != spec.book || them.side != spec.side) {
+            continue;
+        }
+        for (const auto& child : other.children()) {
+            if (child.instrument == instrument) {
+                left -= child.leaves().raw;
+            }
+        }
+    }
+    return FixedE9::from_raw(left);
+}
+
+bool Desk::cut_to_position(const Parent& parent, std::vector<VenueBook>& books) const {
+    bool held = false;
+    std::erase_if(books, [&](VenueBook& book) {
+        held = held || closing(parent, book.instrument) >= book.lot;
+        const auto free = reducible(parent, book.instrument);
+        auto left = free.raw > 0 ? round_down(free, book.lot).raw : 0;
+        std::size_t kept = 0;
+        for (auto& level : book.levels) {
+            if (left <= 0) {
+                break;
+            }
+            level.qty = FixedE9::from_raw(std::min(level.qty.raw, left));
+            left -= level.qty.raw;
+            ++kept;
+        }
+        book.levels.resize(kept);
+        return book.levels.empty();
+    });
+    return held;
+}
+
+void Desk::nothing_to_reduce(Parent& parent, UnixNanos now) {
+    if (parent.filled().raw == 0) {
+        (void)parent.fail(now, "reduce-only with no position to reduce");
+    } else {
+        (void)parent.finish(now);
+    }
+}
+
+bool Desk::claim(Parent& parent, UnixNanos now) {
+    if (const auto* first = internal::winner(parents_, parent); first != nullptr) {
+        cancel_member(
+            parent, std::string{internal::k_oco_lost} + "parent " + std::to_string(first->id()) + " went first", now);
+        return false;
+    }
+    for (auto& other : parents_) {
+        if (&other != &parent && other.spec().oco == parent.spec().oco && !terminal(other.status())) {
+            cancel_member(other,
+                          std::string{internal::k_oco_lost} + "parent " + std::to_string(parent.id()) + " went first",
+                          now);
+        }
+    }
+    return true;
+}
+
+void Desk::cancel_member(Parent& parent, std::string reason, UnixNanos now) {
+    if (!parent.cancel(now, std::move(reason)).has_value()) {
+        return;
+    }
+    // the record goes before the cancels, so a restart that finds the parent cancelled knows to chase them
+    if (log_ != nullptr) {
+        log_->record({.kind = ParentRecord::Kind::StatusChanged,
+                      .parent = parent.id(),
+                      .ts = now,
+                      .status = Status::Cancelled,
+                      .reason = std::string{parent.reason()}});
+    }
+    logged_[parent.id()] = Status::Cancelled;
+    cancel_children(parent);
+}
+
+void Desk::settle_groups(UnixNanos now) {
+    for (auto& parent : parents_) {
+        if (parent.spec().oco.empty()) {
+            continue;
+        }
+        if (parent.status() == Status::Cancelled) {
+            cancel_children(parent);
+        } else if (!terminal(parent.status())) {
+            if (const auto* first = internal::winner(parents_, parent); first != nullptr) {
+                cancel_member(parent,
+                              std::string{internal::k_oco_lost} + "parent " + std::to_string(first->id()) +
+                                  " went first",
+                              now);
+            }
+        }
+    }
+}
+
+void Desk::protect(UnixNanos now) {
+    // not between a restore and the venue agreeing with the book
+    if (!restart_paused_.empty() || positions_ == nullptr) {
+        return;
+    }
+    for (std::size_t i = 0; i < parents_.size(); ++i) {
+        const auto& entry = parents_[i];
+        if (!entry.spec().attach.any() || entry.filled().raw <= 0) {
+            continue;
+        }
+        const auto qty = entry.filled();
+        const auto id = entry.id();
+        bool made = false;
+        for (auto& leg : parents_) {
+            if (leg.spec().bracket_of != id) {
+                continue;
+            }
+            made = true;
+            if (!terminal(leg.status()) && leg.spec().qty.raw != qty.raw) {
+                leg.resize(now, qty);
+                if (log_ != nullptr) {
+                    log_->record({.kind = ParentRecord::Kind::Resized, .parent = leg.id(), .ts = now, .qty = qty});
+                }
+            }
+        }
+        if (made) {
+            continue;
+        }
+        const auto& attach = entry.spec().attach;
+        std::vector<ParentSpec> legs;
+        if (!attach.take_profit.is_undef()) {
+            legs.push_back(internal::leg_of(entry, Algo::TakeProfit, attach.take_profit, attach.take_profit_limit));
+        }
+        if (!attach.stop_loss.is_undef()) {
+            legs.push_back(internal::leg_of(entry, Algo::Stop, attach.stop_loss, attach.stop_loss_limit));
+        }
+        for (auto& spec : legs) {
+            if (!validate(spec).has_value()) {
+                continue;
+            }
+            const auto& leg = parents_.emplace_back(next_id_++, std::move(spec), now);
+            if (log_ != nullptr) {
+                log_->record({.kind = ParentRecord::Kind::Created, .parent = leg.id(), .ts = now, .spec = leg.spec()});
+            }
+        }
     }
 }
 

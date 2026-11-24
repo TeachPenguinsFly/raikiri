@@ -74,6 +74,9 @@ public:
     // a restart reads these back; null keeps nothing, for a desk nobody restarts
     void set_log(ParentLog* log) noexcept { log_ = log; }
 
+    // reduce-only and brackets read the books' positions here; without it the desk refuses them
+    void set_positions(const PositionView* positions) noexcept { positions_ = positions; }
+
     // the journal's frames in order, all before the first tick. nothing here reaches the sink: what was out is out,
     // and its answers come through these or through the live path
     void restore(const ParentRecord& record);
@@ -130,6 +133,19 @@ private:
     void open_trace(Parent& parent);
     void log_child(const Parent& parent, const Child& child);
     void log_changes();
+    // the book's position on `instrument` in the direction `parent` closes; negative when it would add
+    [[nodiscard]] FixedE9 closing(const Parent& parent, InstrumentId instrument) const noexcept;
+    // what a reduce-only parent may still send on `instrument`: the position it closes less every reduce-only child
+    // of its book already working against it; negative when those are more than the position
+    [[nodiscard]] FixedE9 reducible(const Parent& parent, InstrumentId instrument) const noexcept;
+    // cuts each book to what may still go there; true while the position is a lot or more on any of them
+    bool cut_to_position(const Parent& parent, std::vector<VenueBook>& books) const;
+    void nothing_to_reduce(Parent& parent, UnixNanos now);
+    // false when a sibling went first, and then this parent is cancelled; true cancels the siblings
+    bool claim(Parent& parent, UnixNanos now);
+    void cancel_member(Parent& parent, std::string reason, UnixNanos now);
+    void settle_groups(UnixNanos now);
+    void protect(UnixNanos now);
 
     // a status moves in many places; each entry point writes what moved on its way out
     class LogChanges {
@@ -153,6 +169,7 @@ private:
     std::deque<Parent> parents_;
     std::uint64_t next_id_;
     ParentLog* log_{nullptr};
+    const PositionView* positions_{nullptr};
     bool halting_{false};
     std::unordered_map<std::uint64_t, Status> logged_;
     std::vector<std::uint64_t> restart_paused_;

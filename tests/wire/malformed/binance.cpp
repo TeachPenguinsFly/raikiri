@@ -170,6 +170,14 @@ TEST(Malformed, Binance) {
                     static Ticker24hBuffer storage;
                     (void)parse_ticker_24h(f, storage);
                 }},
+               {"rest_symbol_config.json",
+                [](std::string_view f) {
+                    (void)parse_symbol_config(f, "ETHUSDT");
+                    (void)parse_symbol_config(f, "BTCUSDT");
+                }},
+               {"rest_leverage.json", [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"rest_margin_type.json", [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"rest_open_interest.json", [](std::string_view f) { (void)parse_open_interest(f); }},
            });
 }
 

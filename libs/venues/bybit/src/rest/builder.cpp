@@ -352,6 +352,15 @@ RequestBuilder::set_leverage(MarketType market, std::string_view symbol, std::ui
     return signed_post(ep::k_set_leverage, json.view(), now);
 }
 
+std::expected<net::RestRequest, BuildError> RequestBuilder::set_margin_mode(std::string_view mode, UnixNanos now) {
+    net::JsonWriter json{body_};
+    json.obj_begin().str("setMarginMode", mode).obj_end();
+    if (!json.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_post(ep::k_set_margin_mode, json.view(), now);
+}
+
 std::expected<net::RestRequest, BuildError>
 RequestBuilder::position(MarketType market, std::string_view symbol, UnixNanos now) {
     Appender query{body_};

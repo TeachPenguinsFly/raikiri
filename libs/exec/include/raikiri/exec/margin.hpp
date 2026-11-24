@@ -21,6 +21,9 @@ public:
     MarginControl& operator=(const MarginControl&) = delete;
     virtual ~MarginControl() = default;
 
+    // whether set_margin_mode moves the one instrument or the whole account
+    [[nodiscard]] virtual MarginScope mode_scope() const noexcept = 0;
+
     [[nodiscard]] virtual std::expected<MarginState, VenueError> margin_state(InstrumentId instrument) = 0;
 
     // `current` is the last margin_state: a venue that sets both in one call needs the other half
