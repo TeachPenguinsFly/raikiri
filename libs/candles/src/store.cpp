@@ -123,6 +123,26 @@ std::unordered_map<std::uint64_t, Store::Span> Store::spans(std::int32_t from) {
     return out;
 }
 
+std::unordered_map<std::uint64_t, std::int32_t> Store::oldest(std::span<const std::uint64_t> instruments,
+                                                              std::int32_t from) {
+    std::unordered_map<std::uint64_t, std::int32_t> out;
+    if (instruments.empty()) {
+        return out;
+    }
+    // one probe of the primary key each, where spans() groups the whole window
+    std::string sql = "SELECT i, o FROM (SELECT i, (SELECT min(c.minute) FROM raikiri.candles_1m c WHERE "
+                      "c.instrument_id = i AND c.minute >= $1) AS o FROM unnest(ARRAY[";
+    for (std::size_t i = 0; i < instruments.size(); ++i) {
+        sql += std::format("{}{}", i == 0 ? "" : ",", static_cast<std::int64_t>(instruments[i]));
+    }
+    sql += "]::bigint[]) AS i) s WHERE o IS NOT NULL";
+    pqxx::read_transaction tx{impl_->conn};
+    for (const auto& [id, minute] : tx.query<std::int64_t, std::int32_t>(sql, pqxx::params{from})) {
+        out[static_cast<std::uint64_t>(id)] = minute;
+    }
+    return out;
+}
+
 std::vector<Candle> Store::read(InstrumentId instrument, std::int32_t from, std::int32_t to) {
     pqxx::read_transaction tx{impl_->conn};
     std::vector<Candle> out;

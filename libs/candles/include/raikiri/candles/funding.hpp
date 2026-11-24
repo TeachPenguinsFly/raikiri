@@ -77,6 +77,8 @@ public:
     void defer(const Due& due);
 
     [[nodiscard]] std::size_t queued() const noexcept;
+    // whether calls still wait on the instrument's venue and market
+    [[nodiscard]] bool busy(InstrumentId instrument) const noexcept;
 
     [[nodiscard]] std::uint64_t dropped() const noexcept { return dropped_; }
 

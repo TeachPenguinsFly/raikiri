@@ -32,6 +32,9 @@ public:
 
     // the first and last stored minute at or after `from` of every instrument that has one
     [[nodiscard]] std::unordered_map<std::uint64_t, Span> spans(std::int32_t from);
+    // the oldest stored minute at or after `from` of those of `instruments` that have one
+    [[nodiscard]] std::unordered_map<std::uint64_t, std::int32_t> oldest(std::span<const std::uint64_t> instruments,
+                                                                         std::int32_t from);
     // minutes in [from, to), oldest first
     [[nodiscard]] std::vector<Candle> read(InstrumentId instrument, std::int32_t from, std::int32_t to);
     // drops minutes older than `before`; returns how many

@@ -68,6 +68,7 @@ raikiri_add_test(admin_margin_test SRCS admin/margin_test.cpp LIBS raikiri::admi
 
 raikiri_add_test(candles_test SRCS
   candles/builder_test.cpp
+  candles/deep_test.cpp
   candles/funding_test.cpp
   candles/klines_apex_test.cpp
   candles/klines_arcus_test.cpp

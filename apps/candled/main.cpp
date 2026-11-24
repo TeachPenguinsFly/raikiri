@@ -3,12 +3,16 @@
 // what the gateways' funding and ticker cells hold: funding rate, mark, index and open interest
 //
 //   candled [--dsn <postgres-dsn>] [--keep-days 30] [--keep-metric-days 30] [--backfill-hours 24] [--funding-days 30]
+//           [--deep-days 30] [--deep-top 300]
 //
 // On start it asks each venue's public history for the minutes it has not stored, back to --backfill-hours ago at
 // most: the stretch before a first start, and the gap a stop left. Once a venue's minutes are in, it asks the past
-// funding of each perp that has none stored from the first day of the last --funding-days (0 asks none)
+// funding of each perp that has none stored from the first day of the last --funding-days (0 asks none). After both,
+// the --deep-top busiest instruments walk back to --deep-days ago (at most --keep-days; 0 asks none) from their oldest
+// stored minute; one that already reaches within a day of it is not asked again
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/candles/candle.hpp>
+#include <raikiri/candles/deep.hpp>
 #include <raikiri/candles/funding.hpp>
 #include <raikiri/candles/history.hpp>
 #include <raikiri/candles/metrics.hpp>
@@ -103,6 +107,8 @@ int main(int argc, char** argv) {
     int keep_metric_days = 30;
     int backfill_hours = 24;
     int funding_days = 30;
+    int deep_days = 30;
+    int deep_top = 300;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--dsn" && i + 1 < argc) {
@@ -115,9 +121,13 @@ int main(int argc, char** argv) {
             backfill_hours = std::atoi(argv[++i]);
         } else if (arg == "--funding-days" && i + 1 < argc) {
             funding_days = std::atoi(argv[++i]);
+        } else if (arg == "--deep-days" && i + 1 < argc) {
+            deep_days = std::atoi(argv[++i]);
+        } else if (arg == "--deep-top" && i + 1 < argc) {
+            deep_top = std::atoi(argv[++i]);
         } else {
             RLOG_ERROR("usage: candled [--dsn <postgres-dsn>] [--keep-days 30] [--keep-metric-days 30] "
-                       "[--backfill-hours 24] [--funding-days 30]");
+                       "[--backfill-hours 24] [--funding-days 30] [--deep-days 30] [--deep-top 300]");
             return 2;
         }
     }
@@ -242,6 +252,84 @@ int main(int argc, char** argv) {
         }
     };
 
+    const auto deep_from = started - std::min(deep_days, keep_days) * 24 * 60;
+    candles::DeepBackfill deep;
+    std::unordered_set<std::uint64_t> deep_seen;
+    std::uint64_t deep_asked = 0;
+    std::uint64_t deep_filled = 0;
+
+    // the busiest instruments with a history source across every attached gateway; a gateway attaching late may bring
+    // some into the top, and only those not looked at before are asked
+    const auto plan_deep = [&] {
+        if (deep_from >= window || deep_top <= 0) {
+            return;
+        }
+        std::vector<candles::Backfill::Gap> top;
+        std::unordered_set<std::uint64_t> ranked;
+        for (const auto& market : registry.markets({}, std::numeric_limits<std::size_t>::max())) {
+            for (const auto& listing : market.listings) {
+                if (ranked.size() >= static_cast<std::size_t>(deep_top)) {
+                    break;
+                }
+                if (listing.market == "option") {
+                    continue;
+                }
+                std::uint64_t packed = 0;
+                std::from_chars(
+                    listing.instrument_id.data(), listing.instrument_id.data() + listing.instrument_id.size(), packed);
+                const InstrumentId id{packed};
+                if (ranked.contains(packed) || candles::kline_venue(id.venue(), id.market()) == nullptr) {
+                    continue;
+                }
+                ranked.insert(packed);
+                if (!deep_seen.contains(packed)) {
+                    top.push_back(
+                        {.instrument = id, .symbol = listing.exchange_symbol, .from = deep_from, .to = window});
+                }
+            }
+        }
+        if (top.empty()) {
+            return;
+        }
+        std::vector<std::uint64_t> ids;
+        ids.reserve(top.size());
+        for (const auto& gap : top) {
+            ids.push_back(gap.instrument.packed);
+        }
+        try {
+            if (!store) {
+                store = std::make_unique<candles::Store>(dsn);
+            }
+            const auto oldest = store->oldest(ids, deep_from);
+            std::size_t added = 0;
+            for (auto& gap : top) {
+                deep_seen.insert(gap.instrument.packed);
+                if (const auto it = oldest.find(gap.instrument.packed); it != oldest.end()) {
+                    gap.to = std::min(gap.to, it->second);
+                }
+                added += deep.add(gap) ? 1U : 0U;
+            }
+            double slowest = 0;
+            for (const auto& lane : deep.load()) {
+                slowest = std::max(slowest,
+                                   static_cast<double>(lane.calls) / std::max<std::uint32_t>(lane.per_minute, 1));
+            }
+            RLOG_INFO(
+                "candled: {} of {} busiest instruments lack {} days of minutes, {} calls queued, the slowest venue "
+                "done in {:.1f} h",
+                added,
+                top.size(),
+                std::min(deep_days, keep_days),
+                deep.queued(),
+                slowest / 60);
+        } catch (const std::exception& e) {
+            RLOG_WARN("candled: cannot read the oldest stored minutes, no deep history asked for {} instruments: {}",
+                      top.size(),
+                      e.what());
+            store.reset();
+        }
+    };
+
     // each attached gateway's markets, busiest first, once
     const auto plan = [&] {
         std::size_t added = 0;
@@ -286,6 +374,9 @@ int main(int argc, char** argv) {
             RLOG_INFO("candled: {} markets to backfill, {} calls queued", added, backfill.queued());
         }
         plan_funding(perps);
+        if (added > 0) {
+            plan_deep();
+        }
     };
 
     const auto ask = [&](const candles::Backfill::Due& due) {
@@ -361,6 +452,47 @@ int main(int argc, char** argv) {
             });
         if (!sent) {
             funding.defer(due);
+        }
+    };
+
+    const auto ask_deep = [&](const candles::DeepBackfill::Due& due) {
+        auto& client = rest[due.call.host];
+        if (client == nullptr) {
+            client = std::make_unique<net::RestClient>(io, net::RestConfig{.host = due.call.host, .pool_size = 2});
+            client->start();
+        }
+        ++deep_asked;
+        const auto sent = client->send(
+            {.method = due.call.body.empty() ? net::HttpMethod::Get : net::HttpMethod::Post,
+             .target = due.call.target,
+             .body = due.call.body},
+            [&, due](net::RestResponse&& r) {
+                if (r.status != 200) {
+                    RLOG_WARN("candled: {}{} answered {}: {:.120}",
+                              due.call.host,
+                              due.call.target,
+                              r.status,
+                              r.transport_failed() ? r.error : r.body);
+                    deep.retry(due);
+                    return;
+                }
+                auto got = due.source->parse(r.body, due.part.instrument);
+                if (!got.has_value()) {
+                    RLOG_WARN("candled: unreadable history from {}: {}", due.call.host, got.error());
+                    return;
+                }
+                std::size_t in = 0;
+                for (auto& c : *got) {
+                    if (c.minute >= due.part.from && c.minute < due.part.to) {
+                        unwritten.push_back(c);
+                        ++in;
+                    }
+                }
+                deep_filled += in;
+                deep.answered(due, in);
+            });
+        if (!sent) {
+            deep.defer(due);
         }
     };
     std::uint64_t overruns = 0;
@@ -518,6 +650,9 @@ int main(int argc, char** argv) {
         for (const auto& due : funding.due(mono, backfill)) {
             ask_funding(due);
         }
+        for (const auto& due : deep.due(mono, backfill, funding)) {
+            ask_deep(due);
+        }
         (void)io.poll();
         if (mono >= flush_due) {
             flush_due = mono + k_flush_ns;
@@ -546,24 +681,29 @@ int main(int argc, char** argv) {
         }
         if (mono >= report_due) {
             report_due = mono + k_report_ns;
-            RLOG_INFO("candled: {} prints, {} minutes written, {} open, {} late, {} overruns, {} unknown instruments; "
-                      "history: {} calls, {} minutes, {} queued, {} dropped; {} metric samples written; "
-                      "funding: {} calls, {} rows, {} queued, {} dropped",
-                      builder.prints(),
-                      written,
-                      builder.open_minutes(),
-                      builder.late(),
-                      overruns,
-                      unknown,
-                      asked,
-                      filled,
-                      backfill.queued(),
-                      backfill.dropped(),
-                      metrics_written,
-                      funding_asked,
-                      funding_written,
-                      funding.queued(),
-                      funding.dropped());
+            RLOG_INFO(
+                "candled: {} prints, {} minutes written, {} open, {} late, {} overruns, {} unknown instruments; "
+                "history: {} calls, {} minutes, {} queued, {} dropped; {} metric samples written; "
+                "funding: {} calls, {} rows, {} queued, {} dropped; deep: {} calls, {} minutes, {} queued, {} dropped",
+                builder.prints(),
+                written,
+                builder.open_minutes(),
+                builder.late(),
+                overruns,
+                unknown,
+                asked,
+                filled,
+                backfill.queued(),
+                backfill.dropped(),
+                metrics_written,
+                funding_asked,
+                funding_written,
+                funding.queued(),
+                funding.dropped(),
+                deep_asked,
+                deep_filled,
+                deep.queued(),
+                deep.dropped());
         }
         if (read == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds{50});

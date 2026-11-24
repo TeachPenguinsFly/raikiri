@@ -1,5 +1,6 @@
 add_library(raikiri_candles STATIC
   src/builder.cpp
+  src/deep.cpp
   src/funding.cpp
   src/history.cpp
   src/metrics.cpp
