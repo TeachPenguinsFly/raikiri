@@ -88,7 +88,16 @@ export function CoinIcon({
   const metal = plain ? undefined : k_metals[key]
   const c = cn('inline-block shrink-0 rounded-full', className)
   if (src !== undefined && src !== broken)
-    return <img src={src} alt="" decoding="async" onError={() => setBroken(src)} className={cn(c, 'object-cover')} />
+    // stock logos are drawn for white pages: some are white on clear, so they sit on a light disc and fit inside it
+    return (
+      <img
+        src={src}
+        alt=""
+        decoding="async"
+        onError={() => setBroken(src)}
+        className={cn(c, src.startsWith('/stockimg/') ? 'bg-white object-contain p-[12%]' : 'object-cover')}
+      />
+    )
   if (metal !== undefined)
     return (
       <svg viewBox="0 0 20 20" className={c} aria-hidden="true">

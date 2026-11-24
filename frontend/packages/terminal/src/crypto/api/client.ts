@@ -131,6 +131,8 @@ export const api = {
   instrumentsBy,
   health: () => get<Health>('/v1/health'),
   metrics: () => get<VenueMetrics[]>('/v1/venues/metrics'),
+  accounts: () => get<Account[]>('/v1/accounts'),
+  reference: () => get<Schema<'ReferenceList'>>('/v1/reference'),
   markets: () => get<Market[]>('/v1/markets'),
   candles: (id: string, interval: string, limit = 1000) =>
     get<CandlePage>('/v1/candles', { instrument_id: id, interval, limit: String(limit) }),
