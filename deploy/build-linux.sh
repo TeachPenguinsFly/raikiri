@@ -39,7 +39,8 @@ docker run --rm --platform linux/amd64 \
             -DCMAKE_TOOLCHAIN_FILE=/build/deps/relwithdebinfo/conan_toolchain.cmake \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DRAIKIRI_MARCH=$MARCH
-        cmake --build /build/rel --target $TARGETS -j${JOBS:-\$(nproc)} -- -k 0
+        # gateways share the box: compilers run at the lowest priority, which nice on the docker client does not give them
+        nice -n 19 cmake --build /build/rel --target $TARGETS -j${JOBS:-\$(nproc)} -- -k 0
     "
 
 echo "==> out"
