@@ -62,6 +62,10 @@ inline constexpr std::string_view k_user_trades = "/fapi/v1/userTrades";
 inline constexpr std::string_view k_position_risk = "/fapi/v3/positionRisk";
 // the only read that states multiAssetsMargin beside the per-asset rows; v3 dropped it
 inline constexpr std::string_view k_account = "/fapi/v2/account";
+// leverage and margin type are kept per symbol; symbolConfig reads both back
+inline constexpr std::string_view k_leverage = "/fapi/v1/leverage";
+inline constexpr std::string_view k_margin_type = "/fapi/v1/marginType";
+inline constexpr std::string_view k_symbol_config = "/fapi/v1/symbolConfig";
 // the european options account, a wallet of its own beside usd-m futures
 inline constexpr std::string_view k_option_account = "/eapi/v1/account";
 inline constexpr std::string_view k_option_margin_account = "/eapi/v1/marginAccount";

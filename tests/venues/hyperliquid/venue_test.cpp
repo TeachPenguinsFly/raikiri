@@ -2287,5 +2287,23 @@ TEST(HyperliquidHip3, TheHip3PlanFitsUnderTheIpCapOnlyWithContextsPolled) {
     EXPECT_GT((plan({Bbo, Trades, Depth}, MarketType::Perp) + live), ip_cap);
 }
 
+TEST(HyperliquidExchange, UpdateLeverageWritesTheActionInTheReferenceSdksKeyOrder) {
+    Wallet wallet;
+    ASSERT_TRUE(wallet.load(k_test_key));
+    ExchangeBuilder builder{wallet, true};
+    const auto request = builder.update_leverage(5, false, 20, 1'700'000'000'000ULL);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    EXPECT_TRUE(request->body.starts_with(
+        R"({"action":{"type":"updateLeverage","asset":5,"isCross":false,"leverage":20},"nonce":1700000000000,)"
+        R"("signature":{"r":")"))
+        << request->body;
+
+    EXPECT_EQ(builder.update_leverage(-1, true, 20, 1).error(), BuildError::UnknownAsset);
+    const Wallet none;
+    ExchangeBuilder unsigned_builder{none, true};
+    EXPECT_EQ(unsigned_builder.update_leverage(5, true, 20, 1).error(), BuildError::NotSigned);
+}
+
 } // namespace
 } // namespace raikiri::venues::hyperliquid

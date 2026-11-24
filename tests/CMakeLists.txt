@@ -64,6 +64,7 @@ target_link_libraries(admin_test
   PRIVATE glaze::glaze)
 
 raikiri_add_test(admin_warm_test SRCS admin/warm_test.cpp LIBS raikiri::admin)
+raikiri_add_test(admin_margin_test SRCS admin/margin_test.cpp LIBS raikiri::admin)
 
 raikiri_add_test(candles_test SRCS
   candles/builder_test.cpp
@@ -147,6 +148,7 @@ raikiri_add_test(ladder_test SRCS book/ladder_test.cpp LIBS raikiri::book)
 raikiri_add_test(order_gate_test SRCS exec/order_gate_test.cpp LIBS raikiri::exec)
 raikiri_add_test(catalogue_load_test SRCS exec/catalogue_load_test.cpp LIBS raikiri::exec)
 raikiri_add_test(rate_budget_test SRCS exec/rate_budget_test.cpp LIBS raikiri::exec)
+raikiri_add_test(margin_test SRCS exec/margin_test.cpp LIBS raikiri::exec)
 raikiri_add_test(aster_venue_test SRCS venues/aster/venue_test.cpp LIBS raikiri::venue_aster raikiri::exec)
 raikiri_add_test(grvt_venue_test SRCS venues/grvt/venue_test.cpp LIBS raikiri::venue_grvt raikiri::exec)
 raikiri_add_test(lighter_venue_test SRCS venues/lighter/venue_test.cpp LIBS raikiri::venue_lighter raikiri::exec)
@@ -183,6 +185,9 @@ raikiri_add_test(binance_option_test SRCS venues/binance/option_test.cpp LIBS ra
 target_compile_definitions(binance_option_test PRIVATE
   RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
+raikiri_add_test(binance_margin_test SRCS venues/binance/margin_test.cpp LIBS raikiri::venue_binance raikiri::net)
+target_compile_definitions(binance_margin_test PRIVATE
+  RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")
 
 raikiri_add_test(binance_wire_test SRCS venues/binance/wire_test.cpp LIBS raikiri::venue_binance)
 target_compile_definitions(binance_wire_test PRIVATE
@@ -199,6 +204,9 @@ raikiri_add_test(bybit_map_test SRCS venues/bybit/map_test.cpp LIBS raikiri::ven
 raikiri_add_test(bybit_option_test SRCS venues/bybit/option_test.cpp LIBS raikiri::venue_bybit raikiri::options raikiri::exec
   raikiri::oms raikiri::portfolio)
 raikiri_add_test(bybit_rest_test SRCS venues/bybit/rest_test.cpp LIBS raikiri::venue_bybit raikiri::net)
+raikiri_add_test(bybit_margin_test SRCS venues/bybit/margin_test.cpp LIBS raikiri::venue_bybit raikiri::net)
+target_compile_definitions(bybit_margin_test PRIVATE
+  RAIKIRI_BYBIT_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/bybit/fixtures")
 raikiri_add_test(bybit_ws_test SRCS venues/bybit/ws_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_trade_test SRCS venues/bybit/trade_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 target_compile_definitions(bybit_trade_test PRIVATE
@@ -209,6 +217,9 @@ raikiri_add_test(okx_option_test SRCS venues/okx/option_test.cpp LIBS raikiri::v
   raikiri::oms raikiri::portfolio)
 
 raikiri_add_test(okx_trade_test SRCS venues/okx/trade_test.cpp LIBS raikiri::venue_okx raikiri::net raikiri::exec)
+raikiri_add_test(okx_margin_test SRCS venues/okx/margin_test.cpp LIBS raikiri::venue_okx raikiri::net)
+target_compile_definitions(okx_margin_test PRIVATE
+  RAIKIRI_OKX_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/okx/fixtures")
 raikiri_add_test(okx_wire_test SRCS venues/okx/wire_test.cpp LIBS raikiri::venue_okx)
 target_compile_definitions(okx_wire_test PRIVATE
   RAIKIRI_OKX_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/okx/fixtures")

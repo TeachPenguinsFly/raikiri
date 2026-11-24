@@ -32,7 +32,7 @@ constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 }
 
 // holds orders sent over rest and not yet answered on the user stream, and owns the listen key
-class BinanceExec final : public exec::ExecutionClient {
+class BinanceExec final : public exec::ExecutionClient, public exec::MarginControl {
 public:
     explicit BinanceExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {
         state_->tick_hook = [this](UnixNanos now) { tick(now); };
@@ -204,6 +204,24 @@ public:
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
                                                                               UnixNanos since) override {
         return api_.funding_charges(market, since);
+    }
+
+    exec::MarginControl* margin_control() noexcept override {
+        return state_->market == MarketType::Perp ? this : nullptr;
+    }
+
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
+        return api_.margin_state(instrument);
+    }
+
+    std::expected<void, exec::VenueError>
+    set_leverage(InstrumentId instrument, std::uint32_t leverage, const MarginState&) override {
+        return api_.set_leverage(instrument, leverage);
+    }
+
+    std::expected<void, exec::VenueError>
+    set_margin_mode(InstrumentId instrument, MarginMode mode, const MarginState&) override {
+        return api_.set_margin_mode(instrument, mode);
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {

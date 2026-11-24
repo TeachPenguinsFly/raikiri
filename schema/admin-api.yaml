@@ -109,6 +109,170 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Account" }
 
+  /v1/accounts/{account}/leverage:
+    parameters:
+      - name: account
+        in: path
+        required: true
+        description: An account name, as `GET /v1/accounts` returns it.
+        schema: { type: string, examples: ["binance"] }
+    get:
+      tags: [trading]
+      summary: The leverage and margin mode an instrument has on the venue
+      description: |
+        Asked of the venue through the account's gateway, so the answer is what the
+        venue holds now and costs one or two private calls. A field the venue does
+        not state is absent.
+      operationId: getLeverage
+      parameters:
+        - name: instrument_id
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/InstrumentId" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeverageState" }
+        "400":
+          description: |
+            `instrument_id` is missing or not digits.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: |
+            No such instrument, or it is not listed on this account.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: |
+            The instrument is spot or an option, or the body asks for nothing or for a
+            leverage outside 1 to 1000.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429":
+          description: |
+            The gateway's rate budget for the venue is spent. Worth retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "501":
+          description: |
+            The venue has no such call here, or this gateway serves no account calls
+            (built before them, or running without credentials). `detail` says which.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "502":
+          description: |
+            The venue call did not complete: no answer, or the key was refused.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: |
+            The account's gateway is down or not draining requests.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "504":
+          description: |
+            The gateway did not answer in time. A change may still have reached the
+            venue; read the state again before retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+    put:
+      tags: [trading]
+      summary: Set an instrument's leverage, margin mode or both on the venue
+      description: |
+        The gateway reads the venue, sends only what differs, and reads again; the
+        answer is the state after. Setting what is already held changes nothing and
+        answers 200. The margin mode goes first, so a refused leverage can leave a
+        changed mode: the 409 says why, and `GET` says what holds. Every attempt
+        that reaches the gateway is journalled under `margin.set` with who asked and
+        the state before and after; see `GET /v1/audit`.
+
+        Venues differ. Bybit keeps one margin mode for the whole unified account and
+        OKX takes it per order, so `margin_mode` there answers 501 unless it names
+        the mode already in force.
+      operationId: setLeverage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetLeverage" }
+      responses:
+        "200":
+          description: The state the venue holds after the change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeverageState" }
+        "400":
+          description: |
+            The body is not JSON.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: |
+            The venue refused: an open position or open orders block a margin-mode
+            switch, the leverage is above the instrument's maximum, or the like. `detail`
+            is the venue's own reason and code.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: |
+            No such instrument, or it is not listed on this account.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: |
+            The instrument is spot or an option, or the body asks for nothing or for a
+            leverage outside 1 to 1000.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429":
+          description: |
+            The gateway's rate budget for the venue is spent. Worth retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "501":
+          description: |
+            The venue has no such call here, or this gateway serves no account calls
+            (built before them, or running without credentials). `detail` says which.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "502":
+          description: |
+            The venue call did not complete: no answer, or the key was refused.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: |
+            The account's gateway is down or not draining requests.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "504":
+          description: |
+            The gateway did not answer in time. A change may still have reached the
+            venue; read the state again before retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/markets:
     get:
       tags: [catalogue]
@@ -3346,6 +3510,34 @@ components:
         fee: { $ref: "#/components/schemas/Decimal" }
         liquidity: { type: string, enum: [maker, taker, internal, unknown] }
         ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    MarginMode:
+      type: string
+      enum: [cross, isolated]
+
+    LeverageState:
+      type: object
+      required: [account, instrument_id]
+      properties:
+        account: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        leverage:
+          type: integer
+          minimum: 1
+          description: Absent where the venue does not state one, as under portfolio margin.
+        margin_mode: { $ref: "#/components/schemas/MarginMode" }
+        max_leverage:
+          type: integer
+          description: The instrument's ceiling, where the venue's answer carries it.
+
+    SetLeverage:
+      type: object
+      required: [instrument_id]
+      description: At least one of `leverage` and `margin_mode`.
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        leverage: { type: integer, minimum: 1, maximum: 1000 }
+        margin_mode: { $ref: "#/components/schemas/MarginMode" }
 
     Position:
       type: object

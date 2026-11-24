@@ -51,6 +51,8 @@ public:
     [[nodiscard]] net::RestRequest clearinghouse_state(std::string_view user, std::string_view dex = {}) noexcept;
 
     [[nodiscard]] net::RestRequest spot_state(std::string_view user) noexcept;
+    // the leverage and margin mode the account holds on one coin, position or not
+    [[nodiscard]] net::RestRequest active_asset_data(std::string_view user, std::string_view coin) noexcept;
 
     // perp coins ("BTC") and spot coins ("@107") come in one answer
     [[nodiscard]] net::RestRequest open_orders(std::string_view user) noexcept;

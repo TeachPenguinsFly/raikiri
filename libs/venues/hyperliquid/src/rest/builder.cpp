@@ -127,6 +127,12 @@ net::RestRequest UserRequestBuilder::spot_state(std::string_view user) noexcept 
     return simple("spotClearinghouseState", user);
 }
 
+net::RestRequest UserRequestBuilder::active_asset_data(std::string_view user, std::string_view coin) noexcept {
+    Appender body{body_};
+    body << R"({"type":"activeAssetData","user":")" << user << R"(","coin":")" << coin << R"("})";
+    return info(body.view());
+}
+
 net::RestRequest UserRequestBuilder::open_orders(std::string_view user) noexcept {
     return simple("openOrders", user);
 }

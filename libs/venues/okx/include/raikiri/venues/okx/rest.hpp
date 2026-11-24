@@ -103,6 +103,12 @@ public:
     // read beside the balance so a mid-session mode switch is seen
     [[nodiscard]] std::expected<net::RestRequest, BuildError> account_config(UnixNanos now);
 
+    // okx keeps a leverage per margin mode; `mgn_mode` is the trade mode the orders go out under
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    set_leverage(std::string_view inst_id, std::uint32_t leverage, std::string_view mgn_mode, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    leverage_info(std::string_view inst_id, std::string_view mgn_mode, UnixNanos now);
+
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:

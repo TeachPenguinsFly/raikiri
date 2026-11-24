@@ -63,6 +63,13 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> wallet_balance(UnixNanos now);
     [[nodiscard]] std::expected<net::RestRequest, BuildError> account_info(UnixNanos now);
 
+    // one-way mode: both sides carry the same figure
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    set_leverage(MarketType market, std::string_view symbol, std::uint32_t leverage, UnixNanos now);
+    // one symbol's row, flat or not; it carries the leverage
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    position(MarketType market, std::string_view symbol, UnixNanos now);
+
     [[nodiscard]] net::RestRequest
     instruments(MarketType market, std::string_view cursor = {}, std::string_view base_coin = {});
     // every symbol of the market in one call

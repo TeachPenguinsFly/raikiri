@@ -292,6 +292,51 @@ public:
         return reports;
     }
 
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto request = builder_.position(instrument.market(), symbol, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+        }
+        std::string body;
+        const auto envelope = fetch(*request, body);
+        if (!envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        const auto leverage = parse_position_leverage(envelope->result);
+        if (!leverage.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable position row")};
+        }
+        MarginState state{};
+        state.leverage = *leverage;
+        // the mode belongs to the unified account, not the symbol
+        if (const auto mode = option_account_mode(); mode.has_value()) {
+            state.mode = *mode == "ISOLATED_MARGIN" ? MarginMode::Isolated : MarginMode::Cross;
+        }
+        return state;
+    }
+
+    std::expected<void, exec::VenueError> set_leverage(InstrumentId instrument, std::uint32_t leverage) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto request = builder_.set_leverage(instrument.market(), symbol, leverage, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+        }
+        std::string body;
+        if (const auto envelope = fetch(*request, body); !envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        return {};
+    }
+
 private:
     VenueState* state_;
     net::RestClient rest_;

@@ -66,4 +66,26 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
     });
 }
 
+std::expected<std::uint32_t, WireError> parse_position_leverage(std::string_view result) {
+    return wire::guarded([&]() -> std::expected<std::uint32_t, WireError> {
+        auto root = wire::session().open_object(result);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto list = wire::req_array(*root, "list");
+        if (!list.has_value()) {
+            return std::unexpected(list.error());
+        }
+        for (auto entry : *list) {
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto text = wire::opt_str(obj, "leverage").value_or(std::string_view{});
+            return static_cast<std::uint32_t>(wire::digits_to_u64(text.substr(0, text.find('.'))));
+        }
+        return std::unexpected(wire::map_error(simdjson::NO_SUCH_FIELD));
+    });
+}
+
 } // namespace raikiri::venues::bybit

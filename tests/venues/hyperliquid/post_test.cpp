@@ -1,4 +1,5 @@
 #include <raikiri/venues/hyperliquid/orders.hpp>
+#include <raikiri/venues/hyperliquid/positions.hpp>
 #include <raikiri/venues/hyperliquid/post.hpp>
 
 #include <gtest/gtest.h>
@@ -121,6 +122,26 @@ TEST(HyperliquidPost, ThePostCapHoldsTheRestForRest) {
     }
     EXPECT_EQ(socket.size(), k_post_in_flight);
     EXPECT_EQ(rest_sends, 3);
+}
+
+TEST(HyperliquidMargin, ActiveAssetDataCarriesTheLeverageAndItsMode) {
+    const auto body = fixture("rest_active_asset_data.json");
+    const auto leverage = parse_active_asset_leverage(body);
+    ASSERT_TRUE(leverage.has_value());
+    EXPECT_EQ(leverage->type, "cross");
+    EXPECT_EQ(leverage->value, 3);
+    EXPECT_FALSE(parse_active_asset_leverage(R"({"user":"0x0","coin":"APT"})").has_value());
+}
+
+TEST(HyperliquidMargin, AnActionAnswerIsEitherTakenOrTheVenuesProse) {
+    const auto taken = parse_action_refusal(fixture("rest_update_leverage.json"));
+    ASSERT_TRUE(taken.has_value());
+    EXPECT_TRUE(taken->empty());
+
+    const auto refused = parse_action_refusal(R"({"status":"err","response":"Invalid leverage value"})");
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_EQ(*refused, "Invalid leverage value");
+    EXPECT_FALSE(parse_action_refusal("null").has_value());
 }
 
 } // namespace

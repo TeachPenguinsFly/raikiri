@@ -69,6 +69,10 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     modify_order(const OrderCmd& cmd, const exec::InstrumentTable& table, std::int64_t asset, std::uint64_t nonce);
 
+    // one action sets the leverage and whether it is cross; the venue wants both every time
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    update_leverage(std::int64_t asset, bool is_cross, std::uint32_t leverage, std::uint64_t nonce);
+
 private:
     [[nodiscard]] static std::uint64_t digits_to_oid(std::string_view text) noexcept;
 

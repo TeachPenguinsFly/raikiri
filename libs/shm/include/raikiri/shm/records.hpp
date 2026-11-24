@@ -5,6 +5,7 @@
 #include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/fill_report.hpp>
 #include <raikiri/domain/ledger_entry.hpp>
+#include <raikiri/domain/margin.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -120,6 +121,8 @@ inline constexpr std::size_t k_cmd_ring = 4096;
 inline constexpr std::size_t k_funding_charge_ring = 4096;
 // holds a busy account's executions over one pull window
 inline constexpr std::size_t k_fill_ring = 8192;
+// a person changes leverage; nothing queues here
+inline constexpr std::size_t k_margin_ring = 64;
 // zeroed at creation, so this is resident memory per gateway
 inline constexpr std::size_t k_gateway_segment_bytes = 64ULL << 20;
 
@@ -158,6 +161,11 @@ using LedgerEntryReader = BroadcastReader<LedgerEntryRec, k_funding_charge_ring>
 using FillReader = BroadcastReader<FillRec, k_fill_ring>;
 using CmdProducer = SpscProducer<OrderCmd, k_cmd_ring>;
 using CmdConsumer = SpscConsumer<OrderCmd, k_cmd_ring>;
+using MarginRequestRing = SpscRing<MarginRequest, k_margin_ring>;
+using MarginRequestProducer = SpscProducer<MarginRequest, k_margin_ring>;
+using MarginRequestConsumer = SpscConsumer<MarginRequest, k_margin_ring>;
+using MarginReplyRing = BroadcastRing<MarginReply, k_margin_ring>;
+using MarginReplyReader = BroadcastReader<MarginReply, k_margin_ring>;
 
 // feed health over the gateway's rolling window; lag is ts_recv - ts_event on the local clock
 struct ChannelMetrics {
@@ -230,6 +238,10 @@ struct GatewayChannels {
     // manual orders from admind; strategyd reads them so they meet the same risk gate
     CmdRing* order_intents{nullptr};
     VenueMetricsCell* metrics{nullptr};
+    // leverage and margin-mode requests from the desk, answered by the account poller; the desk lease covers the
+    // producer. Null on a gateway built before them, and the reply ring stays empty where no poller runs
+    MarginRequestRing* margin_requests{nullptr};
+    MarginReplyRing* margin_replies{nullptr};
 };
 
 [[nodiscard]] std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& owner);

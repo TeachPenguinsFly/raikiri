@@ -196,6 +196,48 @@ public:
         return charges;
     }
 
+    // orders here go out under one trade mode per market, so that is the mode an instrument has
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto td_mode = td_mode_of(instrument.market());
+        if (!td_mode.has_value() || *td_mode != "cross") {
+            return std::unexpected{exec::margin_unsupported("okx leverage is set here on cross swaps and futures")};
+        }
+        const auto body = pull(builder_.leverage_info(symbol, *td_mode, state_->venue_now()));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto lever = parse_leverage_info(*body);
+        if (!lever.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(lever.error()))};
+        }
+        MarginState state{};
+        state.leverage = *lever;
+        state.mode = MarginMode::Cross;
+        return state;
+    }
+
+    std::expected<void, exec::VenueError> set_leverage(InstrumentId instrument, std::uint32_t leverage) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto td_mode = td_mode_of(instrument.market());
+        if (!td_mode.has_value() || *td_mode != "cross") {
+            return std::unexpected{exec::margin_unsupported("okx leverage is set here on cross swaps and futures")};
+        }
+        if (const auto body = pull(builder_.set_leverage(symbol, leverage, *td_mode, state_->venue_now()));
+            !body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        return {};
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         switch (market) {
         case MarketType::Perp:

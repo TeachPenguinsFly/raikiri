@@ -30,4 +30,7 @@ struct PositionBuffer {
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
                                                                                       PositionBuffer& storage);
 
+// the first row's lever of /api/v5/account/leverage-info; long/short mode answers one row a side with the same figure
+[[nodiscard]] std::expected<std::uint32_t, WireError> parse_leverage_info(std::string_view body);
+
 } // namespace raikiri::venues::okx

@@ -69,6 +69,13 @@ public:
 
     // wallet rows and the margin mode that qualifies them, in one answer
     [[nodiscard]] std::expected<net::RestRequest, BuildError> account(UnixNanos now);
+
+    // usd-m futures only
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    set_leverage(std::string_view symbol, std::uint32_t leverage, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    set_margin_type(std::string_view symbol, bool isolated, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> symbol_config(std::string_view symbol, UnixNanos now);
     [[nodiscard]] std::expected<net::RestRequest, BuildError> option_account(UnixNanos now, bool margin = false);
 
     // the account's money movements; each trade's premium and fee rows name its symbol

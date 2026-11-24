@@ -396,6 +396,56 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::account(UnixNanos no
     return finish(net::HttpMethod::Get, ep::k_account, q.size());
 }
 
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::set_leverage(std::string_view symbol, std::uint32_t leverage, UnixNanos now) {
+    if (!signer_->has_credentials()) {
+        return std::unexpected{BuildError::NoCredentials};
+    }
+    if (symbol.empty() || leverage == 0 || spot_ || option_) {
+        return std::unexpected{BuildError::BadValue};
+    }
+    Appender q{query_};
+    q << "symbol=" << symbol << "&leverage=" << std::uint64_t{leverage}
+      << "&recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (!q.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return finish(net::HttpMethod::Post, ep::k_leverage, q.size());
+}
+
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::set_margin_type(std::string_view symbol, bool isolated, UnixNanos now) {
+    if (!signer_->has_credentials()) {
+        return std::unexpected{BuildError::NoCredentials};
+    }
+    if (symbol.empty() || spot_ || option_) {
+        return std::unexpected{BuildError::BadValue};
+    }
+    Appender q{query_};
+    q << "symbol=" << symbol
+      << "&marginType=" << (isolated ? std::string_view{"ISOLATED"} : std::string_view{"CROSSED"})
+      << "&recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (!q.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return finish(net::HttpMethod::Post, ep::k_margin_type, q.size());
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::symbol_config(std::string_view symbol, UnixNanos now) {
+    if (!signer_->has_credentials()) {
+        return std::unexpected{BuildError::NoCredentials};
+    }
+    if (symbol.empty() || spot_ || option_) {
+        return std::unexpected{BuildError::BadValue};
+    }
+    Appender q{query_};
+    q << "symbol=" << symbol << "&recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (!q.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return finish(net::HttpMethod::Get, ep::k_symbol_config, q.size());
+}
+
 std::expected<net::RestRequest, BuildError> RequestBuilder::option_bill(UnixNanos since, UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};

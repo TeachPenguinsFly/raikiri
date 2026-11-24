@@ -29,7 +29,7 @@ constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 constexpr std::uint64_t k_trade_ping_interval_ns = 15'000'000'000ULL;
 
 // orders go out on the trade socket, or over rest while it is down, and come back on the private socket
-class OkxExec final : public exec::ExecutionClient {
+class OkxExec final : public exec::ExecutionClient, public exec::MarginControl {
 public:
     explicit OkxExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
 
@@ -110,6 +110,23 @@ public:
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
                                                                               UnixNanos since) override {
         return api_.funding_charges(market, since);
+    }
+
+    exec::MarginControl* margin_control() noexcept override { return this; }
+
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
+        return api_.margin_state(instrument);
+    }
+
+    std::expected<void, exec::VenueError>
+    set_leverage(InstrumentId instrument, std::uint32_t leverage, const MarginState&) override {
+        return api_.set_leverage(instrument, leverage);
+    }
+
+    // the mode is a field of each order (tdMode), and td_mode_of sends cross
+    std::expected<void, exec::VenueError> set_margin_mode(InstrumentId, MarginMode, const MarginState&) override {
+        return std::unexpected{
+            exec::margin_unsupported("okx takes the margin mode per order, and this gateway places cross orders")};
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {

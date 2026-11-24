@@ -37,7 +37,7 @@ constexpr std::uint64_t k_post_ping_interval_ns = 20'000'000'000ULL;
 
 // no private socket: the /exchange reply is the verdict, and this
 // table tracks requests with no reply
-class HyperliquidExec final : public exec::ExecutionClient {
+class HyperliquidExec final : public exec::ExecutionClient, public exec::MarginControl {
 public:
     explicit HyperliquidExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {}
 
@@ -117,6 +117,28 @@ public:
     std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
                                                                                 UnixNanos since) override {
         return api_.fill_reports(market, since);
+    }
+
+    exec::MarginControl* margin_control() noexcept override { return this; }
+
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
+        return api_.margin_state(instrument);
+    }
+
+    std::expected<void, exec::VenueError>
+    set_leverage(InstrumentId instrument, std::uint32_t leverage, const MarginState& current) override {
+        return api_.update_leverage(instrument, current.mode != MarginMode::Isolated, leverage);
+    }
+
+    std::expected<void, exec::VenueError>
+    set_margin_mode(InstrumentId instrument, MarginMode mode, const MarginState& current) override {
+        if (current.leverage == 0) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal,
+                                       0,
+                                       "hyperliquid: the mode is set with a leverage, and the current one is unknown")};
+        }
+        return api_.update_leverage(instrument, mode == MarginMode::Cross, current.leverage);
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {

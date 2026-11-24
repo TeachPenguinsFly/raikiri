@@ -28,6 +28,9 @@ venues:
       - { match: "/fapi/v1/userTrades", cost: 5 }
       - { match: "/fapi/v2/account", cost: 5 }
       - { match: "/fapi/v3/positionRisk", cost: 5 }
+      - { match: "/fapi/v1/leverage", cost: 1 }
+      - { match: "/fapi/v1/marginType", cost: 1 }
+      - { match: "/fapi/v1/symbolConfig", cost: 5 }
       - { match: "/fapi/v1/income", cost: 30 }
       - { match: "/fapi/v1/exchangeInfo", cost: 1 }
       - { match: "/fapi/v1/time", cost: 1 }
@@ -99,7 +102,7 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: orders, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/create", "/v5/order/cancel", "/v5/order/amend"] }
-      - { name: account, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/realtime", "/v5/position/list", "/v5/account/wallet-balance", "/v5/execution/list"] }
+      - { name: account, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/realtime", "/v5/position/list", "/v5/position/set-leverage", "/v5/account/wallet-balance", "/v5/execution/list"] }
       - { name: ledger, window_ms: 1000, max: 22, match: ["/v5/account/transaction-log"] }
       - { name: ws_streams, kind: ws_streams, max: 512 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
@@ -212,6 +215,8 @@ venues:
       - { name: orders, window_ms: 2000, max: 54, reserve: 10, match: ["/api/v5/trade/"] }
       - { name: account, window_ms: 2000, max: 9, match: ["/api/v5/account/positions", "/api/v5/account/balance"] }
       - { name: bills, window_ms: 1000, max: 4, match: ["/api/v5/account/bills"] }
+      # 20 per 2 s each by user id
+      - { name: leverage, window_ms: 2000, max: 18, match: ["/api/v5/account/set-leverage", "/api/v5/account/leverage-info"] }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 350, max: 1 }
       - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 3 }
       - { name: ws_streams, kind: ws_streams, max: 1024 }

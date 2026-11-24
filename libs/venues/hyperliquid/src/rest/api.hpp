@@ -222,6 +222,71 @@ public:
         return charges;
     }
 
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) {
+        if (instrument.market() != MarketType::Perp) {
+            return std::unexpected{exec::margin_unsupported("hyperliquid leverage belongs to perpetuals")};
+        }
+        if (state_->address.empty()) {
+            return std::unexpected{no_address()};
+        }
+        const auto coin = state_->instruments.exchange_symbol(instrument);
+        if (coin.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto body = read_info(*state_, rest_, requests_.active_asset_data(state_->address, coin));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto wire = parse_active_asset_leverage(*body);
+        if (!wire.has_value()) {
+            return std::unexpected{unreadable(wire.error())};
+        }
+        MarginState state{};
+        state.leverage = wire->value > 0 ? static_cast<std::uint32_t>(wire->value) : 0;
+        if (wire->type == "isolated") {
+            state.mode = MarginMode::Isolated;
+        } else if (wire->type == "cross") {
+            state.mode = MarginMode::Cross;
+        }
+        return state;
+    }
+
+    std::expected<void, exec::VenueError>
+    update_leverage(InstrumentId instrument, bool is_cross, std::uint32_t leverage) {
+        const auto found = state_->asset_ids.find(instrument.packed);
+        const auto request = builder_.update_leverage(found == state_->asset_ids.end() ? -1 : found->second,
+                                                      is_cross,
+                                                      leverage,
+                                                      state_->nonces.next(state_->clock->wall()));
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                request.error() == BuildError::NotSigned ? exec::ErrorClass::AuthFailure : exec::ErrorClass::Terminal,
+                0,
+                to_string(request.error()))};
+        }
+        const auto response = await_response(*state_, rest_, *request);
+        if (!response.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "hyperliquid: no response before deadline")};
+        }
+        if (response->transport_failed()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        }
+        if (response->status < 200 || response->status >= 300) {
+            return std::unexpected{
+                exec::VenueError::make(classify(response->status, response->body), response->status, response->body)};
+        }
+        const auto refusal = parse_action_refusal(response->body);
+        if (!refusal.has_value()) {
+            return std::unexpected{unreadable(refusal.error())};
+        }
+        if (!refusal->empty()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0, *refusal)};
+        }
+        return {};
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};

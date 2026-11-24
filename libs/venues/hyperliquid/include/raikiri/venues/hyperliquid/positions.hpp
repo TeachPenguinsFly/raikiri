@@ -39,4 +39,15 @@ struct PositionBuffer {
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
                                                                                       PositionBuffer& storage);
 
+// activeAssetData's leverage object: {"type":"cross","value":3}
+struct WireLeverage {
+    std::string_view type; // cross or isolated
+    std::int64_t value{0};
+};
+
+[[nodiscard]] std::expected<WireLeverage, WireError> parse_active_asset_leverage(std::string_view body);
+
+// an /exchange answer to an action that has no statuses: empty when it was taken, else the venue's prose
+[[nodiscard]] std::expected<std::string_view, WireError> parse_action_refusal(std::string_view body);
+
 } // namespace raikiri::venues::hyperliquid

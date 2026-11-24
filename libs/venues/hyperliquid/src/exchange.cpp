@@ -539,6 +539,28 @@ std::expected<net::RestRequest, BuildError> ExchangeBuilder::modify_order(const 
     return sign_and_wrap(action.packed(), action.json(), nonce);
 }
 
+std::expected<net::RestRequest, BuildError>
+ExchangeBuilder::update_leverage(std::int64_t asset, bool is_cross, std::uint32_t leverage, std::uint64_t nonce) {
+    if (!wallet_->loaded()) {
+        return std::unexpected{BuildError::NotSigned};
+    }
+    if (asset < 0) {
+        return std::unexpected{BuildError::UnknownAsset};
+    }
+    // key order is the signed preimage's
+    ActionWriter action{packed_, action_json_};
+    action.map(4);
+    action.key("type").str("updateLeverage");
+    action.key("asset").integer(static_cast<std::uint64_t>(asset));
+    action.key("isCross").boolean(is_cross);
+    action.key("leverage").integer(leverage);
+    action.end_map();
+    if (!action.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign_and_wrap(action.packed(), action.json(), nonce);
+}
+
 std::uint64_t ExchangeBuilder::digits_to_oid(std::string_view text) noexcept {
     std::uint64_t value = 0;
     const auto [stop, ec] = std::from_chars(text.data(), text.data() + text.size(), value);

@@ -64,11 +64,13 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
     ch.order_intents = owner.create_channel<CmdRing>("order_intents");
     ch.metrics = owner.create_channel<VenueMetricsCell>("metrics");
+    ch.margin_requests = owner.create_channel<MarginRequestRing>("margin_req");
+    ch.margin_replies = owner.create_channel<MarginReplyRing>("margin_rep");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr || ch.funding == nullptr ||
         ch.md_events == nullptr || ch.exec_events == nullptr || ch.funding_charges == nullptr || ch.fills == nullptr ||
         ch.open_orders == nullptr || ch.greeks == nullptr || ch.ticker_stats == nullptr || ch.positions == nullptr ||
         ch.balances == nullptr || ch.cmd_create == nullptr || ch.cmd_cancel == nullptr || ch.order_intents == nullptr ||
-        ch.metrics == nullptr) {
+        ch.metrics == nullptr || ch.margin_requests == nullptr || ch.margin_replies == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small
     }
     return ch;
@@ -143,6 +145,9 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!metrics) {
         return std::unexpected{metrics.error()};
     }
+    // absent on a gateway built before them; the holder checks for null
+    const auto margin_requests = client.open_channel<MarginRequestRing>("margin_req");
+    const auto margin_replies = client.open_channel<MarginReplyRing>("margin_rep");
     // named so a field added to GatewayChannels cannot shift the others
     return GatewayChannels{.catalogue = *catalogue,
                            .bbo = *bbo,
@@ -160,7 +165,9 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
                            .cmd_create = *create,
                            .cmd_cancel = *cancel,
                            .order_intents = *intents,
-                           .metrics = *metrics};
+                           .metrics = *metrics,
+                           .margin_requests = margin_requests.value_or(nullptr),
+                           .margin_replies = margin_replies.value_or(nullptr)};
 }
 
 std::string gateway_segment_path(AccountId account) {

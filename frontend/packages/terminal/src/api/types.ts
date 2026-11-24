@@ -91,6 +91,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/accounts/{account}/leverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description An account name, as `GET /v1/accounts` returns it. */
+                account: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The leverage and margin mode an instrument has on the venue
+         * @description Asked of the venue through the account's gateway, so the answer is what the
+         *     venue holds now and costs one or two private calls. A field the venue does
+         *     not state is absent.
+         */
+        get: operations["getLeverage"];
+        /**
+         * Set an instrument's leverage, margin mode or both on the venue
+         * @description The gateway reads the venue, sends only what differs, and reads again; the
+         *     answer is the state after. Setting what is already held changes nothing and
+         *     answers 200. The margin mode goes first, so a refused leverage can leave a
+         *     changed mode: the 409 says why, and `GET` says what holds. Every attempt
+         *     that reaches the gateway is journalled under `margin.set` with who asked and
+         *     the state before and after; see `GET /v1/audit`.
+         *
+         *     Venues differ. Bybit keeps one margin mode for the whole unified account and
+         *     OKX takes it per order, so `margin_mode` there answers 501 unless it names
+         *     the mode already in force.
+         */
+        put: operations["setLeverage"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/markets": {
         parameters: {
             query?: never;
@@ -2532,6 +2570,23 @@ export interface components {
             liquidity?: "maker" | "taker" | "internal" | "unknown";
             ts_event: components["schemas"]["Nanos"];
         };
+        /** @enum {string} */
+        MarginMode: "cross" | "isolated";
+        LeverageState: {
+            account: string;
+            instrument_id: components["schemas"]["InstrumentId"];
+            /** @description Absent where the venue does not state one, as under portfolio margin. */
+            leverage?: number;
+            margin_mode?: components["schemas"]["MarginMode"];
+            /** @description The instrument's ceiling, where the venue's answer carries it. */
+            max_leverage?: number;
+        };
+        /** @description At least one of `leverage` and `margin_mode`. */
+        SetLeverage: {
+            instrument_id: components["schemas"]["InstrumentId"];
+            leverage?: number;
+            margin_mode?: components["schemas"]["MarginMode"];
+        };
         Position: {
             instrument_id: components["schemas"]["InstrumentId"];
             /** @description The book's id. */
@@ -3339,6 +3394,233 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Account"][];
+                };
+            };
+        };
+    };
+    getLeverage: {
+        parameters: {
+            query: {
+                instrument_id: components["schemas"]["InstrumentId"];
+            };
+            header?: never;
+            path: {
+                /** @description An account name, as `GET /v1/accounts` returns it. */
+                account: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeverageState"];
+                };
+            };
+            /** @description `instrument_id` is missing or not digits. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such instrument, or it is not listed on this account. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The instrument is spot or an option, or the body asks for nothing or for a
+             *     leverage outside 1 to 1000.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The gateway's rate budget for the venue is spent. Worth retrying. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The venue has no such call here, or this gateway serves no account calls
+             *     (built before them, or running without credentials). `detail` says which.
+             */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The venue call did not complete: no answer, or the key was refused. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account's gateway is down or not draining requests. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The gateway did not answer in time. A change may still have reached the
+             *     venue; read the state again before retrying.
+             */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setLeverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description An account name, as `GET /v1/accounts` returns it. */
+                account: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLeverage"];
+            };
+        };
+        responses: {
+            /** @description The state the venue holds after the change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeverageState"];
+                };
+            };
+            /** @description The body is not JSON. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such instrument, or it is not listed on this account. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The venue refused: an open position or open orders block a margin-mode
+             *     switch, the leverage is above the instrument's maximum, or the like. `detail`
+             *     is the venue's own reason and code.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The instrument is spot or an option, or the body asks for nothing or for a
+             *     leverage outside 1 to 1000.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The gateway's rate budget for the venue is spent. Worth retrying. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The venue has no such call here, or this gateway serves no account calls
+             *     (built before them, or running without credentials). `detail` says which.
+             */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The venue call did not complete: no answer, or the key was refused. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account's gateway is down or not draining requests. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The gateway did not answer in time. A change may still have reached the
+             *     venue; read the state again before retrying.
+             */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

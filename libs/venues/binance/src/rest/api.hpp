@@ -350,6 +350,77 @@ public:
         return out;
     }
 
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        if (const auto allowed = spend(ep::k_symbol_config, exec::RateClass::Poll); !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
+        const auto request = builder().symbol_config(symbol, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto body = pull(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto row = parse_symbol_config(*body, symbol);
+        if (!row.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "no symbol configuration in the answer")};
+        }
+        MarginState state{};
+        state.leverage = row->leverage > 0 ? static_cast<std::uint32_t>(row->leverage) : 0;
+        if (row->margin_type.starts_with("ISOLATED")) {
+            state.mode = MarginMode::Isolated;
+        } else if (row->margin_type.starts_with("CROSS")) {
+            state.mode = MarginMode::Cross;
+        }
+        return state;
+    }
+
+    std::expected<void, exec::VenueError> set_leverage(InstrumentId instrument, std::uint32_t leverage) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        if (const auto allowed = spend(ep::k_leverage, exec::RateClass::Poll); !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
+        const auto request = builder().set_leverage(symbol, leverage, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        if (const auto body = pull(*request); !body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        return {};
+    }
+
+    std::expected<void, exec::VenueError> set_margin_mode(InstrumentId instrument, MarginMode mode) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        if (const auto allowed = spend(ep::k_margin_type, exec::RateClass::Poll); !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
+        const auto request = builder().set_margin_type(symbol, mode == MarginMode::Isolated, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        // success is {"code":200,"msg":"success"}, which the error reader takes for a refusal
+        if (const auto body = pull(*request); !body.has_value() && body.error().venue_code != 200) {
+            return std::unexpected{body.error()};
+        }
+        return {};
+    }
+
 private:
     // an option gateway does everything signed on eapi and never opens the futures host
     [[nodiscard]] net::RestClient& signed_rest() noexcept { return option_rest_ ? *option_rest_ : rest_; }

@@ -335,6 +335,33 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::account_info(UnixNan
     return signed_get(ep::k_account_info, {}, now);
 }
 
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::set_leverage(MarketType market, std::string_view symbol, std::uint32_t leverage, UnixNanos now) {
+    char buf[24];
+    const auto text = render_u64(leverage, buf);
+    net::JsonWriter json{body_};
+    json.obj_begin()
+        .str("category", category_of(market))
+        .str("symbol", symbol)
+        .str("buyLeverage", text)
+        .str("sellLeverage", text)
+        .obj_end();
+    if (!json.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_post(ep::k_set_leverage, json.view(), now);
+}
+
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::position(MarketType market, std::string_view symbol, UnixNanos now) {
+    Appender query{body_};
+    query << "category=" << category_of(market) << "&symbol=" << symbol;
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_get(ep::k_position_list, query.view(), now);
+}
+
 net::RestRequest RequestBuilder::tickers(MarketType market) {
     Appender target{target_};
     target << ep::k_tickers << "?category=" << category_of(market);

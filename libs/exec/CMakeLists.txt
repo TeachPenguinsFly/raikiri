@@ -2,6 +2,7 @@ add_library(raikiri_exec STATIC
   src/caps.cpp
   src/instrument_source.cpp
   src/instrument_table.cpp
+  src/margin.cpp
   src/order_gate.cpp
   src/rate_budget.cpp
   src/venue.cpp

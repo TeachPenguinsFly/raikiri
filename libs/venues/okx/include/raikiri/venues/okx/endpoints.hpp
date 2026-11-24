@@ -36,6 +36,8 @@ inline constexpr std::string_view k_bills = "/api/v5/account/bills";
 inline constexpr std::string_view k_balance = "/api/v5/account/balance";
 // the account mode decides whether a per-currency available figure means anything
 inline constexpr std::string_view k_account_config = "/api/v5/account/config";
+inline constexpr std::string_view k_set_leverage = "/api/v5/account/set-leverage";
+inline constexpr std::string_view k_leverage_info = "/api/v5/account/leverage-info";
 
 inline constexpr std::string_view k_instruments = "/api/v5/public/instruments";
 // options list by underlying: instruments refuses instType=OPTION without uly or instFamily

@@ -1,10 +1,12 @@
 // admind: http and websocket view of a running deployment; binds loopback, and only the stream checks a token
 
 #include <raikiri/admin/history.hpp>
+#include <raikiri/admin/margin.hpp>
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/routes.hpp>
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/admin/stream_token.hpp>
+#include <raikiri/audit/file_sink.hpp>
 #include <raikiri/audit/file_store.hpp>
 #include <raikiri/audit/query.hpp>
 #include <raikiri/audit/routes.hpp>
@@ -249,6 +251,17 @@ int main(int argc, char** argv) {
     const optionrisk::RiskRoutes option_risk_routes{option_risk};
     const books::BookRoutes book_routes{book_registry};
 
+    // leverage and margin-mode changes are journalled here, beside strategyd's stream
+    auto margin_journal = audit::FileSink::open(audit_dir + "/admind", audit::SinkOptions{}, clock);
+    if (!margin_journal.has_value()) {
+        RLOG_ERROR("admind: cannot open the audit stream under {}; leverage changes are refused", audit_dir);
+    }
+    admin::ShmMarginGateway margin_gateway{registry, [&clock] { return clock.mono(); }};
+    admin::MarginDesk margin_desk{margin_gateway,
+                                  margin_journal.has_value() ? margin_journal->get() : nullptr,
+                                  [&clock] { return clock.wall(); }};
+    const admin::MarginRoutes margin_routes{margin_desk};
+
     // what admind keeps warm on its own schedule; GET /cache/jobs says when each last ran and how long it took
     admin::MarketsCache markets_cache{registry};
     admin::Jobs jobs;
@@ -268,6 +281,7 @@ int main(int argc, char** argv) {
                          option_routes,
                          audit_routes,
                          book_routes,
+                         margin_routes,
                          routes = admin::make_router(
                              registry,
                              history.get(),
@@ -302,6 +316,9 @@ int main(int argc, char** argv) {
                                 return std::move(*answer);
                             }
                             if (auto answer = book_routes(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
+                            if (auto answer = margin_routes(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
                             return routes(req);

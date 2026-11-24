@@ -573,6 +573,30 @@ void publish_fills(const raikiri::exec::VenueAdapter& adapter,
     }
 }
 
+// leverage and margin-mode requests from admind; the poller serves them because its adapter signs account calls
+void serve_margin_requests(raikiri::exec::VenueAdapter& adapter,
+                           raikiri::shm::MarginRequestConsumer& requests,
+                           raikiri::shm::MarginReplyRing& replies,
+                           const raikiri::Clock& clock,
+                           std::string_view who) {
+    raikiri::MarginRequest request{};
+    while (requests.try_pop(request)) {
+        const auto reply = raikiri::exec::serve_margin(adapter.execution->margin_control(), request, clock.wall());
+        if (request.op == raikiri::MarginOp::Set) {
+            RLOG_INFO("gatewayd[{}]: margin on {} — {}x {} to {}x {}{}{}",
+                      who,
+                      request.instrument.packed,
+                      reply.before.leverage,
+                      to_string(reply.before.mode),
+                      reply.after.leverage,
+                      to_string(reply.after.mode),
+                      reply.outcome == raikiri::MarginOutcome::Done ? "" : " — ",
+                      reply.reason());
+        }
+        replies.publish(reply);
+    }
+}
+
 void publish_positions(const raikiri::exec::VenueAdapter& adapter,
                        raikiri::MarketType market,
                        const raikiri::shm::CatalogueTable& catalogue,
@@ -1399,6 +1423,13 @@ int main(int argc, char** argv) {
             poller = std::thread([&] {
                 auto* channels_ptr = &*channels;
                 bool option_mode_read = market != MarketType::Option || option_account_mode.empty();
+                shm::MarginRequestConsumer margin_requests{channels_ptr->margin_requests};
+                // the first record says a poller serves the ring; admind refuses at once where it finds none
+                channels_ptr->margin_replies->publish({});
+                const auto serve_margin = [&] {
+                    serve_margin_requests(
+                        *poller_adapter, margin_requests, *channels_ptr->margin_replies, clock, account_name);
+                };
                 while (!g_stop.load(std::memory_order_relaxed)) {
                     if (poller_adapter->clock.has_value()) {
                         const std::lock_guard lock{clock_mu};
@@ -1419,16 +1450,21 @@ int main(int argc, char** argv) {
                     }
                     publish_positions(
                         *poller_adapter, market, *channels_ptr->catalogue, *channels_ptr->positions, clock.wall());
+                    serve_margin();
                     publish_balances(*poller_adapter, market, *channels_ptr->balances, clock.wall());
+                    serve_margin();
                     publish_open_orders(*poller_adapter, market, *channels_ptr->open_orders, clock.wall());
+                    serve_margin();
                     publish_funding_charges(*poller_adapter,
                                             market,
                                             *channels_ptr->funding_charges,
                                             funding_cursor,
                                             ledger_replay_due,
                                             clock.wall());
+                    serve_margin();
                     publish_fills(*poller_adapter, market, *channels_ptr->fills, fill_cursor);
                     for (int i = 0; i < k_recon_interval_slices && !g_stop.load(std::memory_order_relaxed); ++i) {
+                        serve_margin();
                         std::this_thread::sleep_for(std::chrono::milliseconds{100});
                     }
                 }

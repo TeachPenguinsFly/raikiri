@@ -23,7 +23,7 @@ constexpr std::uint32_t k_trade_stream_id = 2;
 constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 
 // tracks orders sent over rest until the private socket answers; unanswered ones age out as gaps
-class BybitExec final : public exec::ExecutionClient {
+class BybitExec final : public exec::ExecutionClient, public exec::MarginControl {
 public:
     explicit BybitExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
 
@@ -77,6 +77,29 @@ public:
     std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType market,
                                                                                 UnixNanos since) override {
         return api_.fill_reports(market, since);
+    }
+
+    exec::MarginControl* margin_control() noexcept override { return this; }
+
+    std::expected<MarginState, exec::VenueError> margin_state(InstrumentId instrument) override {
+        if (instrument.market() != MarketType::Perp) {
+            return std::unexpected{exec::margin_unsupported("bybit leverage is set here on linear perpetuals only")};
+        }
+        return api_.margin_state(instrument);
+    }
+
+    std::expected<void, exec::VenueError>
+    set_leverage(InstrumentId instrument, std::uint32_t leverage, const MarginState&) override {
+        if (instrument.market() != MarketType::Perp) {
+            return std::unexpected{exec::margin_unsupported("bybit leverage is set here on linear perpetuals only")};
+        }
+        return api_.set_leverage(instrument, leverage);
+    }
+
+    // /v5/account/set-margin-mode moves every symbol and the spot wallet with it, so one instrument's ticket may not
+    std::expected<void, exec::VenueError> set_margin_mode(InstrumentId, MarginMode, const MarginState&) override {
+        return std::unexpected{exec::margin_unsupported(
+            "bybit keeps one margin mode for the whole unified account; it is not changed per instrument")};
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError> position_reports(MarketType market) override {

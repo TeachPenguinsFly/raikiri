@@ -38,6 +38,15 @@ struct WirePositionRisk {
 [[nodiscard]] std::expected<std::span<const WirePositionRisk>, WireError>
 parse_position_risk(std::string_view body, std::span<WirePositionRisk> storage);
 
+// the row of /fapi/v1/symbolConfig for one symbol
+struct WireSymbolConfig {
+    std::string_view margin_type; // CROSSED or ISOLATED
+    std::int64_t leverage{0};
+};
+
+[[nodiscard]] std::expected<WireSymbolConfig, WireError> parse_symbol_config(std::string_view body,
+                                                                             std::string_view symbol);
+
 // /eapi/v1/position: quantity is signed, in contracts
 [[nodiscard]] std::expected<std::span<const WirePositionRisk>, WireError>
 parse_option_positions(std::string_view body, std::span<WirePositionRisk> storage);

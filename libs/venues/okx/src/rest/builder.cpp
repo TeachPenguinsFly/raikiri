@@ -558,6 +558,37 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::account_config(UnixN
     return signed_get(ep::k_account_config, {}, now);
 }
 
+std::expected<net::RestRequest, BuildError> RequestBuilder::set_leverage(std::string_view inst_id,
+                                                                         std::uint32_t leverage,
+                                                                         std::string_view mgn_mode,
+                                                                         UnixNanos now) {
+    std::array<char, 12> buf{};
+    const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), leverage);
+    if (ec != std::errc{}) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    net::JsonWriter json{body_};
+    json.obj_begin()
+        .str("instId", inst_id)
+        .str("lever", std::string_view{buf.data(), static_cast<std::size_t>(stop - buf.data())})
+        .str("mgnMode", mgn_mode)
+        .obj_end();
+    if (!json.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_post(ep::k_set_leverage, json.view(), now);
+}
+
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::leverage_info(std::string_view inst_id, std::string_view mgn_mode, UnixNanos now) {
+    Appender query{body_};
+    query << "instId=" << inst_id << "&mgnMode=" << mgn_mode;
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_get(ep::k_leverage_info, query.view(), now);
+}
+
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market, UnixNanos now) {
     Appender query{body_};
     query << "instType=" << inst_type_of(market);

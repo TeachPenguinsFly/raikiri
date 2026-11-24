@@ -13,6 +13,7 @@
 #include <raikiri/domain/position_report.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/error.hpp>
+#include <raikiri/exec/margin.hpp>
 
 #include <expected>
 #include <span>
@@ -86,6 +87,9 @@ public:
         (void)since;
         return std::unexpected{VenueError::make(ErrorClass::Terminal, 0, "venue reports no funding charges")};
     }
+
+    // leverage and margin mode, where the venue and this market have the calls; null otherwise
+    [[nodiscard]] virtual MarginControl* margin_control() noexcept { return nullptr; }
 
     // account balances; gated by caps.balance_pull for the market asked
     // the account mode options trade under, in the words venues.yaml's option_account_mode uses

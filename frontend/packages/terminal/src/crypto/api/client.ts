@@ -21,6 +21,8 @@ export type Fill = Schema<'Fill'>
 export type PnlIncrement = Schema<'PnlIncrement'>
 export type PnlKind = Schema<'PnlKind'>
 export type ParentOrder = Schema<'ParentOrder'>
+export type LeverageState = Schema<'LeverageState'>
+export type SetLeverage = Schema<'SetLeverage'>
 type Orders = operations['listOrders']['responses'][200]['content']['application/json']
 type Fills = operations['listFills']['responses'][200]['content']['application/json']
 type Pnl = operations['listPnl']['responses'][200]['content']['application/json']
@@ -82,6 +84,18 @@ async function get<T>(path: string, query: Record<string, string | undefined> = 
   return (await r.json()) as T
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${k_base}${path}`, {
+    method: 'PUT',
+    headers: { accept: 'application/json', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => null)) as Problem | null)
+  return (await r.json()) as T
+}
+
+const leveragePath = (account: string) => `/v1/accounts/${encodeURIComponent(account)}/leverage`
+
 async function instruments(account?: string): Promise<Instrument[]> {
   const out: Instrument[] = []
   let cursor: string | undefined
@@ -132,4 +146,9 @@ export const api = {
   pnl: (kind: PnlKind, ask: Omit<PageAsk, 'instrument_id'> = {}) => get<Pnl>('/v1/pnl', { kind, ...pageOf(ask) }),
   parents: () => get<Parents>('/v1/joe/parents'),
   streamToken: () => get<Schema<'StreamToken'>>('/v1/stream/token'),
+  /** what the venue holds for one market; a private call through the account's gateway, so not for polling */
+  leverage: (account: string, instrumentId: string) =>
+    get<LeverageState>(leveragePath(account), { instrument_id: instrumentId }),
+  /** answers the state after the change; a venue refusal is an ApiError 409 whose detail is the venue's reason */
+  setLeverage: (account: string, body: SetLeverage) => put<LeverageState>(leveragePath(account), body),
 }

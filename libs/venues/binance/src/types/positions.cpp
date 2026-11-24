@@ -93,4 +93,41 @@ parse_option_positions(std::string_view body, std::span<WirePositionRisk> storag
     return read_position_rows(body, storage, "quantity");
 }
 
+std::expected<WireSymbolConfig, WireError> parse_symbol_config(std::string_view body, std::string_view symbol) {
+    return guarded([&]() -> std::expected<WireSymbolConfig, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        for (auto entry : *array) {
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto named = wire::req_str(obj, "symbol");
+            if (!named.has_value()) {
+                return std::unexpected(named.error());
+            }
+            if (*named != symbol) {
+                continue;
+            }
+            WireSymbolConfig out{};
+            obj.reset();
+            const auto margin_type = wire::req_str(obj, "marginType");
+            if (!margin_type.has_value()) {
+                return std::unexpected(margin_type.error());
+            }
+            out.margin_type = *margin_type;
+            obj.reset();
+            const auto leverage = wire::opt_i64(obj, "leverage");
+            if (!leverage.has_value()) {
+                return std::unexpected(leverage.error());
+            }
+            out.leverage = *leverage;
+            return out;
+        }
+        return std::unexpected(wire::map_error(simdjson::NO_SUCH_FIELD));
+    });
+}
+
 } // namespace raikiri::venues::binance

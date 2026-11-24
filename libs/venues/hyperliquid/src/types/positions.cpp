@@ -75,4 +75,49 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
     });
 }
 
+std::expected<WireLeverage, WireError> parse_active_asset_leverage(std::string_view body) {
+    return wire::guarded([&]() -> std::expected<WireLeverage, WireError> {
+        auto root = wire::session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto leverage = wire::req_object(*root, "leverage");
+        if (!leverage.has_value()) {
+            return std::unexpected(leverage.error());
+        }
+        WireLeverage out{};
+        const auto type = wire::req_str(*leverage, "type");
+        if (!type.has_value()) {
+            return std::unexpected(type.error());
+        }
+        out.type = *type;
+        leverage->reset();
+        const auto value = wire::opt_i64(*leverage, "value");
+        if (!value.has_value()) {
+            return std::unexpected(value.error());
+        }
+        out.value = *value;
+        return out;
+    });
+}
+
+std::expected<std::string_view, WireError> parse_action_refusal(std::string_view body) {
+    return wire::guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = wire::session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto status = wire::req_str(*root, "status");
+        if (!status.has_value()) {
+            return std::unexpected(status.error());
+        }
+        if (*status == "ok") {
+            return std::string_view{};
+        }
+        root->reset();
+        const auto prose = wire::opt_str(*root, "response").value_or(std::string_view{});
+        return prose.empty() ? std::string_view{"the venue refused without a reason"} : prose;
+    });
+}
+
 } // namespace raikiri::venues::hyperliquid

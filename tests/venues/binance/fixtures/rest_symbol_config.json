@@ -1,0 +1,1 @@
+[{"symbol":"BTCUSDT","marginType":"CROSSED","isAutoAddMargin":false,"leverage":21,"maxNotionalValue":"1000000"},{"symbol":"ETHUSDT","marginType":"ISOLATED","isAutoAddMargin":false,"leverage":5,"maxNotionalValue":"5000000"}]

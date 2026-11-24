@@ -34,4 +34,7 @@ struct PositionBuffer {
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view frame,
                                                                                       PositionBuffer& storage);
 
+// the leverage of the first row of /v5/position/list; zero where the venue leaves it empty, as under portfolio margin
+[[nodiscard]] std::expected<std::uint32_t, WireError> parse_position_leverage(std::string_view result);
+
 } // namespace raikiri::venues::bybit
