@@ -277,6 +277,79 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/assets/{symbol}:
+    parameters:
+      - $ref: "#/components/parameters/AssetSymbol"
+    get:
+      tags: [catalogue]
+      summary: What a coin is
+      description: |
+        The coin behind a base asset: rank, capitalisation, supply, extremes, links
+        and a description. admind asks a public coin catalogue and reshapes the
+        answer, so the terminal calls nothing but admind. An answer is kept for ten
+        minutes, and an older one is served while the catalogue does not answer. A
+        ticker counted in thousands or millions (`1000PEPE`, `kPEPE`) is its coin.
+      operationId: getAsset
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssetProfile" }
+        "400":
+          description: The symbol is not a ticker.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: No coin carries the symbol, or it is a stock's ticker.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: The catalogue is not answering and nothing is kept for this coin.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/assets/{symbol}/icon:
+    parameters:
+      - $ref: "#/components/parameters/AssetSymbol"
+    get:
+      tags: [catalogue]
+      summary: A coin's or a stock's mark
+      description: |
+        The image for a ticker listed in the marks file admind was started with
+        (`--asset-marks`), fetched from its host once and kept in `--asset-cache`,
+        so it is served from disk afterwards and across restarts. Answered with a
+        week of `cache-control`. Marks the terminal bundles are not served here.
+      operationId: getAssetIcon
+      responses:
+        "200":
+          description: OK
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+            image/gif: { schema: { type: string, format: binary } }
+        "400":
+          description: The symbol is not a ticker.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: |
+            No image for this ticker, or admind runs without a marks file or an
+            image cache.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: The image host is not answering.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/markets:
     get:
       tags: [catalogue]
@@ -1649,6 +1722,12 @@ paths:
 
 components:
   parameters:
+    AssetSymbol:
+      name: symbol
+      in: path
+      required: true
+      description: A base asset's ticker, in either case.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-][A-Za-z0-9._-]{0,23}$', examples: ["BTC"] }
     Account:
       name: account
       in: query
@@ -3560,6 +3639,44 @@ components:
     MarginMode:
       type: string
       enum: [cross, isolated]
+
+    AssetLinks:
+      type: object
+      description: http and https addresses; each is absent where the catalogue has none.
+      properties:
+        website: { type: string }
+        whitepaper: { type: string }
+        explorer: { type: string }
+
+    AssetProfile:
+      type: object
+      required: [symbol, name, links, categories, description]
+      description: |
+        Amounts are decimal strings, in dollars unless they count coins, and absent
+        where the catalogue has none.
+      properties:
+        symbol:
+          type: string
+          description: The ticker the coin was found under, upper case and without a multiplier.
+        name: { type: string }
+        rank: { type: integer, minimum: 1, description: By market capitalisation. }
+        market_cap: { $ref: "#/components/schemas/Decimal" }
+        fully_diluted: { $ref: "#/components/schemas/Decimal" }
+        circulating_supply: { $ref: "#/components/schemas/Decimal" }
+        total_supply: { $ref: "#/components/schemas/Decimal" }
+        max_supply: { $ref: "#/components/schemas/Decimal" }
+        ath: { $ref: "#/components/schemas/Decimal" }
+        ath_at: { type: string, format: date-time }
+        atl: { $ref: "#/components/schemas/Decimal" }
+        atl_at: { type: string, format: date-time }
+        launched: { type: string, format: date }
+        links: { $ref: "#/components/schemas/AssetLinks" }
+        categories:
+          type: array
+          items: { type: string }
+        description:
+          type: string
+          description: Plain text, empty when the catalogue has none.
 
     LeverageState:
       type: object

@@ -11,9 +11,9 @@ const k_icons: Record<string, string> = Object.fromEntries(
   ).map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, path.lastIndexOf('.')), url]),
 )
 
-/** every other ticker scripts/coin_icons.py matched: CoinGecko id, name and image path on CoinGecko's CDN, empty for
- * the coins with a file above; a stock's has no id or name, its logo's path and 'eq'. Thousands of them, so fetched
- * once, when the first icon without a file of its own is drawn */
+/** every other ticker scripts/coin_icons.py matched: catalogue id, name and image path on the catalogue's image host,
+ * empty for the coins with a file above; a stock's has no id, its logo's path and 'eq'. Thousands of them, so fetched
+ * once, when the first icon without a file of its own is drawn. admind reads the same file and serves the images */
 type Mark = [id: string, name: string, image: string, kind?: 'eq']
 let loaded: Record<string, Mark> | undefined
 let loading: Promise<Record<string, Mark>> | undefined
@@ -39,9 +39,17 @@ const subscribe = (f: () => void) => {
 const unsubscribed = () => () => {}
 const snapshot = () => loaded
 
-/** same-origin proxies of CoinGecko's image CDN and of the stock logos */
-const markSrc = (m: Mark | undefined) =>
-  m === undefined || m[2] === '' ? undefined : m[3] === 'eq' ? `/stockimg/${m[2]}` : `/coinimg/${m[2]}`
+/** where admind answers; '' at the root, a prefix inside a larger shell. This package knows no api client, so the
+ * app says */
+let iconBase = ''
+
+export function setCoinIconBase(base: string) {
+  iconBase = base
+}
+
+/** admind's copy of the mark, by ticker */
+const markSrc = (key: string, m: Mark | undefined) =>
+  m === undefined || m[2] === '' ? undefined : `${iconBase}/v1/assets/${encodeURIComponent(key)}/icon`
 
 /** 1000PEPE and kPEPE are PEPE counted in thousands */
 const bare = (symbol: string) => symbol.toUpperCase().replace(/^(1000000|1000|1M|K)(?=[A-Z])/, '')
@@ -60,15 +68,6 @@ export function coinName(symbol: string): string | undefined {
   return (k_names as Record<string, string>)[key] ?? (loaded?.[key]?.[1] || undefined) ?? k_metals[key]?.[0]
 }
 
-/** the ticker's CoinGecko id, undefined until the marks are in or when it has none */
-export const coinId = (symbol: string) => loaded?.[bare(symbol)]?.[0] || undefined
-
-/** the ticker's CoinGecko id once the marks are in; null for a stock's ticker, which no coin should be looked up by */
-export async function coinIdAsync(symbol: string): Promise<string | null | undefined> {
-  const m = (await marks())[bare(symbol)]
-  return m?.[3] === 'eq' ? null : m?.[0] || undefined
-}
-
 /** a coin's round mark, or its first letter on a disc when the coin list has none */
 export function CoinIcon({
   symbol,
@@ -84,7 +83,8 @@ export function CoinIcon({
   const icon = plain ? undefined : k_icons[key]
   const all = useSyncExternalStore(plain || icon !== undefined ? unsubscribed : subscribe, snapshot)
   const [broken, setBroken] = useState<string>()
-  const src = icon ?? (plain ? undefined : markSrc(all?.[key]))
+  const src = icon ?? (plain ? undefined : markSrc(key, all?.[key]))
+  const stock = icon === undefined && all?.[key]?.[3] === 'eq'
   const metal = plain ? undefined : k_metals[key]
   const c = cn('inline-block shrink-0 rounded-full', className)
   if (src !== undefined && src !== broken)
@@ -95,7 +95,7 @@ export function CoinIcon({
         alt=""
         decoding="async"
         onError={() => setBroken(src)}
-        className={cn(c, src.startsWith('/stockimg/') ? 'bg-white object-contain p-[12%]' : 'object-cover')}
+        className={cn(c, stock ? 'bg-white object-contain p-[12%]' : 'object-cover')}
       />
     )
   if (metal !== undefined)

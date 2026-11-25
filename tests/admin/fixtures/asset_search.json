@@ -1,0 +1,9 @@
+{
+  "coins": [
+    { "id": "pepe-fork", "name": "Pepe Fork", "symbol": "PEPE", "market_cap_rank": null },
+    { "id": "pepecoin-2", "name": "Pepecoin", "symbol": "PEPECOIN", "market_cap_rank": 400 },
+    { "id": "pepe-old", "name": "Pepe (old)", "symbol": "pepe", "market_cap_rank": 2210 },
+    { "id": "pepe", "name": "Pepe", "symbol": "PEPE", "market_cap_rank": 31 }
+  ],
+  "exchanges": []
+}

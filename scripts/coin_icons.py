@@ -6,8 +6,9 @@
 Reads the market list from a running admind, ranked as the terminal shows it, and matches each base asset to the coin
 under that ticker priced like our markets. The top-ranked get 64 px webp icons plus names.json in
 frontend/packages/ui/src/assets/coins; every match, those included, goes into marks.json with its CoinGecko id and
-name, and the ones without a local icon with the path of CoinGecko's image, which the terminal draws through its
-/coinimg/ proxy. A stock gets the logo financialmodelingprep.com serves by ticker, drawn through /stockimg/. A ticker
+name, and the ones without a local icon with the path of CoinGecko's image. A stock gets the logo
+financialmodelingprep.com serves by ticker. The terminal asks admind for those images (GET /v1/assets/{symbol}/icon),
+and admind, started with --asset-marks <marks.json> and --asset-cache <dir>, fetches each once and keeps it. A ticker
 neither knows keeps the lettered fallback.
 """
 import argparse

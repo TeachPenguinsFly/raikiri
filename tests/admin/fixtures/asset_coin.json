@@ -1,0 +1,27 @@
+{
+  "id": "pepe",
+  "symbol": "pepe",
+  "name": "Pepe",
+  "web_slug": "pepe",
+  "categories": ["Meme", null, "Frog-Themed", ""],
+  "description": { "en": "  Pepe is a <a href=\"https://example.org/meme\">meme coin</a> on Ethereum.\r\nIt has 3 < 5 holders.  " },
+  "links": {
+    "homepage": ["", "ftp://old.example.org", "https://www.pepe.vip/"],
+    "whitepaper": "",
+    "blockchain_site": ["https://etherscan.io/token/0x6982508145454ce325ddbe47a25d4ec3d2311933", ""]
+  },
+  "genesis_date": null,
+  "market_cap_rank": 31,
+  "market_data": {
+    "current_price": { "usd": 0.00000412, "eur": 0.0000038 },
+    "market_cap": { "usd": 1733519864, "eur": 1500000000 },
+    "fully_diluted_valuation": { "usd": 1733519864.5 },
+    "circulating_supply": 420689899653542.56,
+    "total_supply": 420690000000000.0,
+    "max_supply": null,
+    "ath": { "usd": 2.803e-05 },
+    "ath_date": { "usd": "2024-12-09T16:30:41.698Z" },
+    "atl": { "usd": 5.5142e-08 },
+    "atl_date": { "usd": "2023-04-18T02:14:41.591Z" }
+  }
+}

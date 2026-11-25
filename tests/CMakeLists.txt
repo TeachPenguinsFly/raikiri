@@ -65,6 +65,8 @@ target_link_libraries(admin_test
 
 raikiri_add_test(admin_warm_test SRCS admin/warm_test.cpp LIBS raikiri::admin)
 raikiri_add_test(admin_margin_test SRCS admin/margin_test.cpp LIBS raikiri::admin)
+raikiri_add_test(admin_assets_test SRCS admin/assets_test.cpp LIBS raikiri::admin)
+target_compile_definitions(admin_assets_test PRIVATE RAIKIRI_ADMIN_FIXTURES="${PROJECT_SOURCE_DIR}/tests/admin/fixtures")
 
 raikiri_add_test(candles_test SRCS
   candles/builder_test.cpp

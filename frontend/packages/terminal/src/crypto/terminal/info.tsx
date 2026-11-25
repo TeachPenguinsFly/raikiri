@@ -1,61 +1,21 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ExchangeIcon, venueLabel } from '@raikiri/ui'
-import { CoinIcon, coinIdAsync, coinName, compact, Empty } from '@raikiri/ui/v3'
+import { CoinIcon, coinName, compact, Empty } from '@raikiri/ui/v3'
+import { ApiError, get, type Schema } from '../api/client'
 import { px, usd, type Leg, type Pair } from '../lib/market'
 import { spanLabel, Stat } from './header'
 import { useTerminal } from './state'
 
-interface Found {
-  id: string
-  symbol: string
-  market_cap_rank: number | null
-}
+type Coin = Schema<'AssetProfile'>
 
-type Usd = { usd?: number | null }
-
-interface Coin {
-  name?: string
-  market_cap_rank?: number | null
-  genesis_date?: string | null
-  description?: { en?: string }
-  links?: { homepage?: string[]; whitepaper?: string; blockchain_site?: string[] }
-  market_data?: {
-    market_cap?: Usd
-    fully_diluted_valuation?: Usd
-    circulating_supply?: number | null
-    total_supply?: number | null
-    max_supply?: number | null
-    ath?: Usd
-    ath_date?: { usd?: string }
-    atl?: Usd
-    atl_date?: { usd?: string }
-  }
-}
-
-async function ask<T>(path: string): Promise<T> {
-  const r = await fetch(`/cg/${path}`, { headers: { accept: 'application/json' } })
-  if (!r.ok) throw new Error(`HTTP ${r.status}`)
-  return (await r.json()) as T
-}
-
-/** a ticker scripts/coin_icons.py left unmatched: the largest coin CoinGecko's search finds under it */
-async function search(base: string): Promise<string | undefined> {
-  // venues list small coins by the thousand or the million: 1000PEPE and kPEPE are PEPE
-  const symbol = base.replace(/^(1000000|10000|1000|1M|k)(?=[A-Z])/, '').toLowerCase()
-  const { coins } = await ask<{ coins: Found[] }>(`search?query=${encodeURIComponent(symbol)}`)
-  return coins
-    .filter((c) => c.symbol.toLowerCase() === symbol)
-    .sort((a, b) => (a.market_cap_rank ?? Infinity) - (b.market_cap_rank ?? Infinity))[0]?.id
-}
-
-/** the coin behind a base asset, null when none carries the symbol or a stock does */
+/** the coin behind a base asset as admind describes it, null when none carries the symbol or a stock does */
 async function coinOf(base: string): Promise<Coin | null> {
-  const known = await coinIdAsync(base)
-  const id = known === null ? undefined : (known ?? (await search(base)))
-  if (id === undefined) return null
-  return ask<Coin>(
-    `coins/${encodeURIComponent(id)}?localization=false&tickers=false&community_data=false&developer_data=false`,
-  )
+  try {
+    return await get<Coin>(`/v1/assets/${encodeURIComponent(base)}`)
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 400)) return null
+    throw e
+  }
 }
 
 const k_coins = new Map<string, Promise<Coin | null>>()
@@ -99,46 +59,50 @@ const day = (s: string | null | undefined) => {
 
 const dollars = (v: number) => `$${v >= 1 ? px(v, 2) : Number(v.toPrecision(4)).toString()}`
 
-const has = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0
-
-const web = (s: string | undefined) => (s !== undefined && /^https?:\/\//.test(s) ? s : undefined)
+/** admind sends amounts as decimal text and leaves out what the catalogue lacks */
+const num = (s: string | undefined) => {
+  const v = s === undefined ? NaN : Number(s)
+  return Number.isFinite(v) && v > 0 ? v : undefined
+}
 
 function Tiles({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap gap-x-8 gap-y-3">{children}</div>
 }
 
 function CoinFacts({ coin, base }: { coin: Coin; base: string }) {
-  const m = coin.market_data
   const amount = (v: number) => `${compact(v)} ${base}`
-  const high = m?.ath?.usd
-  const low = m?.atl?.usd
-  const highDay = day(m?.ath_date?.usd)
-  const lowDay = day(m?.atl_date?.usd)
-  const launched = day(coin.genesis_date)
+  const cap = num(coin.market_cap)
+  const diluted = num(coin.fully_diluted)
+  const circulating = num(coin.circulating_supply)
+  const total = num(coin.total_supply)
+  const max = num(coin.max_supply)
+  const high = num(coin.ath)
+  const low = num(coin.atl)
+  const highDay = day(coin.ath_at)
+  const lowDay = day(coin.atl_at)
+  const launched = day(coin.launched)
   const links = [
-    ['Website', web(coin.links?.homepage?.find((l) => l !== ''))],
-    ['Whitepaper', web(coin.links?.whitepaper)],
-    ['Explorer', web(coin.links?.blockchain_site?.find((l) => l !== ''))],
+    ['Website', coin.links.website],
+    ['Whitepaper', coin.links.whitepaper],
+    ['Explorer', coin.links.explorer],
   ] as const
-  const about = (coin.description?.en ?? '').replace(/<[^>]+>/g, '').trim()
+  const about = coin.description
   return (
     <>
       <Tiles>
-        {has(coin.market_cap_rank) && <Stat label="Rank">#{coin.market_cap_rank}</Stat>}
-        {has(m?.market_cap?.usd) && <Stat label="Market cap">{usd(m.market_cap.usd)}</Stat>}
-        {has(m?.fully_diluted_valuation?.usd) && (
-          <Stat label="Fully diluted">{usd(m.fully_diluted_valuation.usd)}</Stat>
-        )}
-        {has(m?.circulating_supply) && <Stat label="Circulating">{amount(m.circulating_supply)}</Stat>}
-        {has(m?.total_supply) && <Stat label="Total supply">{amount(m.total_supply)}</Stat>}
-        {has(m?.max_supply) && <Stat label="Max supply">{amount(m.max_supply)}</Stat>}
-        {has(high) && (
+        {coin.rank !== undefined && <Stat label="Rank">#{coin.rank}</Stat>}
+        {cap !== undefined && <Stat label="Market cap">{usd(cap)}</Stat>}
+        {diluted !== undefined && <Stat label="Fully diluted">{usd(diluted)}</Stat>}
+        {circulating !== undefined && <Stat label="Circulating">{amount(circulating)}</Stat>}
+        {total !== undefined && <Stat label="Total supply">{amount(total)}</Stat>}
+        {max !== undefined && <Stat label="Max supply">{amount(max)}</Stat>}
+        {high !== undefined && (
           <Stat label="All-time high">
             {dollars(high)}
             {highDay !== undefined && <span className="ml-2 text-fg-dim">{highDay}</span>}
           </Stat>
         )}
-        {has(low) && (
+        {low !== undefined && (
           <Stat label="All-time low">
             {dollars(low)}
             {lowDay !== undefined && <span className="ml-2 text-fg-dim">{lowDay}</span>}

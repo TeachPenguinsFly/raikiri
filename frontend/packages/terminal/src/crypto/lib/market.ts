@@ -276,11 +276,11 @@ export function crossOf(pair: Pair, quotes: Map<string, Quote>): Cross | undefin
 
 const k_stale_ms = 60_000
 
-/** dollars with a letter for the size, into the billions */
+/** dollars with a letter for the size, into the trillions */
 export function usd(v: number | undefined): string {
   if (v === undefined || !Number.isFinite(v)) return '—'
   const a = Math.abs(v)
-  return a >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : compact(v, true)
+  return a >= 1e12 ? `$${(v / 1e12).toFixed(2)}T` : a >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : compact(v, true)
 }
 
 export const px = (v: number | undefined, places: number) =>

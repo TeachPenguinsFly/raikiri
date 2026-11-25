@@ -1,5 +1,6 @@
 // admind: http and websocket view of a running deployment; binds loopback, and only the stream checks a token
 
+#include <raikiri/admin/assets.hpp>
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/margin.hpp>
 #include <raikiri/admin/registry.hpp>
@@ -57,6 +58,8 @@ constexpr std::string_view k_usage = R"(usage: admind [--address 127.0.0.1] [--p
               [--dsn <postgres-dsn>]
               [--stream-secret env:NAME|file:PATH|exec:CMD]
               [--audit-dir <dir>]
+              [--asset-marks <marks.json>] [--asset-cache <dir>]
+              [--asset-profiles <https-url>] [--asset-coin-images <https-url>] [--asset-stock-images <https-url>]
 )";
 
 int main(int argc, char** argv) {
@@ -82,6 +85,18 @@ int main(int argc, char** argv) {
     std::string dsn;
     std::string stream_secret_ref;
     std::string audit_dir;
+    // the coin catalogue behind /v1/assets: scripts/coin_icons.py's marks.json, and where fetched images are kept
+    std::string asset_marks_path;
+    std::string asset_cache_dir;
+    admin::AssetHosts asset_hosts;
+    const auto asset_host = [](std::string_view url, admin::AssetHost& into) {
+        if (auto parsed = admin::AssetHost::parse(url); parsed.has_value()) {
+            into = std::move(*parsed);
+            return true;
+        }
+        return false;
+    };
+    bool asset_hosts_ok = true;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--address" && i + 1 < argc) {
@@ -102,6 +117,16 @@ int main(int argc, char** argv) {
             stream_secret_ref = argv[++i];
         } else if (arg == "--audit-dir" && i + 1 < argc) {
             audit_dir = argv[++i];
+        } else if (arg == "--asset-marks" && i + 1 < argc) {
+            asset_marks_path = argv[++i];
+        } else if (arg == "--asset-cache" && i + 1 < argc) {
+            asset_cache_dir = argv[++i];
+        } else if (arg == "--asset-profiles" && i + 1 < argc) {
+            asset_hosts_ok = asset_host(argv[++i], asset_hosts.profiles) && asset_hosts_ok;
+        } else if (arg == "--asset-coin-images" && i + 1 < argc) {
+            asset_hosts_ok = asset_host(argv[++i], asset_hosts.coin_images) && asset_hosts_ok;
+        } else if (arg == "--asset-stock-images" && i + 1 < argc) {
+            asset_hosts_ok = asset_host(argv[++i], asset_hosts.stock_images) && asset_hosts_ok;
         }
     }
     if (stream_port == 0) {
@@ -115,6 +140,10 @@ int main(int argc, char** argv) {
     if (audit_dir.empty()) {
         const char* data_dir = std::getenv("RAIKIRI_DATA_DIR");
         audit_dir = std::string{data_dir != nullptr ? data_dir : "raikiri-data"} + "/audit";
+    }
+    if (!asset_hosts_ok) {
+        RLOG_ERROR("admind: an --asset-* host takes https://host[:port][/prefix]");
+        return 2;
     }
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
@@ -268,6 +297,28 @@ int main(int argc, char** argv) {
     jobs.add("markets", std::chrono::seconds{15}, [&markets_cache] { markets_cache.refresh(); });
 
     net::IoContext io;
+
+    std::optional<admin::AssetMarks> asset_marks;
+    if (!asset_marks_path.empty()) {
+        asset_marks = admin::AssetMarks::load(asset_marks_path);
+        if (asset_marks.has_value()) {
+            RLOG_INFO("admind: {} asset marks from {}", asset_marks->size(), asset_marks_path);
+        } else {
+            RLOG_ERROR("admind: cannot read asset marks from {}; coins are found by search, images are off",
+                       asset_marks_path);
+        }
+    }
+    std::optional<admin::IconStore> asset_icons;
+    if (!asset_cache_dir.empty()) {
+        asset_icons.emplace(asset_cache_dir);
+    }
+    admin::RestAssetUpstream asset_upstream{io, asset_hosts};
+    admin::AssetDesk asset_desk{asset_upstream,
+                                asset_marks.has_value() ? &*asset_marks : nullptr,
+                                asset_icons.has_value() ? &*asset_icons : nullptr,
+                                [&clock] { return clock.mono(); }};
+    const admin::AssetRoutes asset_routes{asset_desk};
+
     http::Server server{io,
                         address,
                         port,
@@ -282,6 +333,7 @@ int main(int argc, char** argv) {
                          audit_routes,
                          book_routes,
                          &margin_routes,
+                         &asset_routes,
                          routes = admin::make_router(
                              registry,
                              history.get(),
@@ -293,6 +345,10 @@ int main(int argc, char** argv) {
                              &markets_cache)](const http::Request& req, http::Reply reply) {
                             // answered from the loop's pump once the gateway replies; nothing here waits on it
                             if (margin_routes(req, [reply](http::Response response) { reply(std::move(response)); })) {
+                                return;
+                            }
+                            // answered when the catalogue does, from the same loop
+                            if (asset_routes(req, [reply](http::Response response) { reply(std::move(response)); })) {
                                 return;
                             }
                             reply([&]() -> http::Response {

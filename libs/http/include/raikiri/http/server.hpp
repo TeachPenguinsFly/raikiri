@@ -30,6 +30,8 @@ struct Response {
     int status{200};
     std::string content_type{"application/json"};
     std::string body;
+    // sent as cache-control when set; braced so a designated initialiser may leave it out
+    std::string cache_control{};
 };
 
 // anything the handler throws becomes a 500 with an rfc 9457 body

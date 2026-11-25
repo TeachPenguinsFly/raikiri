@@ -76,6 +76,9 @@ private:
         response_ = std::make_shared<http::response<http::string_body>>(static_cast<http::status>(answer.status),
                                                                         request_->get().version());
         response_->set(http::field::content_type, answer.content_type);
+        if (!answer.cache_control.empty()) {
+            response_->set(http::field::cache_control, answer.cache_control);
+        }
         // the terminal is served from another origin in development
         response_->set(http::field::access_control_allow_origin, "*");
         response_->result(static_cast<http::status>(answer.status));

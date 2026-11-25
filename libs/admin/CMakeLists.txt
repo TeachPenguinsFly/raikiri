@@ -1,4 +1,6 @@
 add_library(raikiri_admin STATIC
+  src/assets.cpp
+  src/assets_upstream.cpp
   src/desk.cpp
   src/format.cpp
   src/history.cpp

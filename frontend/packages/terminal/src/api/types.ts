@@ -133,6 +133,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/assets/{symbol}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A base asset's ticker, in either case. */
+                symbol: components["parameters"]["AssetSymbol"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What a coin is
+         * @description The coin behind a base asset: rank, capitalisation, supply, extremes, links
+         *     and a description. admind asks a public coin catalogue and reshapes the
+         *     answer, so the terminal calls nothing but admind. An answer is kept for ten
+         *     minutes, and an older one is served while the catalogue does not answer. A
+         *     ticker counted in thousands or millions (`1000PEPE`, `kPEPE`) is its coin.
+         */
+        get: operations["getAsset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assets/{symbol}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A base asset's ticker, in either case. */
+                symbol: components["parameters"]["AssetSymbol"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A coin's or a stock's mark
+         * @description The image for a ticker listed in the marks file admind was started with
+         *     (`--asset-marks`), fetched from its host once and kept in `--asset-cache`,
+         *     so it is served from disk afterwards and across restarts. Answered with a
+         *     week of `cache-control`. Marks the terminal bundles are not served here.
+         */
+        get: operations["getAssetIcon"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/markets": {
         parameters: {
             query?: never;
@@ -2609,6 +2662,40 @@ export interface components {
         };
         /** @enum {string} */
         MarginMode: "cross" | "isolated";
+        /** @description http and https addresses; each is absent where the catalogue has none. */
+        AssetLinks: {
+            website?: string;
+            whitepaper?: string;
+            explorer?: string;
+        };
+        /**
+         * @description Amounts are decimal strings, in dollars unless they count coins, and absent
+         *     where the catalogue has none.
+         */
+        AssetProfile: {
+            /** @description The ticker the coin was found under, upper case and without a multiplier. */
+            symbol: string;
+            name: string;
+            /** @description By market capitalisation. */
+            rank?: number;
+            market_cap?: components["schemas"]["Decimal"];
+            fully_diluted?: components["schemas"]["Decimal"];
+            circulating_supply?: components["schemas"]["Decimal"];
+            total_supply?: components["schemas"]["Decimal"];
+            max_supply?: components["schemas"]["Decimal"];
+            ath?: components["schemas"]["Decimal"];
+            /** Format: date-time */
+            ath_at?: string;
+            atl?: components["schemas"]["Decimal"];
+            /** Format: date-time */
+            atl_at?: string;
+            /** Format: date */
+            launched?: string;
+            links: components["schemas"]["AssetLinks"];
+            categories: string[];
+            /** @description Plain text, empty when the catalogue has none. */
+            description: string;
+        };
         LeverageState: {
             account: string;
             instrument_id: components["schemas"]["InstrumentId"];
@@ -3326,6 +3413,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description A base asset's ticker, in either case. */
+        AssetSymbol: string;
         /** @description An account name, as `GET /v1/accounts` returns it. */
         Account: string;
         InstrumentId: components["schemas"]["InstrumentId"];
@@ -3659,6 +3748,112 @@ export interface operations {
              *     venue; read the state again before retrying.
              */
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A base asset's ticker, in either case. */
+                symbol: components["parameters"]["AssetSymbol"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetProfile"];
+                };
+            };
+            /** @description The symbol is not a ticker. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No coin carries the symbol, or it is a stock's ticker. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The catalogue is not answering and nothing is kept for this coin. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAssetIcon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A base asset's ticker, in either case. */
+                symbol: components["parameters"]["AssetSymbol"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                    "image/jpeg": string;
+                    "image/webp": string;
+                    "image/gif": string;
+                };
+            };
+            /** @description The symbol is not a ticker. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description No image for this ticker, or admind runs without a marks file or an
+             *     image cache.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The image host is not answering. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
