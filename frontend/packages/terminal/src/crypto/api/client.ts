@@ -1,6 +1,7 @@
 import type { components, operations } from '../../api/types'
 
-type Schema<K extends keyof components['schemas']> = components['schemas'][K]
+/** one schema of the api by name, for screens that keep their calls beside themselves */
+export type Schema<K extends keyof components['schemas']> = components['schemas'][K]
 
 export type Account = Schema<'Account'>
 export type Health = Schema<'Health'>
@@ -75,7 +76,7 @@ export class ApiError extends Error {
   }
 }
 
-async function get<T>(path: string, query: Record<string, string | undefined> = {}): Promise<T> {
+export async function get<T>(path: string, query: Record<string, string | undefined> = {}): Promise<T> {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(query)) if (v !== undefined) q.set(k, v)
   const s = q.toString()
@@ -84,15 +85,18 @@ async function get<T>(path: string, query: Record<string, string | undefined> = 
   return (await r.json()) as T
 }
 
-async function put<T>(path: string, body: unknown): Promise<T> {
+async function send<T>(method: 'PUT' | 'POST', path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${k_base}${path}`, {
-    method: 'PUT',
-    headers: { accept: 'application/json', 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    method,
+    headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => null)) as Problem | null)
-  return (await r.json()) as T
+  return (r.status === 204 ? undefined : await r.json().catch(() => undefined)) as T
 }
+
+export const put = <T>(path: string, body: unknown) => send<T>('PUT', path, body)
+export const post = <T>(path: string, body?: unknown) => send<T>('POST', path, body)
 
 const leveragePath = (account: string) => `/v1/accounts/${encodeURIComponent(account)}/leverage`
 

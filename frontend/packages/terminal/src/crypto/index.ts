@@ -2,6 +2,9 @@
 export {
   api,
   ApiError,
+  get,
+  post,
+  put,
   setApiBase,
   type Account,
   type Book,
@@ -12,6 +15,7 @@ export {
   type Order,
   type Position,
   type Quote,
+  type Schema,
   type Ticker,
 } from './api/client'
 export { tapeOf, useQuotes } from './api/stream'
