@@ -18,7 +18,8 @@ export {
   type Schema,
   type Ticker,
 } from './api/client'
-export { tapeOf, useQuotes } from './api/stream'
+export { tapeOf, useGreeks, useQuotes, type Greeks } from './api/stream'
+export * from './lib/liquidation'
 export * from './lib/market'
 export { BookWidget, useBook } from './terminal/book'
 export { ChartWidget } from './terminal/chart'

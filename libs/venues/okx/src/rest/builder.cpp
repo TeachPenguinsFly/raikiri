@@ -1,6 +1,7 @@
 #include <raikiri/net/json_writer.hpp>
 #include <raikiri/venues/okx/endpoints.hpp>
 #include <raikiri/venues/okx/rest.hpp>
+#include <raikiri/venues/okx/terms.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -603,6 +604,34 @@ RequestBuilder::leverage_info(std::string_view inst_id, std::string_view mgn_mod
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return signed_get(ep::k_leverage_info, query.view(), now);
+}
+
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::trade_fee(MarketType market, std::string_view inst_id, UnixNanos now) {
+    Appender query{body_};
+    query << "instType=" << inst_type_of(market);
+    if (market == MarketType::Spot) {
+        query << "&instId=" << inst_id;
+    } else {
+        query << "&instFamily=" << inst_family_of(inst_id);
+    }
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_get(ep::k_trade_fee, query.view(), now);
+}
+
+net::RestRequest
+RequestBuilder::position_tiers(MarketType market, std::string_view inst_id, std::string_view mgn_mode) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_position_tiers);
+    writer.put("?instType=");
+    writer.put(inst_type_of(market));
+    writer.put("&tdMode=");
+    writer.put(mgn_mode);
+    writer.put("&instFamily=");
+    writer.put(inst_family_of(inst_id));
+    return writer.get();
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market, UnixNanos now) {

@@ -597,6 +597,19 @@ void serve_margin_requests(raikiri::exec::VenueAdapter& adapter,
     }
 }
 
+// fee and maintenance-tier reads from admind; a null source still answers the venue's public schedule
+void serve_terms_requests(raikiri::exec::TermsSource* source,
+                          raikiri::shm::TermsRequestConsumer& requests,
+                          raikiri::shm::TermsReplyRing& replies,
+                          raikiri::UnixNanos now) {
+    raikiri::TermsRequest request{};
+    while (requests.try_pop(request)) {
+        for (const auto& reply : raikiri::exec::serve_terms(source, request, now)) {
+            replies.publish(reply);
+        }
+    }
+}
+
 void publish_positions(const raikiri::exec::VenueAdapter& adapter,
                        raikiri::MarketType market,
                        const raikiri::shm::CatalogueTable& catalogue,
@@ -1426,9 +1439,15 @@ int main(int argc, char** argv) {
                 shm::MarginRequestConsumer margin_requests{channels_ptr->margin_requests};
                 // the first record says a poller serves the ring; admind refuses at once where it finds none
                 channels_ptr->margin_replies->publish({});
+                shm::TermsRequestConsumer terms_requests{channels_ptr->terms_requests};
+                channels_ptr->terms_replies->publish({});
                 const auto serve_margin = [&] {
                     serve_margin_requests(
                         *poller_adapter, margin_requests, *channels_ptr->margin_replies, clock, account_name);
+                    serve_terms_requests(poller_adapter->execution->terms_source(),
+                                         terms_requests,
+                                         *channels_ptr->terms_replies,
+                                         clock.wall());
                 };
                 while (!g_stop.load(std::memory_order_relaxed)) {
                     if (poller_adapter->clock.has_value()) {
@@ -1470,6 +1489,54 @@ int main(int argc, char** argv) {
                 }
             });
         }
+    }
+
+    // without a poller the fee and tier reads still have a public half; its keyless adapter is built on the first
+    // request, so a gateway nobody asks pays nothing for it
+    std::thread terms_reader;
+    NullSink terms_sink;
+    if (poller_adapter == nullptr) {
+        terms_reader = std::thread([&] {
+            shm::TermsRequestConsumer requests{channels->terms_requests};
+            channels->terms_replies->publish({});
+            std::unique_ptr<exec::VenueAdapter> reader;
+            bool built = false;
+            while (!g_stop.load(std::memory_order_relaxed)) {
+                TermsRequest request{};
+                while (requests.try_pop(request)) {
+                    // stamped before the build, whose catalogue pull would otherwise age the request out
+                    const auto asked = clock.wall();
+                    if (!built) {
+                        built = true;
+                        auto made = exec::make_venue({.venue = venue,
+                                                      .market = market,
+                                                      .testnet = testnet,
+                                                      .budget = budget.has_value() ? &*budget : nullptr,
+                                                      .market_data_feed = market_data_feed,
+                                                      .pulls_only = true},
+                                                     terms_sink,
+                                                     clock);
+                        if (made.has_value()) {
+                            reader = std::make_unique<exec::VenueAdapter>(std::move(*made));
+                            if (!reader->execution->start().has_value() ||
+                                !reader->instruments->fetch_all(market).has_value()) {
+                                RLOG_WARN("gatewayd[{}]: no keyless reader — fees from the schedule, no tiers",
+                                          account_name);
+                                reader.reset();
+                            }
+                        }
+                    }
+                    auto* source = reader != nullptr ? reader->execution->terms_source() : nullptr;
+                    for (const auto& reply : exec::serve_terms(source, request, asked)) {
+                        channels->terms_replies->publish(reply);
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds{100});
+            }
+            if (reader != nullptr) {
+                reader->execution->stop();
+            }
+        });
     }
 
     // later bursts run off the loop thread
@@ -1635,6 +1702,9 @@ int main(int argc, char** argv) {
 
     if (poller.joinable()) {
         poller.join();
+    }
+    if (terms_reader.joinable()) {
+        terms_reader.join();
     }
     if (prober.joinable()) {
         prober.join();

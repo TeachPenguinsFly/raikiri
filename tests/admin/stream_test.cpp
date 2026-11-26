@@ -53,6 +53,16 @@ TEST(AdminStream, ASubscribeIsAChannelAHandleAndItsInstruments) {
     EXPECT_EQ(book->book->packed, 123U);
 }
 
+TEST(AdminStream, AnOptionChainAsksForItsGreeksAFewTimesASecond) {
+    const auto message = parse_client_message(R"({"op":"subscribe","id":"g1","greeks":["123","124"],"hz":4})");
+    ASSERT_TRUE(message.has_value());
+    ASSERT_EQ(message->greeks.size(), 2U);
+    EXPECT_TRUE(message->quotes.empty());
+    ASSERT_TRUE(message->millihertz.has_value());
+    EXPECT_EQ(negotiate_millihertz(Feed::Greeks, message->greeks.size(), message->millihertz), 4'000);
+    EXPECT_EQ(period_ns(4'000), 250'000'000U);
+}
+
 TEST(AdminStream, AnInstrumentIdThatIsNotDigitsIsRefusedRatherThanTruncated) {
     for (const auto* text : {R"({"op":"subscribe","id":"q1","quotes":["79418.30"]})",
                              R"({"op":"subscribe","id":"q1","quotes":["abc"]})",

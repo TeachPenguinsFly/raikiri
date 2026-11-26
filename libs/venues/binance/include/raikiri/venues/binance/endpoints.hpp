@@ -66,6 +66,9 @@ inline constexpr std::string_view k_account = "/fapi/v2/account";
 inline constexpr std::string_view k_leverage = "/fapi/v1/leverage";
 inline constexpr std::string_view k_margin_type = "/fapi/v1/marginType";
 inline constexpr std::string_view k_symbol_config = "/fapi/v1/symbolConfig";
+// the account's maker and taker rates for a symbol, and the symbol's notional brackets; both signed
+inline constexpr std::string_view k_commission_rate = "/fapi/v1/commissionRate";
+inline constexpr std::string_view k_leverage_bracket = "/fapi/v1/leverageBracket";
 // the european options account, a wallet of its own beside usd-m futures
 inline constexpr std::string_view k_option_account = "/eapi/v1/account";
 inline constexpr std::string_view k_option_margin_account = "/eapi/v1/marginAccount";

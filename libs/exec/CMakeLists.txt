@@ -4,7 +4,9 @@ add_library(raikiri_exec STATIC
   src/instrument_table.cpp
   src/margin.cpp
   src/order_gate.cpp
+  src/fee_schedule.cpp
   src/rate_budget.cpp
+  src/terms.cpp
   src/venue.cpp
   src/venue_clock.cpp
 )

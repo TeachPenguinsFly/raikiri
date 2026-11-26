@@ -24,6 +24,10 @@ struct Mark {
 // adds one position to `into`
 void add_position(PnlReading& into, const Instrument& listed, const portfolio::Position& position, Mark mark) noexcept;
 
+// adds one open instrument: `open` is its worst case and `net` its signed position, in dollars; undef `open` is
+// an instrument nothing values
+void add_notional(NotionalReading& into, std::string_view symbol, FixedE9 open, FixedE9 net);
+
 // the kind of quote currency taken as a dollar
 [[nodiscard]] bool is_dollar(std::string_view asset) noexcept;
 

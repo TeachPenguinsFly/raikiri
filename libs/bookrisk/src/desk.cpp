@@ -677,7 +677,8 @@ BookView RiskDesk::book_view_of(const Slot& slot) const {
                     .past_daily = slot.past_day,
                     .positions = slot.last.positions,
                     .unmarked = slot.last.unmarked,
-                    .unvalued = slot.last.unvalued}};
+                    .unvalued = slot.last.unvalued},
+            .notional = kernel_->notional(slot.id)};
 }
 
 DeskView RiskDesk::view() {

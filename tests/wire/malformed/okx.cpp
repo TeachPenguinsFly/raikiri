@@ -5,6 +5,7 @@
 #include <raikiri/venues/okx/market_data.hpp>
 #include <raikiri/venues/okx/orders.hpp>
 #include <raikiri/venues/okx/positions.hpp>
+#include <raikiri/venues/okx/terms.hpp>
 #include <raikiri/venues/okx/trade.hpp>
 
 #include <gtest/gtest.h>
@@ -162,6 +163,8 @@ TEST(Malformed, Okx) {
                {"rest_account_config.json", [](std::string_view f) { (void)parse_account_mode(f); }},
                {"rest_leverage_info.json", [](std::string_view f) { (void)parse_leverage_info(f); }},
                {"rest_set_leverage.json", [](std::string_view f) { (void)parse_rest_envelope(f); }},
+               {"rest_trade_fee.json", [](std::string_view f) { (void)parse_trade_fee(f); }},
+               {"rest_position_tiers.json", [](std::string_view f) { (void)parse_position_tiers(f); }},
            });
 }
 

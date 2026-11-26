@@ -71,6 +71,9 @@ public:
     // one symbol's row, flat or not; it carries the leverage
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     position(MarketType market, std::string_view symbol, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    fee_rate(MarketType market, std::string_view symbol, UnixNanos now);
+    [[nodiscard]] net::RestRequest risk_limit(MarketType market, std::string_view symbol);
 
     [[nodiscard]] net::RestRequest
     instruments(MarketType market, std::string_view cursor = {}, std::string_view base_coin = {});

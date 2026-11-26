@@ -12,6 +12,7 @@
 #include <raikiri/venues/binance/orders.hpp>
 #include <raikiri/venues/binance/positions.hpp>
 #include <raikiri/venues/binance/rest.hpp>
+#include <raikiri/venues/binance/terms.hpp>
 
 #include <array>
 #include <charconv>
@@ -380,6 +381,51 @@ public:
             state.mode = MarginMode::Cross;
         }
         return state;
+    }
+
+    // both reads are signed: without a key the fees fall to the schedule and the brackets stay unstated
+    std::expected<TradingTerms, exec::VenueError> trading_terms(InstrumentId instrument) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        TradingTerms terms{};
+        if (!state_->signer.has_credentials() || state_->market != MarketType::Perp) {
+            return terms;
+        }
+        const auto fees = signed_read(ep::k_commission_rate, builder().commission_rate(symbol, state_->venue_now()));
+        if (fees.has_value()) {
+            if (const auto rate = parse_commission_rate(*fees); rate.has_value()) {
+                terms.maker_fee = rate->maker;
+                terms.taker_fee = rate->taker;
+                terms.fee_source = FeeSource::Account;
+            }
+        } else if (!exec::terms_go_without(fees.error())) {
+            return std::unexpected{fees.error()};
+        }
+        const auto brackets = signed_read(ep::k_leverage_bracket,
+                                          builder().leverage_bracket(symbol, state_->venue_now()));
+        if (brackets.has_value()) {
+            if (auto tiers = parse_leverage_brackets(*brackets, symbol); tiers.has_value()) {
+                terms.tiers = std::move(*tiers);
+                terms.tiers_source = TiersSource::Venue;
+            }
+        } else if (!exec::terms_go_without(brackets.error())) {
+            return std::unexpected{brackets.error()};
+        }
+        return terms;
+    }
+
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    signed_read(std::string_view path, const std::expected<net::RestRequest, BuildError>& request) {
+        if (const auto allowed = spend(path, exec::RateClass::Poll); !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        return pull(*request);
     }
 
     std::expected<void, exec::VenueError> set_leverage(InstrumentId instrument, std::uint32_t leverage) {

@@ -5,6 +5,7 @@
 #include <raikiri/venues/binance/market_data.hpp>
 #include <raikiri/venues/binance/orders.hpp>
 #include <raikiri/venues/binance/positions.hpp>
+#include <raikiri/venues/binance/terms.hpp>
 #include <raikiri/venues/binance/ws_api.hpp>
 
 #include <gtest/gtest.h>
@@ -176,6 +177,12 @@ TEST(Malformed, Binance) {
                     (void)parse_symbol_config(f, "BTCUSDT");
                 }},
                {"rest_leverage.json", [](std::string_view f) { (void)parse_rest_error(f); }},
+               {"rest_commission_rate.json", [](std::string_view f) { (void)parse_commission_rate(f); }},
+               {"rest_leverage_bracket.json",
+                [](std::string_view f) {
+                    (void)parse_leverage_brackets(f, "ETHUSDT");
+                    (void)parse_leverage_brackets(f, "BTCUSDT");
+                }},
                {"rest_margin_type.json", [](std::string_view f) { (void)parse_rest_error(f); }},
                {"rest_open_interest.json", [](std::string_view f) { (void)parse_open_interest(f); }},
            });

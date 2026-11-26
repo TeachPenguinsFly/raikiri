@@ -89,6 +89,7 @@ struct BookView {
     std::size_t open_orders{0};
     RowView row{};
     PnlView pnl{};
+    NotionalReading notional{};
 };
 
 struct DeskView {

@@ -6,6 +6,7 @@
 #include <raikiri/venues/hyperliquid/orders.hpp>
 #include <raikiri/venues/hyperliquid/positions.hpp>
 #include <raikiri/venues/hyperliquid/post.hpp>
+#include <raikiri/venues/hyperliquid/terms.hpp>
 
 #include <gtest/gtest.h>
 
@@ -53,11 +54,19 @@ TEST(Malformed, Hyperliquid) {
                 [](std::string_view f) {
                     static AssetBuffer storage;
                     (void)parse_meta(f, storage);
+                    (void)parse_margin_tiers(f, "BTC");
+                    (void)parse_margin_tiers(f, "PURR");
+                }},
+               {"rest_meta_margin_tables.json",
+                [](std::string_view f) {
+                    (void)parse_margin_tiers(f, "BTC");
+                    (void)parse_margin_tiers(f, "PURR");
                 }},
                {"rest_meta_dex_*",
                 [](std::string_view f) {
                     static AssetBuffer storage;
                     (void)parse_meta(f, storage);
+                    (void)parse_margin_tiers(f, "xyz:XYZ100");
                 }},
                {"rest_null_body.json",
                 [](std::string_view f) {

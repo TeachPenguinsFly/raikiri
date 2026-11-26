@@ -45,12 +45,21 @@ export function useTerminal(): Terminal {
 
 const k_default = 'crypto:BTC/USD*'
 const k_levels = 100
+const k_book_all = 'raikiri.book.all'
+
+function savedBookAll(): boolean {
+  try {
+    return localStorage.getItem(k_book_all) === '1'
+  } catch {
+    return false
+  }
+}
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = useSearchParams()
   const catalog = useCatalog()
   const down = useStreamDown()
-  const [bookAll, setBookAll] = useState(false)
+  const [bookAll, setBookAll] = useState(savedBookAll)
   const [draft, setDraftState] = useState<Draft | undefined>(undefined)
   const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
 
@@ -120,6 +129,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     pick,
     setBookVenue: (v) => {
       setBookAll(v === 'all')
+      try {
+        localStorage.setItem(k_book_all, v === 'all' ? '1' : '0')
+      } catch {
+        // the choice lasts for this page only
+      }
       if (v !== 'all') pick({ venue: v })
     },
     setDraft: (d) => setDraftState((old) => ({ ...d, n: (old?.n ?? 0) + 1 })),

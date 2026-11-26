@@ -133,6 +133,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/accounts/{account}/terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description An account name, as `GET /v1/accounts` returns it. */
+                account: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The fees and maintenance-margin tiers an instrument trades under
+         * @description Asked of the venue through the account's gateway and kept for an hour per
+         *     account and instrument. Fees are the account's own where the gateway holds
+         *     a key and the venue has the call, else the venue's public base tier.
+         *     Maintenance tiers come from the venue; an empty `maintenance_tiers` with
+         *     `tiers_source: default` means the venue's tiers could not be read here.
+         */
+        get: operations["getTradingTerms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/assets/{symbol}": {
         parameters: {
             query?: never;
@@ -1076,7 +1103,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Child orders of every parent joe still holds, summed per venue */
+        /** Child orders of every parent joe still holds, summed per venue, per algo and per both */
         get: operations["getJoeTca"];
         put?: never;
         post?: never;
@@ -1200,7 +1227,7 @@ export interface paths {
          *
          *         {"op":"subscribe","id":"q1","quotes":["<instrument_id>", ...]}
          *         {"op":"subscribe","id":"b1","book":"<instrument_id>"}
-         *         {"op":"subscribe","id":"g1","greeks":["<instrument_id>", ...]}
+         *         {"op":"subscribe","id":"g1","greeks":["<instrument_id>", ...],"hz":4}
          *         {"op":"subscribe","id":"a1","events":["orders","fills","recon"]}
          *         {"op":"unsubscribe","id":"q1"}
          *
@@ -1318,6 +1345,26 @@ export interface components {
             /** @description Positions not quoted in a dollar, left out of the sums. */
             unvalued: number;
         };
+        /**
+         * @description The book's open notional as its limits count it: each instrument's
+         *     worst case, working orders in as if filled, valued at its mid. The gate
+         *     values the instrument an order is on at that order's price instead.
+         */
+        BookRiskNotional: {
+            /** @description Dollars, the sum over instruments; what `book_notional` is checked against. */
+            gross: components["schemas"]["Decimal"];
+            /** @description Dollars, positions only, longs less shorts. */
+            net: components["schemas"]["Decimal"];
+            /** @description Dollars, the largest instrument; what `instrument_notional` is checked against. */
+            largest: components["schemas"]["Decimal"];
+            largest_symbol?: string;
+            /** @description Open instruments with no quote to value them, left out; the gate refuses growth while there is one. */
+            unpriced: number;
+            /** @description The effective `book_notional`; absent when off. */
+            book_limit?: components["schemas"]["Decimal"];
+            /** @description The effective `instrument_notional`; absent when off. */
+            instrument_limit?: components["schemas"]["Decimal"];
+        };
         BookRiskBook: {
             id: number;
             name: string;
@@ -1332,6 +1379,7 @@ export interface components {
             open_orders: number;
             row: components["schemas"]["BookRiskRow"];
             pnl: components["schemas"]["BookRiskPnl"];
+            notional: components["schemas"]["BookRiskNotional"];
         };
         InternalCrossBook: {
             book: string;
@@ -2483,7 +2531,43 @@ export interface components {
         };
         JoeTca: {
             parents: number;
+            /** @description The window asked for; absent when every held parent is in. */
+            since?: components["schemas"]["Nanos"];
             venues: components["schemas"]["VenueTca"][];
+            algos: components["schemas"]["AlgoTca"][];
+            /** @description One algo's children on one venue. */
+            venue_algos: components["schemas"]["AlgoTca"][];
+        };
+        AlgoTca: {
+            algo: string;
+            /** @description Absent on a row over every venue. */
+            venue?: string;
+            /** @description Parent orders; one that used two venues counts on each. */
+            orders: number;
+            /** @description Of them */
+            working: number;
+            failed: number;
+            children: number;
+            /** @description Filled notional in the quote asset. */
+            value: components["schemas"]["Decimal"];
+            /**
+             * @description What was asked, at each parent's average fill or else its arrival
+             *     mid: the parent's size over every venue, what it sent on one.
+             */
+            asked: components["schemas"]["Decimal"];
+            /** @description A RATIO, `value` over `asked`. */
+            fill_rate?: components["schemas"]["Decimal"];
+            /** @description Positive is a cost against each parent's arrival mid, weighted by filled notional. */
+            slippage_arrival_bp?: components["schemas"]["Decimal"];
+            /**
+             * @description The same against the market's VWAP over each parent's life; only
+             *     parents that saw market trades are in it.
+             */
+            slippage_vwap_bp?: components["schemas"]["Decimal"];
+            fees: components["schemas"]["Decimal"];
+            fees_bp?: components["schemas"]["Decimal"];
+            /** @description Median time from a child's send to the venue's first answer. */
+            ack_p50_ns?: components["schemas"]["Nanos"];
         };
         VenueTca: {
             venue: string;
@@ -2716,6 +2800,45 @@ export interface components {
             instrument_id: components["schemas"]["InstrumentId"];
             leverage?: number;
             margin_mode?: components["schemas"]["MarginMode"];
+        };
+        /**
+         * @description One bracket of position notional in the quote currency. Maintenance margin
+         *     for a notional N inside it is `N * maintenance_margin_rate - maintenance_amount`.
+         */
+        MaintenanceTier: {
+            notional_floor: components["schemas"]["Decimal"];
+            /** @description Absent on the last tier where the venue states no ceiling. */
+            notional_cap?: components["schemas"]["Decimal"];
+            maintenance_margin_rate: components["schemas"]["Decimal"];
+            maintenance_amount: components["schemas"]["Decimal"];
+            /** @description Absent where the venue does not state one for the tier. */
+            max_leverage?: components["schemas"]["Decimal"];
+        };
+        TradingTerms: {
+            account: string;
+            instrument_id: components["schemas"]["InstrumentId"];
+            /** @description A fraction of notional, `0.0002` for 2 bp; negative is a rebate. */
+            maker_fee: components["schemas"]["Decimal"];
+            taker_fee: components["schemas"]["Decimal"];
+            /**
+             * @description `account` is the venue's answer for this key; `schedule` is the venue's
+             *     public base tier.
+             * @enum {string}
+             */
+            fee_source: "account" | "schedule";
+            /** @description Ascending by `notional_floor`. */
+            maintenance_tiers: components["schemas"]["MaintenanceTier"][];
+            /**
+             * @description `venue` is the venue's own table for the instrument; `default` is what
+             *     the instrument's listing states, or nothing.
+             * @enum {string}
+             */
+            tiers_source: "venue" | "default";
+            /**
+             * Format: int64
+             * @description When the venue was asked, Unix milliseconds.
+             */
+            as_of: number;
         };
         Position: {
             instrument_id: components["schemas"]["InstrumentId"];
@@ -3747,6 +3870,97 @@ export interface operations {
              * @description The gateway did not answer in time. A change may still have reached the
              *     venue; read the state again before retrying.
              */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getTradingTerms: {
+        parameters: {
+            query: {
+                instrument_id: components["schemas"]["InstrumentId"];
+            };
+            header?: never;
+            path: {
+                /** @description An account name, as `GET /v1/accounts` returns it. */
+                account: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradingTerms"];
+                };
+            };
+            /** @description `instrument_id` is missing or not digits. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such account or instrument, or the instrument is not listed on this account. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The gateway's rate budget for the venue is spent. Worth retrying. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The venue's terms are not read here, or this gateway serves no terms
+             *     calls (built before them). `detail` says which.
+             */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The venue call did not complete. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account's gateway is down or not draining requests. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The gateway did not answer in time. */
             504: {
                 headers: {
                     [name: string]: unknown;
@@ -5258,7 +5472,10 @@ export interface operations {
     };
     getJoeTca: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Only parents created at or after this time; every held parent without it. */
+                since?: components["schemas"]["Nanos"];
+            };
             header?: never;
             path?: never;
             cookie?: never;

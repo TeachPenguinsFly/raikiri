@@ -7,6 +7,7 @@
 #include <raikiri/admin/routes.hpp>
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/admin/stream_token.hpp>
+#include <raikiri/admin/terms.hpp>
 #include <raikiri/audit/file_sink.hpp>
 #include <raikiri/audit/file_store.hpp>
 #include <raikiri/audit/query.hpp>
@@ -290,6 +291,9 @@ int main(int argc, char** argv) {
                                   margin_journal.has_value() ? margin_journal->get() : nullptr,
                                   [&clock] { return clock.wall(); }};
     const admin::MarginRoutes margin_routes{margin_desk};
+    admin::ShmTermsGateway terms_gateway{registry, [&clock] { return clock.mono(); }};
+    admin::TermsDesk terms_desk{terms_gateway, [&clock] { return clock.wall(); }};
+    const admin::TermsRoutes terms_routes{terms_desk};
 
     // what admind keeps warm on its own schedule; GET /cache/jobs says when each last ran and how long it took
     admin::MarketsCache markets_cache{registry};
@@ -333,6 +337,7 @@ int main(int argc, char** argv) {
                          audit_routes,
                          book_routes,
                          &margin_routes,
+                         &terms_routes,
                          &asset_routes,
                          routes = admin::make_router(
                              registry,
@@ -345,6 +350,9 @@ int main(int argc, char** argv) {
                              &markets_cache)](const http::Request& req, http::Reply reply) {
                             // answered from the loop's pump once the gateway replies; nothing here waits on it
                             if (margin_routes(req, [reply](http::Response response) { reply(std::move(response)); })) {
+                                return;
+                            }
+                            if (terms_routes(req, [reply](http::Response response) { reply(std::move(response)); })) {
                                 return;
                             }
                             // answered when the catalogue does, from the same loop
@@ -426,8 +434,10 @@ int main(int argc, char** argv) {
         const auto jobs_due = jobs.tick(clock.mono()).ns;
         (void)stream.poll();
         margin_desk.pump();
+        terms_desk.pump();
         const auto mono = clock.mono().ns;
-        const auto margin_due = margin_desk.pending() ? mono + k_margin_poll_ns : mono + k_idle_ns;
+        const auto margin_due = margin_desk.pending() || terms_desk.pending() ? mono + k_margin_poll_ns
+                                                                              : mono + k_idle_ns;
         const auto until = std::min({stream.next_due().ns, rescan_due, jobs_due, margin_due, mono + k_idle_ns});
         if (until > mono) {
             (void)server.run_for(std::chrono::nanoseconds{until - mono});

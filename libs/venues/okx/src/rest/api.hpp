@@ -10,6 +10,7 @@
 #include <raikiri/venues/okx/orders.hpp>
 #include <raikiri/venues/okx/positions.hpp>
 #include <raikiri/venues/okx/rest.hpp>
+#include <raikiri/venues/okx/terms.hpp>
 
 #include <memory>
 #include <string>
@@ -218,6 +219,62 @@ public:
         return state;
     }
 
+    // the fee rates are the account's and need the key; the position tiers are public and counted in contracts
+    std::expected<TradingTerms, exec::VenueError> trading_terms(InstrumentId instrument) {
+        const auto* listed = state_->instruments.find(instrument);
+        if (listed == nullptr) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto& base = base_of(*listed);
+        const auto inst_id = base.exchange_symbol.view();
+        const auto market = instrument.market();
+        TradingTerms terms{};
+        if (state_->credentialed()) {
+            if (const auto allowed = spend(ep::k_trade_fee); !allowed.has_value()) {
+                return std::unexpected{allowed.error()};
+            }
+            const auto body = pull(builder_.trade_fee(market, inst_id, state_->venue_now()));
+            if (body.has_value()) {
+                if (const auto fee = parse_trade_fee(*body); fee.has_value()) {
+                    const bool contract = market != MarketType::Spot;
+                    const auto& pair = contract && inst_id.find("-USDT") != std::string_view::npos   ? fee->usdt
+                                       : contract && inst_id.find("-USDC") != std::string_view::npos ? fee->usdc
+                                                                                                     : fee->coin;
+                    if (pair.has_value()) {
+                        terms.maker_fee = pair->maker;
+                        terms.taker_fee = pair->taker;
+                        terms.fee_source = FeeSource::Account;
+                    }
+                }
+            } else if (!exec::terms_go_without(body.error())) {
+                return std::unexpected{body.error()};
+            }
+        }
+        if (market == MarketType::Perp || market == MarketType::Future) {
+            if (const auto allowed = spend(ep::k_position_tiers); !allowed.has_value()) {
+                return std::unexpected{allowed.error()};
+            }
+            const auto body = pull(builder_.position_tiers(market, inst_id, mgn_mode_of(modes_->mode(instrument))));
+            if (body.has_value()) {
+                if (auto tiers = parse_position_tiers(*body); tiers.has_value()) {
+                    // a linear contract is so many base units, an inverse one so many dollars
+                    const double per_contract = static_cast<double>(base.contract_value.raw) / 1e9;
+                    for (auto& tier : *tiers) {
+                        tier.floor *= per_contract;
+                        tier.cap *= per_contract;
+                    }
+                    terms.tiers = std::move(*tiers);
+                    terms.tiers_source = TiersSource::Venue;
+                    terms.basis = base.kind == ContractKind::Inverse ? TierBasis::Notional : TierBasis::BaseQty;
+                }
+            } else if (!exec::terms_go_without(body.error())) {
+                return std::unexpected{body.error()};
+            }
+        }
+        return terms;
+    }
+
     std::expected<void, exec::VenueError> set_leverage(InstrumentId instrument, std::uint32_t leverage) {
         const auto symbol = margin_symbol(instrument);
         if (!symbol.has_value()) {
@@ -364,6 +421,21 @@ public:
     }
 
 private:
+    // the order and account pulls are paced by their callers; these reads come from a person, so they are metered
+    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target) noexcept {
+        if (state_->budget == nullptr) {
+            return {};
+        }
+        const auto taken = state_->budget->take(target, state_->clock->mono(), exec::RateClass::Poll);
+        if (taken.has_value()) {
+            return {};
+        }
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::RateLimited,
+                                   static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
+                                   "local rate budget spent; retry after the stated milliseconds")};
+    }
+
     [[nodiscard]] static std::string_view mgn_mode_of(MarginMode mode) noexcept {
         return mode == MarginMode::Isolated ? "isolated" : "cross";
     }

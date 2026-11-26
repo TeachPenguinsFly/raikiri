@@ -14,6 +14,7 @@
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/error.hpp>
 #include <raikiri/exec/margin.hpp>
+#include <raikiri/exec/terms.hpp>
 
 #include <expected>
 #include <span>
@@ -90,6 +91,9 @@ public:
 
     // leverage and margin mode, where the venue and this market have the calls; null otherwise
     [[nodiscard]] virtual MarginControl* margin_control() noexcept { return nullptr; }
+
+    // fees and maintenance tiers, where the venue's calls are read here; null otherwise
+    [[nodiscard]] virtual TermsSource* terms_source() noexcept { return nullptr; }
 
     // account balances; gated by caps.balance_pull for the market asked
     // the account mode options trade under, in the words venues.yaml's option_account_mode uses

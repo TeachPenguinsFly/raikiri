@@ -944,6 +944,34 @@ public:
     // a gateway journals what the venue pushed, often without our id; this copy carries it once attributed
     void journal_event(const OrderEvent& event) noexcept { oms::append_order_event(*journal_, event); }
 
+    // the figures open_notional_besides hands the gate, kept per instrument
+    [[nodiscard]] bookrisk::NotionalReading book_notional(std::uint16_t strategy_id) const {
+        bookrisk::NotionalReading out{};
+        const auto max_age = book_risk->gate(strategy_id).config().max_quote_age_ns;
+        const auto now = clock_->wall();
+        for (const auto& [packed, lots] : held_by(strategy_id)) {
+            const auto open = oms::open_lots(lots.position, lots.buy, lots.sell);
+            if (open == 0) {
+                continue;
+            }
+            const InstrumentId id{packed};
+            const auto* listed = instrument(id);
+            const auto symbol = listed != nullptr ? base_of(*listed).local_symbol.view() : std::string_view{};
+            const auto value = value_at_mid(id, open, now, max_age);
+            if (!value.has_value()) {
+                bookrisk::add_notional(out, symbol, FixedE9::undef(), FixedE9::undef());
+                continue;
+            }
+            const auto held = lots.position.raw < 0 ? -lots.position.raw : lots.position.raw;
+            const auto net = held == 0 ? std::optional{Notional128{}} : value_at_mid(id, held, now, max_age);
+            const auto signed_net = !net.has_value()        ? FixedE9::undef()
+                                    : lots.position.raw < 0 ? FixedE9::from_raw(-oms::to_e9(*net).raw)
+                                                            : oms::to_e9(*net);
+            bookrisk::add_notional(out, symbol, oms::to_e9(*value), signed_net);
+        }
+        return out;
+    }
+
 private:
     void journal_cmd(const OrderCmd& cmd, const OrderOrigin& origin = {}) noexcept {
         const auto kind = books != nullptr ? books->kind_of(cmd.client_order_id.strategy_id()) : BookKind::Unknown;
@@ -1072,7 +1100,23 @@ private:
         return out;
     }
 
-    // each instrument valued at its mid; undef when one has no quote, an old one or cannot be valued
+    // lots of one instrument at its mid; nullopt with no quote, an old one or no way to value it
+    [[nodiscard]] std::optional<Notional128>
+    value_at_mid(InstrumentId id, std::int64_t lots, UnixNanos now, std::uint64_t max_age) const {
+        const auto* listed = instrument(id);
+        const auto quote = bbo(id);
+        if (listed == nullptr || !quote.has_value() || quote->bid.is_undef() || quote->ask.is_undef()) {
+            return std::nullopt;
+        }
+        if (max_age > 0 && now.ns > quote->ts_init.ns && now.ns - quote->ts_init.ns > max_age) {
+            return std::nullopt;
+        }
+        const auto mid = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
+        const auto value = oms::notional(*listed, mid, QtyLots::from_raw(lots), underlying_price(id));
+        return value.has_value() ? std::optional{*value} : std::nullopt;
+    }
+
+    // undef when one instrument cannot be valued
     [[nodiscard]] FixedE9 open_notional_besides(const std::unordered_map<std::uint64_t, Held>& held,
                                                 InstrumentId skip,
                                                 UnixNanos now,
@@ -1084,17 +1128,7 @@ private:
             if (packed == skip.packed || open == 0) {
                 continue;
             }
-            const InstrumentId id{packed};
-            const auto* listed = instrument(id);
-            const auto quote = bbo(id);
-            if (listed == nullptr || !quote.has_value() || quote->bid.is_undef() || quote->ask.is_undef()) {
-                return FixedE9::undef();
-            }
-            if (max_age > 0 && now.ns > quote->ts_init.ns && now.ns - quote->ts_init.ns > max_age) {
-                return FixedE9::undef();
-            }
-            const auto mid = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
-            const auto value = oms::notional(*listed, mid, QtyLots::from_raw(open), underlying_price(id));
+            const auto value = value_at_mid(InstrumentId{packed}, open, now, max_age);
             if (!value.has_value()) {
                 return FixedE9::undef();
             }
@@ -1395,6 +1429,10 @@ public:
             bookrisk::add_position(out, *listed, position, mark);
         }
         return out;
+    }
+
+    [[nodiscard]] bookrisk::NotionalReading notional(bookrisk::BookId book) const override {
+        return kernel_->book_notional(book);
     }
 
     [[nodiscard]] bookrisk::BalanceReading balances() const override {

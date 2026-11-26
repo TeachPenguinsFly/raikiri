@@ -209,9 +209,29 @@ struct TraceDto {
     std::vector<VenueTcaDto> venues{};
 };
 
+struct AlgoTcaDto {
+    std::string algo;
+    std::optional<std::string> venue{};
+    std::uint32_t orders{0};
+    std::uint32_t working{0};
+    std::uint32_t failed{0};
+    std::uint32_t children{0};
+    std::string value;
+    std::string asked;
+    std::optional<std::string> fill_rate{};
+    std::optional<std::string> slippage_arrival_bp{};
+    std::optional<std::string> slippage_vwap_bp{};
+    std::string fees;
+    std::optional<std::string> fees_bp{};
+    std::optional<std::string> ack_p50_ns{};
+};
+
 struct TcaDto {
     std::uint32_t parents{0};
+    std::optional<std::string> since{};
     std::vector<VenueTcaDto> venues;
+    std::vector<AlgoTcaDto> algos;
+    std::vector<AlgoTcaDto> venue_algos;
 };
 
 struct ParentList {
@@ -306,6 +326,29 @@ template <typename T> http::Response json(const T& value, int status = 200) {
                        .ack_p50_ns = nanos(v.acked, v.ack_p50_ns),
                        .ack_p90_ns = nanos(v.acked, v.ack_p90_ns),
                        .ack_max_ns = nanos(v.acked, v.ack_max_ns)});
+    }
+    return out;
+}
+
+[[nodiscard]] std::vector<AlgoTcaDto> to_dto(const std::vector<AlgoTca>& rows) {
+    std::vector<AlgoTcaDto> out;
+    out.reserve(rows.size());
+    for (const auto& r : rows) {
+        out.push_back(
+            {.algo = std::string{to_string(r.algo)},
+             .venue = r.venue == VenueId::Invalid ? std::nullopt : std::optional<std::string>{to_string(r.venue)},
+             .orders = r.orders,
+             .working = r.working,
+             .failed = r.failed,
+             .children = r.sum.children,
+             .value = decimal(r.sum.value),
+             .asked = decimal(r.asked),
+             .fill_rate = maybe(share_of(r.sum.value, r.asked)),
+             .slippage_arrival_bp = maybe(bp_of(r.sum.cost, r.sum.benchmark)),
+             .slippage_vwap_bp = maybe(bp_of(r.vwap_cost, r.vwap_benchmark)),
+             .fees = decimal(r.sum.fees),
+             .fees_bp = maybe(bp_of(r.sum.fees, r.sum.value)),
+             .ack_p50_ns = nanos(r.sum.acked, r.sum.ack_p50_ns)});
     }
     return out;
 }
@@ -750,15 +793,25 @@ std::optional<http::Response> JoeRoutes::operator()(const http::Request& req) co
         if (req.method != "GET") {
             return http::problem(405, "method not allowed");
         }
+        const auto since_text = http::query_param(req.query, "since");
+        const auto since = since_text.empty() ? std::optional<std::uint64_t>{0} : read_id(since_text);
+        if (!since.has_value()) {
+            return http::problem(400, "bad request", "since is a time in unix nanoseconds");
+        }
         Tca tca;
         TcaDto out{};
+        if (*since > 0) {
+            out.since = std::to_string(*since);
+        }
         for (const auto& parent : desk_->parents()) {
-            if (parent.status() != Status::Pending) {
+            if (parent.status() != Status::Pending && parent.created().ns >= *since) {
                 tca.add(parent);
                 ++out.parents;
             }
         }
         out.venues = to_dto(tca);
+        out.algos = to_dto(tca.algos());
+        out.venue_algos = to_dto(tca.venue_algos());
         return json(out);
     }
     constexpr std::string_view k_parents = "parents/";

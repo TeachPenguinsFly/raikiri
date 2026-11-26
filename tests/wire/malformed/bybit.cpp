@@ -5,6 +5,7 @@
 #include <raikiri/venues/bybit/market_data.hpp>
 #include <raikiri/venues/bybit/orders.hpp>
 #include <raikiri/venues/bybit/positions.hpp>
+#include <raikiri/venues/bybit/terms.hpp>
 #include <raikiri/venues/bybit/trade.hpp>
 
 #include <gtest/gtest.h>
@@ -120,6 +121,20 @@ TEST(Malformed, Bybit) {
                 }},
                // the fixture is the envelope's result alone
                {"rest_position_one.json", [](std::string_view f) { (void)parse_position_leverage(f); }},
+               {"rest_fee_rate.json",
+                [](std::string_view f) {
+                    (void)parse_fee_rate(f, "ETHUSDT");
+                    if (const auto envelope = parse_envelope(f); envelope.has_value()) {
+                        (void)parse_fee_rate(envelope->result, "ETHUSDT");
+                    }
+                }},
+               {"rest_risk_limit.json",
+                [](std::string_view f) {
+                    (void)parse_risk_limit(f, "BTCUSDT");
+                    if (const auto envelope = parse_envelope(f); envelope.has_value()) {
+                        (void)parse_risk_limit(envelope->result, "BTCUSDT");
+                    }
+                }},
                {"rest_set_margin_mode*.json",
                 [](std::string_view f) {
                     if (const auto envelope = parse_envelope(f); envelope.has_value()) {

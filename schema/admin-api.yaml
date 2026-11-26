@@ -277,6 +277,78 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/accounts/{account}/terms:
+    parameters:
+      - name: account
+        in: path
+        required: true
+        description: An account name, as `GET /v1/accounts` returns it.
+        schema: { type: string, examples: ["binance"] }
+    get:
+      tags: [trading]
+      summary: The fees and maintenance-margin tiers an instrument trades under
+      description: |
+        Asked of the venue through the account's gateway and kept for an hour per
+        account and instrument. Fees are the account's own where the gateway holds
+        a key and the venue has the call, else the venue's public base tier.
+        Maintenance tiers come from the venue; an empty `maintenance_tiers` with
+        `tiers_source: default` means the venue's tiers could not be read here.
+      operationId: getTradingTerms
+      parameters:
+        - name: instrument_id
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/InstrumentId" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TradingTerms" }
+        "400":
+          description: |
+            `instrument_id` is missing or not digits.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: |
+            No such account or instrument, or the instrument is not listed on this account.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429":
+          description: |
+            The gateway's rate budget for the venue is spent. Worth retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "501":
+          description: |
+            The venue's terms are not read here, or this gateway serves no terms
+            calls (built before them). `detail` says which.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "502":
+          description: |
+            The venue call did not complete.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: |
+            The account's gateway is down or not draining requests.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "504":
+          description: |
+            The gateway did not answer in time.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/assets/{symbol}:
     parameters:
       - $ref: "#/components/parameters/AssetSymbol"
@@ -1523,8 +1595,13 @@ paths:
   /v1/joe/tca:
     get:
       tags: [execution]
-      summary: Child orders of every parent joe still holds, summed per venue
+      summary: Child orders of every parent joe still holds, summed per venue, per algo and per both
       operationId: getJoeTca
+      parameters:
+        - name: since
+          in: query
+          description: Only parents created at or after this time; every held parent without it.
+          schema: { $ref: "#/components/schemas/Nanos" }
       responses:
         "200":
           description: OK
@@ -1685,7 +1762,7 @@ paths:
 
             {"op":"subscribe","id":"q1","quotes":["<instrument_id>", ...]}
             {"op":"subscribe","id":"b1","book":"<instrument_id>"}
-            {"op":"subscribe","id":"g1","greeks":["<instrument_id>", ...]}
+            {"op":"subscribe","id":"g1","greeks":["<instrument_id>", ...],"hz":4}
             {"op":"subscribe","id":"a1","events":["orders","fills","recon"]}
             {"op":"unsubscribe","id":"q1"}
 
@@ -1932,9 +2009,37 @@ components:
           type: integer
           description: Positions not quoted in a dollar, left out of the sums.
 
+    BookRiskNotional:
+      description: |
+        The book's open notional as its limits count it: each instrument's
+        worst case, working orders in as if filled, valued at its mid. The gate
+        values the instrument an order is on at that order's price instead.
+      type: object
+      required: [gross, net, largest, unpriced]
+      properties:
+        gross:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Dollars, the sum over instruments; what `book_notional` is checked against.
+        net:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Dollars, positions only, longs less shorts.
+        largest:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Dollars, the largest instrument; what `instrument_notional` is checked against.
+        largest_symbol: { type: string }
+        unpriced:
+          type: integer
+          description: Open instruments with no quote to value them, left out; the gate refuses growth while there is one.
+        book_limit:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The effective `book_notional`; absent when off.
+        instrument_limit:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The effective `instrument_notional`; absent when off.
+
     BookRiskBook:
       type: object
-      required: [id, name, state, own_state, open_orders, row, pnl]
+      required: [id, name, state, own_state, open_orders, row, pnl, notional]
       properties:
         id: { type: integer }
         name: { type: string }
@@ -1948,6 +2053,7 @@ components:
         open_orders: { type: integer }
         row: { $ref: "#/components/schemas/BookRiskRow" }
         pnl: { $ref: "#/components/schemas/BookRiskPnl" }
+        notional: { $ref: "#/components/schemas/BookRiskNotional" }
 
     InternalCrossBook:
       type: object
@@ -3415,12 +3521,57 @@ components:
 
     JoeTca:
       type: object
-      required: [parents, venues]
+      required: [parents, venues, algos, venue_algos]
       properties:
         parents: { type: integer }
+        since:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: The window asked for; absent when every held parent is in.
         venues:
           type: array
           items: { $ref: "#/components/schemas/VenueTca" }
+        algos:
+          type: array
+          items: { $ref: "#/components/schemas/AlgoTca" }
+        venue_algos:
+          description: One algo's children on one venue.
+          type: array
+          items: { $ref: "#/components/schemas/AlgoTca" }
+
+    AlgoTca:
+      type: object
+      required: [algo, orders, working, failed, children, value, asked, fees]
+      properties:
+        algo: { type: string }
+        venue: { type: string, description: Absent on a row over every venue. }
+        orders: { type: integer, description: Parent orders; one that used two venues counts on each. }
+        working: { type: integer, description: Of them, working or paused. }
+        failed: { type: integer }
+        children: { type: integer }
+        value:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Filled notional in the quote asset.
+        asked:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            What was asked, at each parent's average fill or else its arrival
+            mid: the parent's size over every venue, what it sent on one.
+        fill_rate:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: A RATIO, `value` over `asked`.
+        slippage_arrival_bp:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Positive is a cost against each parent's arrival mid, weighted by filled notional.
+        slippage_vwap_bp:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            The same against the market's VWAP over each parent's life; only
+            parents that saw market trades are in it.
+        fees: { $ref: "#/components/schemas/Decimal" }
+        fees_bp: { $ref: "#/components/schemas/Decimal" }
+        ack_p50_ns:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: Median time from a child's send to the venue's first answer.
 
     VenueTca:
       type: object
@@ -3707,6 +3858,54 @@ components:
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
         leverage: { type: integer, minimum: 1, maximum: 1000 }
         margin_mode: { $ref: "#/components/schemas/MarginMode" }
+
+    MaintenanceTier:
+      type: object
+      required: [notional_floor, maintenance_margin_rate, maintenance_amount]
+      description: |
+        One bracket of position notional in the quote currency. Maintenance margin
+        for a notional N inside it is `N * maintenance_margin_rate - maintenance_amount`.
+      properties:
+        notional_floor: { $ref: "#/components/schemas/Decimal" }
+        notional_cap:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Absent on the last tier where the venue states no ceiling.
+        maintenance_margin_rate: { $ref: "#/components/schemas/Decimal" }
+        maintenance_amount: { $ref: "#/components/schemas/Decimal" }
+        max_leverage:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Absent where the venue does not state one for the tier.
+
+    TradingTerms:
+      type: object
+      required: [account, instrument_id, maker_fee, taker_fee, fee_source, maintenance_tiers, tiers_source, as_of]
+      properties:
+        account: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        maker_fee:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: A fraction of notional, `0.0002` for 2 bp; negative is a rebate.
+        taker_fee: { $ref: "#/components/schemas/Decimal" }
+        fee_source:
+          type: string
+          enum: [account, schedule]
+          description: |
+            `account` is the venue's answer for this key; `schedule` is the venue's
+            public base tier.
+        maintenance_tiers:
+          type: array
+          description: Ascending by `notional_floor`.
+          items: { $ref: "#/components/schemas/MaintenanceTier" }
+        tiers_source:
+          type: string
+          enum: [venue, default]
+          description: |
+            `venue` is the venue's own table for the instrument; `default` is what
+            the instrument's listing states, or nothing.
+        as_of:
+          type: integer
+          format: int64
+          description: When the venue was asked, Unix milliseconds.
 
     Position:
       type: object

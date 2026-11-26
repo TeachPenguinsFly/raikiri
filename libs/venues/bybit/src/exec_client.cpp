@@ -23,7 +23,7 @@ constexpr std::uint32_t k_trade_stream_id = 2;
 constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 
 // tracks orders sent over rest until the private socket answers; unanswered ones age out as gaps
-class BybitExec final : public exec::ExecutionClient, public exec::MarginControl {
+class BybitExec final : public exec::ExecutionClient, public exec::MarginControl, public exec::TermsSource {
 public:
     explicit BybitExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, stream_{*state_}, api_{*state_} {}
 
@@ -80,6 +80,12 @@ public:
     }
 
     exec::MarginControl* margin_control() noexcept override { return this; }
+
+    exec::TermsSource* terms_source() noexcept override { return this; }
+
+    std::expected<TradingTerms, exec::VenueError> trading_terms(InstrumentId instrument) override {
+        return api_.trading_terms(instrument);
+    }
 
     MarginScope mode_scope() const noexcept override { return MarginScope::WholeAccount; }
 

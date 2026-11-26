@@ -7,6 +7,7 @@
 #include <raikiri/venues/hyperliquid/orders.hpp>
 #include <raikiri/venues/hyperliquid/positions.hpp>
 #include <raikiri/venues/hyperliquid/rest.hpp>
+#include <raikiri/venues/hyperliquid/terms.hpp>
 
 #include <algorithm>
 #include <array>
@@ -250,6 +251,59 @@ public:
             state.mode = MarginMode::Cross;
         }
         return state;
+    }
+
+    // the fee rates need only the account's address; the margin tiers ride the public meta answer
+    std::expected<TradingTerms, exec::VenueError> trading_terms(InstrumentId instrument) {
+        const auto coin = state_->instruments.exchange_symbol(instrument);
+        if (coin.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto metered = [this]() -> std::expected<void, exec::VenueError> {
+            if (state_->budget == nullptr ||
+                state_->budget->take(info_path(), state_->clock->mono(), exec::RateClass::Poll).has_value()) {
+                return {};
+            }
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::RateLimited, 0, "local rate budget spent; worth retrying")};
+        };
+        TradingTerms terms{};
+        if (!state_->address.empty()) {
+            if (const auto allowed = metered(); !allowed.has_value()) {
+                return std::unexpected{allowed.error()};
+            }
+            const auto rates = fee_rates();
+            if (rates.has_value()) {
+                const bool spot = instrument.market() == MarketType::Spot;
+                terms.maker_fee = static_cast<double>((spot ? rates->spot_maker : rates->maker).raw) / 1e9;
+                terms.taker_fee = static_cast<double>((spot ? rates->spot_taker : rates->taker).raw) / 1e9;
+                terms.fee_source = FeeSource::Account;
+            } else if (!exec::terms_go_without(rates.error())) {
+                return std::unexpected{rates.error()};
+            }
+        }
+        if (instrument.market() == MarketType::Perp) {
+            if (const auto allowed = metered(); !allowed.has_value()) {
+                return std::unexpected{allowed.error()};
+            }
+            // a hip-3 coin is "dex:COIN" and is listed in its own dex's meta
+            std::string dex_body;
+            const auto colon = coin.find(':');
+            const auto request = colon == std::string_view::npos
+                                     ? RequestBuilder::meta()
+                                     : RequestBuilder::meta(coin.substr(0, colon), dex_body);
+            const auto body = read_info(*state_, rest_, request);
+            if (body.has_value()) {
+                if (auto tiers = parse_margin_tiers(*body, coin); tiers.has_value()) {
+                    terms.tiers = std::move(*tiers);
+                    terms.tiers_source = TiersSource::Venue;
+                }
+            } else if (!exec::terms_go_without(body.error())) {
+                return std::unexpected{body.error()};
+            }
+        }
+        return terms;
     }
 
     std::expected<void, exec::VenueError>

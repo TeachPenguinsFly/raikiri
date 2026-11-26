@@ -38,6 +38,9 @@ inline constexpr std::string_view k_balance = "/api/v5/account/balance";
 inline constexpr std::string_view k_account_config = "/api/v5/account/config";
 inline constexpr std::string_view k_set_leverage = "/api/v5/account/set-leverage";
 inline constexpr std::string_view k_leverage_info = "/api/v5/account/leverage-info";
+// the account's rates for an instrument family, signed; and the family's position tiers, public
+inline constexpr std::string_view k_trade_fee = "/api/v5/account/trade-fee";
+inline constexpr std::string_view k_position_tiers = "/api/v5/public/position-tiers";
 
 inline constexpr std::string_view k_instruments = "/api/v5/public/instruments";
 // options list by underlying: instruments refuses instType=OPTION without uly or instFamily

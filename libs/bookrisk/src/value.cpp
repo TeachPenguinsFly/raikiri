@@ -25,6 +25,21 @@ bool is_dollar(std::string_view asset) noexcept {
     return asset.starts_with("USD") || asset == "DAI" || asset == "FDUSD" || asset == "TUSD" || asset == "PYUSD";
 }
 
+void add_notional(NotionalReading& into, std::string_view symbol, FixedE9 open, FixedE9 net) {
+    if (open.is_undef()) {
+        ++into.unpriced;
+        return;
+    }
+    into.gross = into.gross + open;
+    if (!net.is_undef()) {
+        into.net = into.net + net;
+    }
+    if (open > into.largest) {
+        into.largest = open;
+        into.largest_symbol = symbol;
+    }
+}
+
 void add_position(PnlReading& into, const Instrument& listed, const portfolio::Position& position, Mark mark) noexcept {
     const auto& base = base_of(listed);
     const bool held = !position.flat();

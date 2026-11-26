@@ -6,6 +6,7 @@ import {
   type Book,
   type Funding,
   type Quote,
+  type Schema,
   type StreamFrame,
   type Ticker,
   type Trade,
@@ -14,9 +15,11 @@ import {
 // one socket for the product: a subscription lives while any hook holds it, and every reopen sends the live set
 // again. Each quote also lands on the tape the chart draws from, since the stream carries no candles
 
-type RowChannel = 'quotes' | 'funding' | 'ticker'
+export type Greeks = Schema<'Greeks'>
+
+type RowChannel = 'quotes' | 'funding' | 'ticker' | 'greeks'
 type Request =
-  | { channel: RowChannel; instruments: string[] }
+  | { channel: RowChannel; instruments: string[]; hz?: number | undefined }
   | { channel: 'book'; instrument: string; levels: number }
   | { channel: 'trades'; instrument: string }
 type Entry = { id: string; request: Request; listeners: Set<(frame: StreamFrame) => void> }
@@ -156,7 +159,7 @@ const message = ({ id, request }: Entry) =>
       ? { op: 'subscribe', id, book: request.instrument, levels: request.levels }
       : request.channel === 'trades'
         ? { op: 'subscribe', id, trades: request.instrument }
-        : { op: 'subscribe', id, [request.channel]: request.instruments },
+        : { op: 'subscribe', id, [request.channel]: request.instruments, hz: request.hz },
   )
 
 const socket = new Socket()
@@ -173,6 +176,7 @@ function useRows<T extends { instrument_id: string }>(
   channel: RowChannel,
   instruments: readonly string[],
   read: (frame: StreamFrame) => T[] | null,
+  hz?: number,
 ): Map<string, T> {
   const [rows, setRows] = useState(() => new Map<string, T>())
   const signature = instruments.length === 0 ? null : JSON.stringify([...instruments].sort())
@@ -194,7 +198,7 @@ function useRows<T extends { instrument_id: string }>(
     const stops: Array<() => void> = []
     for (let i = 0; i < ids.length; i += k_chunk) {
       stops.push(
-        socket.subscribe({ channel, instruments: ids.slice(i, i + k_chunk) }, (frame) => {
+        socket.subscribe({ channel, instruments: ids.slice(i, i + k_chunk), hz }, (frame) => {
           const got = read(frame)
           if (got === null) return
           for (const row of got) pending.set(row.instrument_id, row)
@@ -206,17 +210,23 @@ function useRows<T extends { instrument_id: string }>(
       cancelAnimationFrame(scheduled)
       for (const stop of stops) stop()
     }
-  }, [channel, signature])
+  }, [channel, signature, hz])
   return rows
 }
 
 const readQuotes = (f: StreamFrame) => (f.type === 'quotes' ? f.quotes : null)
 const readFunding = (f: StreamFrame) => (f.type === 'funding' ? f.funding : null)
 const readTicker = (f: StreamFrame) => (f.type === 'ticker' ? f.ticker : null)
+const readGreeks = (f: StreamFrame) => (f.type === 'greeks' ? f.greeks : null)
+
+/** a chain is hundreds of contracts; a few frames a second of what moved, where the server's own pace is one */
+const k_greeks_hz = 4
 
 export const useQuotes = (ids: readonly string[]): Map<string, Quote> => useRows('quotes', ids, readQuotes)
 export const useFunding = (ids: readonly string[]): Map<string, Funding> => useRows('funding', ids, readFunding)
 export const useTicker = (ids: readonly string[]): Map<string, Ticker> => useRows('ticker', ids, readTicker)
+/** each option's venue greeks, ivs and mark as the venue last sent them */
+export const useGreeks = (ids: readonly string[]): Map<string, Greeks> => useRows('greeks', ids, readGreeks, k_greeks_hz)
 
 /** each instrument's ladder, the latest frame of each */
 export function useBooks(ids: readonly string[], levels: number): Map<string, Book> {

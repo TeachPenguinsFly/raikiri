@@ -31,6 +31,8 @@ venues:
       - { match: "/fapi/v1/leverage", cost: 1 }
       - { match: "/fapi/v1/marginType", cost: 1 }
       - { match: "/fapi/v1/symbolConfig", cost: 5 }
+      - { match: "/fapi/v1/commissionRate", cost: 20 }
+      - { match: "/fapi/v1/leverageBracket", cost: 1 }
       - { match: "/fapi/v1/income", cost: 30 }
       - { match: "/fapi/v1/exchangeInfo", cost: 1 }
       - { match: "/fapi/v1/time", cost: 1 }
@@ -102,7 +104,7 @@ venues:
     order_answer_timeout_ms: 15000
     limits:
       - { name: orders, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/create", "/v5/order/cancel", "/v5/order/amend"] }
-      - { name: account, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/realtime", "/v5/position/list", "/v5/position/set-leverage", "/v5/account/wallet-balance", "/v5/execution/list"] }
+      - { name: account, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/realtime", "/v5/position/list", "/v5/position/set-leverage", "/v5/account/wallet-balance", "/v5/execution/list", "/v5/account/fee-rate"] }
       - { name: ledger, window_ms: 1000, max: 22, match: ["/v5/account/transaction-log"] }
       # 5 per second by uid; it moves the whole unified account
       - { name: margin_mode, window_ms: 1000, max: 4, match: ["/v5/account/set-margin-mode"] }
@@ -223,6 +225,8 @@ venues:
       - { name: bills, window_ms: 1000, max: 4, match: ["/api/v5/account/bills"] }
       # 20 per 2 s each by user id
       - { name: leverage, window_ms: 2000, max: 18, match: ["/api/v5/account/set-leverage", "/api/v5/account/leverage-info"] }
+      # 5 per 2 s by user id
+      - { name: trade_fee, window_ms: 2000, max: 4, match: ["/api/v5/account/trade-fee"] }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 350, max: 1 }
       - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 3 }
       - { name: ws_streams, kind: ws_streams, max: 1024 }

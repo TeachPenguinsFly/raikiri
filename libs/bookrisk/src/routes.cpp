@@ -52,6 +52,16 @@ struct PnlDto {
     std::uint32_t unvalued{0};
 };
 
+struct NotionalDto {
+    std::string gross{};
+    std::string net{};
+    std::string largest{};
+    std::optional<std::string> largest_symbol{};
+    std::uint32_t unpriced{0};
+    std::optional<std::string> book_limit{};
+    std::optional<std::string> instrument_limit{};
+};
+
 struct BookDto {
     std::uint32_t id{0};
     std::string name{};
@@ -63,6 +73,7 @@ struct BookDto {
     std::uint64_t open_orders{0};
     RowDto row{};
     PnlDto pnl{};
+    NotionalDto notional{};
 };
 
 struct DeskDto {
@@ -184,7 +195,16 @@ namespace internal {
                     .past_daily = book.pnl.past_daily,
                     .positions = book.pnl.positions,
                     .unmarked = book.pnl.unmarked,
-                    .unvalued = book.pnl.unvalued}};
+                    .unvalued = book.pnl.unvalued},
+            .notional = {
+                .gross = text(book.notional.gross),
+                .net = text(book.notional.net),
+                .largest = text(book.notional.largest),
+                .largest_symbol = maybe(book.notional.largest_symbol),
+                .unpriced = book.notional.unpriced,
+                .book_limit = maybe(book.row.limits[static_cast<std::size_t>(Param::BookNotional)].resolved.effective),
+                .instrument_limit = maybe(
+                    book.row.limits[static_cast<std::size_t>(Param::InstrumentNotional)].resolved.effective)}};
 }
 
 [[nodiscard]] DeskDto to_dto(const DeskView& view) {

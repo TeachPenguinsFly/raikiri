@@ -33,6 +33,7 @@ public:
     std::vector<BookId> books{7};
     std::map<BookId, std::size_t> open{};
     std::map<BookId, PnlReading> pnls{};
+    std::map<BookId, NotionalReading> notionals{};
     BalanceReading held{};
     std::vector<std::optional<BookId>> cancels{};
 
@@ -63,6 +64,11 @@ public:
     [[nodiscard]] PnlReading pnl(BookId book) const override {
         const auto it = pnls.find(book);
         return it == pnls.end() ? PnlReading{} : it->second;
+    }
+
+    [[nodiscard]] NotionalReading notional(BookId book) const override {
+        const auto it = notionals.find(book);
+        return it == notionals.end() ? NotionalReading{} : it->second;
     }
 
     [[nodiscard]] BalanceReading balances() const override { return held; }

@@ -32,6 +32,9 @@ inline constexpr std::string_view k_order_open = "/v5/order/realtime";
 inline constexpr std::string_view k_execution_list = "/v5/execution/list";
 inline constexpr std::string_view k_position_list = "/v5/position/list";
 inline constexpr std::string_view k_set_leverage = "/v5/position/set-leverage";
+// the account's rates for a symbol, signed; and the symbol's risk-limit tiers, public
+inline constexpr std::string_view k_fee_rate = "/v5/account/fee-rate";
+inline constexpr std::string_view k_risk_limit = "/v5/market/risk-limit";
 inline constexpr std::string_view k_wallet_balance = "/v5/account/wallet-balance";
 inline constexpr std::string_view k_account_info = "/v5/account/info";
 inline constexpr std::string_view k_set_margin_mode = "/v5/account/set-margin-mode";

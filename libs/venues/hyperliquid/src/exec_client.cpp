@@ -37,7 +37,7 @@ constexpr std::uint64_t k_post_ping_interval_ns = 20'000'000'000ULL;
 
 // no private socket: the /exchange reply is the verdict, and this
 // table tracks requests with no reply
-class HyperliquidExec final : public exec::ExecutionClient, public exec::MarginControl {
+class HyperliquidExec final : public exec::ExecutionClient, public exec::MarginControl, public exec::TermsSource {
 public:
     explicit HyperliquidExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {}
 
@@ -120,6 +120,12 @@ public:
     }
 
     exec::MarginControl* margin_control() noexcept override { return this; }
+
+    exec::TermsSource* terms_source() noexcept override { return this; }
+
+    std::expected<TradingTerms, exec::VenueError> trading_terms(InstrumentId instrument) override {
+        return api_.trading_terms(instrument);
+    }
 
     MarginScope mode_scope() const noexcept override { return MarginScope::OneInstrument; }
 

@@ -65,6 +65,7 @@ target_link_libraries(admin_test
 
 raikiri_add_test(admin_warm_test SRCS admin/warm_test.cpp LIBS raikiri::admin)
 raikiri_add_test(admin_margin_test SRCS admin/margin_test.cpp LIBS raikiri::admin)
+raikiri_add_test(admin_terms_test SRCS admin/terms_test.cpp LIBS raikiri::admin)
 raikiri_add_test(admin_assets_test SRCS admin/assets_test.cpp LIBS raikiri::admin)
 target_compile_definitions(admin_assets_test PRIVATE RAIKIRI_ADMIN_FIXTURES="${PROJECT_SOURCE_DIR}/tests/admin/fixtures")
 
@@ -152,6 +153,11 @@ raikiri_add_test(order_gate_test SRCS exec/order_gate_test.cpp LIBS raikiri::exe
 raikiri_add_test(catalogue_load_test SRCS exec/catalogue_load_test.cpp LIBS raikiri::exec)
 raikiri_add_test(rate_budget_test SRCS exec/rate_budget_test.cpp LIBS raikiri::exec)
 raikiri_add_test(margin_test SRCS exec/margin_test.cpp LIBS raikiri::exec)
+raikiri_add_test(terms_test SRCS exec/terms_test.cpp domain/terms_test.cpp LIBS raikiri::exec)
+raikiri_add_test(venue_terms_test SRCS venues/terms_test.cpp
+  LIBS raikiri::venue_binance raikiri::venue_bybit raikiri::venue_okx raikiri::venue_hyperliquid)
+target_compile_definitions(venue_terms_test PRIVATE
+  RAIKIRI_VENUE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues")
 raikiri_add_test(aster_venue_test SRCS venues/aster/venue_test.cpp LIBS raikiri::venue_aster raikiri::exec)
 raikiri_add_test(grvt_venue_test SRCS venues/grvt/venue_test.cpp LIBS raikiri::venue_grvt raikiri::exec)
 raikiri_add_test(lighter_venue_test SRCS venues/lighter/venue_test.cpp LIBS raikiri::venue_lighter raikiri::exec)

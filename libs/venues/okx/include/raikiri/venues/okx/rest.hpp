@@ -118,6 +118,12 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     leverage_info(std::string_view inst_id, std::string_view mgn_mode, UnixNanos now);
 
+    // spot is asked by instrument, everything else by its family
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    trade_fee(MarketType market, std::string_view inst_id, UnixNanos now);
+    [[nodiscard]] net::RestRequest
+    position_tiers(MarketType market, std::string_view inst_id, std::string_view mgn_mode) noexcept;
+
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:

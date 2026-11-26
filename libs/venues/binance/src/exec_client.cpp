@@ -32,7 +32,7 @@ constexpr std::uint64_t k_default_ws_timeout_ns = 10'000'000'000ULL;
 }
 
 // holds orders sent over rest and not yet answered on the user stream, and owns the listen key
-class BinanceExec final : public exec::ExecutionClient, public exec::MarginControl {
+class BinanceExec final : public exec::ExecutionClient, public exec::MarginControl, public exec::TermsSource {
 public:
     explicit BinanceExec(std::shared_ptr<VenueState> state) : state_{std::move(state)}, api_{*state_} {
         state_->tick_hook = [this](UnixNanos now) { tick(now); };
@@ -208,6 +208,12 @@ public:
 
     exec::MarginControl* margin_control() noexcept override {
         return state_->market == MarketType::Perp ? this : nullptr;
+    }
+
+    exec::TermsSource* terms_source() noexcept override { return this; }
+
+    std::expected<TradingTerms, exec::VenueError> trading_terms(InstrumentId instrument) override {
+        return api_.trading_terms(instrument);
     }
 
     MarginScope mode_scope() const noexcept override { return MarginScope::OneInstrument; }

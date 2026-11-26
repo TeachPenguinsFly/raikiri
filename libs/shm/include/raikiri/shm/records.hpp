@@ -11,6 +11,7 @@
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/domain/position_report.hpp>
+#include <raikiri/domain/terms.hpp>
 #include <raikiri/shm/broadcast_ring.hpp>
 #include <raikiri/shm/catalogue.hpp>
 #include <raikiri/shm/segment.hpp>
@@ -123,6 +124,8 @@ inline constexpr std::size_t k_funding_charge_ring = 4096;
 inline constexpr std::size_t k_fill_ring = 8192;
 // a person changes leverage; nothing queues here
 inline constexpr std::size_t k_margin_ring = 64;
+// one answer is up to k_terms_max_tiers / k_terms_tiers_per_part records, and a reader must not be lapped mid-answer
+inline constexpr std::size_t k_terms_ring = 256;
 // zeroed at creation, so this is resident memory per gateway
 inline constexpr std::size_t k_gateway_segment_bytes = 64ULL << 20;
 
@@ -166,6 +169,11 @@ using MarginRequestProducer = SpscProducer<MarginRequest, k_margin_ring>;
 using MarginRequestConsumer = SpscConsumer<MarginRequest, k_margin_ring>;
 using MarginReplyRing = BroadcastRing<MarginReply, k_margin_ring>;
 using MarginReplyReader = BroadcastReader<MarginReply, k_margin_ring>;
+using TermsRequestRing = SpscRing<TermsRequest, k_margin_ring>;
+using TermsRequestProducer = SpscProducer<TermsRequest, k_margin_ring>;
+using TermsRequestConsumer = SpscConsumer<TermsRequest, k_margin_ring>;
+using TermsReplyRing = BroadcastRing<TermsReply, k_terms_ring>;
+using TermsReplyReader = BroadcastReader<TermsReply, k_terms_ring>;
 
 // feed health over the gateway's rolling window; lag is ts_recv - ts_event on the local clock
 struct ChannelMetrics {
@@ -242,6 +250,9 @@ struct GatewayChannels {
     // producer. Null on a gateway built before them, and the reply ring stays empty where no poller runs
     MarginRequestRing* margin_requests{nullptr};
     MarginReplyRing* margin_replies{nullptr};
+    // fee and maintenance-tier reads, under the same lease; served by the poller, or by a keyless reader without one
+    TermsRequestRing* terms_requests{nullptr};
+    TermsReplyRing* terms_replies{nullptr};
 };
 
 [[nodiscard]] std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& owner);

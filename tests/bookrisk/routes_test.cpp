@@ -1,4 +1,5 @@
 #include <raikiri/bookrisk/routes.hpp>
+#include <raikiri/bookrisk/value.hpp>
 
 #include <gtest/gtest.h>
 
@@ -49,6 +50,37 @@ TEST_F(Routes, ARaiseWithoutConfirmIs409AndNamesWhatItRaises) {
     EXPECT_EQ(second.status, 200);
     EXPECT_NE(second.body.find(R"("capital":"100000")"), std::string::npos) << second.body;
     EXPECT_NE(second.body.find(R"("capital_by":"vlad")"), std::string::npos);
+}
+
+TEST_F(Routes, ABookShowsItsNotionalBesideTheLimitsItCountsAgainst) {
+    kernel.file.max_strategy_notional = d("50000");
+    kernel.notionals[7] = {.gross = d("12500.5"),
+                           .net = d("-2500"),
+                           .largest = d("9000"),
+                           .largest_symbol = "BTC/USDT:USDT",
+                           .unpriced = 1};
+    (void)post("/risk/capital", R"({"capital":"100000","by":"vlad","confirm":true})");
+    const auto book = get("/risk/books/7");
+    ASSERT_EQ(book.status, 200);
+    EXPECT_NE(
+        book.body.find(
+            R"("notional":{"gross":"12500.5","net":"-2500","largest":"9000","largest_symbol":"BTC/USDT:USDT","unpriced":1,"book_limit":"50000"})"),
+        std::string::npos)
+        << book.body << " an instrument limit that is off is left out";
+    EXPECT_NE(get("/risk").body.find(R"("notional":{"gross":"12500.5")"), std::string::npos);
+}
+
+TEST(Notional, TheLargestInstrumentIsNamedAndAnUnpricedOneIsOnlyCounted) {
+    NotionalReading reading{};
+    add_notional(reading, "ETH/USDT:USDT", d("300"), d("-300"));
+    add_notional(reading, "BTC/USDT:USDT", d("1000"), d("400"));
+    add_notional(reading, "SOL/USDT:USDT", FixedE9::undef(), FixedE9::undef());
+    add_notional(reading, "XRP/USDT:USDT", d("50"), d("0"));
+    EXPECT_EQ(reading.gross, d("1350"));
+    EXPECT_EQ(reading.net, d("100"));
+    EXPECT_EQ(reading.largest, d("1000"));
+    EXPECT_EQ(reading.largest_symbol, "BTC/USDT:USDT");
+    EXPECT_EQ(reading.unpriced, 1U);
 }
 
 TEST_F(Routes, LimitsAreShownInDollarsAndPercents) {

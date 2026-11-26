@@ -27,19 +27,33 @@ const k_stale_ns = 10e9;
 const k_rows = 40;
 const k_saved = "raikiri.book.view";
 
-function saved(): { view: View | undefined; unit: Unit | undefined } {
+const k_saved_steps = 120;
+
+/** the grouping is kept per market and ladder, since venues and coins tick differently */
+type Steps = Record<string, number>;
+
+function saved(): { view: View | undefined; unit: Unit | undefined; steps: Steps } {
   try {
-    const v = JSON.parse(localStorage.getItem(k_saved) ?? "{}") as { view?: unknown; unit?: unknown };
+    const v = JSON.parse(localStorage.getItem(k_saved) ?? "{}") as {
+      view?: unknown;
+      unit?: unknown;
+      steps?: unknown;
+    };
+    const steps: Steps = {};
+    if (typeof v.steps === "object" && v.steps !== null)
+      for (const [k, s] of Object.entries(v.steps))
+        if (typeof s === "number" && s > 0) steps[k] = s;
     return {
       view: v.view === "both" || v.view === "bids" || v.view === "asks" ? v.view : undefined,
       unit: v.unit === "base" || v.unit === "usd" ? v.unit : undefined,
+      steps,
     };
   } catch {
-    return { view: undefined, unit: undefined };
+    return { view: undefined, unit: undefined, steps: {} };
   }
 }
 
-function save(v: { view: View; unit: Unit }) {
+function save(v: { view: View; unit: Unit; steps: Steps }) {
   try {
     localStorage.setItem(k_saved, JSON.stringify(v));
   } catch {
@@ -416,12 +430,21 @@ const k_views: ReadonlyArray<readonly [View, string, string, string]> = [
 
 export function BookWidget() {
   const { pair, bookVenue, setDraft } = useTerminal();
-  const [pick, setPick] = useState<number | undefined>(undefined);
+  const [steps, setSteps] = useState<Steps>(() => saved().steps);
   const [view, setViewState] = useState<View>(() => saved().view ?? "both");
   const [unit, setUnitState] = useState<Unit>(() => saved().unit ?? "base");
-  const setView = (v: View) => (setViewState(v), save({ view: v, unit }));
-  const setUnit = (u: Unit) => (setUnitState(u), save({ view, unit: u }));
-  const book = useBook(bookVenue, pick);
+  const setView = (v: View) => (setViewState(v), save({ view: v, unit, steps }));
+  const setUnit = (u: Unit) => (setUnitState(u), save({ view, unit: u, steps }));
+  const stepKey = `${pair?.key ?? ""}|${bookVenue}`;
+  const setPick = (step: number) => {
+    // the newest choices are kept; a market not opened for long gives its place up
+    const rest = Object.entries(steps).filter(([k]) => k !== stepKey);
+    const next = Object.fromEntries([...rest.slice(1 - k_saved_steps), [stepKey, step]]);
+    setSteps(next);
+    save({ view, unit, steps: next });
+  };
+  // a step the market's ladder does not offer falls back to the usual one inside useBook
+  const book = useBook(bookVenue, steps[stepKey]);
   const [hover, setHover] = useState<{
     side: Side;
     i: number;

@@ -13,6 +13,7 @@
 #include <raikiri/venues/bybit/orders.hpp>
 #include <raikiri/venues/bybit/positions.hpp>
 #include <raikiri/venues/bybit/rest.hpp>
+#include <raikiri/venues/bybit/terms.hpp>
 
 #include <memory>
 #include <string>
@@ -318,6 +319,47 @@ public:
             state.mode = *mode == "ISOLATED_MARGIN" ? MarginMode::Isolated : MarginMode::Cross;
         }
         return state;
+    }
+
+    // the fee rate is the account's and needs the key; the risk-limit tiers are public
+    std::expected<TradingTerms, exec::VenueError> trading_terms(InstrumentId instrument) {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "instrument is not in this gateway's catalogue")};
+        }
+        const auto market = instrument.market();
+        TradingTerms terms{};
+        std::string body;
+        if (state_->signer.has_credentials()) {
+            const auto request = builder_.fee_rate(market, symbol, state_->venue_now());
+            if (!request.has_value()) {
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+            }
+            const auto envelope = fetch(*request, body);
+            if (envelope.has_value()) {
+                if (const auto rate = parse_fee_rate(envelope->result, symbol); rate.has_value()) {
+                    terms.maker_fee = rate->maker;
+                    terms.taker_fee = rate->taker;
+                    terms.fee_source = FeeSource::Account;
+                }
+            } else if (!exec::terms_go_without(envelope.error())) {
+                return std::unexpected{envelope.error()};
+            }
+        }
+        if (market == MarketType::Perp) {
+            const auto envelope = fetch(builder_.risk_limit(market, symbol), body);
+            if (envelope.has_value()) {
+                if (auto tiers = parse_risk_limit(envelope->result, symbol); tiers.has_value()) {
+                    terms.tiers = std::move(*tiers);
+                    terms.tiers_source = TiersSource::Venue;
+                }
+            } else if (!exec::terms_go_without(envelope.error())) {
+                return std::unexpected{envelope.error()};
+            }
+        }
+        return terms;
     }
 
     std::expected<void, exec::VenueError> set_leverage(InstrumentId instrument, std::uint32_t leverage) {

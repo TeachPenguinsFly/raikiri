@@ -11,6 +11,7 @@ add_library(raikiri_venue_binance STATIC
   src/types/market_data.cpp
   src/types/orders.cpp
   src/types/positions.cpp
+  src/types/terms.cpp
   src/types/ws.cpp
   src/types/ws_api.cpp
   src/marketdata/client.cpp

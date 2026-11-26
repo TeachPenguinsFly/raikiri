@@ -371,6 +371,26 @@ RequestBuilder::position(MarketType market, std::string_view symbol, UnixNanos n
     return signed_get(ep::k_position_list, query.view(), now);
 }
 
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::fee_rate(MarketType market, std::string_view symbol, UnixNanos now) {
+    Appender query{body_};
+    query << "category=" << category_of(market) << "&symbol=" << symbol;
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_get(ep::k_fee_rate, query.view(), now);
+}
+
+net::RestRequest RequestBuilder::risk_limit(MarketType market, std::string_view symbol) {
+    Appender target{target_};
+    target << ep::k_risk_limit << "?category=" << category_of(market) << "&symbol=" << symbol;
+
+    net::RestRequest request{};
+    request.method = net::HttpMethod::Get;
+    request.target = target.view();
+    return request;
+}
+
 net::RestRequest RequestBuilder::tickers(MarketType market) {
     Appender target{target_};
     target << ep::k_tickers << "?category=" << category_of(market);

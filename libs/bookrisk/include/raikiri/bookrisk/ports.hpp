@@ -33,6 +33,17 @@ struct BalanceReading {
     std::uint32_t accounts{0};
 };
 
+// a book's open notional as its limits count it: each instrument's worst case with working orders in, at its mid
+struct NotionalReading {
+    FixedE9 gross{FixedE9::from_raw(0)};
+    // positions only, longs less shorts
+    FixedE9 net{FixedE9::from_raw(0)};
+    FixedE9 largest{FixedE9::from_raw(0)};
+    std::string largest_symbol{};
+    // open instruments with no quote to value them; the gate refuses growth while there is one
+    std::uint32_t unpriced{0};
+};
+
 // the running kernel, as this feature sees it
 class BookKernel {
 public:
@@ -53,6 +64,7 @@ public:
     [[nodiscard]] virtual std::size_t open_orders(std::optional<BookId> book) const = 0;
 
     [[nodiscard]] virtual PnlReading pnl(BookId book) const = 0;
+    [[nodiscard]] virtual NotionalReading notional(BookId book) const = 0;
     [[nodiscard]] virtual BalanceReading balances() const = 0;
 };
 
