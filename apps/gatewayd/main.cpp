@@ -1440,7 +1440,7 @@ int main(int argc, char** argv) {
                 // the first record says a poller serves the ring; admind refuses at once where it finds none
                 channels_ptr->margin_replies->publish({});
                 shm::TermsRequestConsumer terms_requests{channels_ptr->terms_requests};
-                channels_ptr->terms_replies->publish({});
+                channels_ptr->terms_replies->publish(TermsReply{});
                 const auto serve_margin = [&] {
                     serve_margin_requests(
                         *poller_adapter, margin_requests, *channels_ptr->margin_replies, clock, account_name);
@@ -1497,13 +1497,13 @@ int main(int argc, char** argv) {
     NullSink terms_sink;
     if (poller_adapter == nullptr) {
         terms_reader = std::thread([&] {
-            shm::TermsRequestConsumer requests{channels->terms_requests};
-            channels->terms_replies->publish({});
+            shm::TermsRequestConsumer asks{channels->terms_requests};
+            channels->terms_replies->publish(TermsReply{});
             std::unique_ptr<exec::VenueAdapter> reader;
             bool built = false;
             while (!g_stop.load(std::memory_order_relaxed)) {
                 TermsRequest request{};
-                while (requests.try_pop(request)) {
+                while (asks.try_pop(request)) {
                     // stamped before the build, whose catalogue pull would otherwise age the request out
                     const auto asked = clock.wall();
                     if (!built) {
