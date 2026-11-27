@@ -32,11 +32,7 @@ std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return parse_steps(text, step);
 }
 
 std::optional<PriceTicks> to_ticks(std::string_view text, const InstrumentBase& base) {
@@ -310,11 +306,7 @@ namespace {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return parse_steps(text, step);
 }
 
 [[nodiscard]] Side side_from(std::string_view text) noexcept {

@@ -243,10 +243,6 @@ private:
             for (auto& [index, book] : state_->books) {
                 book.invalidate();
             }
-        } else if (stream == Stream::Top) {
-            for (auto& market : state_->markets) {
-                market.fast_quote = false;
-            }
         }
     }
 
@@ -305,7 +301,9 @@ private:
             return;
         }
         const auto ts_event = ms_to_unix(wire->ts_ms, UnixNanos{});
-        if (market->quote && !market->fast_quote) {
+        // a synced full book prices the market: the top-of-book stream once froze btc 1.7% off while the book
+        // kept moving (2026-11-27), so it only stands in where the book is not synced
+        if (market->quote) {
             if (const auto top = book.top(ts_event, received); top.has_value()) {
                 state_->sink->on_bbo(*top);
                 market->priced = true;
@@ -328,9 +326,12 @@ private:
         if (market == nullptr || !market->quote) {
             return;
         }
+        if (const auto held = state_->books.find(base->id.symbol().raw);
+            held != state_->books.end() && held->second.synced()) {
+            return;
+        }
         if (const auto top = map_top(*wire, base->id, base->tick_size, base->lot_size, received); top.has_value()) {
             state_->sink->on_bbo(*top);
-            market->fast_quote = true;
             market->priced = true;
         }
     }

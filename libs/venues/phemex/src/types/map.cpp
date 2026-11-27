@@ -53,8 +53,7 @@ std::optional<PriceTicks> mark_ticks(std::optional<FixedE9> mark, FixedE9 tick) 
 } // namespace
 
 std::optional<std::int64_t> real_steps(std::string_view text, FixedE9 step) noexcept {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 std::optional<std::int64_t> scaled_steps(std::int64_t value, std::int64_t step) noexcept {

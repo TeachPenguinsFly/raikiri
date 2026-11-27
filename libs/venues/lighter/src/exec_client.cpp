@@ -69,8 +69,7 @@ void append_form_value(std::string& out, std::string_view value) {
 }
 
 [[nodiscard]] std::optional<std::int64_t> steps(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 // the frame the venue's socket takes; tx_info is embedded as an object, not a string

@@ -38,16 +38,19 @@ std::optional<FixedE9> places_step(std::string_view places) noexcept {
 } // namespace
 
 std::optional<std::int64_t> ticks_of(std::string_view text, FixedE9 tick) noexcept {
-    const auto value = parse_number_e9(text);
-    return value.has_value() ? book::exact_steps(*value, tick) : std::nullopt;
+    return parse_steps(text, tick);
 }
 
 std::optional<std::int64_t> lots_of(std::string_view text, FixedE9 lot) noexcept {
-    const auto value = parse_amount_e9(text);
-    if (!value.has_value() || lot.raw <= 0 || value->raw < 0) {
-        return std::nullopt;
+    if (const auto value = parse_amount_e9(text); value.has_value()) {
+        if (lot.raw <= 0 || value->raw < 0) {
+            return std::nullopt;
+        }
+        return (value->raw + lot.raw / 2) / lot.raw;
     }
-    return (value->raw + lot.raw / 2) / lot.raw;
+    // shib's sizes run past the 9.2e9 the e9 scale holds; those are counted in whole steps straight
+    const auto steps = parse_steps(text, lot, false);
+    return steps.has_value() && *steps >= 0 ? steps : std::nullopt;
 }
 
 std::optional<Instrument> map_perp_instrument(const WirePerpInstrument& wire, std::uint32_t funding_interval_s) {

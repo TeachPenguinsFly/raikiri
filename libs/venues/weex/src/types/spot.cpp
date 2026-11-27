@@ -43,11 +43,7 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
-    if (!value.has_value()) {
-        return std::nullopt;
-    }
-    return book::exact_steps(*value, step);
+    return parse_steps(text, step);
 }
 
 std::optional<PriceTicks> ticks_of(std::string_view text, const InstrumentBase& base) {

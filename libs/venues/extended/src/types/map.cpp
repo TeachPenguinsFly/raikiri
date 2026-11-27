@@ -10,8 +10,7 @@ namespace {
 constexpr std::string_view k_wire_quote = "-USD";
 
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 // The mark carries more places than the tick, so it is truncated onto it.

@@ -14,8 +14,7 @@ namespace {
 constexpr std::size_t k_seen_trades_cap = 100'000;
 
 [[nodiscard]] std::optional<std::int64_t> steps(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 template <typename Id> [[nodiscard]] Id decimal_id(std::uint64_t value) noexcept {

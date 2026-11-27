@@ -15,8 +15,7 @@ std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty()) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 std::optional<PriceTicks> to_ticks(std::string_view text, const InstrumentBase& base) {

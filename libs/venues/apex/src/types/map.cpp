@@ -11,8 +11,7 @@ namespace raikiri::venues::apex {
 namespace {
 
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 std::optional<int> digits(std::string_view text, std::size_t at, std::size_t len) noexcept {

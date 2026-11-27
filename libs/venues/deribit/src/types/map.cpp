@@ -142,11 +142,7 @@ std::optional<std::int64_t> exact_steps(std::string_view token, FixedE9 step) {
     if (token.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_number_e9(token);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return parse_steps(token, step);
 }
 
 std::optional<PriceTicks> to_ticks(std::string_view token, const InstrumentBase& base) {

@@ -25,11 +25,7 @@ std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_number_e9(text); // may be scientific, e.g. 8.390E-7
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return parse_steps(text, step);
 }
 
 std::optional<PriceTicks> to_ticks(std::string_view text, const InstrumentBase& base) {

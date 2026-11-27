@@ -18,8 +18,7 @@ constexpr std::uint64_t k_ns_per_ms = 1'000'000ULL;
 constexpr std::int64_t k_one = 1'000'000'000LL;
 
 std::optional<std::int64_t> exact(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 // digits past the ninth decimal are below every lot; they are cut before parsing.

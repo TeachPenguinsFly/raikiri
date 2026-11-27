@@ -71,6 +71,20 @@ TEST(BinanceMap, BookTickerBecomesBbo) {
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 
+// pepe's touch holds tens of billions of tokens, past the 9.2e9 units the e9 scale carries; the quote still maps
+TEST(BinanceMap, SizePastTheE9RangeStillMaps) {
+    const auto table = table_with_btc();
+    const auto bbo = map_bbo({.symbol = "BTCUSDT",
+                              .bid_price = "64488.50",
+                              .bid_qty = "67918957776.000",
+                              .ask_price = "64488.60",
+                              .ask_qty = "1.000"},
+                             table,
+                             k_ingest);
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid_qty.raw, 67'918'957'776'000);
+}
+
 TEST(BinanceMap, OpenInterestStaysInTheBaseAsset) {
     const auto table = table_with_btc();
     const auto oi = map_open_interest({.symbol = "BTCUSDT", .open_interest = "96511.695"}, table);

@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/coinbase/catalogue.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
 #include <raikiri/venues/coinbase/market_data.hpp>
@@ -16,11 +17,7 @@ std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return parse_steps(text, step);
 }
 
 std::optional<PriceTicks> to_ticks(std::string_view text, const InstrumentBase& base) {
@@ -370,7 +367,8 @@ std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType mar
     // provisional: InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Coinbase, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // "BTC-USD" on the wire; the canonical form is what groups a market with the other venues' listings
+    base.local_symbol = canonical_symbol(wire.base_currency, wire.quote_currency).value_or(*symbol);
     base.tick_size = *tick;
     base.lot_size = *step;
     if (const auto min_funds = parse_decimal_e9(wire.min_market_funds); min_funds.has_value() && min_funds->raw > 0) {

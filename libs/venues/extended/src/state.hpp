@@ -23,9 +23,6 @@ struct Market {
     bool depth{false};
     bool trades{false};
     bool funding{false};
-    // Set while the depth=1 socket has spoken for this market since it opened;
-    // until then the full book's level zero is the quote.
-    bool fast_quote{false};
     bool priced{false};
     bool traded{false};
     bool funded{false};

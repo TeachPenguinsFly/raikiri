@@ -58,8 +58,7 @@ read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLe
 
 // binance writes plain decimals; the exact-or-refuse rule is book::exact_steps
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 } // namespace

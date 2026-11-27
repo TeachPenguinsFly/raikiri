@@ -19,8 +19,7 @@ std::optional<FixedE9> positive(std::string_view text) {
 
 // prices and sizes sit on the grid; anything off it is refused, never rounded
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 // greeks, vols and marks carry up to 18 digits; analytics keep nine

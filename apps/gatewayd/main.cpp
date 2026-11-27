@@ -1280,13 +1280,44 @@ int main(int argc, char** argv) {
     };
     std::ranges::stable_sort(
         order, {}, [&](const auto* instrument) { return fnv(base_of(*instrument).exchange_symbol.view()); });
+    const auto wanted_of = [&](const InstrumentBase& base) {
+        return symbols.empty() || std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
+                   return s == base.exchange_symbol.view();
+               });
+    };
+    // when the plan is larger than the venue lets us hold, every market takes its touch before any takes a second
+    // channel: handing each market all its channels in turn left half of hyperliquid's and bitget spot's unpriced,
+    // btc among them (2026-11-27). A plan that fits keeps each market's channels together as before
+    const auto limits = net::process_ws_limits();
+    const std::size_t room = limits.channels != 0 ? limits.channels
+                             : limits.streams_per_socket != 0 && limits.sockets != 0
+                                 ? limits.streams_per_socket * limits.sockets
+                                 : 0;
+    const std::size_t per_market = 1U + static_cast<std::size_t>(wanted_channels.trades) +
+                                   static_cast<std::size_t>(wanted_channels.depth) +
+                                   static_cast<std::size_t>(wanted_channels.funding && venue != VenueId::Sim);
+    const auto planned = static_cast<std::size_t>(
+        std::ranges::count_if(order, [&](const auto* listed) { return wanted_of(base_of(*listed)); }));
+    const bool short_of_room = room != 0 && planned * per_market > room;
+    const auto extras = [&](const InstrumentId& id) {
+        if (wanted_channels.depth) {
+            (void)count_sub(gatewayd::Channel::Depth, adapter->data->subscribe(exec::SubKind::Depth, id).has_value());
+        }
+        if (wanted_channels.funding && venue != VenueId::Sim) {
+            (void)count_sub(gatewayd::Channel::Funding,
+                            adapter->data->subscribe(exec::SubKind::Funding, id).has_value());
+        }
+        if (wanted_channels.trades) {
+            (void)count_sub(gatewayd::Channel::Trades, adapter->data->subscribe(exec::SubKind::Trades, id).has_value());
+        }
+    };
+    // the second pass: under one ip-wide budget in the venue's own order, busiest first; across a socket pool in the
+    // hash order, so the busy markets' extra channels still spread over the sockets
+    std::vector<std::pair<std::size_t, InstrumentId>> priced;
     for (const auto* listed : order) {
         const auto& instrument = *listed;
         const auto& base = base_of(instrument);
-        const auto wanted = symbols.empty() || std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
-                                return s == base.exchange_symbol.view();
-                            });
-        if (!wanted) {
+        if (!wanted_of(base)) {
             continue;
         }
         ++matched;
@@ -1299,18 +1330,16 @@ int main(int argc, char** argv) {
             continue;
         }
         ++subscribed;
-        if (wanted_channels.trades) {
-            (void)count_sub(gatewayd::Channel::Trades,
-                            adapter->data->subscribe(exec::SubKind::Trades, base.id).has_value());
+        if (short_of_room) {
+            priced.emplace_back(
+                limits.channels != 0 ? static_cast<std::size_t>(listed - catalogue.data()) : priced.size(), base.id);
+        } else {
+            extras(base.id);
         }
-        if (wanted_channels.depth) {
-            (void)count_sub(gatewayd::Channel::Depth,
-                            adapter->data->subscribe(exec::SubKind::Depth, base.id).has_value());
-        }
-        if (wanted_channels.funding && venue != VenueId::Sim) {
-            (void)count_sub(gatewayd::Channel::Funding,
-                            adapter->data->subscribe(exec::SubKind::Funding, base.id).has_value());
-        }
+    }
+    std::ranges::stable_sort(priced, {}, &std::pair<std::size_t, InstrumentId>::first);
+    for (const auto& entry : priced) {
+        extras(entry.second);
     }
     if (matched == 0) {
         RLOG_ERROR("gatewayd[{}]: no requested symbol matched the catalogue", account_name);

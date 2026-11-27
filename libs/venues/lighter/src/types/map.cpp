@@ -28,8 +28,7 @@ FixedE9 base_units(std::string_view usd_text, std::string_view mark_text) {
 constexpr std::uint64_t k_interval_ms = std::uint64_t{k_funding_interval_s} * 1000;
 
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 // an index is not a traded price and need not sit on the grid, so it is truncated to it

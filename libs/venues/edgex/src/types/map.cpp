@@ -10,8 +10,7 @@ namespace {
 constexpr std::size_t k_e9_places = 9;
 
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 std::optional<FixedE9> positive(std::string_view text) {

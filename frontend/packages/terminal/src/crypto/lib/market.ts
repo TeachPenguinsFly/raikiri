@@ -98,6 +98,12 @@ export const venueColor = (v: string) =>
 const k_taker_bp: Record<string, number> = { binance: 5, okx: 5, hyperliquid: 4.5, bybit: 5.5, bitget: 6, gate: 5 }
 export const takerBp = (v: string) => k_taker_bp[v] ?? 5
 
+/** about six significant figures: a venue whose tick runs to 1e-8 still shows bitcoin to the cent */
+function sensible(price: number | undefined): number {
+  if (price === undefined || !(price > 0)) return 8
+  return Math.max(0, Math.min(8, 6 - Math.floor(Math.log10(price))))
+}
+
 function decimals(tick: string): number {
   const e = /e-(\d+)$/.exec(tick)
   if (e !== null) return Number(e[1])
@@ -125,7 +131,7 @@ function pairsOf(markets: Awaited<ReturnType<typeof api.markets>>, byId: Map<str
           venue: l.venue,
           quote: l.local_symbol.split('/')[1] ?? '',
           exchange: l.exchange_symbol,
-          places: Math.min(8, decimals(ins?.tick_size ?? '0.01')),
+          places: Math.min(decimals(ins?.tick_size ?? '0.01'), sensible(l.mid ?? undefined)),
           tick: n(ins?.tick_size) ?? 0.01,
           unit: n(ins?.contract_value) ?? 1,
           volume: l.volume_24h_usd ?? 0,

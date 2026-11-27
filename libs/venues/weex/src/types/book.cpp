@@ -57,8 +57,7 @@ std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side, st
 }
 
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+    return parse_steps(text, step);
 }
 
 } // namespace
