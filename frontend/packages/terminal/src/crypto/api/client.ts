@@ -85,7 +85,7 @@ export async function get<T>(path: string, query: Record<string, string | undefi
   return (await r.json()) as T
 }
 
-async function send<T>(method: 'PUT' | 'POST', path: string, body?: unknown): Promise<T> {
+async function send<T>(method: 'PUT' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${k_base}${path}`, {
     method,
     headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
@@ -97,6 +97,7 @@ async function send<T>(method: 'PUT' | 'POST', path: string, body?: unknown): Pr
 
 export const put = <T>(path: string, body: unknown) => send<T>('PUT', path, body)
 export const post = <T>(path: string, body?: unknown) => send<T>('POST', path, body)
+export const del = <T>(path: string) => send<T>('DELETE', path)
 
 const leveragePath = (account: string) => `/v1/accounts/${encodeURIComponent(account)}/leverage`
 

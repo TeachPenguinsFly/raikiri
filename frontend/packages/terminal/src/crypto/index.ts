@@ -2,6 +2,7 @@
 export {
   api,
   ApiError,
+  del,
   get,
   post,
   put,
