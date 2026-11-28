@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { compact, n } from '@raikiri/ui/v3'
+import { coinName, compact, n } from '@raikiri/ui/v3'
 import { api, ApiError, type Instrument, type Quote } from '../api/client'
 
 export type Query<T> =
@@ -162,7 +162,11 @@ export interface Catalog {
   byId: Map<string, { pair: Pair; leg: Leg }>
 }
 
-function catalogOf(markets: Awaited<ReturnType<typeof api.markets>>, instruments: Map<string, Instrument>): Catalog {
+/** the instruments sharpen the legs; without them the markets alone are enough to find and name a pair */
+export function catalogOf(
+  markets: Awaited<ReturnType<typeof api.markets>>,
+  instruments: Map<string, Instrument> = new Map(),
+): Catalog {
   const pairs = pairsOf(markets, instruments)
   return {
     pairs,
@@ -214,6 +218,33 @@ export function useRanked(catalog: Catalog | undefined): Array<{ pair: Pair; vol
       .map((pair) => ({ pair, volume: pair.volume }))
       .sort((a, b) => Number(b.pair.legs.length > 1) - Number(a.pair.legs.length > 1) || b.volume - a.volume)
   }, [catalog])
+}
+
+/** the picker's match: the ticker or the coin's name holds the query */
+export function pairMatches(p: Pair, query: string): boolean {
+  const q = query.trim().toUpperCase()
+  return q === '' || p.base.includes(q) || (coinName(p.base)?.toUpperCase().includes(q) ?? false)
+}
+
+/** the ticker itself, then tickers it starts, then coin names, then tickers holding it; each by turnover, a split-off
+ *  listing last */
+export function searchPairs(pairs: readonly Pair[], query: string, limit: number): Pair[] {
+  const q = query.trim().toUpperCase()
+  if (q === '') return []
+  const tier = (p: Pair) => {
+    if (p.base === q) return 0
+    if (p.base.startsWith(q)) return 1
+    const name = coinName(p.base)?.toUpperCase()
+    if (name !== undefined && name.startsWith(q)) return 2
+    if (name !== undefined && name.includes(q)) return 3
+    return 4
+  }
+  return pairs
+    .filter((p) => pairMatches(p, q))
+    .map((p) => ({ p, t: tier(p) }))
+    .sort((a, b) => a.t - b.t || Number(a.p.stray) - Number(b.p.stray) || b.p.volume - a.p.volume)
+    .slice(0, limit)
+    .map((x) => x.p)
 }
 
 export interface Touch {
