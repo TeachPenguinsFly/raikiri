@@ -43,6 +43,8 @@ Other sessions:
 | `rest_current_fund_rates.json` | 2026-10-11: the same without `symbol`, trimmed to `BTCUSDT`, `ETHUSDT`, `SHIBUSDT` and the 4 h `XTZUSDT` |
 | `rest_tickers.json` | 2026-10-11: `GET /api/v2/mix/market/tickers?productType=USDT-FUTURES`, trimmed to `BTCUSDT`, `ETHUSDT` and `SHIBUSDT` |
 | `rest_spot_tickers.json` | 2026-10-11: `GET /api/v2/spot/market/tickers`, trimmed to `BTCUSDT` and `ETHUSDT` |
+| `rest_tickers_touch.json` | 2026-11-28: the same mix tickers call, trimmed to `BTCUSDT` and `ETHUSDT`, for the touch seed |
+| `rest_spot_tickers_touch.json` | 2026-11-28: `GET /api/v2/spot/market/tickers`, trimmed to `BTCUSDT`, `ETHUSDT` and `RCRDOUSDT` (top 0, sizes null) |
 | `rest_server_time.json` | `GET /api/v2/public/time` |
 | `rest_spot_symbols.json` | `GET /api/v2/spot/public/symbols`, trimmed; `requestTime` is 2026-08-25 |
 | `rest_error_unknown_symbol.json` | the ticker call with `symbol=NOSUCHUSDT`, code `40034` |

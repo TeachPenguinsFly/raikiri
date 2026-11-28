@@ -72,6 +72,25 @@ TEST(BinanceMap, BookTickerBecomesBbo) {
 }
 
 // pepe's touch holds tens of billions of tokens, past the 9.2e9 units the e9 scale carries; the quote still maps
+TEST(BinanceMap, RestBookTickersSeedTheTouchOfAQuietSymbol) {
+    // the bookTicker stream pushes only changes, so a quiet symbol is first priced from the rest list
+    const auto table = table_with_btc();
+    auto storage = std::make_unique<BookTickerBuffer>();
+    const auto body = fixture("rest_book_tickers.json");
+    const auto rows = parse_book_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    EXPECT_EQ((*rows)[1].symbol, "ETHUSDT");
+    const auto touch = map_touch(rows->front(), table, k_ingest);
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->bid.raw, 594'063);
+    EXPECT_EQ(touch->ask.raw, 594'064);
+    EXPECT_EQ(touch->bid_qty.raw, 5'003);
+    EXPECT_EQ(touch->ask_qty.raw, 3'310);
+    EXPECT_EQ(touch->ts_event.ns, 1'795'883'412'302ULL * 1'000'000ULL);
+    EXPECT_EQ(touch->ts_init.ns, k_ingest.ns);
+}
+
 TEST(BinanceMap, SizePastTheE9RangeStillMaps) {
     const auto table = table_with_btc();
     const auto bbo = map_bbo({.symbol = "BTCUSDT",

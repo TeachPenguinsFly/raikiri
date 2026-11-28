@@ -45,6 +45,8 @@ struct WireSpotSymbol {
     std::string_view quantity_precision;
     std::string_view min_trade_amount;
     std::string_view min_trade_usdt;
+    // "yes" on the regional tokenised pairs (rCRDO and kin): listed online, no book on the venue
+    std::string_view area_symbol;
 };
 
 inline constexpr std::size_t k_max_spot_symbols = 4096;

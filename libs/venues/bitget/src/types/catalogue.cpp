@@ -97,7 +97,8 @@ std::expected<std::span<const WireSpotSymbol>, WireError> parse_spot_symbols(std
                                               std::pair{"pricePrecision", &out.price_precision},
                                               std::pair{"quantityPrecision", &out.quantity_precision},
                                               std::pair{"minTradeAmount", &out.min_trade_amount},
-                                              std::pair{"minTradeUSDT", &out.min_trade_usdt}}) {
+                                              std::pair{"minTradeUSDT", &out.min_trade_usdt},
+                                              std::pair{"areaSymbol", &out.area_symbol}}) {
                 const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());

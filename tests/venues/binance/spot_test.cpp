@@ -246,5 +246,25 @@ TEST(BinanceSpot, SpotStreamsBboTradesAndDepthOnly) {
     EXPECT_EQ(stream_name(exec::SubKind::Depth, "BTCUSDT", buf), "btcusdt@depth@500ms");
 }
 
+TEST(BinanceSpot, RestBookTickersSeedTheTouchAndSkipAnEmptyBook) {
+    const auto table = spot_table();
+    auto storage = std::make_unique<BookTickerBuffer>();
+    const auto body = fixture("spot_rest_book_tickers.json");
+    const auto rows = parse_book_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    const auto btc = map_touch((*rows)[1], table, k_ingest);
+    ASSERT_TRUE(btc.has_value());
+    EXPECT_EQ(btc->bid.raw, 5'943'782);
+    EXPECT_EQ(btc->ask.raw, 5'943'783);
+    EXPECT_EQ(btc->bid_qty.raw, 411'152);
+    EXPECT_EQ(btc->ask_qty.raw, 59'124);
+    EXPECT_EQ(btc->ts_event.ns, k_ingest.ns); // spot rows carry no time
+    EXPECT_EQ((*rows)[2].symbol, "NEOBTC");
+    auto empty = (*rows)[2];
+    empty.symbol = "BTCUSDT";
+    EXPECT_FALSE(map_touch(empty, table, k_ingest).has_value()); // a zero book quotes nothing
+}
+
 } // namespace
 } // namespace raikiri::venues::binance

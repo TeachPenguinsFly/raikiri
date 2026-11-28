@@ -26,6 +26,10 @@ namespace raikiri::venues::binance {
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// a rest touch for the seed: a zero or empty side stays undefined, nullopt when neither side quotes
+[[nodiscard]] std::optional<Bbo>
+map_touch(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 

@@ -391,4 +391,37 @@ std::optional<BookSnapshot> DepthBook::snapshot(UnixNanos ts_event, UnixNanos ts
     return ladders_.snapshot(instrument_, last_id_, ts_event, ts_init);
 }
 
+std::expected<std::span<const WireBookTicker>, WireError> parse_book_tickers(std::string_view body,
+                                                                            BookTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireBookTicker>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            wire::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(wire::map_error(ec));
+            }
+            const auto symbol = wire::req_str(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            WireBookTicker out{};
+            out.symbol = *symbol;
+            out.bid_price = wire::opt_str(obj, "bidPrice").value_or(std::string_view{});
+            out.bid_qty = wire::opt_str(obj, "bidQty").value_or(std::string_view{});
+            out.ask_price = wire::opt_str(obj, "askPrice").value_or(std::string_view{});
+            out.ask_qty = wire::opt_str(obj, "askQty").value_or(std::string_view{});
+            out.transaction_ms = wire::opt_u64(obj, "time").value_or(0);
+            storage.rows[count++] = out;
+        }
+        return std::span<const WireBookTicker>{storage.rows.data(), count};
+    });
+}
+
 } // namespace raikiri::venues::binance

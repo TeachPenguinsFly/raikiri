@@ -204,6 +204,34 @@ std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& 
     return out;
 }
 
+std::optional<Bbo> map_touch(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto side = [&](std::string_view text) {
+        const auto ticks = to_ticks(text, base);
+        return ticks.has_value() && ticks->raw > 0 ? *ticks : PriceTicks{};
+    };
+    Bbo out{};
+    out.instrument = base.id;
+    out.bid = side(wire.bid_price);
+    out.ask = side(wire.ask_price);
+    if (out.bid.is_undef() && out.ask.is_undef()) {
+        return std::nullopt;
+    }
+    if (!out.bid.is_undef()) {
+        out.bid_qty = to_lots(wire.bid_qty, base).value_or(QtyLots{});
+    }
+    if (!out.ask.is_undef()) {
+        out.ask_qty = to_lots(wire.ask_qty, base).value_or(QtyLots{});
+    }
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<FundingClock> funding_clock_of(const WireFundingRate& wire) {
     const auto hours = whole_number(wire.interval_hours);
     if (wire.next_update_ms == 0 || !hours.has_value() || *hours <= 0 || *hours > 24) {
@@ -505,6 +533,10 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire, const
 std::optional<Instrument> map_instrument(const WireSpotSymbol& wire) {
     if (wire.status != "online") {
         return std::nullopt; // halt and offline rows are listed but untradable
+    }
+    // 2988 of 3654 pairs on 2026-11-28: their tickers quote 0 both sides and their v2 book asks for the v3 api
+    if (wire.area_symbol == "yes") {
+        return std::nullopt;
     }
     const auto tick = decimal_unit(wire.price_precision);
     const auto lot = decimal_unit(wire.quantity_precision);

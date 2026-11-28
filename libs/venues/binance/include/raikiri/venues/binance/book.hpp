@@ -34,6 +34,14 @@ struct WireBookTicker {
 
 [[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data);
 
+// the rest list of every symbol's touch; futures rows carry `time` as transaction_ms, spot rows no time
+struct BookTickerBuffer {
+    std::array<WireBookTicker, 4096> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireBookTicker>, WireError> parse_book_tickers(std::string_view body,
+                                                                                          BookTickerBuffer& storage);
+
 struct WireLevel {
     std::string_view price;
     std::string_view qty; // "0" means delete this level

@@ -24,6 +24,10 @@ namespace raikiri::venues::bitget {
 [[nodiscard]] std::optional<Bbo> map_bbo(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 [[nodiscard]] std::optional<Bbo> map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// a tickers row for the touch seed: a zero or empty side stays undefined, nullopt when neither side quotes
+[[nodiscard]] std::optional<Bbo>
+map_touch(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // the settlement clock from current-fund-rate; the tickers row has no next funding time
 struct FundingClock {
     std::uint64_t next_ms{0};

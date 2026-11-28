@@ -131,6 +131,10 @@ net::RestRequest RequestBuilder::instruments() noexcept {
 }
 
 // every symbol in one call
+net::RestRequest RequestBuilder::book_tickers() noexcept {
+    return {.method = net::HttpMethod::Get, .target = spot_ ? ep::k_spot_book_tickers : ep::k_book_tickers, .body = {}};
+}
+
 net::RestRequest RequestBuilder::ticker_24h() noexcept {
     return {.method = net::HttpMethod::Get, .target = spot_ ? ep::k_spot_ticker_24h : ep::k_ticker_24h, .body = {}};
 }

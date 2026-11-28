@@ -39,6 +39,7 @@ venues:
       - { match: "/fapi/v1/premiumIndex", cost: 1 }
       - { match: "/fapi/v1/fundingInfo", cost: 1 }
       - { match: "/fapi/v1/ticker/24hr", cost: 40 }
+      - { match: "/fapi/v1/ticker/bookTicker", cost: 5 }
       - { match: "/fapi/v1/openInterest", cost: 1 }
       - { match: "/fapi/v1/depth", cost: 20 }
       - { match: "/fapi/v1/depth?limit=5", cost: 2 }
@@ -50,6 +51,7 @@ venues:
       - { match: "/api/v3/exchangeInfo", cost: 20 }
       - { match: "/api/v3/time", cost: 1 }
       - { match: "/api/v3/ticker/24hr", cost: 80 }
+      - { match: "/api/v3/ticker/bookTicker", cost: 4 }
       - { match: "/api/v3/depth", cost: 250 }
       - { match: "/api/v3/depth?limit=100", cost: 5 }
       - { match: "/api/v3/depth?limit=500", cost: 25 }
@@ -92,6 +94,7 @@ venues:
       - { match: "/fapi/v1/premiumIndex", cost: 10 }
       - { match: "/fapi/v1/fundingInfo", cost: 10 }
       - { match: "/fapi/v1/ticker/24hr", cost: 40 }
+      - { match: "/fapi/v1/ticker/bookTicker", cost: 5 }
       - { match: "/fapi/v1/depth", cost: 20 }
       - { match: "/fapi/v1/depth?limit=5", cost: 2 }
       - { match: "/fapi/v1/depth?limit=10", cost: 2 }

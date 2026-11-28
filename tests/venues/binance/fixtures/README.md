@@ -17,6 +17,7 @@ otherwise.
 | `rest_server_time.json` | `GET /fapi/v1/time` |
 | `rest_income.json` | `GET /fapi/v1/income` (2026-09-16), one COMMISSION row and one FUNDING_FEE row; the shape is live, the figures were replaced |
 | `rest_funding_info.json` | `GET /fapi/v1/fundingInfo` (2026-09), trimmed to one row each for the 8h, 4h and 1h intervals |
+| `rest_book_tickers.json` | `GET /fapi/v1/ticker/bookTicker` on 2026-11-28, trimmed to BTCUSDT and ETHUSDT |
 | `rest_error_bad_symbol.json` | `GET /fapi/v1/ticker/bookTicker?symbol=NOSUCHSYM` |
 | `rest_error_bad_apikey.json` | `GET /fapi/v1/order?symbol=NOPE` |
 
@@ -67,6 +68,7 @@ Public endpoints, no credentials.
 | `spot_rest_depth_seed.json`, `spot_ws_depth_contained.json`, `spot_ws_depth_update.json`, `spot_ws_depth_update_next.json` | one capture, described below |
 | `spot_rest_exchange_info.json` | `GET /api/v3/exchangeInfo?showPermissionSets=false`, trimmed to four symbols: BTCUSDT, ETHBTC, NEOBTC (`BREAK`) and 币安人生USDT, a pair whose base is not ascii |
 | `spot_rest_ticker_24h.json` | `GET /api/v3/ticker/24hr`, trimmed to BTCUSDT, ETHBTC and NEOBTC |
+| `spot_rest_book_tickers.json` | `GET /api/v3/ticker/bookTicker` on 2026-11-28, trimmed to ETHBTC, BTCUSDT and NEOBTC (an empty book) |
 
 The socket on `btcusdt@depth@100ms` was recorded first, and
 `GET /api/v3/depth?symbol=BTCUSDT&limit=100` was issued three seconds in.

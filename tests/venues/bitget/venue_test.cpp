@@ -510,6 +510,52 @@ TEST(BitgetMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
     EXPECT_FALSE(map_instrument(unnamed).has_value());
 }
 
+TEST(BitgetMap, SpotTickersSeedTheTouchOfAPairBooksOneLeftSilent) {
+    // books1 sends nothing on subscribe; a v3-only pair lists its top as 0 with no sizes and seeds nothing
+    exec::InstrumentTable table;
+    auto symbols = std::make_unique<SpotSymbolBuffer>();
+    const auto symbols_body = fixture("rest_spot_symbols.json");
+    const auto listed = parse_spot_symbols(symbols_body, *symbols);
+    ASSERT_TRUE(listed.has_value());
+    const auto btc = map_instrument((*listed)[0]);
+    ASSERT_TRUE(btc.has_value());
+    ASSERT_TRUE(table.add(*btc).has_value());
+
+    auto storage = std::make_unique<TickerBuffer>();
+    const auto body = fixture("rest_spot_tickers_touch.json");
+    const auto rows = parse_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    const auto touch = map_touch((*rows)[0], table, k_ingest);
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->bid.raw, 5'948'342);
+    EXPECT_EQ(touch->ask.raw, 5'948'343);
+    EXPECT_EQ(touch->bid_qty.raw, 10'652);
+    EXPECT_EQ(touch->ask_qty.raw, 5'412'438);
+    EXPECT_EQ(touch->ts_event.ns, 1'795'883'275'553ULL * 1'000'000ULL);
+
+    EXPECT_EQ((*rows)[2].inst_id, "RCRDOUSDT");
+    EXPECT_TRUE((*rows)[2].bid_qty.empty());
+    auto unquoted = (*rows)[2];
+    unquoted.inst_id = "BTCUSDT";
+    EXPECT_FALSE(map_touch(unquoted, table, k_ingest).has_value());
+}
+
+TEST(BitgetMap, PerpTickersSeedTheTouchWithSizes) {
+    const auto table = table_from_catalogue();
+    auto storage = std::make_unique<TickerBuffer>();
+    const auto body = fixture("rest_tickers_touch.json");
+    const auto rows = parse_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    const auto touch = map_touch(rows->front(), table, k_ingest);
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->bid.raw, 594'364);
+    EXPECT_EQ(touch->ask.raw, 594'365);
+    EXPECT_EQ(touch->bid_qty.raw, 47'990);
+    EXPECT_EQ(touch->ask_qty.raw, 54'013);
+}
+
 TEST(BitgetMap, UntradableAndNonPerpetualRowsAreRefused) {
     WireContract wire{};
     wire.symbol = "BTCUSDT";
@@ -1069,6 +1115,23 @@ TEST(BitgetMap, SpotCatalogueRowsBecomeInstrumentsOrAreRefused) {
 
     EXPECT_EQ(table.find(std::string_view{"BABYDOGEUSDT"}), nullptr);
     EXPECT_EQ(table.find(std::string_view{"REAUSDT"}), nullptr);
+}
+
+// online, but a regional tokenised pair: no book on the venue, so it is left out of the catalogue
+TEST(BitgetMap, AnAreaPairIsLeftOut) {
+    const WireSpotSymbol row{.symbol = "RCRDOUSDT",
+                             .base_coin = "rCRDO",
+                             .quote_coin = "USDT",
+                             .status = "online",
+                             .price_precision = "2",
+                             .quantity_precision = "4",
+                             .min_trade_amount = "0",
+                             .min_trade_usdt = "10",
+                             .area_symbol = "yes"};
+    EXPECT_FALSE(map_instrument(row).has_value());
+    auto plain = row;
+    plain.area_symbol = "no";
+    EXPECT_TRUE(map_instrument(plain).has_value());
 }
 
 TEST(BitgetMap, ARwaRowIsNotACoin) {

@@ -88,6 +88,8 @@ inline constexpr std::string_view k_exchange_info = "/fapi/v1/exchangeInfo";
 inline constexpr std::string_view k_premium_index = "/fapi/v1/premiumIndex";
 // every symbol in one call: weight 40 against 1 per symbol
 inline constexpr std::string_view k_ticker_24h = "/fapi/v1/ticker/24hr";
+// every symbol's touch in one call
+inline constexpr std::string_view k_book_tickers = "/fapi/v1/ticker/bookTicker";
 // one symbol a call; no stream and no table carries it
 inline constexpr std::string_view k_open_interest = "/fapi/v1/openInterest";
 inline constexpr std::string_view k_depth = "/fapi/v1/depth";
@@ -99,6 +101,7 @@ inline constexpr std::string_view k_funding_info = "/fapi/v1/fundingInfo";
 inline constexpr std::string_view
     k_spot_exchange_info = "/api/v3/exchangeInfo?symbolStatus=TRADING&showPermissionSets=false";
 inline constexpr std::string_view k_spot_ticker_24h = "/api/v3/ticker/24hr";
+inline constexpr std::string_view k_spot_book_tickers = "/api/v3/ticker/bookTicker";
 inline constexpr std::string_view k_spot_depth = "/api/v3/depth";
 inline constexpr std::string_view k_spot_server_time = "/api/v3/time";
 

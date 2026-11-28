@@ -85,6 +85,34 @@ std::optional<Bbo> map_bbo(const WireBookTicker& wire, const exec::InstrumentTab
     return out;
 }
 
+std::optional<Bbo> map_touch(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto side = [&](std::string_view text) {
+        const auto ticks = to_ticks(text, base);
+        return ticks.has_value() && ticks->raw > 0 ? *ticks : PriceTicks{};
+    };
+    Bbo out{};
+    out.instrument = base.id;
+    out.bid = side(wire.bid_price);
+    out.ask = side(wire.ask_price);
+    if (out.bid.is_undef() && out.ask.is_undef()) {
+        return std::nullopt;
+    }
+    if (!out.bid.is_undef()) {
+        out.bid_qty = to_lots(wire.bid_qty, base).value_or(QtyLots{});
+    }
+    if (!out.ask.is_undef()) {
+        out.ask_qty = to_lots(wire.ask_qty, base).value_or(QtyLots{});
+    }
+    out.ts_event = ms_to_unix(wire.transaction_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<TradeTick> map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {

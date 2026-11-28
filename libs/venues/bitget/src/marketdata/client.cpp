@@ -22,6 +22,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "../clients.hpp"
@@ -215,6 +216,28 @@ public:
         return {};
     }
 
+    [[nodiscard]] bool seeds_touch() const noexcept override {
+        return state_->market == MarketType::Spot || state_->market == MarketType::Perp;
+    }
+
+    // books1 sends no snapshot on subscribe; the tickers list carries every pair's touch
+    bool seed_touch(std::span<const InstrumentId> unpriced) override {
+        if (!started_ || !seeds_touch() || touch_in_flight_ || unpriced.empty()) {
+            return false;
+        }
+        try {
+            touch_due_.clear();
+            for (const auto id : unpriced) {
+                touch_due_.insert(id.packed);
+            }
+            touch_in_flight_ =
+                rest_.send(builder_.tickers(state_->market, state_->product()), [this](const net::RestResponse& response) { on_touch(response); });
+        } catch (...) {
+            touch_in_flight_ = false;
+        }
+        return touch_in_flight_;
+    }
+
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
         return started_ ? state_->io.run_for(timeout_ms) : 0;
     }
@@ -278,6 +301,25 @@ private:
         }
     }
 
+    void on_touch(const net::RestResponse& response) noexcept {
+        touch_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<TickerBuffer>();
+        const auto rows = parse_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto touch = map_touch(row, state_->instruments, response.received);
+            if (touch.has_value() && touch_due_.erase(touch->instrument.packed) > 0) {
+                state_->sink->on_touch_seed(*touch);
+            }
+        }
+        touch_due_.clear();
+    }
+
     void on_fund_rates(const net::RestResponse& response) noexcept {
         fund_rates_.answered();
         if (response.transport_failed() || response.status != 200) {
@@ -334,6 +376,8 @@ private:
     RequestBuilder builder_;
     exec::TickerPoll tickers_;
     exec::TickerPoll fund_rates_;
+    std::unordered_set<std::uint64_t> touch_due_;
+    bool touch_in_flight_{false};
     bool started_{false};
 };
 

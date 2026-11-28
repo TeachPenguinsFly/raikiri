@@ -21,8 +21,10 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../clients.hpp"
@@ -351,6 +353,28 @@ public:
         return {};
     }
 
+    [[nodiscard]] bool seeds_touch() const noexcept override {
+        return state_->market == MarketType::Spot || state_->market == MarketType::Perp;
+    }
+
+    // bookTicker streams push only changes; one rest call lists every symbol's touch
+    bool seed_touch(std::span<const InstrumentId> unpriced) override {
+        if (!started_ || !seeds_touch() || touch_in_flight_ || unpriced.empty()) {
+            return false;
+        }
+        try {
+            touch_due_.clear();
+            for (const auto id : unpriced) {
+                touch_due_.insert(id.packed);
+            }
+            touch_in_flight_ =
+                state_->depth_rest.send(state_->builder.book_tickers(), [this](const net::RestResponse& response) { on_touch(response); });
+        } catch (...) {
+            touch_in_flight_ = false;
+        }
+        return touch_in_flight_;
+    }
+
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
         return started_ ? state_->io.run_for(timeout_ms) : 0;
     }
@@ -532,6 +556,26 @@ private:
         next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
     }
 
+    void on_touch(const net::RestResponse& response) noexcept {
+        touch_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            heed_rate_refusal(*state_, response);
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<BookTickerBuffer>();
+        const auto rows = parse_book_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto touch = map_touch(row, state_->instruments, response.received);
+            if (touch.has_value() && touch_due_.erase(touch->instrument.packed) > 0) {
+                state_->sink->on_touch_seed(*touch);
+            }
+        }
+        touch_due_.clear();
+    }
+
     void on_ticker(const net::RestResponse& response) noexcept {
         ticker_in_flight_ = false;
         if (response.transport_failed() || response.status != 200) {
@@ -687,6 +731,8 @@ private:
     net::WsPool pool_;
     net::WsPool market_pool_;
     bool started_{false};
+    std::unordered_set<std::uint64_t> touch_due_;
+    bool touch_in_flight_{false};
     bool in_flight_{false};
     bool ticker_in_flight_{false};
     bool open_interest_in_flight_{false};
