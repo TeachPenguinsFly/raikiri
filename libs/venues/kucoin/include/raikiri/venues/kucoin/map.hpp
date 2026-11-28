@@ -43,6 +43,10 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// the allTickers touch for the seed: an empty side or an off-step size stays undefined, nullopt with neither side
+[[nodiscard]] std::optional<Bbo>
+map_touch(const WireSpotTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // symbol overrides the dto's since rest names the funding index; nullopt when no rate is quoted
 [[nodiscard]] std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
                                                        std::string_view symbol,

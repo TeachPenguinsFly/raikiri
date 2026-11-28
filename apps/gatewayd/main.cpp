@@ -96,6 +96,7 @@
 #include "latency_meter.hpp"
 #include "private_pulls.hpp"
 #include "stats_collector.hpp"
+#include "touch_seed.hpp"
 #include "venue_metrics.hpp"
 
 namespace {
@@ -178,6 +179,20 @@ public:
             priced_ns_[idx] = std::max<std::uint64_t>(bbo.ts_init.ns, 1);
         }
         latency_->published(raikiri::gatewayd::Channel::Bbo, bbo.ts_event, bbo.ts_init);
+    }
+
+    // kept out of priced_ns_, so coverage still counts only what the socket quoted
+    void on_touch_seed(const raikiri::Bbo& bbo) noexcept override {
+        const auto idx = bbo.instrument.symbol().raw;
+        if (idx < raikiri::shm::k_bbo_cells && raikiri::gatewayd::keeps_seed(priced_ns_[idx])) {
+            ch_.bbo->write(idx, bbo);
+            ++counts_.touch_seeds;
+        }
+    }
+
+    [[nodiscard]] bool socket_quoted(raikiri::InstrumentId instrument) const noexcept {
+        const auto idx = instrument.symbol().raw;
+        return idx >= raikiri::shm::k_bbo_cells || priced_ns_[idx] != 0;
     }
 
     void on_trade(const raikiri::TradeTick& trade) noexcept override {
@@ -357,6 +372,7 @@ public:
         std::uint64_t order_events{0};
         std::uint64_t order_errors{0};
         std::uint64_t funding_charges{0};
+        std::uint64_t touch_seeds{0};
     };
 
     std::pair<std::uint64_t, raikiri::exec::VenueError> pending_{};
@@ -1314,6 +1330,7 @@ int main(int argc, char** argv) {
     // the second pass: under one ip-wide budget in the venue's own order, busiest first; across a socket pool in the
     // hash order, so the busy markets' extra channels still spread over the sockets
     std::vector<std::pair<std::size_t, InstrumentId>> priced;
+    std::vector<InstrumentId> quoted_ids;
     for (const auto* listed : order) {
         const auto& instrument = *listed;
         const auto& base = base_of(instrument);
@@ -1330,6 +1347,7 @@ int main(int argc, char** argv) {
             continue;
         }
         ++subscribed;
+        quoted_ids.push_back(base.id);
         if (short_of_room) {
             priced.emplace_back(
                 limits.channels != 0 ? static_cast<std::size_t>(listed - catalogue.data()) : priced.size(), base.id);
@@ -1599,6 +1617,9 @@ int main(int argc, char** argv) {
     std::uint64_t stats_cost_ns = 0;
     std::uint64_t applied_clock_ns = clock_state.estimate.sampled_ns;
     std::uint64_t broken_seen = 0;
+    const bool seeds_touch = adapter->data->seeds_touch();
+    gatewayd::TouchSeed touch_seed{std::move(quoted_ids)};
+    touch_seed.arm(clock.mono().ns);
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
@@ -1677,6 +1698,20 @@ int main(int argc, char** argv) {
             for (const auto& pool : raikiri::net::process_ws_pool_stats()) {
                 reopens += pool.reopens;
             }
+            if (seeds_touch) {
+                touch_seed.reopens(reopens, mono.ns);
+                const auto unquoted =
+                    touch_seed.take(mono.ns, [&sink](InstrumentId id) { return sink.socket_quoted(id); });
+                if (!unquoted.empty()) {
+                    if (adapter->data->seed_touch(unquoted)) {
+                        RLOG_INFO("gatewayd[{}]: {} market(s) unquoted by the socket, asking rest for their touch",
+                                  account_name,
+                                  unquoted.size());
+                    } else {
+                        touch_seed.retry(mono.ns);
+                    }
+                }
+            }
             channels->metrics->write(gatewayd::venue_metrics(
                 measured_clock,
                 combined,
@@ -1752,7 +1787,7 @@ int main(int argc, char** argv) {
     }
     RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
               "ticker={} charges={} order-events={} refusals={} journal-pruned={} "
-              "depth-coalesced={}",
+              "depth-coalesced={} touch-seeds={}",
               account_name,
               counts.bbo,
               counts.depth,
@@ -1765,6 +1800,7 @@ int main(int argc, char** argv) {
               counts.order_events,
               counts.order_errors,
               journal_writer->pruned(),
-              counts.depth_coalesced);
+              counts.depth_coalesced,
+              counts.touch_seeds);
     return 0;
 }

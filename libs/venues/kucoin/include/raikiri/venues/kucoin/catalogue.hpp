@@ -68,6 +68,10 @@ struct WireSpotTicker {
     std::string_view symbol;
     std::string_view vol;
     std::string_view vol_value;
+    std::string_view bid_price; // the touch, empty on a side with no orders
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
     std::uint64_t ts_ms{0};
 };
 

@@ -178,7 +178,8 @@ std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
                                    .instruments = listed,
                                    .priced = priced,
                                    .coverage_pct = listed > 0 ? priced * 100 / listed : 0,
-                                   .subscribe_refusals = static_cast<std::int64_t>(gw.client.subscribe_refusals())}});
+                                   .subscribe_refusals = static_cast<std::int64_t>(gw.client.subscribe_refusals())},
+                       .live_channels = std::nullopt});
     }
     return out;
 }

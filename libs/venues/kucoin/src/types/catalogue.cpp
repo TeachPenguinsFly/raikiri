@@ -165,7 +165,12 @@ std::expected<std::span<const WireSpotTicker>, WireError> parse_spot_tickers(std
                 }
                 row.symbol = *symbol;
                 row.ts_ms = *time;
-                for (const auto& [key, field] : {std::pair{"vol", &row.vol}, std::pair{"volValue", &row.vol_value}}) {
+                for (const auto& [key, field] : {std::pair{"vol", &row.vol},
+                                                 std::pair{"volValue", &row.vol_value},
+                                                 std::pair{"buy", &row.bid_price},
+                                                 std::pair{"bestBidSize", &row.bid_qty},
+                                                 std::pair{"sell", &row.ask_price},
+                                                 std::pair{"bestAskSize", &row.ask_qty}}) {
                     const auto value = opt_decimal(obj, key);
                     if (!value.has_value()) {
                         return std::unexpected(value.error());

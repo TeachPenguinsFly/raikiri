@@ -33,6 +33,9 @@ public:
     virtual void on_bbo(const Bbo& bbo) noexcept = 0;
     virtual void on_trade(const TradeTick& trade) noexcept = 0;
 
+    // a rest touch from DataClient::seed_touch; the sink keeps it only where the socket has not quoted
+    virtual void on_touch_seed(const Bbo& bbo) noexcept { (void)bbo; }
+
     // asked before building a snapshot; the shm cell holds only the latest value
     [[nodiscard]] virtual bool wants_depth(InstrumentId instrument, UnixNanos now) noexcept {
         (void)instrument;

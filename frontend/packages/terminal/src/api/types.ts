@@ -1817,6 +1817,11 @@ export interface components {
             venue: string;
             market: components["schemas"]["MarketType"];
             gateway: components["schemas"]["GatewayHealth"];
+            /**
+             * @description Market-data channels the adapter took that have carried a message since the gateway
+             *     started. Absent when the gateway has written no fresh stats file.
+             */
+            live_channels?: ("bbo" | "trades" | "depth" | "funding" | "ticker" | "greeks")[];
         };
         GatewayHealth: {
             /**
@@ -3424,6 +3429,11 @@ export interface components {
             call25_strike?: components["schemas"]["Decimal"];
             put25_strike?: components["schemas"]["Decimal"];
             fit?: {
+                /**
+                 * @description What this expiry is priced on, svi where the shared ssvi trails its own fit.
+                 * @enum {string}
+                 */
+                model?: "ssvi" | "svi" | "none";
                 /** @description Raw SVI in total variance: w(k) = a + b(ρ(k − m) + √((k − m)² + σ²)), k = ln(K/F). */
                 svi: {
                     a: components["schemas"]["Decimal"];
@@ -3440,7 +3450,7 @@ export interface components {
                 /** @description Share of quotes the model prices inside bid/ask. */
                 inside?: components["schemas"]["Decimal"];
             };
-            /** @description The chosen model across the quoted strikes. */
+            /** @description The chosen model across the quoted strikes, dropped quotes included. */
             fitted: {
                 strike: components["schemas"]["Decimal"];
                 vol: components["schemas"]["Decimal"];

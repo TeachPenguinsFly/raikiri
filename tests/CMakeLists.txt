@@ -115,6 +115,8 @@ target_compile_definitions(candles_test PRIVATE RAIKIRI_CANDLE_FIXTURES="${PROJE
 
 raikiri_add_test(gatewayd_private_pulls_test SRCS gatewayd/private_pulls_test.cpp LIBS raikiri::domain)
 target_include_directories(gatewayd_private_pulls_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/gatewayd)
+raikiri_add_test(gatewayd_touch_seed_test SRCS gatewayd/touch_seed_test.cpp LIBS raikiri::domain)
+target_include_directories(gatewayd_touch_seed_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/gatewayd)
 
 raikiri_add_test(settings_test SRCS config/settings_test.cpp LIBS raikiri::config raikiri::exec)
 # uses the committed config files so a file the shipped loader cannot read fails here

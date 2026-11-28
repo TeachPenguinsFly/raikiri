@@ -60,6 +60,22 @@ MachineRollup rollup(std::span<const GatewayView> gateways) {
     return out;
 }
 
+std::map<std::string, std::vector<std::string>> live_channels(std::span<const GatewayView> gateways) {
+    std::map<std::string, std::vector<std::string>> out;
+    for (const auto& view : gateways) {
+        if (view.state != Liveness::Up) {
+            continue;
+        }
+        auto& live = out[view.stats.account];
+        for (const auto& sub : view.stats.subscriptions) {
+            if (sub.accepted > 0 && sub.messages > 0) {
+                live.push_back(sub.channel);
+            }
+        }
+    }
+    return out;
+}
+
 void RateWindow::push(std::uint64_t mono_ns, const Counts& counts) noexcept {
     ring_[next_] = Sample{.mono_ns = mono_ns, .counts = counts};
     next_ = (next_ + 1) % k_samples;

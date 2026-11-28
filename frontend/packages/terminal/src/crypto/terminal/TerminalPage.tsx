@@ -32,10 +32,14 @@ const k_side: ReadonlyArray<readonly [Side, string]> = [
 ]
 
 function BookBlock() {
-  const [tab, setTab] = useState<Side>('book')
+  const { feeds } = useTerminal()
+  const [picked, setTab] = useState<Side>('book')
+  // a venue that prints no trades has no tape to open
+  const tabs = feeds.trades ? k_side : k_side.filter(([s]) => s !== 'trades')
+  const tab = feeds.trades ? picked : 'book'
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Tabs tabs={k_side} value={tab} onChange={setTab} />
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
       <div className="min-h-0 flex-1">{tab === 'book' ? <BookWidget /> : <TradesWidget />}</div>
     </div>
   )

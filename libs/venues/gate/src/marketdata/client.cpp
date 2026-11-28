@@ -20,8 +20,10 @@
 #include <array>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../clients.hpp"
@@ -340,6 +342,30 @@ public:
         return {};
     }
 
+    [[nodiscard]] bool seeds_touch() const noexcept override {
+        return state_->market == MarketType::Spot || state_->market == MarketType::Perp;
+    }
+
+    // spot and usdt perps each answer every market's touch in one tickers call
+    bool seed_touch(std::span<const InstrumentId> unpriced) override {
+        if (!started_ || !seeds_touch() || touch_in_flight_ || unpriced.empty()) {
+            return false;
+        }
+        const bool spot = state_->market == MarketType::Spot;
+        try {
+            touch_due_.clear();
+            for (const auto id : unpriced) {
+                touch_due_.insert(id.packed);
+            }
+            touch_in_flight_ = state_->depth_rest.send(
+                spot ? state_->builder.spot_tickers() : state_->builder.tickers(k_settle_usdt),
+                [this, spot](net::RestResponse&& response) { on_touch(response, spot); });
+        } catch (...) {
+            touch_in_flight_ = false;
+        }
+        return touch_in_flight_;
+    }
+
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
         return started_ ? state_->io.run_for(timeout_ms) : 0;
     }
@@ -379,6 +405,27 @@ private:
                 state_->sink->on_ticker_stats(*stats);
             }
         }
+    }
+
+    void on_touch(const net::RestResponse& response, bool spot) noexcept {
+        touch_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto spot_rows = std::make_unique<SpotQuoteBuffer>();
+        static thread_local const auto perp_rows = std::make_unique<TickerQuoteBuffer>();
+        const auto rows = spot ? parse_spot_quotes(response.body, *spot_rows)
+                               : parse_futures_tickers(response.body, *perp_rows);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto touch = map_touch(row, state_->instruments, response.received);
+            if (touch.has_value() && touch_due_.erase(touch->instrument.packed) > 0) {
+                state_->sink->on_touch_seed(*touch);
+            }
+        }
+        touch_due_.clear();
     }
 
     void report_coverage(UnixNanos now) {
@@ -535,6 +582,8 @@ private:
     bool quote_seed_in_flight_{false};
     bool funding_seed_in_flight_{false};
     exec::TickerPoll tickers_;
+    std::unordered_set<std::uint64_t> touch_due_;
+    bool touch_in_flight_{false};
     bool started_{false};
 };
 

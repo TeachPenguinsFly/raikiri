@@ -56,6 +56,22 @@ TEST(IntrospectDomain, TheRollupSumsPerVenueAndLeavesADownGatewayOutOfTheTraffic
     EXPECT_EQ(machine.total.instruments, 200U);
 }
 
+TEST(IntrospectDomain, AChannelIsLiveOnceTakenAndCarryingAndOnlyWhileItsGatewayIsUp) {
+    auto oracle = gateway("ostium", "ostium", 0);
+    oracle.subscriptions[0].messages = 40;
+    oracle.subscriptions.push_back(SubscriptionStats{
+        .channel = "trades", .requested = 83, .accepted = 83, .refused = 0, .messages = 0, .per_second = 0});
+    oracle.subscriptions.push_back(SubscriptionStats{
+        .channel = "depth", .requested = 83, .accepted = 0, .refused = 83, .messages = 0, .per_second = 0});
+    const std::vector<GatewayView> views{
+        {.stats = oracle, .state = Liveness::Up, .age_ms = 0},
+        {.stats = gateway("kucoin", "kucoin", 0), .state = Liveness::Stale, .age_ms = 0},
+    };
+    const auto live = live_channels(views);
+    ASSERT_EQ(live.size(), 1U);
+    EXPECT_EQ(live.at("ostium"), std::vector<std::string>{"bbo"});
+}
+
 TEST(IntrospectDomain, TheRateIsTakenOverTheTrailingWindowOnly) {
     RateWindow window{60 * k_s};
     EXPECT_EQ(window.per_second(0), 0.0);

@@ -15,6 +15,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -1208,6 +1209,53 @@ exec::InstrumentTable spot_table_with_btc() {
         EXPECT_TRUE(table.add(*instrument).has_value());
     }
     return table;
+}
+
+TEST(GateMap, SpotTickersSeedTheTouchOfAQuietPair) {
+    // spot.book_ticker is silent while the top holds; FDUSD_USDT sat unpriced for an hour after a restart
+    const auto table = spot_table_with_btc();
+    auto storage = std::make_unique<SpotQuoteBuffer>();
+    const auto body = fixture("rest_spot_tickers_touch.json");
+    const auto rows = parse_spot_quotes(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    EXPECT_EQ((*rows)[1].contract, "FDUSD_USDT");
+    EXPECT_EQ((*rows)[1].bid_price, "0.9953");
+    EXPECT_EQ((*rows)[1].ask_price, "0.9954");
+    EXPECT_TRUE((*rows)[1].bid_qty.empty()); // spot tickers quote no sizes
+    EXPECT_FALSE(map_touch((*rows)[1], table, UnixNanos{42}).has_value()); // not in the table
+
+    const auto touch = map_touch((*rows)[2], table, UnixNanos{42});
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->bid.raw, 591'432);
+    EXPECT_EQ(touch->ask.raw, 591'433);
+    EXPECT_TRUE(touch->bid_qty.is_undef());
+    EXPECT_TRUE(touch->ask_qty.is_undef());
+    EXPECT_EQ(touch->ts_init.ns, 42U);
+}
+
+TEST(GateMap, ATouchSeedKeepsOneSideWhenTheOtherIsEmpty) {
+    const auto table = table_with_btc();
+    auto storage = std::make_unique<TickerQuoteBuffer>();
+    const auto body = fixture("rest_futures_tickers.json");
+    const auto rows = parse_futures_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto btc = std::ranges::find(*rows, std::string_view{"BTC_USDT"}, &WireBookTicker::contract);
+    ASSERT_NE(btc, rows->end());
+    const auto both = map_touch(*btc, table, UnixNanos{42});
+    ASSERT_TRUE(both.has_value());
+    EXPECT_EQ(both->bid.raw, 839'953);
+    EXPECT_EQ(both->bid_qty.raw, 444'192);
+
+    WireBookTicker empty = *btc;
+    empty.ask_price = {};
+    const auto bid_only = map_touch(empty, table, UnixNanos{42});
+    ASSERT_TRUE(bid_only.has_value());
+    EXPECT_EQ(bid_only->bid.raw, 839'953);
+    EXPECT_TRUE(bid_only->ask.is_undef());
+    EXPECT_TRUE(bid_only->ask_qty.is_undef());
+    empty.bid_price = "0";
+    EXPECT_FALSE(map_touch(empty, table, UnixNanos{42}).has_value());
 }
 
 OrderCmd limit_cmd(MarketType market, Side side, PriceTicks price, QtyLots qty) {

@@ -106,6 +106,7 @@ struct Svi {
 };
 
 struct Fit {
+    std::string model{};
     Svi svi{};
     std::uint32_t quotes{0};
     std::uint32_t dropped{0};
@@ -323,7 +324,8 @@ namespace internal {
                            .put25_strike = text(e.put25_strike)};
     if (e.fit.has_value()) {
         const auto& f = *e.fit;
-        out.fit = dto::Fit{.svi = {.a = decimal(f.svi.a),
+        out.fit = dto::Fit{.model = std::string{model_name(f.model)},
+                           .svi = {.a = decimal(f.svi.a),
                                    .b = decimal(f.svi.b),
                                    .rho = decimal(f.svi.rho),
                                    .m = decimal(f.svi.m),

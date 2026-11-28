@@ -202,6 +202,31 @@ TEST(Arbitrage, AFitThatFallsBackToSviRepairsItsCalendar) {
     EXPECT_EQ(report.butterfly, 0U);
 }
 
+// a day-old smile far steeper than the shared shape allows keeps its own svi, the rest of the surface stays ssvi
+TEST(Ssvi, AFrontSliceTheShapeCannotFitFallsBackToItsSvi) {
+    auto chain = ssvi_chain(1.0);
+    const SviParams steep{.a = e9(0.0002), .b = e9(0.03), .rho = e9(-0.2), .m = e9(0.0), .sigma = e9(0.008)};
+    chain.insert(chain.begin(),
+                 quotes_from(in_days(1), k_forward, [&](double k) { return svi_total(steep, k); }, 0.12));
+    const auto surface = fit_surface(chain, k_now);
+    ASSERT_EQ(surface.slices.size(), 5U);
+    EXPECT_EQ(surface.model, SurfaceModel::Ssvi);
+    const auto& front = surface.slices.front();
+    EXPECT_EQ(front.model, SurfaceModel::Svi);
+    EXPECT_GT(num(front.ssvi_rmse), 0.02);
+    EXPECT_LT(num(front.svi_rmse), 1e-3);
+    for (std::size_t i = 1; i < surface.slices.size(); ++i) {
+        EXPECT_EQ(surface.slices[i].model, SurfaceModel::Ssvi);
+    }
+    EXPECT_LT(num(surface.rmse), 2e-3);
+    const auto report = check_arbitrage(surface);
+    EXPECT_EQ(report.butterfly, 0U);
+    EXPECT_EQ(report.calendar, 0U);
+    const auto wing = surface_at(surface, e9(k_forward * std::exp(-0.1)), front.years);
+    ASSERT_TRUE(wing.has_value());
+    EXPECT_NEAR(num(wing->vol), std::sqrt(svi_total(steep, -0.1) / num(front.years)), 2e-3);
+}
+
 TEST(Ssvi, FitsASyntheticSurfaceInsideTheNoArbitrageConditions) {
     const auto chain = ssvi_chain(1.0);
     const auto surface = fit_surface(chain, k_now);
@@ -403,10 +428,11 @@ UnixNanos from_ms(std::uint64_t ms) {
     return UnixNanos{ms * 1'000'000ULL};
 }
 
-LiveChain live_chain() {
+LiveChain live_chain(std::string_view set = "") {
+    const auto file = [&](std::string_view venue) { return fixture(std::string{venue} + std::string{set} + ".json"); };
     LiveChain chain;
     simdjson::dom::parser parser;
-    for (const auto row : parser.load(fixture("deribit_book_summary_btc.json"))["result"].get_array()) {
+    for (const auto row : parser.load(file("deribit_book_summary_btc"))["result"].get_array()) {
         const auto parts = split(std::string_view{row["instrument_name"].get_string()});
         double bid = 0.0;
         double ask = 0.0;
@@ -424,11 +450,11 @@ LiveChain live_chain() {
                    .ts = from_ms(static_cast<std::uint64_t>(row["creation_timestamp"].get_int64()))});
     }
     std::map<std::string, double> forwards;
-    for (const auto row : parser.load(fixture("okx_opt_summary_btc.json"))["data"].get_array()) {
+    for (const auto row : parser.load(file("okx_opt_summary_btc"))["data"].get_array()) {
         forwards[std::string{std::string_view{row["instId"].get_string()}}] = decimal(
             std::string_view{row["fwdPx"].get_string()});
     }
-    for (const auto row : parser.load(fixture("okx_tickers_btc.json"))["data"].get_array()) {
+    for (const auto row : parser.load(file("okx_tickers_btc"))["data"].get_array()) {
         const std::string id{std::string_view{row["instId"].get_string()}};
         const auto parts = split(id);
         chain.add(okx_date(parts[2]),
@@ -441,7 +467,7 @@ LiveChain live_chain() {
                    .forward = e9(forwards[id]),
                    .ts = from_ms(static_cast<std::uint64_t>(decimal(std::string_view{row["ts"].get_string()})))});
     }
-    const auto bybit = parser.load(fixture("bybit_tickers_btc.json"));
+    const auto bybit = parser.load(file("bybit_tickers_btc"));
     const auto bybit_ts = from_ms(static_cast<std::uint64_t>(bybit["time"].get_int64()));
     for (const auto row : bybit["result"]["list"].get_array()) {
         const auto parts = split(std::string_view{row["symbol"].get_string()});
@@ -505,6 +531,71 @@ TEST(LiveFixtures, DeribitOkxAndBybitBtcConvergeOnOneSurface) {
                 report.ssvi_conditions ? 1 : 0);
     EXPECT_EQ(report.calendar, 0U);
     EXPECT_EQ(report.butterfly, 0U);
+}
+
+// a front expiry 18 hours out on three venues: the wings run past 100% while the money trades near 40%
+TEST(LiveFixtures, AShortDatedBtcSliceFollowsItsWings) {
+    const auto chain = live_chain("_short");
+    ASSERT_EQ(chain.slices.size(), 4U);
+    std::vector<SliceInput> slices;
+    for (const auto& [expiry, slice] : chain.slices) {
+        slices.push_back(slice);
+    }
+    const auto surface = fit_surface(slices, chain.now);
+    ASSERT_EQ(surface.slices.size(), 4U);
+    ASSERT_NE(surface.model, SurfaceModel::None);
+    const auto report = check_arbitrage(surface);
+    EXPECT_EQ(report.butterfly, 0U);
+    EXPECT_EQ(report.calendar, 0U);
+    for (std::size_t i = 0; i < surface.slices.size(); ++i) {
+        const auto& fit = surface.slices[i];
+        const auto& input = *std::ranges::find(slices, fit.expiry, &SliceInput::expiry);
+        // every two-sided otm quote, as the board's smile shows it, dropped or not
+        std::map<VenueId, std::pair<int, double>> bias;
+        double squares = 0.0;
+        double worst = 0.0;
+        int n = 0;
+        for (const auto& q : input.quotes) {
+            const bool otm = (q.put_call == PutCall::Call) == (q.strike >= fit.forward);
+            const auto iv = implied_vol({.price = e9(0.5 * (num(q.bid) + num(q.ask))),
+                                         .forward = q.forward,
+                                         .strike = q.strike,
+                                         .years = fit.years,
+                                         .put_call = q.put_call,
+                                         .unit = q.unit});
+            const auto at = surface_at(surface, q.strike, fit.years);
+            if (!otm || q.bid.raw <= 0 || q.ask < q.bid || iv.is_undef() || !at.has_value()) {
+                continue;
+            }
+            const double r = num(iv) - num(at->vol);
+            bias[q.venue].first += 1;
+            bias[q.venue].second += r;
+            squares += r * r;
+            worst = std::max(worst, std::fabs(r));
+            ++n;
+        }
+        const double rmse = std::sqrt(squares / n);
+        std::printf("  %5.2f d  %s  n %3u dropped %3u  svi %.2f vp  ssvi %.2f vp  every quote %.2f vp, worst %.2f vp\n",
+                    num(fit.years) * 365.0,
+                    fit.model == SurfaceModel::Ssvi ? "ssvi" : "svi ",
+                    fit.quotes,
+                    fit.dropped,
+                    num(fit.svi_rmse) * 100.0,
+                    num(fit.ssvi_rmse) * 100.0,
+                    rmse * 100.0,
+                    worst * 100.0);
+        EXPECT_LT(rmse, 0.015);
+        EXPECT_LT(worst, 0.05);
+        for (const auto& [venue, sum] : bias) {
+            EXPECT_LT(std::fabs(sum.second / sum.first), 0.01) << to_string(venue);
+        }
+    }
+    // the front's put wing keeps rising past 100% instead of stopping where the inner strikes end
+    const auto& front = surface.slices.front();
+    const auto vol = [&](double strike) { return num(surface_at(surface, e9(strike), front.years)->vol); };
+    EXPECT_GT(vol(53'000.0), 0.97);
+    EXPECT_GT(vol(53'000.0) - vol(55'000.0), 0.15);
+    EXPECT_GT(vol(63'250.0) - vol(62'250.0), 0.05);
 }
 
 } // namespace

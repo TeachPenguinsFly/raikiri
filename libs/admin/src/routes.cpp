@@ -428,7 +428,8 @@ http::Handler make_router(const Registry& registry,
                           std::function<UnixNanos()> wall,
                           std::map<std::string, std::uint16_t> upstreams,
                           books::Registry* books,
-                          const MarketsCache* markets) {
+                          const MarketsCache* markets,
+                          LiveChannels live_channels) {
     return [&registry,
             history,
             desk,
@@ -436,7 +437,8 @@ http::Handler make_router(const Registry& registry,
             wall = std::move(wall),
             upstreams = std::move(upstreams),
             books,
-            markets](const http::Request& req) -> http::Response {
+            markets,
+            live_channels = std::move(live_channels)](const http::Request& req) -> http::Response {
         if (req.method == "POST" && req.path == "/v1/orders") {
             return place_order(desk, books, req, wall());
         }
@@ -495,7 +497,16 @@ http::Handler make_router(const Registry& registry,
         }
 
         if (req.path == "/v1/accounts") {
-            return json(registry.accounts(now(), wall()));
+            auto rows = registry.accounts(now(), wall());
+            if (live_channels) {
+                const auto live = live_channels();
+                for (auto& row : rows) {
+                    if (const auto found = live.find(row.account); found != live.end()) {
+                        row.live_channels = found->second;
+                    }
+                }
+            }
+            return json(rows);
         }
 
         if (req.path == "/v1/balances") {

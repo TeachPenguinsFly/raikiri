@@ -29,6 +29,10 @@ namespace raikiri::venues::gate {
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// a rest touch for the seed: an empty side or size stays undefined, nullopt when neither side quotes
+[[nodiscard]] std::optional<Bbo>
+map_touch(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 

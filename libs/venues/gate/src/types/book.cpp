@@ -114,8 +114,11 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
     });
 }
 
-std::expected<std::span<const WireBookTicker>, WireError> parse_futures_tickers(std::string_view body,
-                                                                                TickerQuoteBuffer& storage) {
+namespace {
+
+// one row per market; `name` is contract on futures and currency_pair on spot
+std::expected<std::span<const WireBookTicker>, WireError>
+read_quotes(std::string_view body, std::string_view name, std::span<WireBookTicker> into) {
     return guarded([&]() -> std::expected<std::span<const WireBookTicker>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {
@@ -123,14 +126,14 @@ std::expected<std::span<const WireBookTicker>, WireError> parse_futures_tickers(
         }
         std::size_t count = 0;
         for (auto entry : *root) {
-            if (count == storage.rows.size()) {
+            if (count == into.size()) {
                 return std::unexpected(WireError::TooManyEntries);
             }
             wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
                 return std::unexpected(wire::map_error(ec));
             }
-            const auto contract = wire::req_str(obj, "contract");
+            const auto contract = wire::req_str(obj, name);
             if (!contract.has_value()) {
                 return std::unexpected(contract.error());
             }
@@ -140,10 +143,22 @@ std::expected<std::span<const WireBookTicker>, WireError> parse_futures_tickers(
             out.bid_qty = field(obj, "highest_size");
             out.ask_price = field(obj, "lowest_ask");
             out.ask_qty = field(obj, "lowest_size");
-            storage.rows[count++] = out;
+            into[count++] = out;
         }
-        return std::span<const WireBookTicker>{storage.rows.data(), count};
+        return std::span<const WireBookTicker>{into.data(), count};
     });
+}
+
+} // namespace
+
+std::expected<std::span<const WireBookTicker>, WireError> parse_futures_tickers(std::string_view body,
+                                                                                TickerQuoteBuffer& storage) {
+    return read_quotes(body, "contract", storage.rows);
+}
+
+std::expected<std::span<const WireBookTicker>, WireError> parse_spot_quotes(std::string_view body,
+                                                                            SpotQuoteBuffer& storage) {
+    return read_quotes(body, "currency_pair", storage.rows);
 }
 
 std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame, LevelBuffer& storage) {

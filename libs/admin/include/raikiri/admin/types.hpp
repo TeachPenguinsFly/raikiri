@@ -28,6 +28,8 @@ struct Account {
     std::string venue;
     std::string market;
     GatewayHealth gateway;
+    // absent when the gateway's stats file is missing or stale
+    std::optional<std::vector<std::string>> live_channels{};
 };
 
 // signed durations stay integers; they fit a double's 53 bits for the next century

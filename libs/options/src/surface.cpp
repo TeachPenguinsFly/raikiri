@@ -643,7 +643,7 @@ Ssvi fit_ssvi(std::vector<Slice*>& slices) {
     return fit_ssvi_shape(slices);
 }
 
-// the chosen model on slice i, w held flat past the fitted strikes, with the calendar repair applied
+// the chosen model on slice i, followed across its density range and held flat past it, with the calendar repair
 struct SliceView {
     const Surface& surface;
     Ssvi ssvi{};
@@ -659,40 +659,48 @@ struct SliceView {
         }
     }
 
+    [[nodiscard]] bool on_ssvi(std::size_t i) const noexcept {
+        const auto model = surface.slices[i].model;
+        return model == SurfaceModel::None ? surface.model == SurfaceModel::Ssvi : model == SurfaceModel::Ssvi;
+    }
+
     [[nodiscard]] Wk raw(std::size_t i, double k) const noexcept {
         const auto& slice = surface.slices[i];
-        return surface.model == SurfaceModel::Ssvi ? ssvi_w(ssvi, num(slice.theta), k) : svi_w(svi_of(slice.svi), k);
+        return on_ssvi(i) ? ssvi_w(ssvi, num(slice.theta), k) : svi_w(svi_of(slice.svi), k);
     }
 
     [[nodiscard]] std::pair<Wk, bool> ssvi_held(double theta, double k) const noexcept {
-        const double clamped = std::clamp(k, k_low, k_high);
+        const auto [lo, hi] = density_range(k_low, k_high);
+        const double clamped = std::clamp(k, lo, hi);
         auto v = ssvi_w(ssvi, theta, clamped);
         if (clamped != k) {
             v.d1 = 0.0;
             v.d2 = 0.0;
         }
-        return {v, clamped != k};
+        return {v, k < k_low || k > k_high};
     }
 
     [[nodiscard]] std::pair<Wk, bool> held(std::size_t i, double k) const noexcept {
         const auto& slice = surface.slices[i];
         // ssvi holds one strike range over the whole surface so the flat parts cannot cross in time
-        const double lo = surface.model == SurfaceModel::Ssvi ? k_low : num(slice.k_low);
-        const double hi = surface.model == SurfaceModel::Ssvi ? k_high : num(slice.k_high);
+        const bool shared = on_ssvi(i);
+        const double quoted_lo = shared ? k_low : num(slice.k_low);
+        const double quoted_hi = shared ? k_high : num(slice.k_high);
+        const auto [lo, hi] = density_range(quoted_lo, quoted_hi);
         const double clamped = std::clamp(k, lo, hi);
         auto v = raw(i, clamped);
         if (clamped != k) {
             v.d1 = 0.0;
             v.d2 = 0.0;
         }
-        return {v, clamped != k};
+        return {v, k < quoted_lo || k > quoted_hi};
     }
 
     // w only grows with the running max, and since a call grows with w the max of two butterfly-free slices'
     // calls is still convex in strike
     [[nodiscard]] std::pair<Wk, bool> at(std::size_t i, double k) const noexcept {
         auto out = held(i, k);
-        if (surface.model == SurfaceModel::Svi && surface.calendar_repair) {
+        if (surface.calendar_repair) {
             for (std::size_t j = 0; j < i; ++j) {
                 const auto earlier = held(j, k);
                 if (earlier.first.w > out.first.w) {
@@ -708,8 +716,8 @@ std::uint32_t calendar_crossings(const SliceView& view) noexcept {
     std::uint32_t crossings = 0;
     const auto& slices = view.surface.slices;
     for (std::size_t i = 0; i + 1 < slices.size(); ++i) {
-        const double lo = std::min(num(slices[i].k_low), num(slices[i + 1].k_low));
-        const double hi = std::max(num(slices[i].k_high), num(slices[i + 1].k_high));
+        const auto [lo, hi] = density_range(std::min(num(slices[i].k_low), num(slices[i + 1].k_low)),
+                                            std::max(num(slices[i].k_high), num(slices[i + 1].k_high)));
         for (int g = 0; g < k_grid; ++g) {
             const double k = lo + (hi - lo) * static_cast<double>(g) / (k_grid - 1);
             const double earlier = view.at(i, k).first.w;
@@ -815,19 +823,54 @@ Surface fit_surface(std::span<const SliceInput> slices, UnixNanos now, const Sur
         fit_slice_svi(s);
         fitted.push_back(&s);
     }
-    const auto ssvi = fit_ssvi(fitted);
-    out.ssvi = {.rho = fixed(ssvi.rho), .eta = fixed(ssvi.eta), .gamma = fixed(ssvi.gamma)};
-    for (const auto* s : fitted) {
-        out.slices.push_back(slice_fit(*s));
-    }
     out.source = SurfaceSource::Fitted;
-    out.model = SurfaceModel::Ssvi;
-    score(out, fitted);
-    if (out.ssvi_rmse.raw > out.svi_rmse.raw + config.ssvi_tolerance.raw) {
-        out.model = SurfaceModel::Svi;
-        out.calendar_repair = calendar_crossings(SliceView{out}) > 0;
+    // the slice ssvi trails most leaves the shared shape and the rest fit it again, so one steep front expiry
+    // cannot bend the shape for all the others
+    std::vector<bool> shared(fitted.size(), true);
+    for (std::size_t left = fitted.size();;) {
+        if (left > 0) {
+            std::vector<Slice*> members;
+            for (std::size_t i = 0; i < fitted.size(); ++i) {
+                if (shared[i]) {
+                    members.push_back(fitted[i]);
+                }
+            }
+            const auto ssvi = fit_ssvi(members);
+            out.ssvi = {.rho = fixed(ssvi.rho), .eta = fixed(ssvi.eta), .gamma = fixed(ssvi.gamma)};
+            for (std::size_t i = 0; i < fitted.size(); ++i) {
+                if (!shared[i]) {
+                    auto& s = *fitted[i];
+                    s.theta = fit_theta(ssvi, s, std::max(svi_w(s.svi, 0.0).w, 1e-10));
+                }
+            }
+        }
+        out.slices.clear();
+        for (std::size_t i = 0; i < fitted.size(); ++i) {
+            out.slices.push_back(slice_fit(*fitted[i]));
+            out.slices.back().model = shared[i] ? SurfaceModel::Ssvi : SurfaceModel::Svi;
+        }
+        out.model = left > 0 ? SurfaceModel::Ssvi : SurfaceModel::Svi;
+        // crossings are counted before any repair
+        out.calendar_repair = false;
+        if (left < fitted.size()) {
+            out.calendar_repair = calendar_crossings(SliceView{out}) > 0;
+        }
         out.venues.clear();
         score(out, fitted);
+        std::size_t worst = fitted.size();
+        std::int64_t gap = config.ssvi_tolerance.raw;
+        for (std::size_t i = 0; i < fitted.size(); ++i) {
+            const auto& fit = out.slices[i];
+            if (shared[i] && fit.ssvi_rmse.raw - fit.svi_rmse.raw > gap) {
+                worst = i;
+                gap = fit.ssvi_rmse.raw - fit.svi_rmse.raw;
+            }
+        }
+        if (worst == fitted.size()) {
+            break;
+        }
+        shared[worst] = false;
+        --left;
     }
     out.confidence = fixed(std::max(0.0, 1.0 - num(out.rmse) / k_fitted_full));
     return out;
@@ -873,7 +916,7 @@ std::optional<SurfacePoint> surface_at(const Surface& surface, FixedE9 strike, F
         w = v.w * scale;
         d1 = v.d1 * scale;
         extrapolated = held || years != s[i].years;
-    } else if (surface.model == SurfaceModel::Ssvi) {
+    } else if (view.on_ssvi(upper - 1) && view.on_ssvi(upper) && !surface.calendar_repair) {
         // θ moves linearly in time and the slice in between is ssvi again, so the theorems still cover it
         const double a = (t - num(s[upper - 1].years)) / (num(s[upper].years) - num(s[upper - 1].years));
         const double theta = (1.0 - a) * num(s[upper - 1].theta) + a * num(s[upper].theta);
@@ -946,8 +989,10 @@ ArbitrageReport check_arbitrage(const Surface& surface) noexcept {
     report.calendar = calendar_crossings(view);
     std::vector<FixedE9> thetas;
     thetas.reserve(surface.slices.size());
-    for (const auto& slice : surface.slices) {
-        thetas.push_back(slice.theta);
+    for (std::size_t i = 0; i < surface.slices.size(); ++i) {
+        if (view.on_ssvi(i)) {
+            thetas.push_back(surface.slices[i].theta);
+        }
     }
     report.ssvi_conditions = ssvi_arbitrage_free(surface.ssvi, thetas);
     return report;
@@ -1009,6 +1054,7 @@ Surface proxy_surface(const Surface& reference, const ProxyInput& in, const Surf
         // the same standardised moneyness k/√θ
         slice.k_low = fixed(num(ref.k_low) * ratio);
         slice.k_high = fixed(num(ref.k_high) * ratio);
+        slice.model = SurfaceModel::None;
         slice.svi = {};
         slice.quotes = 0;
         slice.dropped = 0;

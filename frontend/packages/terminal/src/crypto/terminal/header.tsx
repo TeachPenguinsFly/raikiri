@@ -411,22 +411,48 @@ function Metrics({ pair, leg }: { pair: Pair; leg: Leg }) {
   )
 }
 
+// a stock or a currency quotes no touch while its home market is shut; the venues go on marking it
+const k_session_classes = new Set(['equity', 'fx'])
+
+/** the touch's mid; with the touch gone on a shut market, the venue's mark or the last bar's close */
+function Price({ pair, leg }: { pair: Pair; leg: Leg }) {
+  const { quotes, funding } = useTerminal()
+  const hours = useQuery(`day:${leg.id}`, () => api.candles(leg.id, '1h', 26), 60_000)
+  const t = touchOf(quotes.get(leg.id), leg)
+  const shut = t === undefined && k_session_classes.has(pair.key.split(':')[0] ?? '')
+  const close = hours.state === 'ready' ? n(hours.data.candles.at(-1)?.c) : undefined
+  const price = t?.mid ?? (shut ? (n(funding.get(leg.id)?.mark_price) ?? close) : undefined)
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <Flash value={price}>
+        <span className={cn('mono text-xl font-semibold', shut ? 'text-fg-mid' : 'text-fg')}>
+          {px(price, leg.places)}
+        </span>
+      </Flash>
+      {shut && <span className="rounded-sm bg-amber/15 px-1.5 py-0.5 text-2xs font-medium text-amber">Closed</span>}
+    </span>
+  )
+}
+
 /** the chosen market across the top: its name and the market switcher, the venue it is read from, and the numbers an
  *  exchange puts beside the price */
 export function MarketBar() {
-  const { pair, leg, quotes } = useTerminal()
-  const t = leg === undefined ? undefined : touchOf(quotes.get(leg.id), leg)
+  const { pair, leg } = useTerminal()
   return (
     <div className="flex h-14 shrink-0 items-center gap-5 border-b border-line px-2">
       <MarketPicker />
       <VenuePicker />
       {/* the pickers stay outside the scroller: it would clip the panels they open */}
       <div className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto [scrollbar-width:none]">
-        <Flash value={t?.mid}>
-          <span className="mono text-xl font-semibold text-fg">{px(t?.mid, leg?.places ?? 2)}</span>
-        </Flash>
-        {/* keyed so one leg's day never shows under another's name while the next loads */}
-        {pair !== undefined && leg !== undefined && <Metrics key={leg.id} pair={pair} leg={leg} />}
+        {pair === undefined || leg === undefined ? (
+          <span className="mono text-xl font-semibold text-fg">{px(undefined, 2)}</span>
+        ) : (
+          <>
+            {/* keyed so one leg's day never shows under another's name while the next loads */}
+            <Price key={`price:${leg.id}`} pair={pair} leg={leg} />
+            <Metrics key={leg.id} pair={pair} leg={leg} />
+          </>
+        )}
       </div>
     </div>
   )

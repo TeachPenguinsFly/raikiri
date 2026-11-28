@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <span>
 #include <string>
 #include <string_view>
@@ -158,6 +159,9 @@ struct MachineRollup {
 
 // a down gateway counts as down and adds nothing else
 [[nodiscard]] MachineRollup rollup(std::span<const GatewayView> gateways);
+
+// per account that is up, the channels the adapter took that have carried a message since it started
+[[nodiscard]] std::map<std::string, std::vector<std::string>> live_channels(std::span<const GatewayView> gateways);
 
 struct MachineStats {
     std::uint64_t taken_ns{0};

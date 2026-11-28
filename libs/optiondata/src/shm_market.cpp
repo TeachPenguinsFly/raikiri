@@ -1,6 +1,19 @@
 #include <raikiri/optiondata/shm_market.hpp>
 
+#include <algorithm>
+#include <chrono>
+
 namespace raikiri::optiondata {
+namespace {
+
+// a venue keeps an expired series listed until its catalogue reloads; nothing past its expiry is offered here
+[[nodiscard]] std::uint64_t now_ns() noexcept {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
+} // namespace
 
 void ShmOptionMarket::refresh() const {
     std::uint64_t listed = 0;
@@ -41,7 +54,13 @@ void ShmOptionMarket::refresh() const {
 
 std::vector<UnderlyingListing> ShmOptionMarket::underlyings() const {
     refresh();
-    return summary_;
+    auto out = summary_;
+    const auto now = now_ns();
+    for (auto& u : out) {
+        std::erase_if(u.expiries, [now](const auto& e) { return e.expiry.ns <= now; });
+    }
+    std::erase_if(out, [](const UnderlyingListing& u) { return u.expiries.empty(); });
+    return out;
 }
 
 void ShmOptionMarket::read(std::string_view underlying,
@@ -88,14 +107,17 @@ void ShmOptionMarket::read(std::string_view underlying,
             out.push_back(q);
         }
     };
+    const auto now = now_ns();
     if (expiry.has_value()) {
-        if (const auto e = found->second.find(expiry->ns); e != found->second.end()) {
+        if (const auto e = found->second.find(expiry->ns); e != found->second.end() && e->first > now) {
             take(e->second);
         }
         return;
     }
     for (const auto& [ns, listed] : found->second) {
-        take(listed);
+        if (ns > now) {
+            take(listed);
+        }
     }
 }
 

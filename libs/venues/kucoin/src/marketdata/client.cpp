@@ -22,6 +22,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../clients.hpp"
@@ -345,6 +346,26 @@ public:
         return {};
     }
 
+    [[nodiscard]] bool seeds_touch() const noexcept override { return state_->market == MarketType::Spot; }
+
+    // allTickers carries every spot pair's touch
+    bool seed_touch(std::span<const InstrumentId> unpriced) override {
+        if (!started_ || !seeds_touch() || touch_in_flight_ || unpriced.empty()) {
+            return false;
+        }
+        try {
+            touch_due_.clear();
+            for (const auto id : unpriced) {
+                touch_due_.insert(id.packed);
+            }
+            touch_in_flight_ = rest_.send(state_->builder.spot_all_tickers(),
+                                          [this](net::RestResponse&& response) { on_touch(response); });
+        } catch (...) {
+            touch_in_flight_ = false;
+        }
+        return touch_in_flight_;
+    }
+
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
         return started_ ? state_->io.run_for(timeout_ms) : 0;
     }
@@ -452,6 +473,25 @@ public:
                 state_->sink->on_ticker_stats(*stats);
             }
         }
+    }
+
+    void on_touch(const net::RestResponse& response) noexcept {
+        touch_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickerBuffer>();
+        const auto rows = parse_spot_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto touch = map_touch(row, state_->instruments, response.received);
+            if (touch.has_value() && touch_due_.erase(touch->instrument.packed) > 0) {
+                state_->sink->on_touch_seed(*touch);
+            }
+        }
+        touch_due_.clear();
     }
 
     void on_ticker(const net::RestResponse& response) noexcept {
@@ -736,6 +776,8 @@ private:
     std::uint64_t next_ticker_poll_ns_{0};
     std::uint64_t next_reseed_sweep_ns_{0};
     bool ticker_in_flight_{false};
+    std::unordered_set<std::uint64_t> touch_due_;
+    bool touch_in_flight_{false};
     std::unique_ptr<net::WsPool> pool_;
     bool started_{false};
 };

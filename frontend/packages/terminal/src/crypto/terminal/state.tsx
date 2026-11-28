@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
-import type { Book, Funding, Quote } from '../api/client'
+import { api, type Account, type Book, type Funding, type Quote } from '../api/client'
 import { useBooks, useFunding, useQuotes, useStreamDown } from '../api/stream'
-import { useCatalog, type Catalog, type Leg, type Pair, type Query } from '../lib/market'
+import { useCatalog, useQuery, type Catalog, type Leg, type Pair, type Query } from '../lib/market'
 
 /** what a click on the book hands the ticket */
 export interface Draft {
@@ -15,6 +15,22 @@ export interface Draft {
 /** one venue's ladder, or every venue's summed by price */
 export type BookVenue = string | 'all'
 
+/** what the chosen venue streams of the market beside its touch */
+export interface Feeds {
+  depth: boolean
+  trades: boolean
+}
+
+const k_every_feed: Feeds = { depth: true, trades: true }
+
+// a venue whose gateway has not said is taken to stream everything, as before the gateways said
+function feedsOf(accounts: readonly Account[] | undefined, venue: string, market: string): Feeds {
+  const said = (accounts ?? []).filter((a) => a.venue === venue && a.market === market && a.live_channels !== undefined)
+  if (said.length === 0) return k_every_feed
+  const has = (channel: 'depth' | 'trades') => said.some((a) => a.live_channels?.includes(channel) === true)
+  return { depth: has('depth'), trades: has('trades') }
+}
+
 export interface Terminal {
   catalog: Query<Catalog>
   connected: boolean
@@ -22,6 +38,7 @@ export interface Terminal {
   /** the venue the chart and the ticket work on */
   leg: Leg | undefined
   bookVenue: BookVenue
+  feeds: Feeds
   quotes: Map<string, Quote>
   books: Map<string, Book>
   funding: Map<string, Funding>
@@ -69,6 +86,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const leg = pair?.legs.find((l) => l.venue === params.get('v')) ?? pair?.legs[0]
   // one venue's book is the chosen venue's, so the chart, the book and the ticket stay on one place
   const bookVenue = bookAll ? 'all' : (leg?.venue ?? 'all')
+  const accounts = useQuery('accounts', () => api.accounts(), 60_000)
+  const listed = accounts.state === 'ready' ? accounts.data : undefined
+  const feeds = useMemo(
+    () => (leg === undefined || pair === undefined ? k_every_feed : feedsOf(listed, leg.venue, pair.market)),
+    [listed, leg, pair],
+  )
 
   const pick = useCallback(
     (p: { market?: string; venue?: string }) =>
@@ -113,6 +136,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     pair,
     leg,
     bookVenue,
+    feeds,
     quotes,
     books,
     funding,

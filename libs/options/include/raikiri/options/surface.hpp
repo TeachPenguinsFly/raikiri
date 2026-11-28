@@ -38,11 +38,13 @@ struct SurfaceConfig {
     FitWeight weight{FitWeight::Spread};
     FixedE9 max_spread{FixedE9::from_raw(150'000'000)}; // in vol, wider is dropped
     FixedE9 min_spread{FixedE9::from_raw(5'000'000)};   // floor of the spread weight
-    FixedE9 min_delta{FixedE9::from_raw(20'000'000)};   // |Δ| at mid iv, smaller is dropped
+    // |Δ| at mid iv, smaller is dropped: a day-old wing at 100% iv still has 1%, while under 0.5% a long expiry's
+    // bids sit on the venue's least tick
+    FixedE9 min_delta{FixedE9::from_raw(5'000'000)};
     std::uint64_t stale_ns{60'000'000'000ULL};
     std::uint64_t min_expiry_ns{1'800'000'000'000ULL};
     std::uint32_t min_quotes{5};
-    FixedE9 ssvi_tolerance{FixedE9::from_raw(5'000'000)}; // ssvi wins while its rmse is within this of svi's
+    FixedE9 ssvi_tolerance{FixedE9::from_raw(5'000'000)}; // ssvi wins a slice while its rmse is within this of svi's
 };
 
 // raw svi: w(k) = a + b(ρ(k − m) + √((k − m)² + σ²))
@@ -66,6 +68,7 @@ enum class SurfaceSource : std::uint8_t { None = 0, Fitted, Borrowed, Realized }
 
 struct SliceFit {
     UnixNanos expiry{};
+    SurfaceModel model{SurfaceModel::None}; // what this slice is priced on, None follows the surface
     FixedE9 years{};
     FixedE9 forward{};
     FixedE9 theta{}; // atm total variance under ssvi
@@ -88,11 +91,11 @@ struct VenueResidual {
 
 struct Surface {
     UnixNanos as_of{};
-    SurfaceModel model{SurfaceModel::None};
+    SurfaceModel model{SurfaceModel::None}; // ssvi while any slice keeps it
     SurfaceSource source{SurfaceSource::None};
     FixedE9 confidence{};
     SsviParams ssvi{};
-    bool calendar_repair{false};    // svi slices crossed, so each takes the running max over earlier ones
+    bool calendar_repair{false};    // svi slices crossed, so each slice takes the running max over earlier ones
     std::vector<SliceFit> slices{}; // nearest first
     FixedE9 rmse{};                 // the chosen model's
     FixedE9 svi_rmse{};
@@ -100,7 +103,8 @@ struct Surface {
     std::vector<VenueResidual> venues{};
 };
 
-// per-expiry svi and one ssvi over the slices that fit; ssvi unless it trails svi by more than the tolerance
+// per-expiry svi and one ssvi over the slices that fit; a slice keeps ssvi unless it trails its svi by more than
+// the tolerance, so a front expiry too steep for the shared shape falls back to its own svi
 [[nodiscard]] Surface fit_surface(std::span<const SliceInput> slices, UnixNanos now, const SurfaceConfig& config = {});
 
 struct SurfacePoint {
@@ -110,16 +114,17 @@ struct SurfacePoint {
     bool extrapolated{false};
 };
 
-// linear in total variance between expiries at fixed k; past the fitted strikes or the last expiry w is held flat,
-// before the first σ is
+// linear in total variance between expiries at fixed k; the model runs over the strikes its density is checked on,
+// the quoted ones and half their span again either side, and w is held flat past those or the last expiry, before
+// the first σ is; extrapolated is set outside the quoted strikes
 [[nodiscard]] std::optional<SurfacePoint> surface_at(const Surface& surface, FixedE9 strike, FixedE9 years) noexcept;
 [[nodiscard]] FixedE9 forward_at(const Surface& surface, FixedE9 years) noexcept;
 
 struct ArbitrageReport {
     FixedE9 min_density{};
-    std::uint32_t butterfly{0}; // grid points with g(k) below -1e-6
-    std::uint32_t calendar{0};  // grid points where w falls from one expiry to the next
-    bool ssvi_conditions{false};
+    std::uint32_t butterfly{0};  // grid points with g(k) below -1e-6
+    std::uint32_t calendar{0};   // grid points where w falls from one expiry to the next
+    bool ssvi_conditions{false}; // over the slices priced on ssvi
 };
 
 [[nodiscard]] ArbitrageReport check_arbitrage(const Surface& surface) noexcept;

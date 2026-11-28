@@ -2576,6 +2576,12 @@ components:
         venue: { type: string }
         market: { $ref: "#/components/schemas/MarketType" }
         gateway: { $ref: "#/components/schemas/GatewayHealth" }
+        live_channels:
+          type: array
+          items: { type: string, enum: [bbo, trades, depth, funding, ticker, greeks] }
+          description: |
+            Market-data channels the adapter took that have carried a message since the gateway
+            started. Absent when the gateway has written no fresh stats file.
 
     GatewayHealth:
       type: object
@@ -4636,6 +4642,10 @@ components:
           type: object
           required: [svi, quotes, dropped]
           properties:
+            model:
+              type: string
+              enum: [ssvi, svi, none]
+              description: What this expiry is priced on, svi where the shared ssvi trails its own fit.
             svi:
               type: object
               description: "Raw SVI in total variance: w(k) = a + b(ρ(k − m) + √((k − m)² + σ²)), k = ln(K/F)."
@@ -4647,7 +4657,7 @@ components:
                 m: { $ref: "#/components/schemas/Decimal" }
                 sigma: { $ref: "#/components/schemas/Decimal" }
             quotes: { type: integer }
-            dropped: { type: integer, description: Stale, crossed, one-sided, too wide or too far out. }
+            dropped: { type: integer, description: Stale, crossed, one-sided, too wide or under half a percent delta. }
             svi_rmse: { $ref: "#/components/schemas/Decimal" }
             ssvi_rmse: { $ref: "#/components/schemas/Decimal" }
             inside:
@@ -4655,7 +4665,7 @@ components:
               description: Share of quotes the model prices inside bid/ask.
         fitted:
           type: array
-          description: The chosen model across the quoted strikes.
+          description: The chosen model across the quoted strikes, dropped quotes included.
           items:
             type: object
             required: [strike, vol]

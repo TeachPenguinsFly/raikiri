@@ -347,7 +347,8 @@ int main(int argc, char** argv) {
                              [&clock] { return clock.wall(); },
                              upstreams,
                              &book_registry,
-                             &markets_cache)](const http::Request& req, http::Reply reply) {
+                             &markets_cache,
+                             [&machine_stats] { return introspect::live_channels(machine_stats().gateways); })](const http::Request& req, http::Reply reply) {
                             // answered from the loop's pump once the gateway replies; nothing here waits on it
                             if (margin_routes(req, [reply](http::Response response) { reply(std::move(response)); })) {
                                 return;

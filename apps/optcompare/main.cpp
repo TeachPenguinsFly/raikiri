@@ -203,7 +203,7 @@ std::optional<double> fitted(const std::map<std::string, options::Surface>& surf
 std::string_view model_name(const options::Surface& surface) {
     switch (surface.model) {
     case options::SurfaceModel::Ssvi:
-        return "ssvi";
+        return surface.calendar_repair ? "ssvi, svi on some, calendar repaired" : "ssvi";
     case options::SurfaceModel::Svi:
         return surface.calendar_repair ? "svi, calendar repaired" : "svi";
     case options::SurfaceModel::None:

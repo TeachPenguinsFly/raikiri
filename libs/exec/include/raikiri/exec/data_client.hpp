@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <span>
 
 namespace raikiri::exec {
 
@@ -45,6 +46,16 @@ public:
 
     virtual std::expected<void, VenueError> unsubscribe(SubKind kind, InstrumentId instrument) {
         return unsupported(kind, instrument);
+    }
+
+    // a top-of-book stream says nothing until a top moves, so a quiet market stays unpriced after a (re)subscribe;
+    // venues whose rest answers every market's touch in one call fill those once through on_touch_seed
+    [[nodiscard]] virtual bool seeds_touch() const noexcept { return false; }
+
+    // one bulk read for `unpriced`; false when refused, which leaves the pass to the caller's retry
+    virtual bool seed_touch(std::span<const InstrumentId> unpriced) {
+        (void)unpriced;
+        return false;
     }
 
 private:

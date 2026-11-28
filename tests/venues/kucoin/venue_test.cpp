@@ -1906,6 +1906,40 @@ TEST(KucoinSpotTickers, AllTickersStatesBothColumnsTruncatedAtNineDecimals) {
     EXPECT_FALSE(map_ticker_stats(silent, table, UnixNanos{1}).has_value());
 }
 
+TEST(KucoinSpotTickers, AllTickersSeedsTheTouchOfAQuietPair) {
+    // a level1 stream is silent while the top holds, so a quiet stable is first priced from allTickers
+    const auto table = loaded_spot_table();
+    auto storage = std::make_unique<SpotTickerBuffer>();
+    const auto body = fixture("rest_spot_all_tickers_touch.json");
+    const auto rows = parse_spot_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    EXPECT_EQ((*rows)[1].symbol, "TUSD-USDT");
+    EXPECT_EQ((*rows)[1].bid_price, "0.9996");
+    EXPECT_EQ((*rows)[1].ask_qty, "328.1114");
+    EXPECT_FALSE(map_touch((*rows)[1], table, UnixNanos{7}).has_value()); // not in the table
+
+    const auto touch = map_touch((*rows)[0], table, UnixNanos{7});
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->bid.raw, 591'537);
+    EXPECT_EQ(touch->ask.raw, 591'538);
+    EXPECT_EQ(touch->bid_qty.raw, 52'434'739);
+    EXPECT_EQ(touch->ask_qty.raw, 74'775'153);
+    EXPECT_EQ(touch->ts_event.ns, 1'795'874'577'856ULL * 1'000'000ULL);
+    EXPECT_EQ(touch->ts_init.ns, 7U);
+
+    WireSpotTicker one_sided = (*rows)[0];
+    one_sided.ask_price = {};
+    one_sided.bid_qty = "0.000000001"; // finer than the lot
+    const auto bid_only = map_touch(one_sided, table, UnixNanos{7});
+    ASSERT_TRUE(bid_only.has_value());
+    EXPECT_EQ(bid_only->bid.raw, 591'537);
+    EXPECT_TRUE(bid_only->bid_qty.is_undef());
+    EXPECT_TRUE(bid_only->ask.is_undef());
+    one_sided.bid_price = {};
+    EXPECT_FALSE(map_touch(one_sided, table, UnixNanos{7}).has_value());
+}
+
 TEST(KucoinUtaBook, ReadsTheDataObjectInAnyOrder) {
     auto storage = std::make_unique<LevelBuffer>();
     const auto wire = parse_uta_book(

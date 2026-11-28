@@ -40,6 +40,14 @@ struct TickerQuoteBuffer {
 [[nodiscard]] std::expected<std::span<const WireBookTicker>, WireError>
 parse_futures_tickers(std::string_view body, TickerQuoteBuffer& storage);
 
+// /spot/tickers quotes no sizes, so those fields stay empty
+struct SpotQuoteBuffer {
+    std::array<WireBookTicker, 4096> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireBookTicker>, WireError>
+parse_spot_quotes(std::string_view body, SpotQuoteBuffer& storage);
+
 // a level is {p, s} on both the socket and the rest snapshot
 struct WireLevel {
     std::string_view price;

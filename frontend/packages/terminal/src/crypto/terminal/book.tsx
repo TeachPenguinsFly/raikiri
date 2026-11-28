@@ -16,7 +16,7 @@ import {
   type Sum,
 } from "@raikiri/ui/v3";
 import type { Book } from "../api/client";
-import { bp, px, qty, venueColor, type Leg } from "../lib/market";
+import { bp, px, qty, touchOf, venueColor, type Leg } from "../lib/market";
 import { useTerminal, type BookVenue } from "./state";
 
 type Side = "bids" | "asks";
@@ -429,7 +429,7 @@ const k_views: ReadonlyArray<readonly [View, string, string, string]> = [
 ];
 
 export function BookWidget() {
-  const { pair, bookVenue, setDraft } = useTerminal();
+  const { pair, leg, bookVenue, feeds, setDraft } = useTerminal();
   const [steps, setSteps] = useState<Steps>(() => saved().steps);
   const [view, setViewState] = useState<View>(() => saved().view ?? "both");
   const [unit, setUnitState] = useState<Unit>(() => saved().unit ?? "base");
@@ -496,6 +496,8 @@ export function BookWidget() {
   const onLeave = useCallback(() => setHover(null), []);
 
   if (pair === undefined) return <Empty title="Pick a market" />;
+  if (bookVenue !== "all" && !feeds.depth && leg !== undefined)
+    return <TouchBook leg={leg} onPick={onPick} />;
 
   const several = book.legs.length > 1;
   const rows = (levels: Level[], s: Sum[], side: Side, walls: Set<number>) =>
@@ -673,6 +675,78 @@ export function BookWidget() {
           base={pair.base}
         />
       )}
+    </div>
+  );
+}
+
+function TouchRow({
+  side,
+  price,
+  size,
+  places,
+  onPick,
+}: {
+  side: Side;
+  price: number | undefined;
+  size: number | undefined;
+  places: number;
+  onPick: (side: Side, price: number) => void;
+}) {
+  const up = side === "bids";
+  return (
+    <div
+      role="button"
+      tabIndex={-1}
+      onClick={() => price !== undefined && onPick(side, price)}
+      className="grid h-7 shrink-0 cursor-pointer grid-cols-[1.2fr_1fr] items-center px-3 text-sm hover:bg-hover/50"
+    >
+      <span className={cn("mono font-semibold", up ? "text-up" : "text-down")}>
+        <Flash value={price}>{px(price, places)}</Flash>
+      </span>
+      <span className="mono text-right text-fg-mid">
+        <Flash value={size}>{size === undefined ? "—" : qty(size)}</Flash>
+      </span>
+    </div>
+  );
+}
+
+/** a venue that streams no ladder: its touch, ask over bid, with the spread between */
+function TouchBook({
+  leg,
+  onPick,
+}: {
+  leg: Leg;
+  onPick: (side: Side, price: number) => void;
+}) {
+  const { pair, quotes } = useTerminal();
+  const t = touchOf(quotes.get(leg.id), leg);
+  const spread = t === undefined ? undefined : t.ask - t.bid;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-1.5 px-2 py-1.5">
+        <span className="flex items-baseline gap-1 pl-1 text-xs">
+          <span className="font-medium text-fg">{pair?.base}</span>
+          <span className="text-[10px] text-fg-dim">{pair?.quote}</span>
+        </span>
+        <BookTools />
+      </div>
+      <div className="col-head grid shrink-0 grid-cols-[1.2fr_1fr] px-3 pb-1">
+        <span>Price</span>
+        <span className="text-right">Size</span>
+      </div>
+      <TouchRow side="asks" price={t?.ask} size={t?.askSize} places={leg.places} onPick={onPick} />
+      <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-y border-line bg-raised/60 px-3">
+        <span className="mono text-sm font-semibold text-fg">
+          <Flash value={t?.mid}>{px(t?.mid, leg.places)}</Flash>
+        </span>
+        <span className="mono flex items-baseline gap-2 text-xs">
+          <span className="text-fg-mid">{px(spread, leg.places)}</span>
+          <span className="text-fg-dim">
+            {spread === undefined || t === undefined ? "" : bp((spread / t.mid) * 1e4, 2)}
+          </span>
+        </span>
+      </div>
+      <TouchRow side="bids" price={t?.bid} size={t?.bidSize} places={leg.places} onPick={onPick} />
     </div>
   );
 }
